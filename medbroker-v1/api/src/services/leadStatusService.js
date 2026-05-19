@@ -44,7 +44,10 @@ export function computeLeadStatus(currentStatus, outcome) {
 
     case 'Voicemail':
     case 'CallbackRequested':
-      // Progress from Unassigned/Assigned to InProgress
+    case 'ClientContacted':
+      // Progress from Unassigned/Assigned to InProgress.
+      // ClientContacted is the key qualifying outcome — prospect was reached
+      // and expressed interest. The agent may follow up by booking an appointment.
       if (currentStatus === 'Unassigned' || currentStatus === 'Assigned') {
         return 'InProgress';
       }
