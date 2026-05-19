@@ -17,8 +17,9 @@ import LeadList        from './pages/LeadList.jsx';
 import AppointmentList from './pages/AppointmentList.jsx';
 
 // Lazy loaded
-const LeadDetail      = lazy(() => import('./pages/LeadDetail.jsx'));
-const LeadImport      = lazy(() => import('./pages/LeadImport.jsx'));
+const LeadDetail        = lazy(() => import('./pages/LeadDetail.jsx'));
+const AppointmentDetail = lazy(() => import('./pages/AppointmentDetail.jsx'));
+const LeadImport        = lazy(() => import('./pages/LeadImport.jsx'));
 const EventList       = lazy(() => import('./pages/EventList.jsx'));
 const EventDetail     = lazy(() => import('./pages/EventDetail.jsx'));
 const Reports         = lazy(() => import('./pages/Reports.jsx'));
@@ -255,8 +256,8 @@ function AppLayoutWrapper() {
         <Route path="/leads"            element={isBroker ? <Navigate to="/appointments" replace /> : <LeadList />} />
         <Route path="/leads/import"     element={isBroker ? <Navigate to="/appointments" replace /> : <LeadImport />} />
         <Route path="/leads/:id"        element={isBroker ? <Navigate to="/appointments" replace /> : <LeadDetail />} />
-        <Route path="/appointments"     element={isAgent  ? <Navigate to="/leads"        replace /> : <AppointmentList />} />
-        <Route path="/appointments/:id" element={isAgent  ? <Navigate to="/leads"        replace /> : <LeadDetail />} />
+        <Route path="/appointments"     element={isAgent  ? <Navigate to="/leads" replace /> : <AppointmentList />} />
+        <Route path="/appointments/:id" element={isAgent  ? <Navigate to="/leads" replace /> : <AppointmentDetail />} />
 
         {/* Events — gated by flag */}
         <Route path="/events"    element={flag('events.enabled') ? <EventList />   : <Navigate to={defaultPath} replace />} />
