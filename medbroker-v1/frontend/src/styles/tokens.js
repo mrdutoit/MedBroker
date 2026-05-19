@@ -2,22 +2,38 @@
  * styles/tokens.js
  * Shared design tokens used across all page components.
  * Centralised here so badge colours, spacing, and card styles are consistent.
+ *
+ * Status sets (v2.2):
+ *
+ * LEAD pipeline statuses:
+ *   Unassigned           — imported, not yet assigned to an agent
+ *   Assigned             — agent assigned, not yet called
+ *   InProgress           — agent is actively working the lead
+ *   AppointmentScheduled — agent has booked an appointment (lead moves to Appointments list)
+ *   Closed               — pipeline ended (won, lost, or uncontactable — outcome on Appointment)
+ *
+ * APPOINTMENT statuses:
+ *   Unassigned — appointment booked, no broker assigned yet
+ *   Assigned   — broker assigned (by admin/supervisor in assign model, or claimed in claim model)
+ *   InProgress — meetings are underway
+ *   ClosedWon  — customer signed
+ *   ClosedLost — customer did not sign
  */
 
 export const STATUS_META = {
-  Unassigned:        { colour: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb', label: 'Unassigned' },
-  Assigned:          { colour: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe', label: 'Assigned' },
-  InProgress:        { colour: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'In progress' },
-  AppointmentBooked: { colour: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe', label: 'Appt booked' },
-  Progressed:        { colour: '#0891b2', bg: '#ecfeff', border: '#a5f3fc', label: 'Progressed' },
-  ClosedWon:         { colour: '#15803d', bg: '#f0fdf4', border: '#bbf7d0', label: 'Closed won' },
-  ClosedLost:        { colour: '#dc2626', bg: '#fef2f2', border: '#fecaca', label: 'Closed lost' },
-  Uncontactable:     { colour: '#9ca3af', bg: '#f9fafb', border: '#e5e7eb', label: 'Uncontactable' },
+  Unassigned:            { colour: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb', label: 'Unassigned' },
+  Assigned:              { colour: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe', label: 'Assigned' },
+  InProgress:            { colour: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'In Progress' },
+  AppointmentScheduled:  { colour: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe', label: 'Appt Scheduled' },
+  Closed:                { colour: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb', label: 'Closed' },
 };
 
 export const APPT_STATUS_META = {
-  Unassigned: { colour: '#d97706', bg: '#fffbeb', border: '#fde68a' },
-  Assigned:   { colour: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe' },
+  Unassigned: { colour: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'Unassigned' },
+  Assigned:   { colour: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe', label: 'Assigned'   },
+  InProgress: { colour: '#0891b2', bg: '#ecfeff', border: '#a5f3fc', label: 'In Progress' },
+  ClosedWon:  { colour: '#15803d', bg: '#f0fdf4', border: '#bbf7d0', label: 'Closed Won'  },
+  ClosedLost: { colour: '#dc2626', bg: '#fef2f2', border: '#fecaca', label: 'Closed Lost' },
 };
 
 export const MEETING_STATUS_META = {
