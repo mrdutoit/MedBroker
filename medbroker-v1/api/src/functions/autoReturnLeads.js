@@ -55,7 +55,7 @@ app.timer('autoReturnLeads', {
         LEFT JOIN [User] u ON u.id = l.assignedAgentId
         WHERE
           a.customerSigned IS NULL
-          AND l.pipelineStatus = 'AppointmentBooked'
+          AND l.pipelineStatus = 'AppointmentScheduled'
           AND a.createdAt < DATEADD(month, -${months}, GETUTCDATE())
           AND a.deletedAt IS NULL
           AND l.deletedAt IS NULL
