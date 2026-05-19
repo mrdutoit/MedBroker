@@ -2,34 +2,30 @@
 -- MedBroker Lead Management System — Database Schema
 -- Target:  Azure SQL (SQL Server compatible)
 -- Created: 2026-05
--- Version: 2.1
+-- Version: 2.2
 --
 -- Version history:
 --   1.0  Initial schema
---   2.0  Lead/Appointment separation (Salesforce pattern); Portfolio, Product,
---        MedicalSubscription, CsvImportBatch, Notification, SystemConfig added;
---        CallAttempt updated (callTime, Interested removed, appt fields added);
---        3-meeting tracking and outcome fields on Appointment.
---   2.1  Changes to align with React app and UI requirements:
---          - User.supervisorId added — FK back to User for supervisor assignment.
---            Required for Agent and Broker roles. Enables supervisor-filtered
---            queries on Leads and Appointments (WHERE agent.supervisorId = @me).
---          - User.portfolioId (single FK) replaced by UserPortfolio junction table.
---            Agents have one portfolio; Brokers can have both. portfolioId is
---            retained on User as a convenience column for the common case
---            (single-portfolio users) and kept in sync by the application.
---          - User.googleUid added — Google Workspace UID for GCP (Profile B)
---            deployments using Firebase Authentication. NULL for Azure deployments.
---          - Appointment.status CHECK updated to include 'Claimed' for the Phase 2
---            broker self-service model. Not enforced until Phase 2 is live.
---          - Task table stubbed for Phase 2 — structure defined, not yet
---            populated by any application logic.
---          - TokenLedger and TokenTransaction tables stubbed for the Phase 2
---            broker claim token economy.
---          - MedicalSubscription seed data added (3 initial subscriptions).
---          - Notification.type CHECK updated to include 'AppointmentAvailable'
---            (Phase 2 — sent to brokers when an unassigned appointment is available
---            to claim in their region and portfolio).
+--   2.0  Lead/Appointment separation; Portfolio, Product, MedicalSubscription,
+--        CsvImportBatch, Notification, SystemConfig added.
+--   2.1  User.supervisorId, UserPortfolio junction, User.googleUid,
+--        Appointment 'Claimed' status, Task/Token stubs, MedicalSubscription seed.
+--   2.2  Status set rationalisation:
+--          Lead.pipelineStatus reduced from 8 values to 5:
+--            Removed: Progressed, ClosedWon, ClosedLost, Uncontactable, AppointmentBooked
+--            Added:   Closed (covers all terminal states on Lead),
+--                     AppointmentScheduled (replaces AppointmentBooked)
+--          Rationale: Won/Lost outcome lives on Appointment.customerSigned,
+--            not on Lead. Lead only needs to know if the pipeline is open or closed.
+--          Appointment.status expanded from 2 values to 5:
+--            Added: InProgress, ClosedWon, ClosedLost
+--          IX_Lead_AutoUnassign filter updated to exclude 'Closed' and
+--            'AppointmentScheduled' instead of old values.
+--
+-- Data migration (run before deploying v2.2 application code):
+--   UPDATE Lead SET pipelineStatus = 'AppointmentScheduled' WHERE pipelineStatus = 'AppointmentBooked';
+--   UPDATE Lead SET pipelineStatus = 'Closed' WHERE pipelineStatus IN ('Progressed','ClosedWon','ClosedLost','Uncontactable');
+--   (DROP and recreate CK_Lead_Status after migration)
 --
 -- Instructions:
 --   1. Connect to your Azure SQL database in Azure Data Studio or SSMS
@@ -275,11 +271,10 @@ CREATE TABLE CsvImportBatch (
 -- SECTION 7 — LEADS
 --
 -- Design decisions carried forward from v2.0:
---   - Source: four nullable FK/text columns (linkedEventId, linkedSubscriptionId,
---     csvImportBatchId, manualSourceName). Exactly one should be non-null.
+--   - Source: four nullable FK/text columns. Exactly one should be non-null.
 --   - assignedBrokerId removed — broker lives on Appointment only.
 --   - autoUnassignAfter: set by app as DATEADD(month, leadAutoUnassignMonths, NOW()).
---   - pipelineStatus = 'AppointmentBooked' excludes the lead from the Leads list.
+--   - pipelineStatus = 'AppointmentScheduled' excludes the lead from the Leads list.
 -- =============================================================================
 
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'Lead')
@@ -332,8 +327,7 @@ CREATE TABLE Lead (
     CONSTRAINT FK_Lead_Agent        FOREIGN KEY (assignedAgentId)      REFERENCES [User](id),
     CONSTRAINT FK_Lead_CreatedBy    FOREIGN KEY (createdById)          REFERENCES [User](id),
     CONSTRAINT CK_Lead_Status       CHECK (pipelineStatus IN (
-        'Unassigned', 'Assigned', 'InProgress', 'AppointmentBooked',
-        'Progressed', 'ClosedWon', 'ClosedLost', 'Uncontactable'
+        'Unassigned', 'Assigned', 'InProgress', 'AppointmentScheduled', 'Closed'
     )),
     CONSTRAINT CK_Lead_Year         CHECK (
         yearOfAttendance IS NULL
@@ -366,13 +360,14 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Lead_AutoUnassign')
     CREATE INDEX IX_Lead_AutoUnassign
         ON Lead (autoUnassignAfter)
         WHERE deletedAt IS NULL
-          AND pipelineStatus NOT IN ('ClosedWon','ClosedLost','Uncontactable','AppointmentBooked');
+          AND pipelineStatus NOT IN ('Closed','AppointmentScheduled');
 
 -- =============================================================================
 -- SECTION 8 — CALL ATTEMPTS
 --
 -- callTime: system-set on INSERT; never accepted from client payload.
--- Outcomes: 'Interested' removed; 'AppointmentBooked' adds appointment fields.
+-- Outcomes: 'AppointmentScheduled' adds appointment capture fields.
+--   (v2.2: renamed from 'AppointmentBooked' to match Lead pipelineStatus value)
 -- =============================================================================
 
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'CallAttempt')
@@ -384,7 +379,7 @@ CREATE TABLE CallAttempt (
     callTime                DATETIMEOFFSET      NOT NULL DEFAULT GETUTCDATE(),
     notes                   NVARCHAR(2000)      NULL,
     followUpDateTime        DATETIMEOFFSET      NULL,
-    -- Populated when outcome = 'AppointmentBooked'
+    -- Populated when outcome = 'AppointmentScheduled'
     appointmentDate         DATE                NULL,
     appointmentTime         TIME                NULL,
     appointmentAddress      NVARCHAR(500)       NULL,
@@ -395,7 +390,7 @@ CREATE TABLE CallAttempt (
     CONSTRAINT FK_CallAttempt_Agent     FOREIGN KEY (agentId) REFERENCES [User](id),
     CONSTRAINT CK_CallAttempt_Outcome   CHECK (outcome IN (
         'NoAnswer', 'Voicemail', 'WrongNumber',
-        'CallbackRequested', 'NotInterested', 'AppointmentBooked'
+        'CallbackRequested', 'NotInterested', 'AppointmentScheduled'
     ))
 );
 
@@ -480,7 +475,7 @@ CREATE TABLE Appointment (
     CONSTRAINT FK_Appointment_Broker        FOREIGN KEY (brokerId)          REFERENCES [User](id),
     CONSTRAINT FK_Appointment_ClaimedBy     FOREIGN KEY (claimedByBrokerId) REFERENCES [User](id),
     CONSTRAINT FK_Appointment_Portfolio     FOREIGN KEY (portfolioId)       REFERENCES Portfolio(id),
-    CONSTRAINT CK_Appointment_Status        CHECK (status IN ('Unassigned', 'Assigned', 'Claimed')),
+    CONSTRAINT CK_Appointment_Status        CHECK (status IN ('Unassigned', 'Assigned', 'InProgress', 'ClosedWon', 'ClosedLost', 'Claimed')),
     CONSTRAINT CK_Appointment_M1Status      CHECK (meeting1Status IS NULL OR meeting1Status IN ('Seen', 'Rescheduled', 'Cancelled')),
     CONSTRAINT CK_Appointment_M2Status      CHECK (meeting2Status IS NULL OR meeting2Status IN ('Seen', 'Rescheduled', 'Cancelled')),
     CONSTRAINT CK_Appointment_M3Status      CHECK (meeting3Status IS NULL OR meeting3Status IN ('Seen', 'Rescheduled', 'Cancelled'))
@@ -489,7 +484,7 @@ CREATE TABLE Appointment (
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Appointment_BrokerDate')
     CREATE INDEX IX_Appointment_BrokerDate
         ON Appointment (brokerId, firstAppointmentDate)
-        WHERE status IN ('Assigned', 'Claimed');
+        WHERE status IN ('Assigned', 'InProgress', 'Claimed');
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Appointment_LeadId')
     CREATE INDEX IX_Appointment_LeadId ON Appointment (leadId);
@@ -502,7 +497,7 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Appointment_Portfolio'
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Appointment_FirstDate')
     CREATE INDEX IX_Appointment_FirstDate ON Appointment (firstAppointmentDate)
-    WHERE status IN ('Assigned', 'Claimed');
+    WHERE status IN ('Assigned', 'InProgress', 'Claimed');
 
 -- Unassigned appointments available for broker claiming — used by the Phase 2
 -- available-to-claim query (filter by portfolio and broker region)
