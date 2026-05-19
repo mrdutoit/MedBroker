@@ -8,13 +8,14 @@
 
 import { createContext, useContext, useState } from 'react';
 
-export const ROLES = ['Admin', 'Supervisor', 'Agent', 'Broker'];
+export const ROLES = ['GlobalAdmin', 'Admin', 'Supervisor', 'Agent', 'Broker'];
 
 export const PERSONAS = {
-  Admin:      { id: 'admin-001',  displayName: 'Admin User',          initials: 'AU', role: 'Admin' },
-  Supervisor: { id: 'sup-001',    displayName: 'Supervisor One',       initials: 'SO', role: 'Supervisor' },
-  Agent:      { id: 'agent-001',  displayName: 'Thabo Molefe',         initials: 'TM', role: 'Agent' },
-  Broker:     { id: 'broker-001', displayName: 'Sandra van der Berg',  initials: 'SB', role: 'Broker' },
+  GlobalAdmin: { id: 'globaladmin-001', displayName: 'Global Administrator', initials: 'GA', role: 'GlobalAdmin' },
+  Admin:       { id: 'admin-001',       displayName: 'Admin User',           initials: 'AU', role: 'Admin' },
+  Supervisor:  { id: 'sup-001',         displayName: 'Supervisor One',        initials: 'SO', role: 'Supervisor' },
+  Agent:       { id: 'agent-001',       displayName: 'Thabo Molefe',          initials: 'TM', role: 'Agent' },
+  Broker:      { id: 'broker-001',      displayName: 'Sandra van der Berg',   initials: 'SB', role: 'Broker' },
 };
 
 // Portfolios and products — matches App Admin seed data exactly
