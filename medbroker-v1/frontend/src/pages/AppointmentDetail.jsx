@@ -169,8 +169,15 @@ export default function AppointmentDetail() {
   const isSupervisor = role === 'Supervisor';
   const canReassign = isAdmin || isSupervisor;
 
-  // Initialise form state from mock data (in production: fetch from API)
-  const [appt,           setAppt]           = useState({ ...MOCK_APPOINTMENT, id });
+  // In preview mode, use mock data (production: fetch from GET /api/appointments/:id)
+  //
+  // PRODUCTION SECURITY NOTE (Kai review item):
+  // GET /api/appointments/:id must validate row-level ownership before responding:
+  //   - Broker: may only fetch appointments where brokerId = currentUser.id
+  //   - Agent:  may only fetch appointments where agentId  = currentUser.id
+  //   - Admin/Supervisor/GlobalAdmin: unrestricted
+  // Return HTTP 403 if the requesting user does not own or have rights to the record.
+  const [appt, setAppt] = useState({ ...MOCK_APPOINTMENT, id });
   const [showReassign,   setShowReassign]    = useState(false);
   const [outcomeSaved,   setOutcomeSaved]    = useState(false);
   const [meetingSaved,   setMeetingSaved]    = useState(false);

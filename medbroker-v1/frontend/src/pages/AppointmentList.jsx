@@ -26,6 +26,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
+import { appointmentsApi } from '../services/api.js';
 import { s, APPT_STATUS_META, MEETING_STATUS_META, PORTFOLIO_META } from '../styles/tokens.js';
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
@@ -111,13 +112,38 @@ function PortfolioBadge({ portfolio }) {
 }
 
 // ─── Assign / Reassign modal ───────────────────────────────────────────────────
-// isAssign=true  → "Assign Broker"   — used when appointment.status = 'Unassigned'
-// isAssign=false → "Reassign Broker" — used when a broker is already assigned
+// isAssign=true  → calls appointmentsApi.assignBroker() (Unassigned → Assigned)
+// isAssign=false → calls appointmentsApi.reassign()     (keeps existing status)
+// In preview mode both return null silently (PREVIEW_MODE in api.js).
 function ReassignModal({ appointment, onClose, isAssign = false }) {
   const [broker, setBroker] = useState(appointment.brokerName === '—' ? '' : appointment.brokerName);
   const [agent,  setAgent]  = useState(appointment.agentName ?? '');
+  const [saving, setSaving] = useState(false);
   const [saved,  setSaved]  = useState(false);
-  function handleSave() { setSaved(true); setTimeout(onClose, 900); }
+  const [error,  setError]  = useState('');
+
+  async function handleSave() {
+    if (!broker) return;
+    setSaving(true);
+    setError('');
+    try {
+      // In preview mode these return null silently — no error thrown
+      if (isAssign) {
+        await appointmentsApi.assignBroker(appointment.id, broker, agent);
+      } else {
+        await appointmentsApi.reassign(appointment.id, broker, agent);
+      }
+      setSaved(true);
+      setTimeout(onClose, 900);
+      // Sam review item: row status in list updates on next page refresh.
+      // In production, refetch() is called after modal close to sync the list.
+    } catch (err) {
+      setError(err.message ?? 'Save failed. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ ...s.modal, width: '420px' }}>
@@ -135,6 +161,7 @@ function ReassignModal({ appointment, onClose, isAssign = false }) {
           }
         </p>
         {saved && <div style={{ ...s.noticeSuccess, marginBottom: '12px' }}>✓ {isAssign ? 'Broker assigned' : 'Reassigned'} successfully.</div>}
+        {error && <div style={{ ...s.errorBox, marginBottom: '12px' }}>{error}</div>}
         <div style={s.formGroup}>
           <label style={s.formLabel}>Broker *</label>
           <select style={s.formInput} value={broker} onChange={e => setBroker(e.target.value)}>
@@ -152,11 +179,11 @@ function ReassignModal({ appointment, onClose, isAssign = false }) {
         <div style={s.modalFooter}>
           <button style={s.ghostBtn} onClick={onClose}>Cancel</button>
           <button
-            style={{ ...s.primaryBtn, opacity: !broker ? 0.5 : 1 }}
+            style={{ ...s.primaryBtn, opacity: (!broker || saving) ? 0.5 : 1 }}
             onClick={handleSave}
-            disabled={saved || !broker}
+            disabled={saved || saving || !broker}
           >
-            {saved ? 'Saved ✓' : isAssign ? 'Assign Broker' : 'Save Changes'}
+            {saving ? 'Saving…' : saved ? 'Saved ✓' : isAssign ? 'Assign Broker' : 'Save Changes'}
           </button>
         </div>
       </div>

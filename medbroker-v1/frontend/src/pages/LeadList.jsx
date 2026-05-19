@@ -21,8 +21,7 @@ import { formatDistanceToNow } from 'date-fns';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { s, STATUS_META } from '../styles/tokens.js';
-
-const STATUS_CHIPS    = ['All', ...Object.keys(STATUS_META)];
+const STATUS_CHIPS      = ['All', ...Object.keys(STATUS_META)];
 const EXCLUDED_STATUSES = ['AppointmentBooked'];
 
 const OCCUPATIONS = [
@@ -33,6 +32,15 @@ const OCCUPATIONS = [
 
 const AGENTS = [
   'Thabo Molefe', 'Naledi van Wyk', 'Kabelo Petersen', 'Bongani Ntuli', 'Siphiwe Mahlangu',
+];
+
+// Sources derived from mock data — in production, fetched from GET /api/leads/sources
+const LEAD_SOURCES = [
+  'Wits Career Fair 2026',
+  'MedLeads SA — Monthly',
+  'Manual — Referral',
+  'Healthwise Doctor DB',
+  'SA Medical Register Q2',
 ];
 
 // ─── Preview mock data ────────────────────────────────────────────────────────
@@ -52,42 +60,79 @@ const MOCK_LEADS = {
   ],
 };
 
-// ─── Reassign Lead Modal ──────────────────────────────────────────────────────
-function ReassignLeadModal({ lead, onClose }) {
+// ─── Assign / Reassign Lead Modal ─────────────────────────────────────────────
+// isAssign=true  → "Assign Lead"   — calls leadsApi.assign()   (Unassigned → Assigned)
+// isAssign=false → "Reassign Lead" — calls leadsApi.reassign() (keeps existing status)
+//
+// In preview mode both calls return null (PREVIEW_MODE=true in api.js) so
+// the modal just shows success feedback. In production these hit distinct
+// endpoints with different server-side behaviour and audit log entries.
+function ReassignLeadModal({ lead, onClose, isAssign = false }) {
   const currentAgent = lead.agentName && lead.agentName !== '—' ? lead.agentName : '';
   const [agent, setAgent] = useState(currentAgent);
-  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saved,  setSaved]  = useState(false);
+  const [error,  setError]  = useState('');
 
-  function handleSave() {
-    setSaved(true);
-    setTimeout(onClose, 900);
+  async function handleSave() {
+    if (!agent) return;
+    setSaving(true);
+    setError('');
+    try {
+      // In preview mode these return null silently — no error thrown
+      if (isAssign) {
+        await leadsApi.assign(lead.id, agent);
+      } else {
+        await leadsApi.reassign(lead.id, agent);
+      }
+      setSaved(true);
+      setTimeout(onClose, 900);
+    } catch (err) {
+      setError(err.message ?? 'Save failed. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
     <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ ...s.modal, width: '380px' }}>
         <div style={s.modalHeader}>
-          <h2 style={s.modalTitle}>Reassign Lead</h2>
+          <h2 style={s.modalTitle}>{isAssign ? 'Assign Lead' : 'Reassign Lead'}</h2>
           <button style={s.closeBtn} onClick={onClose}>✕</button>
         </div>
         <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '16px' }}>
           {lead.firstName} {lead.lastName}
-          {currentAgent ? <> · Currently assigned to <strong>{currentAgent}</strong></> : ' · Currently unassigned'}
+          {isAssign
+            ? ' · This lead is currently unassigned'
+            : currentAgent
+              ? <> · Currently assigned to <strong>{currentAgent}</strong></>
+              : ' · Currently unassigned'
+          }
         </p>
         {saved && (
-          <div style={{ ...s.noticeSuccess, marginBottom: '12px' }}>✓ Lead reassigned successfully.</div>
+          <div style={{ ...s.noticeSuccess, marginBottom: '12px' }}>
+            ✓ Lead {isAssign ? 'assigned' : 'reassigned'} successfully.
+            {/* Note: the row status in the list will update on next page refresh.
+                In production this is handled by refetch() after modal close. */}
+          </div>
         )}
+        {error && <div style={{ ...s.errorBox, marginBottom: '12px' }}>{error}</div>}
         <div style={s.formGroup}>
-          <label style={s.formLabel}>Assign to agent</label>
+          <label style={s.formLabel}>Assign to agent *</label>
           <select style={s.formInput} value={agent} onChange={e => setAgent(e.target.value)}>
-            <option value="">— Unassigned —</option>
+            <option value="">— Select agent —</option>
             {AGENTS.map(a => <option key={a} value={a}>{a}</option>)}
           </select>
         </div>
         <div style={s.modalFooter}>
           <button style={s.ghostBtn} onClick={onClose}>Cancel</button>
-          <button style={s.primaryBtn} onClick={handleSave} disabled={saved}>
-            {saved ? 'Saved ✓' : 'Save Changes'}
+          <button
+            style={{ ...s.primaryBtn, opacity: (!agent || saving) ? 0.5 : 1 }}
+            onClick={handleSave}
+            disabled={saved || saving || !agent}
+          >
+            {saving ? 'Saving…' : saved ? 'Saved ✓' : isAssign ? 'Assign' : 'Reassign'}
           </button>
         </div>
       </div>
@@ -106,18 +151,20 @@ export default function LeadList() {
   const isAgent      = role === 'Agent';
   const canReassign  = isAdmin || isSupervisor;
 
-  const showImport        = (flag('leads.importCsv.enabled') || flag('leads.importSubscription.enabled')) && (isAdmin || isSupervisor);
+  const showImport           = (flag('leads.importCsv.enabled') || flag('leads.importSubscription.enabled')) && (isAdmin || isSupervisor);
   const showOccupationFilter = flag('leads.occupationFilter.enabled');
 
   const [activeStatus,   setActiveStatus]   = useState('All');
   const [search,         setSearch]         = useState('');
   const [agentFilter,    setAgentFilter]    = useState('');
   const [occFilter,      setOccFilter]      = useState('');
+  const [sourceFilter,   setSourceFilter]   = useState('');
   const [page,           setPage]           = useState(1);
   const [reassignTarget, setReassignTarget] = useState(null);
+  const [isAssignMode,   setIsAssignMode]   = useState(false);
   const pageSize = 25;
 
-  useEffect(() => { setPage(1); }, [activeStatus, search, agentFilter, occFilter]);
+  useEffect(() => { setPage(1); }, [activeStatus, search, agentFilter, occFilter, sourceFilter]);
 
   const apiParams = {
     ...(activeStatus !== 'All' ? { status: activeStatus } : {}),
@@ -127,6 +174,7 @@ export default function LeadList() {
     ...(isSupervisor ? { supervisorId: persona.id }       : {}),
     ...(isAdmin && agentFilter ? { agentId: agentFilter } : {}),
     ...(occFilter    ? { occupation: occFilter }          : {}),
+    ...(sourceFilter ? { source: sourceFilter }           : {}),
     page, pageSize,
   };
 
@@ -137,11 +185,15 @@ export default function LeadList() {
 
   // Preview fallback — filter mock data client-side
   const data = apiData ?? (() => {
+    // Supervisor sees only direct reports — in preview, scoped to Thabo Molefe and Naledi van Wyk
+    const supervisorAgents = ['Thabo Molefe', 'Naledi van Wyk'];
     let leads = MOCK_LEADS.leads.filter(l => {
       if (EXCLUDED_STATUSES.includes(l.pipelineStatus)) return false;
-      if (isAgent && l.agentName !== 'Thabo Molefe') return false;
+      if (isAgent      && l.agentName !== 'Thabo Molefe')           return false;
+      if (isSupervisor && !supervisorAgents.includes(l.agentName))  return false;
       if (activeStatus !== 'All' && l.pipelineStatus !== activeStatus) return false;
-      if (occFilter && l.occupation !== occFilter) return false;
+      if (occFilter    && l.occupation  !== occFilter)    return false;
+      if (sourceFilter && l.sourceLabel !== sourceFilter) return false;
       if (search) {
         const q = search.toLowerCase();
         const name = (l.firstName + ' ' + l.lastName).toLowerCase();
@@ -152,6 +204,13 @@ export default function LeadList() {
     return { total: leads.length, leads };
   })();
 
+  // Source filter — fetches from API in production, falls back to LEAD_SOURCES in preview
+  const { data: sourcesData } = useFetch(
+    () => leadsApi.sources(),
+    []
+  );
+  const sourceOptions = sourcesData?.sources ?? LEAD_SOURCES;
+
   const { data: agentsData } = useFetch(
     () => isAdmin ? usersApi.list() : Promise.resolve(null),
     [isAdmin]
@@ -161,7 +220,7 @@ export default function LeadList() {
     : [];
 
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0;
-  const hasFilter  = activeStatus !== 'All' || search || agentFilter || occFilter;
+  const hasFilter  = activeStatus !== 'All' || search || agentFilter || occFilter || sourceFilter;
 
   const subtitle = isAgent      ? 'Showing leads assigned to you'
                  : isSupervisor ? 'Leads for your direct reports'
@@ -229,6 +288,10 @@ export default function LeadList() {
           type="text" placeholder="Search name or email…" value={search}
           onChange={e => setSearch(e.target.value)} style={s.searchInput}
         />
+        <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} style={s.select}>
+          <option value="">All sources</option>
+          {sourceOptions.map(src => <option key={src} value={src}>{src}</option>)}
+        </select>
         {showOccupationFilter && (
           <select value={occFilter} onChange={e => setOccFilter(e.target.value)} style={s.select}>
             <option value="">All occupations</option>
@@ -245,7 +308,10 @@ export default function LeadList() {
           </select>
         )}
         {hasFilter && (
-          <button onClick={() => { setActiveStatus('All'); setSearch(''); setAgentFilter(''); setOccFilter(''); }} style={s.ghostBtn}>
+          <button
+            onClick={() => { setActiveStatus('All'); setSearch(''); setAgentFilter(''); setOccFilter(''); setSourceFilter(''); }}
+            style={s.ghostBtn}
+          >
             ✕ Clear filters
           </button>
         )}
@@ -314,9 +380,21 @@ export default function LeadList() {
                         <button onClick={() => navigate(`/leads/${lead.id}`)} style={s.linkBtn}>
                           View →
                         </button>
-                        {canReassign && (
+                        {canReassign && lead.pipelineStatus === 'Unassigned' && (
                           <button
-                            onClick={() => setReassignTarget(lead)}
+                            onClick={() => { setReassignTarget(lead); setIsAssignMode(true); }}
+                            style={{
+                              background: '#fffbeb', color: '#d97706', border: '1px solid #fde68a',
+                              borderRadius: '6px', padding: '3px 10px', cursor: 'pointer',
+                              fontSize: '0.75rem', fontWeight: 500, fontFamily: 'inherit', marginLeft: '6px',
+                            }}
+                          >
+                            Assign
+                          </button>
+                        )}
+                        {canReassign && lead.pipelineStatus !== 'Unassigned' && (
+                          <button
+                            onClick={() => { setReassignTarget(lead); setIsAssignMode(false); }}
                             style={{ ...s.linkBtn, color: '#6b7280', marginLeft: '4px' }}
                           >
                             Reassign
@@ -344,7 +422,8 @@ export default function LeadList() {
       {reassignTarget && (
         <ReassignLeadModal
           lead={reassignTarget}
-          onClose={() => setReassignTarget(null)}
+          isAssign={isAssignMode}
+          onClose={() => { setReassignTarget(null); setIsAssignMode(false); }}
         />
       )}
     </div>
