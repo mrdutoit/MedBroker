@@ -67,11 +67,25 @@ function NavItem({ to, label, badge, hidden }) {
 
 function AppLayout({ children }) {
   const { role, setRole, persona } = useRole();
+  const { flag } = useFlags();
   const navigate = useNavigate();
 
-  const isAgent  = role === 'Agent';
-  const isBroker = role === 'Broker';
-  const isAdmin  = role === 'Admin';
+  const isGlobalAdmin = role === 'GlobalAdmin';
+  const isAdmin       = role === 'Admin' || isGlobalAdmin;
+  const isAgent       = role === 'Agent';
+  const isBroker      = role === 'Broker';
+  // Roles that see admin sections (User Admin, App Admin, SSO)
+  const isAdminOrAbove = isAdmin;
+
+  // ── Flag-controlled visibility ────────────────────────────────────────────
+  const showEvents        = flag('events.enabled');
+  const showTasks         = flag('tasks.enabled');
+  const showSso           = flag('auth.sso.enabled') && isAdminOrAbove;
+  // Section-level visibility — only render the section label if at least
+  // one item in that section will be visible for the current role and flags
+  const showEventsSection     = showEvents;
+  const showProductivitySection = true; // Notifications always visible
+  const showAdminSection      = isAdminOrAbove;
 
   return (
     <div style={{ display: 'flex', height: '100vh', fontFamily: 'system-ui, -apple-system, sans-serif' }}>
@@ -104,25 +118,45 @@ function AppLayout({ children }) {
 
         {/* Nav */}
         <div style={{ padding: '8px 8px', flex: 1, display: 'flex', flexDirection: 'column', gap: '1px' }}>
+
+          {/* Pipeline — always visible, items filtered by role */}
           <div style={NAV_SECTION_LABEL}>Pipeline</div>
           <NavItem to="/leads"        label="Leads"        hidden={isBroker} />
           <NavItem to="/appointments" label="Appointments" hidden={isAgent} />
 
-          <div style={NAV_SECTION_LABEL}>Events</div>
-          <NavItem to="/events" label="Events" />
+          {/* Events — only shown when events.enabled flag is on */}
+          {showEventsSection && (
+            <>
+              <div style={NAV_SECTION_LABEL}>Events</div>
+              <NavItem to="/events" label="Events" />
+            </>
+          )}
 
-          <div style={NAV_SECTION_LABEL}>Productivity</div>
-          <NavItem to="/notifications" label="Notifications" badge={5} />
-          <NavItem to="/tasks"         label="Tasks" />
+          {/* Productivity — always visible; Tasks shown only when tasks.enabled flag is on */}
+          {showProductivitySection && (
+            <>
+              <div style={NAV_SECTION_LABEL}>Productivity</div>
+              <NavItem to="/notifications" label="Notifications" badge={5} />
+              {showTasks && <NavItem to="/tasks" label="Tasks" />}
+            </>
+          )}
 
+          {/* Analytics — always visible */}
           <div style={NAV_SECTION_LABEL}>Analytics</div>
           <NavItem to="/reports" label="Reports" />
 
-          <div style={NAV_SECTION_LABEL}>Admin</div>
-          <NavItem to="/admin/users" label="User Admin"    hidden={!isAdmin} />
-          <NavItem to="/admin/app"   label="App Admin"     hidden={!isAdmin} />
-          <NavItem to="/admin/flags" label="Feature Flags" hidden={!isAdmin} />
-          <NavItem to="/admin/sso"   label="Single Sign-On" hidden={!isAdmin} />
+          {/* Admin — only visible to Admin and GlobalAdmin roles */}
+          {showAdminSection && (
+            <>
+              <div style={NAV_SECTION_LABEL}>Admin</div>
+              <NavItem to="/admin/users" label="User Admin" />
+              <NavItem to="/admin/app"   label="App Admin" />
+              {/* SSO only shown when auth.sso.enabled flag is on */}
+              {showSso && <NavItem to="/admin/sso" label="Single Sign-On" />}
+              {/* Feature Flags — GlobalAdmin only, never visible to customers */}
+              {isGlobalAdmin && <NavItem to="/admin/flags" label="Feature Flags" />}
+            </>
+          )}
         </div>
 
         {/* Footer */}
@@ -136,10 +170,11 @@ function AppLayout({ children }) {
             <select
               value={role}
               onChange={e => {
-                setRole(e.target.value);
-                // Redirect to appropriate landing page
-                if (e.target.value === 'Broker') navigate('/appointments');
-                else if (e.target.value === 'Agent') navigate('/leads');
+                const next = e.target.value;
+                setRole(next);
+                if (next === 'Broker') navigate('/appointments');
+                else if (next === 'Agent') navigate('/leads');
+                else navigate('/leads');
               }}
               style={{
                 width: '100%', border: '1px solid #fde68a', borderRadius: '4px',
@@ -147,6 +182,7 @@ function AppLayout({ children }) {
                 color: '#92400e', cursor: 'pointer', fontFamily: 'inherit',
               }}
             >
+              <option value="GlobalAdmin">Global Administrator</option>
               <option value="Admin">Admin</option>
               <option value="Supervisor">Supervisor</option>
               <option value="Agent">Agent (T. Molefe)</option>
@@ -157,8 +193,9 @@ function AppLayout({ children }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '6px 8px' }}>
             <div style={{
               width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0,
-              background: '#eff6ff', color: '#1d4ed8', display: 'flex',
-              alignItems: 'center', justifyContent: 'center',
+              background: isGlobalAdmin ? '#fdf2ff' : '#eff6ff',
+              color:      isGlobalAdmin ? '#7e22ce'  : '#1d4ed8',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: '0.6875rem', fontWeight: 600,
             }}>
               {persona.initials}
@@ -197,28 +234,49 @@ export default function App() {
 
 function AppLayoutWrapper() {
   const { role } = useRole();
+  const { flag } = useFlags();
+
   const defaultPath = role === 'Broker' ? '/appointments' : '/leads';
+
+  // Route guard — redirect if the user navigates to a route that the current
+  // role or flag state does not permit. React Router renders the first matching
+  // route so these guards must be placed before the real routes.
+  const isGlobalAdmin  = role === 'GlobalAdmin';
+  const isAdminOrAbove = role === 'Admin' || isGlobalAdmin;
+  const isAgent        = role === 'Agent';
+  const isBroker       = role === 'Broker';
 
   return (
     <AppLayout>
       <Routes>
-        <Route path="/"                    element={<Navigate to={defaultPath} replace />} />
-        <Route path="/leads"               element={<LeadList />} />
-        <Route path="/leads/import"        element={<LeadImport />} />
-        <Route path="/leads/:id"           element={<LeadDetail />} />
-        <Route path="/appointments"        element={<AppointmentList />} />
-        <Route path="/appointments/:id"    element={<LeadDetail />} />
-        <Route path="/events"              element={<EventList />} />
-        <Route path="/events/:id"          element={<EventDetail />} />
-        <Route path="/notifications"       element={<Notifications />} />
-        <Route path="/tasks"               element={<Tasks />} />
+        <Route path="/" element={<Navigate to={defaultPath} replace />} />
+
+        {/* Pipeline */}
+        <Route path="/leads"            element={isBroker ? <Navigate to="/appointments" replace /> : <LeadList />} />
+        <Route path="/leads/import"     element={isBroker ? <Navigate to="/appointments" replace /> : <LeadImport />} />
+        <Route path="/leads/:id"        element={isBroker ? <Navigate to="/appointments" replace /> : <LeadDetail />} />
+        <Route path="/appointments"     element={isAgent  ? <Navigate to="/leads"        replace /> : <AppointmentList />} />
+        <Route path="/appointments/:id" element={isAgent  ? <Navigate to="/leads"        replace /> : <LeadDetail />} />
+
+        {/* Events — gated by flag */}
+        <Route path="/events"    element={flag('events.enabled') ? <EventList />   : <Navigate to={defaultPath} replace />} />
+        <Route path="/events/:id" element={flag('events.enabled') ? <EventDetail /> : <Navigate to={defaultPath} replace />} />
+
+        {/* Productivity */}
+        <Route path="/notifications" element={<Notifications />} />
+        <Route path="/tasks"         element={flag('tasks.enabled') ? <Tasks /> : <Navigate to={defaultPath} replace />} />
+
+        {/* Analytics */}
         <Route path="/reports"             element={<Reports />} />
         <Route path="/reports/agent/:id"   element={<AgentDetail />} />
         <Route path="/reports/broker/:id"  element={<BrokerDetail />} />
-        <Route path="/admin/users"         element={<UserAdmin />} />
-        <Route path="/admin/app"           element={<AppAdmin />} />
-        <Route path="/admin/flags"         element={<FeatureFlags />} />
-        <Route path="/admin/sso"           element={<SingleSignOn />} />
+
+        {/* Admin — gated by role */}
+        <Route path="/admin/users" element={isAdminOrAbove ? <UserAdmin />    : <Navigate to={defaultPath} replace />} />
+        <Route path="/admin/app"   element={isAdminOrAbove ? <AppAdmin />     : <Navigate to={defaultPath} replace />} />
+        <Route path="/admin/sso"   element={isAdminOrAbove && flag('auth.sso.enabled') ? <SingleSignOn /> : <Navigate to={defaultPath} replace />} />
+        {/* Feature Flags — GlobalAdmin only */}
+        <Route path="/admin/flags" element={isGlobalAdmin ? <FeatureFlags /> : <Navigate to={defaultPath} replace />} />
       </Routes>
     </AppLayout>
   );
