@@ -70,15 +70,29 @@ export function FlagProvider({ children }) {
   }, []);
 
   /**
-   * flag(key)          — returns the raw value (boolean, string)
-   * flag(key, compare) — returns true if value === compare (useful for enums)
+   * flag(key)          — returns the raw value (boolean, string, number)
+   * flag(key, compare) — returns true if value matches compare
+   *
+   * For enum flags (e.g. appointments.claimModel):
+   *   flag('appointments.claimModel')          → 'assign' | 'claim'
+   *   flag('appointments.claimModel', 'claim') → true | false
+   *
+   * For boolean flags stored as string '0'/'1'/'true'/'false':
+   *   Coerced to actual boolean on return.
    */
   function flag(key, compare) {
-    const value = flags[key];
-    if (compare !== undefined) return value === compare || String(value) === String(compare);
-    // Coerce stored booleans
-    if (value === '0' || value === 'false') return false;
-    if (value === '1' || value === 'true')  return true;
+    const raw = flags[key];
+
+    // Coerce stored boolean strings to actual booleans
+    let value = raw;
+    if (raw === '0' || raw === 'false' || raw === false) value = false;
+    else if (raw === '1' || raw === 'true' || raw === true) value = true;
+    // String enum values (e.g. 'assign', 'claim', 'microsoft') pass through as-is
+
+    if (compare !== undefined) {
+      // Support both direct equality and string coercion
+      return value === compare || String(raw) === String(compare);
+    }
     return value;
   }
 
