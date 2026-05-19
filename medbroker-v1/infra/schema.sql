@@ -390,7 +390,7 @@ CREATE TABLE CallAttempt (
     CONSTRAINT FK_CallAttempt_Agent     FOREIGN KEY (agentId) REFERENCES [User](id),
     CONSTRAINT CK_CallAttempt_Outcome   CHECK (outcome IN (
         'NoAnswer', 'Voicemail', 'WrongNumber',
-        'CallbackRequested', 'NotInterested', 'AppointmentScheduled'
+        'CallbackRequested', 'ClientContacted', 'NotInterested', 'AppointmentScheduled'
     ))
 );
 
