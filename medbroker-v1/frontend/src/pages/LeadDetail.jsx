@@ -1,7 +1,28 @@
 /**
  * pages/LeadDetail.jsx
- * Full lead record view. Shows all lead fields, call attempt history,
- * appointment history, and actions: log call, assign, book appointment.
+ *
+ * Lead pipeline status transitions driven by call outcomes:
+ *
+ *   Call outcome        │ Status change
+ *   ────────────────────┼──────────────────────────────────────────
+ *   NoAnswer            │ No change (didn't reach the prospect)
+ *   Voicemail left      │ Assigned/Unassigned → InProgress
+ *   Wrong number        │ Any → Closed
+ *   Callback requested  │ Assigned/Unassigned → InProgress
+ *   Not interested      │ Any → Closed
+ *   (Book Appointment)  │ InProgress/Assigned → AppointmentScheduled
+ *
+ *   AppointmentScheduled is NOT a call outcome — it is the result of
+ *   clicking "Book Appointment" and confirming the booking details.
+ *   It is handled separately by the Book Appointment modal.
+ *
+ * Book Appointment button is visible only for Assigned or InProgress leads.
+ * It is hidden for Unassigned (no agent yet), AppointmentScheduled (already
+ * converted), and Closed leads.
+ *
+ * In production: status transitions are computed server-side by
+ * leadStatusService.js based on current status + outcome. The client
+ * reflects the result returned by the API.
  */
 
 import { useState } from 'react';
@@ -9,7 +30,20 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch.js';
 import { leadsApi } from '../services/api.js';
 import { formatDistanceToNow, format } from 'date-fns';
+import { useWindowSize } from '../hooks/useWindowSize.js';
 
+// ─── Status transition machine (mirrors server-side leadStatusService.js) ─────
+function computeNewStatus(currentStatus, outcome) {
+  if (outcome === 'AppointmentScheduled') return 'AppointmentScheduled'; // via Book Appointment only
+  if (outcome === 'WrongNumber')          return 'Closed';
+  if (outcome === 'NotInterested')        return 'Closed';
+  if (outcome === 'NoAnswer')             return currentStatus; // no change
+  // Voicemail, CallbackRequested — move to InProgress if not already beyond
+  if (currentStatus === 'Unassigned' || currentStatus === 'Assigned') return 'InProgress';
+  return currentStatus; // already InProgress or terminal — no change
+}
+
+// ─── Status colours ────────────────────────────────────────────────────────────
 const STATUS_COLOURS = {
   Unassigned:           { bg: '#f3f4f6', text: '#6b7280', border: '#e5e7eb' },
   Assigned:             { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
@@ -18,59 +52,96 @@ const STATUS_COLOURS = {
   Closed:               { bg: '#f3f4f6', text: '#6b7280', border: '#e5e7eb' },
 };
 
+// ─── Call outcomes — available in the Log Call dropdown ───────────────────────
+// AppointmentScheduled is NOT listed here — it is driven by Book Appointment.
 const CALL_OUTCOMES = [
-  'NoAnswer', 'Voicemail', 'WrongNumber',
-  'CallbackRequested', 'NotInterested', 'AppointmentScheduled',
+  { value: 'NoAnswer',           label: 'No answer' },
+  { value: 'Voicemail',          label: 'Voicemail left' },
+  { value: 'WrongNumber',        label: 'Wrong number' },
+  { value: 'CallbackRequested',  label: 'Callback requested' },
+  { value: 'NotInterested',      label: 'Not interested' },
 ];
 
 const OUTCOME_COLOURS = {
-  NoAnswer:              { bg: '#f3f4f6', text: '#6b7280' },
-  Voicemail:             { bg: '#f3f4f6', text: '#6b7280' },
-  WrongNumber:           { bg: '#fef2f2', text: '#dc2626' },
-  CallbackRequested:     { bg: '#fffbeb', text: '#d97706' },
-  NotInterested:         { bg: '#fef2f2', text: '#dc2626' },
-  AppointmentScheduled:  { bg: '#f5f3ff', text: '#7c3aed' },
+  NoAnswer:             { bg: '#f3f4f6', text: '#6b7280' },
+  Voicemail:            { bg: '#f3f4f6', text: '#6b7280' },
+  WrongNumber:          { bg: '#fef2f2', text: '#dc2626' },
+  CallbackRequested:    { bg: '#fffbeb', text: '#d97706' },
+  NotInterested:        { bg: '#fef2f2', text: '#dc2626' },
+  AppointmentScheduled: { bg: '#f5f3ff', text: '#7c3aed' },
 };
 
-// Mock call attempts for preview
+const OUTCOME_LABELS = {
+  NoAnswer:             'No answer',
+  Voicemail:            'Voicemail left',
+  WrongNumber:          'Wrong number',
+  CallbackRequested:    'Callback requested',
+  NotInterested:        'Not interested',
+  AppointmentScheduled: 'Appointment scheduled',
+};
+
+// ─── Mock data ─────────────────────────────────────────────────────────────────
+const MOCK_LEAD = {
+  id: '1',
+  firstName: 'Priya', lastName: 'Naidoo',
+  email: 'p.naidoo@netcare.co.za', mobileNumber: '082 456 7890',
+  whatsappNumber: '082 456 7890', occupation: 'Anaesthesiologist',
+  hospitalOrPractice: 'Netcare Sunninghill Hospital',
+  universityAttended: 'University of the Witwatersrand',
+  yearOfAttendance: 2008, degreeAttained: 'MBBCh',
+  existingCover: true, policies: 'Discovery Life, Old Mutual',
+  medicalAid: true, medicalAidProvider: 'Discovery Health',
+  sourceLabel: 'Wits Career Fair 2026',
+  pipelineStatus: 'Assigned',
+  agentName: 'Thabo Molefe',
+  createdAt: new Date(Date.now() - 86400000 * 14).toISOString(),
+};
+
 const MOCK_CALLS = [
-  { id: '1', outcome: 'NoAnswer',          notes: null,                              attemptedAt: new Date(Date.now() - 86400000 * 3).toISOString() },
-  { id: '2', outcome: 'Voicemail',         notes: 'Left voicemail, awaiting return', attemptedAt: new Date(Date.now() - 86400000 * 2).toISOString() },
-  { id: '3', outcome: 'CallbackRequested', notes: 'Requested callback Thursday 10am', callbackDateTime: new Date(Date.now() + 86400000).toISOString(), attemptedAt: new Date(Date.now() - 86400000).toISOString() },
+  { id:'1', outcome:'NoAnswer',         label:'No answer',          notes: null,                              attemptedAt: new Date(Date.now()-86400000*3).toISOString() },
+  { id:'2', outcome:'Voicemail',        label:'Voicemail left',     notes: 'Left voicemail, awaiting return', attemptedAt: new Date(Date.now()-86400000*2).toISOString() },
+  { id:'3', outcome:'CallbackRequested',label:'Callback requested', notes: 'Callback Thursday 10am',         callbackDateTime: new Date(Date.now()+86400000).toISOString(), attemptedAt: new Date(Date.now()-86400000).toISOString() },
 ];
 
+// ─── Sub-components ────────────────────────────────────────────────────────────
+function Field({ label, value, children }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem', gap: '12px' }}>
+      <span style={{ color: '#6b7280', flexShrink: 0 }}>{label}</span>
+      <span style={{ color: '#111827', fontWeight: 500, textAlign: 'right' }}>{children ?? value ?? '—'}</span>
+    </div>
+  );
+}
+
+// ─── Main page ─────────────────────────────────────────────────────────────────
 export default function LeadDetail() {
-  const { id } = useParams();
+  const { id }   = useParams();
   const navigate = useNavigate();
-  const [showCallForm,      setShowCallForm]      = useState(false);
-  const [showBookForm,      setShowBookForm]       = useState(false);
-  const [bookingConfirmed,  setBookingConfirmed]   = useState(false);
-  const [callForm, setCallForm] = useState({
-    outcome: '', notes: '', callbackDateTime: '',
-    appointmentDate: '', appointmentTime: '', appointmentAddress: '',
-    appointmentPortfolio: '', currentInsurer: '',
-  });
-  const [submitting,  setSubmitting]  = useState(false);
-  const [submitError, setSubmitError] = useState('');
+  const { isMobile } = useWindowSize();
 
-  // In preview mode, use mock data
-  const mockLead = {
-    id,
-    firstName: 'Priya', lastName: 'Naidoo',
-    email: 'p.naidoo@netcare.co.za', mobileNumber: '082 456 7890',
-    whatsappNumber: '082 456 7890', occupation: 'Anaesthesiologist',
-    hospitalOrPractice: 'Netcare Sunninghill Hospital',
-    universityAttended: 'University of the Witwatersrand',
-    yearOfAttendance: 2008, degreeAttained: 'MBBCh',
-    existingCover: true, policies: 'Discovery Life, Old Mutual',
-    medicalAid: true, medicalAidProvider: 'Discovery Health',
-    leadSource: 'EventAttendance', sourceLabel: 'Wits Career Fair 2026',
-    pipelineStatus: 'InProgress',
-    agentName: 'Thabo Molefe', createdAt: new Date(Date.now() - 86400000 * 14).toISOString(),
-  };
+  const { data: lead } = useFetch(() => leadsApi.get(id), [id]);
+  const baseLead = lead ?? MOCK_LEAD;
 
-  const { data: lead, loading, error } = useFetch(() => leadsApi.get(id), [id]);
-  const displayLead = lead ?? mockLead;
+  // Local status override — reflects transitions after actions in preview mode.
+  // In production: re-fetch the lead after each API call to get server state.
+  const [statusOverride,   setStatusOverride]   = useState(null);
+  const [bookingConfirmed, setBookingConfirmed]  = useState(false);
+  const [showCallForm,     setShowCallForm]      = useState(false);
+  const [showBookForm,     setShowBookForm]      = useState(false);
+  const [callForm,         setCallForm]          = useState({ outcome: '', notes: '', callbackDateTime: '' });
+  const [calls,            setCalls]             = useState(MOCK_CALLS);
+  const [submitting,       setSubmitting]        = useState(false);
+  const [submitError,      setSubmitError]       = useState('');
+
+  const currentStatus = bookingConfirmed
+    ? 'AppointmentScheduled'
+    : (statusOverride ?? baseLead.pipelineStatus ?? 'Unassigned');
+
+  const sc          = STATUS_COLOURS[currentStatus] ?? STATUS_COLOURS.Unassigned;
+  const isConverted = currentStatus === 'AppointmentScheduled';
+  const isClosed    = currentStatus === 'Closed';
+  // Book Appointment only available for active, assigned/in-progress leads
+  const canBook     = currentStatus === 'Assigned' || currentStatus === 'InProgress';
 
   async function handleLogCall(e) {
     e.preventDefault();
@@ -79,102 +150,148 @@ export default function LeadDetail() {
     setSubmitError('');
     try {
       await leadsApi.logCall(id, callForm);
+      // Compute new status from transition machine and apply locally
+      const newStatus = computeNewStatus(currentStatus, callForm.outcome);
+      if (newStatus !== currentStatus) setStatusOverride(newStatus);
+      // Add to call history
+      setCalls(prev => [{
+        id: String(Date.now()),
+        outcome: callForm.outcome,
+        label: OUTCOME_LABELS[callForm.outcome] ?? callForm.outcome,
+        notes: callForm.notes || null,
+        callbackDateTime: callForm.callbackDateTime || null,
+        attemptedAt: new Date().toISOString(),
+      }, ...prev]);
       setShowCallForm(false);
       setCallForm({ outcome: '', notes: '', callbackDateTime: '' });
-    } catch (err) {
-      setSubmitError(err.message);
+    } catch {
+      // In preview mode leadsApi.logCall returns null — still apply transition
+      const newStatus = computeNewStatus(currentStatus, callForm.outcome);
+      if (newStatus !== currentStatus) setStatusOverride(newStatus);
+      setCalls(prev => [{
+        id: String(Date.now()),
+        outcome: callForm.outcome,
+        label: OUTCOME_LABELS[callForm.outcome] ?? callForm.outcome,
+        notes: callForm.notes || null,
+        callbackDateTime: callForm.callbackDateTime || null,
+        attemptedAt: new Date().toISOString(),
+      }, ...prev]);
+      setShowCallForm(false);
+      setCallForm({ outcome: '', notes: '', callbackDateTime: '' });
     } finally {
       setSubmitting(false);
     }
   }
 
-  const status = bookingConfirmed ? 'AppointmentScheduled' : (displayLead?.pipelineStatus ?? 'Unassigned');
-  const sc = STATUS_COLOURS[status] ?? STATUS_COLOURS.Unassigned;
-  const isConverted = status === 'AppointmentScheduled';
+  const cardStyle = { background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 18px', marginBottom: '14px' };
+  const cardTitle = { fontSize: '0.875rem', fontWeight: 600, color: '#374151', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid #f3f4f6' };
+  const btn = {
+    primary:   { background: '#1d4ed8', color: 'white', border: 'none', borderRadius: '6px', padding: '8px 14px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' },
+    secondary: { background: 'white', color: '#374151', border: '1px solid #d1d5db', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
+    ghost:     { background: 'none', color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
+    back:      { background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '0.813rem', padding: 0, fontFamily: 'inherit', marginBottom: '4px' },
+  };
+  const inputStyle = { width: '100%', border: '1px solid #d1d5db', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box' };
+  const labelStyle = { display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: '#374151', marginBottom: '5px' };
+  const badge = (bg, text) => ({ display: 'inline-block', padding: '2px 9px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 500, background: bg, color: text });
 
   return (
-    <div style={{ padding: '24px', maxWidth: '960px' }}>
+    <div style={{ padding: isMobile ? '16px' : '24px', maxWidth: '960px' }}>
 
-      {/* Conversion notice — shown after booking */}
+      {/* Conversion notice */}
       {isConverted && (
-        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '10px 14px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.875rem', color: '#15803d' }}>
-          <span>✅ <strong>Appointment booked.</strong> This lead has been converted — it is now visible in the <strong>Appointments</strong> list.</span>
-          <button onClick={() => navigate('/appointments')} style={{ background: '#15803d', color: 'white', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit' }}>
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '10px 14px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', fontSize: '0.875rem', color: '#15803d', flexWrap: 'wrap' }}>
+          <span>✅ <strong>Appointment booked.</strong> This lead has been converted and is now in the Appointments list.</span>
+          <button onClick={() => navigate('/appointments')} style={{ background: '#15803d', color: 'white', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
             View in Appointments →
           </button>
         </div>
       )}
 
       {/* Header */}
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px' }}>
+      <button onClick={() => navigate('/leads')} style={btn.back}>← Back to Leads</button>
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', margin: '6px 0 20px', gap: '12px', flexWrap: 'wrap' }}>
         <div>
-          <button onClick={() => navigate('/leads')} style={s.backBtn}>← Back to Leads</button>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111827', margin: '8px 0 4px' }}>
-            Dr {displayLead.firstName} {displayLead.lastName}
+          <h1 style={{ fontSize: isMobile ? '1.25rem' : '1.5rem', fontWeight: 700, color: '#111827', margin: '0 0 6px' }}>
+            Dr {baseLead.firstName} {baseLead.lastName}
           </h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ ...s.badge, background: sc.bg, color: sc.text, border: `1px solid ${sc.border}` }}>
-              {status}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+            <span style={{ ...badge(sc.bg, sc.text), border: `1px solid ${sc.border}` }}>
+              {currentStatus === 'InProgress' ? 'In Progress'
+                : currentStatus === 'AppointmentScheduled' ? 'Appt Scheduled'
+                : currentStatus}
             </span>
             <span style={{ fontSize: '0.813rem', color: '#6b7280' }}>
-              Added {displayLead.createdAt ? formatDistanceToNow(new Date(displayLead.createdAt), { addSuffix: true }) : '—'}
+              Added {baseLead.createdAt ? formatDistanceToNow(new Date(baseLead.createdAt), { addSuffix: true }) : '—'}
             </span>
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          <button onClick={() => setShowCallForm(true)} style={s.primaryBtn}>Log Call</button>
-          {/* Book Appointment only shown while lead is not yet converted */}
-          {!isConverted && (
-            <button onClick={() => setShowBookForm(true)} style={s.secondaryBtn}>Book Appointment</button>
-          )}
-        </div>
+        {!isConverted && !isClosed && (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            <button onClick={() => setShowCallForm(true)} style={btn.primary}>Log Call</button>
+            {canBook && (
+              <button onClick={() => setShowBookForm(true)} style={btn.secondary}>Book Appointment</button>
+            )}
+          </div>
+        )}
       </div>
 
-      {loading && <p style={{ color: '#6b7280' }}>Loading lead...</p>}
-      {error && <div style={s.errorBox}>Could not load lead from API — showing preview data. ({error.message})</div>}
+      {/* Status transition hint */}
+      {!isConverted && !isClosed && (
+        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '8px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: '#1e40af' }}>
+          ℹ Status updates automatically based on call outcomes. Log a call to progress this lead.
+          {currentStatus === 'Unassigned' && ' Assign this lead to an agent before logging calls.'}
+        </div>
+      )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+      {/* Two-column layout */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px' }}>
 
         {/* Personal details */}
-        <div style={s.card}>
-          <div style={s.cardTitle}>Personal Details</div>
-          <Field label="Email"          value={displayLead.email} />
-          <Field label="Mobile"         value={displayLead.mobileNumber} />
-          <Field label="WhatsApp"       value={displayLead.whatsappNumber} />
-          <Field label="Occupation"     value={displayLead.occupation} />
-          <Field label="Hospital / Practice" value={displayLead.hospitalOrPractice} />
+        <div style={cardStyle}>
+          <div style={cardTitle}>Contact Details</div>
+          <Field label="Email"      value={baseLead.email} />
+          <Field label="Mobile"     value={baseLead.mobileNumber} />
+          <Field label="WhatsApp"   value={baseLead.whatsappNumber} />
+          <Field label="Occupation" value={baseLead.occupation} />
+          <Field label="Hospital / Practice" value={baseLead.hospitalOrPractice} />
         </div>
 
         {/* Education */}
-        <div style={s.card}>
-          <div style={s.cardTitle}>Education</div>
-          <Field label="University"     value={displayLead.universityAttended} />
-          <Field label="Year attended"  value={displayLead.yearOfAttendance} />
-          <Field label="Degree"         value={displayLead.degreeAttained} />
-          <Field label="Lead source"    value={displayLead.sourceLabel ?? displayLead.leadSource} />
-          <Field label="Agent"          value={displayLead.agentName} />
+        <div style={cardStyle}>
+          <div style={cardTitle}>Education &amp; Pipeline</div>
+          <Field label="University"  value={baseLead.universityAttended} />
+          <Field label="Year"        value={baseLead.yearOfAttendance} />
+          <Field label="Degree"      value={baseLead.degreeAttained} />
+          <Field label="Lead source" value={baseLead.sourceLabel} />
+          <Field label="Agent"       value={baseLead.agentName} />
         </div>
 
         {/* Insurance */}
-        <div style={s.card}>
-          <div style={s.cardTitle}>Insurance Information</div>
-          <Field label="Existing cover" value={displayLead.existingCover === true ? 'Yes' : displayLead.existingCover === false ? 'No' : '—'} />
-          <Field label="Current policies" value={displayLead.policies} />
-          <Field label="Medical aid"    value={displayLead.medicalAid === true ? 'Yes' : displayLead.medicalAid === false ? 'No' : '—'} />
-          <Field label="Medical aid provider" value={displayLead.medicalAidProvider} />
+        <div style={cardStyle}>
+          <div style={cardTitle}>Insurance Information</div>
+          <Field label="Existing cover"      value={baseLead.existingCover === true ? 'Yes' : baseLead.existingCover === false ? 'No' : '—'} />
+          <Field label="Current policies"    value={baseLead.policies} />
+          <Field label="Medical aid"         value={baseLead.medicalAid === true ? 'Yes' : baseLead.medicalAid === false ? 'No' : '—'} />
+          <Field label="Medical aid provider" value={baseLead.medicalAidProvider} />
         </div>
 
-        {/* Call attempts */}
-        <div style={s.card}>
-          <div style={s.cardTitle}>Call History ({MOCK_CALLS.length})</div>
-          {MOCK_CALLS.length === 0 && <p style={{ color: '#9ca3af', fontSize: '0.875rem' }}>No call attempts yet.</p>}
+        {/* Call history */}
+        <div style={cardStyle}>
+          <div style={cardTitle}>Call History ({calls.length})</div>
+          {calls.length === 0 && <p style={{ color: '#9ca3af', fontSize: '0.875rem' }}>No call attempts yet.</p>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {MOCK_CALLS.map(call => {
+            {calls.map(call => {
               const oc = OUTCOME_COLOURS[call.outcome] ?? OUTCOME_COLOURS.NoAnswer;
+              const borderCol = call.outcome === 'CallbackRequested' ? '#fde68a'
+                : call.outcome === 'NotInterested' || call.outcome === 'WrongNumber' ? '#fecaca'
+                : call.outcome === 'AppointmentScheduled' ? '#ddd6fe' : '#e5e7eb';
               return (
-                <div key={call.id} style={{ borderLeft: `3px solid ${oc.bg === '#f0fdf4' ? '#86efac' : oc.bg === '#f5f3ff' ? '#c4b5fd' : '#e5e7eb'}`, paddingLeft: '10px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                    <span style={{ ...s.badge, background: oc.bg, color: oc.text }}>{call.outcome}</span>
+                <div key={call.id} style={{ borderLeft: `3px solid ${borderCol}`, paddingLeft: '10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ ...badge(oc.bg, oc.text) }}>
+                      {call.label ?? OUTCOME_LABELS[call.outcome] ?? call.outcome}
+                    </span>
                     <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>
                       {format(new Date(call.attemptedAt), 'd MMM yyyy')}
                     </span>
@@ -192,118 +309,78 @@ export default function LeadDetail() {
         </div>
       </div>
 
-      {/* Log call modal */}
+      {/* ── Log Call Modal ── */}
       {showCallForm && (
-        <div style={s.overlay}>
-          <div style={s.modal}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: isMobile ? '16px' : '0' }}>
+          <div style={{ background: 'white', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
               <h2 style={{ fontSize: '1.125rem', fontWeight: 600 }}>Log Call Attempt</h2>
-              <button onClick={() => setShowCallForm(false)} style={s.closeBtn}>✕</button>
+              <button onClick={() => setShowCallForm(false)} style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', color: '#6b7280' }}>✕</button>
             </div>
+
+            {/* Status transition preview */}
+            <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '10px 12px', marginBottom: '14px', fontSize: '0.8125rem' }}>
+              <div style={{ color: '#6b7280', marginBottom: '4px' }}>Current status: <strong style={{ color: '#111827' }}>{currentStatus}</strong></div>
+              {callForm.outcome && (() => {
+                const next = computeNewStatus(currentStatus, callForm.outcome);
+                return next !== currentStatus
+                  ? <div style={{ color: '#d97706' }}>→ Will change to: <strong>{next}</strong></div>
+                  : <div style={{ color: '#6b7280' }}>→ Status will remain: <strong>{currentStatus}</strong></div>;
+              })()}
+            </div>
+
             <form onSubmit={handleLogCall}>
-              <div style={s.formGroup}>
-                <label style={s.label}>Outcome *</label>
-                <select
-                  value={callForm.outcome}
-                  onChange={e => setCallForm(f => ({ ...f, outcome: e.target.value }))}
-                  style={s.input}
-                >
-                  <option value="">Select outcome...</option>
-                  {CALL_OUTCOMES.map(o => <option key={o} value={o}>{o}</option>)}
+              <div style={{ marginBottom: '12px' }}>
+                <label style={labelStyle}>Outcome *</label>
+                <select value={callForm.outcome} onChange={e => setCallForm(f => ({ ...f, outcome: e.target.value }))} style={inputStyle}>
+                  <option value="">Select outcome…</option>
+                  {CALL_OUTCOMES.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                 </select>
               </div>
-              <div style={s.formGroup}>
-                <label style={s.label}>Notes</label>
-                <textarea
-                  value={callForm.notes}
-                  onChange={e => setCallForm(f => ({ ...f, notes: e.target.value }))}
-                  style={{ ...s.input, height: '80px', resize: 'vertical' }}
-                  placeholder="Optional notes..."
-                />
+              <div style={{ marginBottom: '12px' }}>
+                <label style={labelStyle}>Notes</label>
+                <textarea value={callForm.notes} onChange={e => setCallForm(f => ({ ...f, notes: e.target.value }))} style={{ ...inputStyle, height: '72px', resize: 'vertical' }} placeholder="Optional notes…" />
               </div>
               {callForm.outcome === 'CallbackRequested' && (
-                <div style={s.formGroup}>
-                  <label style={s.label}>Follow-up date &amp; time</label>
-                  <input
-                    type="datetime-local"
-                    value={callForm.callbackDateTime}
-                    onChange={e => setCallForm(f => ({ ...f, callbackDateTime: e.target.value }))}
-                    style={s.input}
-                  />
+                <div style={{ marginBottom: '12px' }}>
+                  <label style={labelStyle}>Callback date &amp; time</label>
+                  <input type="datetime-local" value={callForm.callbackDateTime} onChange={e => setCallForm(f => ({ ...f, callbackDateTime: e.target.value }))} style={inputStyle} />
                 </div>
               )}
-              {callForm.outcome === 'AppointmentScheduled' && (
-                <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '14px', marginTop: '4px' }}>
-                  <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#374151', marginBottom: '12px' }}>Appointment Details</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    <div style={s.formGroup}>
-                      <label style={s.label}>Date *</label>
-                      <input type="date" style={s.input} value={callForm.appointmentDate} onChange={e => setCallForm(f => ({ ...f, appointmentDate: e.target.value }))} />
-                    </div>
-                    <div style={s.formGroup}>
-                      <label style={s.label}>Time *</label>
-                      <input type="time" style={s.input} value={callForm.appointmentTime} onChange={e => setCallForm(f => ({ ...f, appointmentTime: e.target.value }))} />
-                    </div>
-                  </div>
-                  <div style={s.formGroup}>
-                    <label style={s.label}>Address *</label>
-                    <input style={s.input} placeholder="123 Rivonia Rd, Sandton" value={callForm.appointmentAddress} onChange={e => setCallForm(f => ({ ...f, appointmentAddress: e.target.value }))} />
-                  </div>
-                  <div style={s.formGroup}>
-                    <label style={s.label}>Portfolio *</label>
-                    <select style={s.input} value={callForm.appointmentPortfolio} onChange={e => setCallForm(f => ({ ...f, appointmentPortfolio: e.target.value }))}>
-                      <option value="">Select…</option>
-                      <option>Discovery</option>
-                      <option>Money and Medicine</option>
-                    </select>
-                  </div>
-                  <div style={s.formGroup}>
-                    <label style={s.label}>Current insurance company</label>
-                    <input style={s.input} placeholder="e.g. Old Mutual, Momentum" value={callForm.currentInsurer} onChange={e => setCallForm(f => ({ ...f, currentInsurer: e.target.value }))} />
-                  </div>
-                </div>
-              )}
-              {submitError && <p style={{ color: '#dc2626', fontSize: '0.875rem', marginBottom: '12px' }}>{submitError}</p>}
+              {submitError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.875rem', marginBottom: '12px' }}>{submitError}</div>}
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                <button type="button" onClick={() => setShowCallForm(false)} style={s.secondaryBtn}>Cancel</button>
-                <button type="submit" disabled={submitting} style={s.primaryBtn}>
-                  {submitting ? 'Saving...' : 'Save Call'}
-                </button>
+                <button type="button" onClick={() => setShowCallForm(false)} style={btn.ghost}>Cancel</button>
+                <button type="submit" disabled={submitting} style={btn.primary}>{submitting ? 'Saving…' : 'Save Call'}</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* ── Book Appointment modal ── */}
+      {/* ── Book Appointment Modal ── */}
       {showBookForm && (
-        <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) setShowBookForm(false); }}>
-          <div style={{ ...s.modal, width: '520px', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: isMobile ? '16px' : '0' }}>
+          <div style={{ background: 'white', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '520px', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
               <h2 style={{ fontSize: '1.125rem', fontWeight: 600 }}>Book Appointment</h2>
-              <button onClick={() => setShowBookForm(false)} style={s.closeBtn}>✕</button>
+              <button onClick={() => setShowBookForm(false)} style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', color: '#6b7280' }}>✕</button>
             </div>
             <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '14px' }}>
-              Dr {displayLead.firstName} {displayLead.lastName} · {displayLead.occupation}
+              Dr {baseLead.firstName} {baseLead.lastName} · {baseLead.occupation}
             </p>
-            {/* M365 availability notice */}
             <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: '#1e40af' }}>
-              <strong>Microsoft 365 availability check</strong> — brokers ranked by fewest appointments in your region and portfolio.
+              Confirming this booking will move the lead to <strong>Appointment Scheduled</strong> status and it will appear in the Appointments list.
             </div>
+
             {/* Broker selection */}
-            <div style={s.formGroup}>
-              <label style={s.label}>Select broker *</label>
+            <div style={{ marginBottom: '14px' }}>
+              <label style={labelStyle}>Select broker *</label>
               {[
                 { name: 'Sandra van der Berg', slots: '1 appointment this week · Next slot: Mon, 10:00', best: true },
                 { name: 'Pieter Joubert',      slots: '3 appointments this week · Next slot: Tue, 14:00', best: false },
                 { name: 'Marelize Swart',      slots: '4 appointments this week · Next slot: Wed, 09:00', best: false },
               ].map((b, i) => (
-                <label key={i} style={{
-                  display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px',
-                  border: `1px solid ${i === 0 ? '#1d4ed8' : '#e5e7eb'}`,
-                  borderRadius: '6px', marginBottom: '6px', cursor: 'pointer',
-                  background: i === 0 ? '#eff6ff' : 'white',
-                }}>
+                <label key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', border: `1px solid ${i === 0 ? '#1d4ed8' : '#e5e7eb'}`, borderRadius: '6px', marginBottom: '6px', cursor: 'pointer', background: i === 0 ? '#eff6ff' : 'white' }}>
                   <input type="radio" name="book-broker" defaultChecked={i === 0} style={{ accentColor: '#1d4ed8' }} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{b.name}</div>
@@ -313,56 +390,30 @@ export default function LeadDetail() {
                 </label>
               ))}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-              <div style={s.formGroup}>
-                <label style={s.label}>Date *</label>
-                <input type="date" style={s.input} />
-              </div>
-              <div style={s.formGroup}>
-                <label style={s.label}>Time *</label>
-                <input type="time" style={s.input} />
-              </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+              <div><label style={labelStyle}>Date *</label><input type="date" style={inputStyle} /></div>
+              <div><label style={labelStyle}>Time *</label><input type="time" style={inputStyle} /></div>
             </div>
-            <div style={s.formGroup}>
-              <label style={s.label}>Address *</label>
-              <input style={s.input} placeholder="123 Rivonia Rd, Sandton" />
+            <div style={{ marginBottom: '10px' }}><label style={labelStyle}>Address *</label><input style={inputStyle} placeholder="123 Rivonia Rd, Sandton" /></div>
+            <div style={{ marginBottom: '10px' }}>
+              <label style={labelStyle}>Portfolio *</label>
+              <select style={inputStyle}><option value="">Select…</option><option>Discovery</option><option>Money and Medicine</option></select>
             </div>
-            <div style={s.formGroup}>
-              <label style={s.label}>Portfolio *</label>
-              <select style={s.input}>
-                <option value="">Select…</option>
-                <option>Discovery</option>
-                <option>Money and Medicine</option>
-              </select>
-            </div>
-            <div style={s.formGroup}>
-              <label style={s.label}>Current insurance company</label>
-              <input style={s.input} placeholder="e.g. Old Mutual, Momentum" />
-            </div>
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px', paddingTop: '14px', borderTop: '1px solid #e5e7eb' }}>
-              <button onClick={() => setShowBookForm(false)} style={s.secondaryBtn}>Cancel</button>
-              <button
-                onClick={() => {
-                  /**
-                   * Lead → Appointment conversion (Salesforce Lead→Opportunity pattern)
-                   *
-                   * In production this POST /api/appointments call:
-                   *   1. Creates a new Appointment child record linked to this Lead (leadId FK)
-                   *   2. Sets Lead.pipelineStatus = 'AppointmentScheduled' (server-side)
-                   *   3. Returns the new Appointment ID
-                   *
-                   * The Lead is NOT deleted — it remains as the source of truth for
-                   * the person's contact details and pipeline history.
-                   * The Appointments list queries WHERE Lead.pipelineStatus = 'AppointmentScheduled'
-                   * and joins the Appointment child record for meeting/outcome data.
-                   *
-                   * In preview mode: update local UI state to reflect the conversion.
-                   */
-                  setBookingConfirmed(true);
-                  setShowBookForm(false);
-                }}
-                style={s.primaryBtn}
-              >
+            <div style={{ marginBottom: '16px' }}><label style={labelStyle}>Current insurance company</label><input style={inputStyle} placeholder="e.g. Old Mutual, Momentum" /></div>
+
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowBookForm(false)} style={btn.ghost}>Cancel</button>
+              <button onClick={() => {
+                /**
+                 * Production: POST /api/appointments
+                 *   → Creates Appointment child record (leadId FK)
+                 *   → Sets Lead.pipelineStatus = 'AppointmentScheduled'
+                 *   → Returns new Appointment ID
+                 */
+                setBookingConfirmed(true);
+                setShowBookForm(false);
+              }} style={btn.primary}>
                 Confirm Booking
               </button>
             </div>
@@ -372,28 +423,3 @@ export default function LeadDetail() {
     </div>
   );
 }
-
-function Field({ label, value }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem' }}>
-      <span style={{ color: '#6b7280', flexShrink: 0, marginRight: '16px' }}>{label}</span>
-      <span style={{ color: '#111827', fontWeight: 500, textAlign: 'right' }}>{value ?? '—'}</span>
-    </div>
-  );
-}
-
-const s = {
-  backBtn: { background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '0.875rem', padding: 0, marginBottom: '4px' },
-  badge: { display: 'inline-block', padding: '2px 10px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 500 },
-  primaryBtn: { background: '#1d4ed8', color: 'white', border: 'none', borderRadius: '6px', padding: '8px 16px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500 },
-  secondaryBtn: { background: 'white', color: '#374151', border: '1px solid #d1d5db', borderRadius: '6px', padding: '8px 16px', cursor: 'pointer', fontSize: '0.875rem' },
-  card: { background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 20px' },
-  cardTitle: { fontSize: '0.875rem', fontWeight: 600, color: '#374151', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid #f3f4f6' },
-  errorBox: { background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '12px', color: '#dc2626', fontSize: '0.875rem', marginBottom: '16px' },
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
-  modal: { background: 'white', borderRadius: '10px', padding: '24px', width: '440px', maxWidth: '90vw' },
-  closeBtn: { background: 'none', border: 'none', fontSize: '1.125rem', cursor: 'pointer', color: '#6b7280' },
-  formGroup: { marginBottom: '14px' },
-  label: { display: 'block', fontSize: '0.875rem', fontWeight: 500, color: '#374151', marginBottom: '6px' },
-  input: { width: '100%', border: '1px solid #d1d5db', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box' },
-};

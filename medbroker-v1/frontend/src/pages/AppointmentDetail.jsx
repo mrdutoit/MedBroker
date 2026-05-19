@@ -19,6 +19,7 @@ import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useRole } from '../context/RoleContext.jsx';
 import { PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
+import { useWindowSize } from '../hooks/useWindowSize.js';
 
 // ─── Mock appointment data ────────────────────────────────────────────────────
 const MOCK_APPOINTMENT = {
@@ -164,6 +165,7 @@ export default function AppointmentDetail() {
   const { id }   = useParams();
   const navigate = useNavigate();
   const { role } = useRole();
+  const { isMobile } = useWindowSize();
 
   const isAdmin     = role === 'Admin' || role === 'GlobalAdmin';
   const isSupervisor = role === 'Supervisor';
@@ -214,7 +216,7 @@ export default function AppointmentDetail() {
   const cardTitle = { fontSize: '0.875rem', fontWeight: 600, color: '#374151', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid #f3f4f6' };
 
   return (
-    <div style={{ padding: '24px', maxWidth: '960px' }}>
+    <div style={{ padding: isMobile ? '16px' : '24px', maxWidth: '960px' }}>
 
       {/* Back + header */}
       <button onClick={() => navigate('/appointments')} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '0.875rem', padding: 0, marginBottom: '6px', fontFamily: 'inherit' }}>
@@ -253,7 +255,7 @@ export default function AppointmentDetail() {
         </div>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
 
         {/* Lead details (read-only) */}
         <div style={card}>

@@ -28,6 +28,7 @@ import { useNavigate } from 'react-router-dom';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { appointmentsApi } from '../services/api.js';
+import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s, APPT_STATUS_META, MEETING_STATUS_META, PORTFOLIO_META } from '../styles/tokens.js';
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
@@ -269,6 +270,7 @@ export default function AppointmentList() {
   const navigate = useNavigate();
   const { role } = useRole();
   const { flag, flags } = useFlags();
+  const { isMobile } = useWindowSize();
 
   const isAdmin      = role === 'Admin' || role === 'GlobalAdmin';
   const isSupervisor = role === 'Supervisor';
@@ -332,10 +334,10 @@ export default function AppointmentList() {
     Broker:      claimModel === 'claim' ? 'My appointments and available to claim' : 'Appointments assigned to you',
   };
 
-  function AppointmentsTable({ rows, showBroker = true }) {
-    return (
-      <div style={s.tableCard}>
-        <table style={s.table}>
+    function AppointmentsTable({ rows, showBroker = true }) {
+      return (
+        <div style={{ ...s.tableCard, overflowX: 'auto' }}>
+          <table style={{ ...s.table, minWidth: isMobile ? '700px' : 'auto' }}>
           <thead>
             <tr>
               <th style={s.th}>Lead</th>
@@ -523,7 +525,7 @@ export default function AppointmentList() {
   }
 
   return (
-    <div style={s.page}>
+    <div style={{ ...s.page, padding: isMobile ? '12px' : '24px' }}>
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '18px' }}>
         <div>

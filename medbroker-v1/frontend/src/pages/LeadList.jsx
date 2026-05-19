@@ -20,6 +20,7 @@ import { leadsApi, usersApi } from '../services/api.js';
 import { formatDistanceToNow } from 'date-fns';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
+import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s, STATUS_META } from '../styles/tokens.js';
 const STATUS_CHIPS      = ['All', ...Object.keys(STATUS_META)];
 // Leads with AppointmentScheduled are shown in Appointments, not here
@@ -145,6 +146,7 @@ function ReassignLeadModal({ lead, onClose, isAssign = false }) {
 export default function LeadList() {
   const navigate = useNavigate();
   const { role, persona } = useRole();
+  const { isMobile } = useWindowSize();
   const { flag } = useFlags();
 
   const isAdmin      = role === 'Admin' || role === 'GlobalAdmin';
@@ -228,7 +230,7 @@ export default function LeadList() {
                  :                'All unassigned and in-progress leads';
 
   return (
-    <div style={s.page}>
+    <div style={{ ...s.page, padding: isMobile ? '12px' : '24px' }}>
 
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '18px' }}>
@@ -331,8 +333,8 @@ export default function LeadList() {
             {search      ? ` · "${search}"`       : ''}
           </div>
 
-          <div style={s.tableCard}>
-            <table style={s.table}>
+          <div style={{ ...s.tableCard, overflowX: 'auto' }}>
+            <table style={{ ...s.table, minWidth: isMobile ? '600px' : 'auto' }}>
               <thead>
                 <tr>
                   <th style={s.th}>Name</th>
