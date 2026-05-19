@@ -105,8 +105,20 @@ export const leadsApi = {
   },
   get:     (id)   => request(`/leads/${id}`),
   create:  (data) => request('/leads', { method: 'POST', body: JSON.stringify(data) }),
+  // assign — first-time assignment of an unassigned lead to an agent.
+  //   Server-side: sets assignedAgentId, transitions pipelineStatus Unassigned → Assigned,
+  //   writes AuditLog entry with action='LeadAssigned'.
   assign:  (id, agentId) =>
-    request(`/leads/${id}/assign`, { method: 'PUT', body: JSON.stringify({ agentId }) }),
+    request(`/leads/${id}/assign`,   { method: 'PUT', body: JSON.stringify({ agentId }) }),
+  // reassign — changes the agent on an already-assigned lead.
+  //   Server-side: updates assignedAgentId, keeps existing pipelineStatus,
+  //   writes AuditLog entry with action='LeadReassigned' including previous agent.
+  reassign: (id, agentId) =>
+    request(`/leads/${id}/reassign`, { method: 'PUT', body: JSON.stringify({ agentId }) }),
+  // sources — distinct source labels across CSV batches, subscriptions, and events.
+  //   Used to populate the Source filter dropdown in LeadList.
+  //   Falls back to LEAD_SOURCES constant in preview mode.
+  sources: () => request('/leads/sources'),
   logCall: (id, attemptData) =>
     request(`/leads/${id}/calls`, { method: 'POST', body: JSON.stringify(attemptData) }),
   delete:  (id)   => request(`/leads/${id}`, { method: 'DELETE' }),
@@ -125,6 +137,17 @@ export const appointmentsApi = {
   create: (data) => request('/appointments', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) =>
     request(`/appointments/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  // assignBroker — first-time broker assignment on an unassigned appointment.
+  //   Server-side: sets brokerId, transitions status Unassigned → Assigned,
+  //   sends AppointmentAssigned notification to broker,
+  //   writes AuditLog entry with action='AppointmentBrokerAssigned'.
+  assignBroker: (id, brokerId, agentId) =>
+    request(`/appointments/${id}/assign`, { method: 'PUT', body: JSON.stringify({ brokerId, agentId }) }),
+  // reassign — changes broker and/or agent on an already-assigned appointment.
+  //   Server-side: updates brokerId/agentId, keeps existing status,
+  //   writes AuditLog entry with action='AppointmentReassigned' including previous broker.
+  reassign: (id, brokerId, agentId) =>
+    request(`/appointments/${id}/reassign`, { method: 'PUT', body: JSON.stringify({ brokerId, agentId }) }),
 };
 
 // ─── Broker matching ──────────────────────────────────────────────────────────
