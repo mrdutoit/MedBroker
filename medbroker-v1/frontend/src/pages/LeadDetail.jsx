@@ -9,6 +9,8 @@
  *   Voicemail left      │ Assigned/Unassigned → InProgress
  *   Wrong number        │ Any → Closed
  *   Callback requested  │ Assigned/Unassigned → InProgress
+ *   Client contacted    │ Assigned/Unassigned → InProgress
+ *                       │ + shows Book Appointment button inline
  *   Not interested      │ Any → Closed
  *   (Book Appointment)  │ InProgress/Assigned → AppointmentScheduled
  *
@@ -38,7 +40,7 @@ function computeNewStatus(currentStatus, outcome) {
   if (outcome === 'WrongNumber')          return 'Closed';
   if (outcome === 'NotInterested')        return 'Closed';
   if (outcome === 'NoAnswer')             return currentStatus; // no change
-  // Voicemail, CallbackRequested — move to InProgress if not already beyond
+  // ClientContacted, Voicemail, CallbackRequested — move to InProgress if not already beyond
   if (currentStatus === 'Unassigned' || currentStatus === 'Assigned') return 'InProgress';
   return currentStatus; // already InProgress or terminal — no change
 }
@@ -54,12 +56,15 @@ const STATUS_COLOURS = {
 
 // ─── Call outcomes — available in the Log Call dropdown ───────────────────────
 // AppointmentScheduled is NOT listed here — it is driven by Book Appointment.
+// ClientContacted is the key qualifying outcome: prospect was reached and
+// expressed interest. When selected, a Book Appointment button is shown inline.
 const CALL_OUTCOMES = [
-  { value: 'NoAnswer',           label: 'No answer' },
-  { value: 'Voicemail',          label: 'Voicemail left' },
-  { value: 'WrongNumber',        label: 'Wrong number' },
-  { value: 'CallbackRequested',  label: 'Callback requested' },
-  { value: 'NotInterested',      label: 'Not interested' },
+  { value: 'NoAnswer',          label: 'No answer' },
+  { value: 'Voicemail',         label: 'Voicemail left' },
+  { value: 'WrongNumber',       label: 'Wrong number' },
+  { value: 'CallbackRequested', label: 'Callback requested' },
+  { value: 'ClientContacted',   label: 'Client contacted' },
+  { value: 'NotInterested',     label: 'Not interested' },
 ];
 
 const OUTCOME_COLOURS = {
@@ -67,6 +72,7 @@ const OUTCOME_COLOURS = {
   Voicemail:            { bg: '#f3f4f6', text: '#6b7280' },
   WrongNumber:          { bg: '#fef2f2', text: '#dc2626' },
   CallbackRequested:    { bg: '#fffbeb', text: '#d97706' },
+  ClientContacted:      { bg: '#f0fdf4', text: '#15803d' },
   NotInterested:        { bg: '#fef2f2', text: '#dc2626' },
   AppointmentScheduled: { bg: '#f5f3ff', text: '#7c3aed' },
 };
@@ -76,6 +82,7 @@ const OUTCOME_LABELS = {
   Voicemail:            'Voicemail left',
   WrongNumber:          'Wrong number',
   CallbackRequested:    'Callback requested',
+  ClientContacted:      'Client contacted',
   NotInterested:        'Not interested',
   AppointmentScheduled: 'Appointment scheduled',
 };
@@ -345,6 +352,37 @@ export default function LeadDetail() {
                 <div style={{ marginBottom: '12px' }}>
                   <label style={labelStyle}>Callback date &amp; time</label>
                   <input type="datetime-local" value={callForm.callbackDateTime} onChange={e => setCallForm(f => ({ ...f, callbackDateTime: e.target.value }))} style={inputStyle} />
+                </div>
+              )}
+              {callForm.outcome === 'ClientContacted' && (
+                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '12px 14px', marginBottom: '12px' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#15803d', marginBottom: '6px' }}>
+                    🎉 Client contacted — would you like to book an appointment?
+                  </div>
+                  <p style={{ fontSize: '0.8125rem', color: '#374151', margin: '0 0 10px' }}>
+                    Save this call and proceed to book an appointment with the prospect now.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      // Save the call first, then open Book Appointment
+                      const newStatus = computeNewStatus(currentStatus, callForm.outcome);
+                      if (newStatus !== currentStatus) setStatusOverride(newStatus);
+                      setCalls(prev => [{
+                        id: String(Date.now()),
+                        outcome: callForm.outcome,
+                        label: OUTCOME_LABELS[callForm.outcome],
+                        notes: callForm.notes || null,
+                        attemptedAt: new Date().toISOString(),
+                      }, ...prev]);
+                      setShowCallForm(false);
+                      setCallForm({ outcome: '', notes: '', callbackDateTime: '' });
+                      setShowBookForm(true);
+                    }}
+                    style={{ background: '#15803d', color: 'white', border: 'none', borderRadius: '6px', padding: '8px 14px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' }}
+                  >
+                    Save call &amp; Book Appointment →
+                  </button>
                 </div>
               )}
               {submitError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.875rem', marginBottom: '12px' }}>{submitError}</div>}
