@@ -1,10 +1,16 @@
 /**
  * pages/LeadList.jsx
+ *
  * Role behaviour:
- *   Admin      — all leads, agent filter dropdown, all columns
- *   Supervisor — leads for direct reports only, no agent filter (filtered server-side by supervisorId)
- *   Agent      — only leads assigned to themselves, no agent column
- *   Broker     — never sees this page (nav hidden, redirected to /appointments)
+ *   GlobalAdmin/Admin — all leads, agent filter, Reassign action per row
+ *   Supervisor        — direct reports only, Reassign action per row
+ *   Agent             — own leads only, no reassign, no import
+ *   Broker            — never sees this page (redirected to /appointments)
+ *
+ * Feature flags consumed:
+ *   leads.importCsv.enabled
+ *   leads.importSubscription.enabled
+ *   leads.occupationFilter.enabled
  */
 
 import { useState, useEffect } from 'react';
@@ -16,9 +22,7 @@ import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { s, STATUS_META } from '../styles/tokens.js';
 
-const STATUS_CHIPS = ['All', ...Object.keys(STATUS_META)];
-
-// Leads with this status are excluded from the list — they live in Appointments
+const STATUS_CHIPS    = ['All', ...Object.keys(STATUS_META)];
 const EXCLUDED_STATUSES = ['AppointmentBooked'];
 
 const OCCUPATIONS = [
@@ -27,54 +31,103 @@ const OCCUPATIONS = [
   'Psychiatrist', 'Radiologist',
 ];
 
-// ─── Preview mock data (used when API returns null in preview mode) ────────────
+const AGENTS = [
+  'Thabo Molefe', 'Naledi van Wyk', 'Kabelo Petersen', 'Bongani Ntuli', 'Siphiwe Mahlangu',
+];
+
+// ─── Preview mock data ────────────────────────────────────────────────────────
 const MOCK_LEADS = {
   total: 10,
   leads: [
-    { id:'1', firstName:'Priya',   lastName:'Naidoo',     email:'p.naidoo@netcare.co.za',    occupation:'Anaesthesiologist',   sourceLabel:'Wits Career Fair 2026',   pipelineStatus:'InProgress',    agentName:'Thabo Molefe',    createdAt: new Date(Date.now()-86400000*2).toISOString() },
-    { id:'2', firstName:'Sipho',   lastName:'Dlamini',    email:'s.dlamini@wits.ac.za',      occupation:'General Practitioner',sourceLabel:'Wits Career Fair 2026',   pipelineStatus:'InProgress',    agentName:'Naledi van Wyk',  createdAt: new Date(Date.now()-86400000*4).toISOString() },
-    { id:'3', firstName:'Amara',   lastName:'Osei',       email:'a.osei@mediclinic.co.za',   occupation:'Cardiologist',        sourceLabel:'MedLeads SA — Monthly',   pipelineStatus:'ClosedWon',     agentName:'Kabelo Petersen', createdAt: new Date(Date.now()-86400000*7).toISOString() },
-    { id:'4', firstName:'Lerato',  lastName:'Mokoena',    email:'l.mokoena@life.co.za',      occupation:'Orthopaedic Surgeon', sourceLabel:'Manual — Referral',       pipelineStatus:'Assigned',      agentName:'Bongani Ntuli',   createdAt: new Date(Date.now()-86400000*7).toISOString() },
-    { id:'5', firstName:'James',   lastName:'van Rooyen', email:'j.vanrooyen@uhw.co.za',     occupation:'Radiologist',         sourceLabel:'Healthwise Doctor DB',    pipelineStatus:'Uncontactable', agentName:'Siphiwe Mahlangu',createdAt: new Date(Date.now()-86400000*14).toISOString() },
-    { id:'6', firstName:'Fatima',  lastName:'Essop',      email:'f.essop@groote.co.za',      occupation:'Paediatrician',       sourceLabel:'SA Medical Register Q2',  pipelineStatus:'Unassigned',    agentName:'—',               createdAt: new Date(Date.now()-86400000*21).toISOString() },
-    { id:'7', firstName:'Ayesha',  lastName:'Moosa',      email:'a.moosa@sunward.co.za',     occupation:'Psychiatrist',        sourceLabel:'Manual — Referral',       pipelineStatus:'Progressed',    agentName:'Thabo Molefe',    createdAt: new Date(Date.now()-86400000*21).toISOString() },
-    { id:'8', firstName:'Ruan',    lastName:'de Beer',    email:'r.debeer@medi.co.za',       occupation:'Dermatologist',       sourceLabel:'MedLeads SA — Monthly',   pipelineStatus:'InProgress',    agentName:'Naledi van Wyk',  createdAt: new Date(Date.now()-86400000*28).toISOString() },
-    { id:'9', firstName:'Zanele',  lastName:'Dube',       email:'z.dube@charlotte.co.za',    occupation:'Gynaecologist',       sourceLabel:'Wits Career Fair 2026',   pipelineStatus:'ClosedLost',    agentName:'Kabelo Petersen', createdAt: new Date(Date.now()-86400000*30).toISOString() },
-    { id:'10',firstName:'Marco',   lastName:'Ferreira',   email:'m.ferreira@netcare.co.za',  occupation:'Neurologist',         sourceLabel:'MedLeads SA — Monthly',   pipelineStatus:'Assigned',      agentName:'Bongani Ntuli',   createdAt: new Date(Date.now()-86400000*30).toISOString() },
+    { id:'1',  firstName:'Priya',  lastName:'Naidoo',     email:'p.naidoo@netcare.co.za',   occupation:'Anaesthesiologist',   sourceLabel:'Wits Career Fair 2026',   pipelineStatus:'InProgress',    agentName:'Thabo Molefe',    createdAt: new Date(Date.now()-86400000*2).toISOString()  },
+    { id:'2',  firstName:'Sipho',  lastName:'Dlamini',    email:'s.dlamini@wits.ac.za',     occupation:'General Practitioner',sourceLabel:'Wits Career Fair 2026',   pipelineStatus:'InProgress',    agentName:'Naledi van Wyk',  createdAt: new Date(Date.now()-86400000*4).toISOString()  },
+    { id:'3',  firstName:'Amara',  lastName:'Osei',       email:'a.osei@mediclinic.co.za',  occupation:'Cardiologist',        sourceLabel:'MedLeads SA — Monthly',   pipelineStatus:'ClosedWon',     agentName:'Kabelo Petersen', createdAt: new Date(Date.now()-86400000*7).toISOString()  },
+    { id:'4',  firstName:'Lerato', lastName:'Mokoena',    email:'l.mokoena@life.co.za',     occupation:'Orthopaedic Surgeon', sourceLabel:'Manual — Referral',       pipelineStatus:'Assigned',      agentName:'Bongani Ntuli',   createdAt: new Date(Date.now()-86400000*7).toISOString()  },
+    { id:'5',  firstName:'James',  lastName:'van Rooyen', email:'j.vanrooyen@uhw.co.za',    occupation:'Radiologist',         sourceLabel:'Healthwise Doctor DB',    pipelineStatus:'Uncontactable', agentName:'Siphiwe Mahlangu',createdAt: new Date(Date.now()-86400000*14).toISOString() },
+    { id:'6',  firstName:'Fatima', lastName:'Essop',      email:'f.essop@groote.co.za',     occupation:'Paediatrician',       sourceLabel:'SA Medical Register Q2',  pipelineStatus:'Unassigned',    agentName:'—',               createdAt: new Date(Date.now()-86400000*21).toISOString() },
+    { id:'7',  firstName:'Ayesha', lastName:'Moosa',      email:'a.moosa@sunward.co.za',    occupation:'Psychiatrist',        sourceLabel:'Manual — Referral',       pipelineStatus:'Progressed',    agentName:'Thabo Molefe',    createdAt: new Date(Date.now()-86400000*21).toISOString() },
+    { id:'8',  firstName:'Ruan',   lastName:'de Beer',    email:'r.debeer@medi.co.za',      occupation:'Dermatologist',       sourceLabel:'MedLeads SA — Monthly',   pipelineStatus:'InProgress',    agentName:'Naledi van Wyk',  createdAt: new Date(Date.now()-86400000*28).toISOString() },
+    { id:'9',  firstName:'Zanele', lastName:'Dube',       email:'z.dube@charlotte.co.za',   occupation:'Gynaecologist',       sourceLabel:'Wits Career Fair 2026',   pipelineStatus:'ClosedLost',    agentName:'Kabelo Petersen', createdAt: new Date(Date.now()-86400000*30).toISOString() },
+    { id:'10', firstName:'Marco',  lastName:'Ferreira',   email:'m.ferreira@netcare.co.za', occupation:'Neurologist',         sourceLabel:'MedLeads SA — Monthly',   pipelineStatus:'Assigned',      agentName:'Bongani Ntuli',   createdAt: new Date(Date.now()-86400000*30).toISOString() },
   ],
 };
 
+// ─── Reassign Lead Modal ──────────────────────────────────────────────────────
+function ReassignLeadModal({ lead, onClose }) {
+  const currentAgent = lead.agentName && lead.agentName !== '—' ? lead.agentName : '';
+  const [agent, setAgent] = useState(currentAgent);
+  const [saved, setSaved] = useState(false);
+
+  function handleSave() {
+    setSaved(true);
+    setTimeout(onClose, 900);
+  }
+
+  return (
+    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ ...s.modal, width: '380px' }}>
+        <div style={s.modalHeader}>
+          <h2 style={s.modalTitle}>Reassign Lead</h2>
+          <button style={s.closeBtn} onClick={onClose}>✕</button>
+        </div>
+        <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '16px' }}>
+          {lead.firstName} {lead.lastName}
+          {currentAgent ? <> · Currently assigned to <strong>{currentAgent}</strong></> : ' · Currently unassigned'}
+        </p>
+        {saved && (
+          <div style={{ ...s.noticeSuccess, marginBottom: '12px' }}>✓ Lead reassigned successfully.</div>
+        )}
+        <div style={s.formGroup}>
+          <label style={s.formLabel}>Assign to agent</label>
+          <select style={s.formInput} value={agent} onChange={e => setAgent(e.target.value)}>
+            <option value="">— Unassigned —</option>
+            {AGENTS.map(a => <option key={a} value={a}>{a}</option>)}
+          </select>
+        </div>
+        <div style={s.modalFooter}>
+          <button style={s.ghostBtn} onClick={onClose}>Cancel</button>
+          <button style={s.primaryBtn} onClick={handleSave} disabled={saved}>
+            {saved ? 'Saved ✓' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main page ────────────────────────────────────────────────────────────────
 export default function LeadList() {
   const navigate = useNavigate();
   const { role, persona } = useRole();
+  const { flag } = useFlags();
 
   const isAdmin      = role === 'Admin' || role === 'GlobalAdmin';
   const isSupervisor = role === 'Supervisor';
   const isAgent      = role === 'Agent';
+  const canReassign  = isAdmin || isSupervisor;
 
-  const { flag } = useFlags();
-  const showImport = flag('leads.importCsv.enabled') || flag('leads.importSubscription.enabled');
+  const showImport        = (flag('leads.importCsv.enabled') || flag('leads.importSubscription.enabled')) && (isAdmin || isSupervisor);
+  const showOccupationFilter = flag('leads.occupationFilter.enabled');
 
-  const [activeStatus, setActiveStatus] = useState('All');
-  const [search,       setSearch]       = useState('');
-  const [agentFilter,  setAgentFilter]  = useState('');
-  const [occFilter,    setOccFilter]    = useState('');
-  const [page,         setPage]         = useState(1);
+  const [activeStatus,   setActiveStatus]   = useState('All');
+  const [search,         setSearch]         = useState('');
+  const [agentFilter,    setAgentFilter]    = useState('');
+  const [occFilter,      setOccFilter]      = useState('');
+  const [page,           setPage]           = useState(1);
+  const [reassignTarget, setReassignTarget] = useState(null);
   const pageSize = 25;
 
   useEffect(() => { setPage(1); }, [activeStatus, search, agentFilter, occFilter]);
 
   const apiParams = {
     ...(activeStatus !== 'All' ? { status: activeStatus } : {}),
-    // Always exclude AppointmentBooked from the leads list
     excludeStatuses: EXCLUDED_STATUSES.join(','),
     ...(search       ? { search }                         : {}),
     ...(isAgent      ? { agentId: persona.id }            : {}),
     ...(isSupervisor ? { supervisorId: persona.id }       : {}),
     ...(isAdmin && agentFilter ? { agentId: agentFilter } : {}),
     ...(occFilter    ? { occupation: occFilter }          : {}),
-    page,
-    pageSize,
+    page, pageSize,
   };
 
   const { data: apiData, loading, error, refetch } = useFetch(
@@ -82,7 +135,7 @@ export default function LeadList() {
     [activeStatus, search, agentFilter, occFilter, page]
   );
 
-  // Preview mode: apply client-side filtering on mock data when API returns null
+  // Preview fallback — filter mock data client-side
   const data = apiData ?? (() => {
     let leads = MOCK_LEADS.leads.filter(l => {
       if (EXCLUDED_STATUSES.includes(l.pipelineStatus)) return false;
@@ -99,7 +152,6 @@ export default function LeadList() {
     return { total: leads.length, leads };
   })();
 
-  // Agent list for admin filter dropdown
   const { data: agentsData } = useFetch(
     () => isAdmin ? usersApi.list() : Promise.resolve(null),
     [isAdmin]
@@ -108,14 +160,12 @@ export default function LeadList() {
     ? (agentsData.users ?? agentsData).filter(u => u.role === 'Agent')
     : [];
 
-  const totalPages    = data ? Math.ceil(data.total / pageSize) : 0;
-  const hasFilter     = activeStatus !== 'All' || search || agentFilter || occFilter;
+  const totalPages = data ? Math.ceil(data.total / pageSize) : 0;
+  const hasFilter  = activeStatus !== 'All' || search || agentFilter || occFilter;
 
-  const subtitle = isAgent
-    ? 'Showing leads assigned to you'
-    : isSupervisor
-      ? 'Leads for your direct reports'
-      : 'All unassigned and in-progress leads';
+  const subtitle = isAgent      ? 'Showing leads assigned to you'
+                 : isSupervisor ? 'Leads for your direct reports'
+                 :                'All unassigned and in-progress leads';
 
   return (
     <div style={s.page}>
@@ -128,7 +178,7 @@ export default function LeadList() {
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button onClick={refetch} style={s.secondaryBtn}>Refresh</button>
-          {(isAdmin || isSupervisor) && showImport && (
+          {showImport && (
             <button onClick={() => navigate('/leads/import')} style={s.primaryBtn}>
               Import Leads
             </button>
@@ -139,7 +189,7 @@ export default function LeadList() {
       {/* Notices */}
       {isAgent && (
         <div style={{ ...s.noticeWarn, marginBottom: '14px' }}>
-          You are viewing leads assigned to you only. Contact your supervisor to reassign leads.
+          You are viewing leads assigned to you only.
         </div>
       )}
       {isSupervisor && (
@@ -164,10 +214,7 @@ export default function LeadList() {
               style={{
                 ...s.chip,
                 ...(isActive && status === 'All' ? s.chipActive : {}),
-                ...(isActive && status !== 'All' ? {
-                  background: meta.bg, color: meta.colour,
-                  borderColor: meta.border, fontWeight: 500,
-                } : {}),
+                ...(isActive && status !== 'All' ? { background: meta.bg, color: meta.colour, borderColor: meta.border, fontWeight: 500 } : {}),
               }}
             >
               {meta?.label ?? status}
@@ -176,51 +223,36 @@ export default function LeadList() {
         })}
       </div>
 
-      {/* Search + filters */}
+      {/* Filters */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
         <input
-          type="text"
-          placeholder="Search name or email…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          style={s.searchInput}
+          type="text" placeholder="Search name or email…" value={search}
+          onChange={e => setSearch(e.target.value)} style={s.searchInput}
         />
-        <select value={occFilter} onChange={e => setOccFilter(e.target.value)} style={s.select}>
-          <option value="">All occupations</option>
-          {OCCUPATIONS.map(o => <option key={o} value={o}>{o}</option>)}
-        </select>
+        {showOccupationFilter && (
+          <select value={occFilter} onChange={e => setOccFilter(e.target.value)} style={s.select}>
+            <option value="">All occupations</option>
+            {OCCUPATIONS.map(o => <option key={o} value={o}>{o}</option>)}
+          </select>
+        )}
         {isAdmin && (
           <select value={agentFilter} onChange={e => setAgentFilter(e.target.value)} style={s.select}>
             <option value="">All agents</option>
             {agents.length > 0
               ? agents.map(a => <option key={a.id} value={a.id}>{a.displayName}</option>)
-              : (
-                <>
-                  <option value="agent-001">Thabo Molefe</option>
-                  <option value="agent-002">Naledi van Wyk</option>
-                  <option value="agent-003">Kabelo Petersen</option>
-                  <option value="agent-004">Bongani Ntuli</option>
-                  <option value="agent-005">Siphiwe Mahlangu</option>
-                </>
-              )
+              : AGENTS.map(a => <option key={a} value={a}>{a}</option>)
             }
           </select>
         )}
         {hasFilter && (
-          <button
-            onClick={() => { setActiveStatus('All'); setSearch(''); setAgentFilter(''); setOccFilter(''); }}
-            style={s.ghostBtn}
-          >
+          <button onClick={() => { setActiveStatus('All'); setSearch(''); setAgentFilter(''); setOccFilter(''); }} style={s.ghostBtn}>
             ✕ Clear filters
           </button>
         )}
       </div>
 
       {loading && <p style={{ color: '#6b7280', fontSize: '0.875rem' }}>Loading leads…</p>}
-
-      {error && (
-        <div style={s.errorBox}>Could not load leads: {error.message}</div>
-      )}
+      {error && <div style={s.errorBox}>Could not load leads: {error.message}</div>}
 
       {!loading && !error && data && (
         <>
@@ -256,12 +288,9 @@ export default function LeadList() {
                 {data.leads.map(lead => {
                   const sm = STATUS_META[lead.pipelineStatus] ?? STATUS_META.Unassigned;
                   return (
-                    <tr
-                      key={lead.id}
-                      style={s.tr}
+                    <tr key={lead.id} style={s.tr}
                       onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'white'}
-                    >
+                      onMouseLeave={e => e.currentTarget.style.background = 'white'}>
                       <td style={s.td}>
                         <div style={{ fontWeight: 500 }}>{lead.firstName} {lead.lastName}</div>
                         <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '1px' }}>{lead.email}</div>
@@ -279,14 +308,20 @@ export default function LeadList() {
                         </td>
                       )}
                       <td style={{ ...s.td, color: '#9ca3af', fontSize: '0.75rem' }}>
-                        {lead.createdAt
-                          ? formatDistanceToNow(new Date(lead.createdAt), { addSuffix: true })
-                          : '—'}
+                        {lead.createdAt ? formatDistanceToNow(new Date(lead.createdAt), { addSuffix: true }) : '—'}
                       </td>
-                      <td style={s.td}>
+                      <td style={{ ...s.td, whiteSpace: 'nowrap' }}>
                         <button onClick={() => navigate(`/leads/${lead.id}`)} style={s.linkBtn}>
                           View →
                         </button>
+                        {canReassign && (
+                          <button
+                            onClick={() => setReassignTarget(lead)}
+                            style={{ ...s.linkBtn, color: '#6b7280', marginLeft: '4px' }}
+                          >
+                            Reassign
+                          </button>
+                        )}
                       </td>
                     </tr>
                   );
@@ -303,6 +338,14 @@ export default function LeadList() {
             </div>
           )}
         </>
+      )}
+
+      {/* Reassign modal */}
+      {reassignTarget && (
+        <ReassignLeadModal
+          lead={reassignTarget}
+          onClose={() => setReassignTarget(null)}
+        />
       )}
     </div>
   );
