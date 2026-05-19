@@ -1,0 +1,28 @@
+{
+  "name": "medbroker-api",
+  "version": "1.0.0",
+  "description": "MedBroker Lead Management System — Azure Functions v4 backend",
+  "type": "module",
+  "scripts": {
+    "start": "func start",
+    "start:dev": "func start --verbose",
+    "lint": "eslint src/",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@azure/functions": "^4.5.0",
+    "@azure/identity": "^4.4.0",
+    "@azure/keyvault-secrets": "^4.8.0",
+    "mssql": "^11.0.1",
+    "zod": "^3.23.8",
+    "pino": "^9.4.0",
+    "node-fetch": "^3.3.2"
+  },
+  "devDependencies": {
+    "vitest": "^2.0.0",
+    "eslint": "^9.0.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}

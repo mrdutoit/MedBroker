@@ -1,0 +1,69 @@
+/**
+ * config.js
+ * Centralised environment configuration for the MedBroker API.
+ * All process.env access must go through this module — never read env vars directly elsewhere.
+ * Fails fast at startup if any required variable is missing.
+ */
+
+const required = (key) => {
+  const value = process.env[key];
+  if (!value) throw new Error(`Missing required environment variable: ${key}`);
+  return value;
+};
+
+const optional = (key, defaultValue = undefined) => process.env[key] ?? defaultValue;
+
+export const config = {
+  // Azure SQL Database
+  db: {
+    server:   required('DB_SERVER'),
+    database: required('DB_NAME'),
+    port:     parseInt(optional('DB_PORT', '1433'), 10),
+    // Managed Identity is used in production — no username/password needed.
+    // For local dev, set DB_USE_PASSWORD=true and supply DB_USER + DB_PASSWORD.
+    usePassword: optional('DB_USE_PASSWORD', 'false') === 'true',
+    user:     optional('DB_USER'),
+    password: optional('DB_PASSWORD'),
+  },
+
+  // Azure Key Vault — used to retrieve the field-level encryption key for ID numbers
+  keyVault: {
+    url:          required('KEY_VAULT_URL'),
+    encKeyName:   optional('KEY_VAULT_ENC_KEY_NAME', 'lead-id-number-key'),
+  },
+
+  // Azure Entra ID External — JWT validation
+  auth: {
+    tenantId:   required('ENTRA_TENANT_ID'),
+    clientId:   required('ENTRA_CLIENT_ID'),
+    authority:  optional('ENTRA_AUTHORITY'), // e.g. https://login.microsoftonline.com/{tenantId}
+  },
+
+  // Calendly integration
+  calendly: {
+    apiToken:    optional('CALENDLY_API_TOKEN'),
+    baseUrl:     optional('CALENDLY_BASE_URL', 'https://api.calendly.com'),
+  },
+
+  // Zoho CRM integration
+  zoho: {
+    clientId:     optional('ZOHO_CLIENT_ID'),
+    clientSecret: optional('ZOHO_CLIENT_SECRET'),
+    refreshToken: optional('ZOHO_REFRESH_TOKEN'),
+    baseUrl:      optional('ZOHO_BASE_URL', 'https://www.zohoapis.com/crm/v3'),
+  },
+
+  // Azure Communication Services — email and SMS notifications
+  comms: {
+    connectionString: optional('ACS_CONNECTION_STRING'),
+    senderEmail:      optional('ACS_SENDER_EMAIL', 'noreply@medbroker.co.za'),
+  },
+
+  // App settings
+  app: {
+    nodeEnv:             optional('NODE_ENV', 'development'),
+    maxCallAttempts:     parseInt(optional('MAX_CALL_ATTEMPTS', '3'), 10),
+    qrTokenExpiryHours: parseInt(optional('QR_TOKEN_EXPIRY_HOURS', '720'), 10),
+    frontendOrigin:      optional('FRONTEND_ORIGIN', 'http://localhost:5173'),
+  },
+};
