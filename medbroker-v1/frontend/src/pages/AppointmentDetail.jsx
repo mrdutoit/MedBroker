@@ -379,11 +379,19 @@ export default function AppointmentDetail() {
 
         {outcomeSaved && (
           <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '8px 12px', fontSize: '0.875rem', color: '#15803d', marginBottom: '8px' }}>
-            ✓ Outcome saved.
+            ✓ Outcome saved. Appointment status updated to{' '}
+            <strong>{appt.customerSigned === true ? 'Closed Won' : appt.customerSigned === false ? 'Closed Lost' : 'In Progress'}</strong>.
           </div>
         )}
         <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button style={btnStyle.primary} onClick={() => { setOutcomeSaved(true); setTimeout(() => setOutcomeSaved(false), 2000); }}>
+          <button style={btnStyle.primary} onClick={() => {
+            // Update appointment status based on outcome
+            if (appt.customerSigned === true)  setAppt(prev => ({ ...prev, status: 'ClosedWon'  }));
+            if (appt.customerSigned === false) setAppt(prev => ({ ...prev, status: 'ClosedLost' }));
+            if (appt.customerSigned === null)  setAppt(prev => ({ ...prev, status: 'InProgress' }));
+            setOutcomeSaved(true);
+            setTimeout(() => setOutcomeSaved(false), 3000);
+          }}>
             Save Outcome
           </button>
         </div>

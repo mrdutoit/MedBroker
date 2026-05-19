@@ -11,28 +11,25 @@ import { leadsApi } from '../services/api.js';
 import { formatDistanceToNow, format } from 'date-fns';
 
 const STATUS_COLOURS = {
-  Unassigned:        { bg: '#f3f4f6', text: '#6b7280', border: '#e5e7eb' },
-  Assigned:          { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
-  InProgress:        { bg: '#fffbeb', text: '#d97706', border: '#fde68a' },
-  AppointmentBooked: { bg: '#f5f3ff', text: '#7c3aed', border: '#ddd6fe' },
-  Progressed:        { bg: '#ecfeff', text: '#0891b2', border: '#a5f3fc' },
-  ClosedWon:         { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' },
-  ClosedLost:        { bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },
-  Uncontactable:     { bg: '#f9fafb', text: '#9ca3af', border: '#e5e7eb' },
+  Unassigned:           { bg: '#f3f4f6', text: '#6b7280', border: '#e5e7eb' },
+  Assigned:             { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
+  InProgress:           { bg: '#fffbeb', text: '#d97706', border: '#fde68a' },
+  AppointmentScheduled: { bg: '#f5f3ff', text: '#7c3aed', border: '#ddd6fe' },
+  Closed:               { bg: '#f3f4f6', text: '#6b7280', border: '#e5e7eb' },
 };
 
 const CALL_OUTCOMES = [
   'NoAnswer', 'Voicemail', 'WrongNumber',
-  'CallbackRequested', 'NotInterested', 'AppointmentBooked',
+  'CallbackRequested', 'NotInterested', 'AppointmentScheduled',
 ];
 
 const OUTCOME_COLOURS = {
-  NoAnswer:           { bg: '#f3f4f6', text: '#6b7280' },
-  Voicemail:          { bg: '#f3f4f6', text: '#6b7280' },
-  WrongNumber:        { bg: '#fef2f2', text: '#dc2626' },
-  CallbackRequested:  { bg: '#fffbeb', text: '#d97706' },
-  NotInterested:      { bg: '#fef2f2', text: '#dc2626' },
-  AppointmentBooked:  { bg: '#f5f3ff', text: '#7c3aed' },
+  NoAnswer:              { bg: '#f3f4f6', text: '#6b7280' },
+  Voicemail:             { bg: '#f3f4f6', text: '#6b7280' },
+  WrongNumber:           { bg: '#fef2f2', text: '#dc2626' },
+  CallbackRequested:     { bg: '#fffbeb', text: '#d97706' },
+  NotInterested:         { bg: '#fef2f2', text: '#dc2626' },
+  AppointmentScheduled:  { bg: '#f5f3ff', text: '#7c3aed' },
 };
 
 // Mock call attempts for preview
@@ -91,10 +88,9 @@ export default function LeadDetail() {
     }
   }
 
-  const status = bookingConfirmed ? 'AppointmentBooked' : (displayLead?.pipelineStatus ?? 'Unassigned');
+  const status = bookingConfirmed ? 'AppointmentScheduled' : (displayLead?.pipelineStatus ?? 'Unassigned');
   const sc = STATUS_COLOURS[status] ?? STATUS_COLOURS.Unassigned;
-  // Lead has been converted to an Appointment — mirrors the Salesforce Lead→Opportunity pattern
-  const isConverted = status === 'AppointmentBooked';
+  const isConverted = status === 'AppointmentScheduled';
 
   return (
     <div style={{ padding: '24px', maxWidth: '960px' }}>
@@ -236,7 +232,7 @@ export default function LeadDetail() {
                   />
                 </div>
               )}
-              {callForm.outcome === 'AppointmentBooked' && (
+              {callForm.outcome === 'AppointmentScheduled' && (
                 <div style={{ borderTop: '1px solid #e5e7eb', paddingTop: '14px', marginTop: '4px' }}>
                   <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#374151', marginBottom: '12px' }}>Appointment Details</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
@@ -352,12 +348,12 @@ export default function LeadDetail() {
                    *
                    * In production this POST /api/appointments call:
                    *   1. Creates a new Appointment child record linked to this Lead (leadId FK)
-                   *   2. Sets Lead.pipelineStatus = 'AppointmentBooked' (server-side)
+                   *   2. Sets Lead.pipelineStatus = 'AppointmentScheduled' (server-side)
                    *   3. Returns the new Appointment ID
                    *
                    * The Lead is NOT deleted — it remains as the source of truth for
                    * the person's contact details and pipeline history.
-                   * The Appointments list queries WHERE Lead.pipelineStatus = 'AppointmentBooked'
+                   * The Appointments list queries WHERE Lead.pipelineStatus = 'AppointmentScheduled'
                    * and joins the Appointment child record for meeting/outcome data.
                    *
                    * In preview mode: update local UI state to reflect the conversion.

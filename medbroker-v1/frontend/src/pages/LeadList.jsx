@@ -22,7 +22,8 @@ import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { s, STATUS_META } from '../styles/tokens.js';
 const STATUS_CHIPS      = ['All', ...Object.keys(STATUS_META)];
-const EXCLUDED_STATUSES = ['AppointmentBooked'];
+// Leads with AppointmentScheduled are shown in Appointments, not here
+const EXCLUDED_STATUSES = ['AppointmentScheduled'];
 
 const OCCUPATIONS = [
   'Anaesthesiologist', 'Cardiologist', 'Dermatologist', 'General Practitioner',
@@ -47,16 +48,16 @@ const LEAD_SOURCES = [
 const MOCK_LEADS = {
   total: 10,
   leads: [
-    { id:'1',  firstName:'Priya',  lastName:'Naidoo',     email:'p.naidoo@netcare.co.za',   occupation:'Anaesthesiologist',   sourceLabel:'Wits Career Fair 2026',   pipelineStatus:'InProgress',    agentName:'Thabo Molefe',    createdAt: new Date(Date.now()-86400000*2).toISOString()  },
-    { id:'2',  firstName:'Sipho',  lastName:'Dlamini',    email:'s.dlamini@wits.ac.za',     occupation:'General Practitioner',sourceLabel:'Wits Career Fair 2026',   pipelineStatus:'InProgress',    agentName:'Naledi van Wyk',  createdAt: new Date(Date.now()-86400000*4).toISOString()  },
-    { id:'3',  firstName:'Amara',  lastName:'Osei',       email:'a.osei@mediclinic.co.za',  occupation:'Cardiologist',        sourceLabel:'MedLeads SA — Monthly',   pipelineStatus:'ClosedWon',     agentName:'Kabelo Petersen', createdAt: new Date(Date.now()-86400000*7).toISOString()  },
-    { id:'4',  firstName:'Lerato', lastName:'Mokoena',    email:'l.mokoena@life.co.za',     occupation:'Orthopaedic Surgeon', sourceLabel:'Manual — Referral',       pipelineStatus:'Assigned',      agentName:'Bongani Ntuli',   createdAt: new Date(Date.now()-86400000*7).toISOString()  },
-    { id:'5',  firstName:'James',  lastName:'van Rooyen', email:'j.vanrooyen@uhw.co.za',    occupation:'Radiologist',         sourceLabel:'Healthwise Doctor DB',    pipelineStatus:'Uncontactable', agentName:'Siphiwe Mahlangu',createdAt: new Date(Date.now()-86400000*14).toISOString() },
-    { id:'6',  firstName:'Fatima', lastName:'Essop',      email:'f.essop@groote.co.za',     occupation:'Paediatrician',       sourceLabel:'SA Medical Register Q2',  pipelineStatus:'Unassigned',    agentName:'—',               createdAt: new Date(Date.now()-86400000*21).toISOString() },
-    { id:'7',  firstName:'Ayesha', lastName:'Moosa',      email:'a.moosa@sunward.co.za',    occupation:'Psychiatrist',        sourceLabel:'Manual — Referral',       pipelineStatus:'Progressed',    agentName:'Thabo Molefe',    createdAt: new Date(Date.now()-86400000*21).toISOString() },
-    { id:'8',  firstName:'Ruan',   lastName:'de Beer',    email:'r.debeer@medi.co.za',      occupation:'Dermatologist',       sourceLabel:'MedLeads SA — Monthly',   pipelineStatus:'InProgress',    agentName:'Naledi van Wyk',  createdAt: new Date(Date.now()-86400000*28).toISOString() },
-    { id:'9',  firstName:'Zanele', lastName:'Dube',       email:'z.dube@charlotte.co.za',   occupation:'Gynaecologist',       sourceLabel:'Wits Career Fair 2026',   pipelineStatus:'ClosedLost',    agentName:'Kabelo Petersen', createdAt: new Date(Date.now()-86400000*30).toISOString() },
-    { id:'10', firstName:'Marco',  lastName:'Ferreira',   email:'m.ferreira@netcare.co.za', occupation:'Neurologist',         sourceLabel:'MedLeads SA — Monthly',   pipelineStatus:'Assigned',      agentName:'Bongani Ntuli',   createdAt: new Date(Date.now()-86400000*30).toISOString() },
+    { id:'1',  firstName:'Priya',  lastName:'Naidoo',     email:'p.naidoo@netcare.co.za',   occupation:'Anaesthesiologist',   sourceLabel:'Wits Career Fair 2026',   pipelineStatus:'InProgress',           agentName:'Thabo Molefe',    createdAt: new Date(Date.now()-86400000*2).toISOString()  },
+    { id:'2',  firstName:'Sipho',  lastName:'Dlamini',    email:'s.dlamini@wits.ac.za',     occupation:'General Practitioner',sourceLabel:'Wits Career Fair 2026',   pipelineStatus:'InProgress',           agentName:'Naledi van Wyk',  createdAt: new Date(Date.now()-86400000*4).toISOString()  },
+    { id:'3',  firstName:'Amara',  lastName:'Osei',       email:'a.osei@mediclinic.co.za',  occupation:'Cardiologist',        sourceLabel:'MedLeads SA — Monthly',   pipelineStatus:'Closed',               agentName:'Kabelo Petersen', createdAt: new Date(Date.now()-86400000*7).toISOString()  },
+    { id:'4',  firstName:'Lerato', lastName:'Mokoena',    email:'l.mokoena@life.co.za',     occupation:'Orthopaedic Surgeon', sourceLabel:'Manual — Referral',       pipelineStatus:'Assigned',             agentName:'Bongani Ntuli',   createdAt: new Date(Date.now()-86400000*7).toISOString()  },
+    { id:'5',  firstName:'James',  lastName:'van Rooyen', email:'j.vanrooyen@uhw.co.za',    occupation:'Radiologist',         sourceLabel:'Healthwise Doctor DB',    pipelineStatus:'Closed',               agentName:'Siphiwe Mahlangu',createdAt: new Date(Date.now()-86400000*14).toISOString() },
+    { id:'6',  firstName:'Fatima', lastName:'Essop',      email:'f.essop@groote.co.za',     occupation:'Paediatrician',       sourceLabel:'SA Medical Register Q2',  pipelineStatus:'Unassigned',           agentName:'—',               createdAt: new Date(Date.now()-86400000*21).toISOString() },
+    { id:'7',  firstName:'Ayesha', lastName:'Moosa',      email:'a.moosa@sunward.co.za',    occupation:'Psychiatrist',        sourceLabel:'Manual — Referral',       pipelineStatus:'InProgress',           agentName:'Thabo Molefe',    createdAt: new Date(Date.now()-86400000*21).toISOString() },
+    { id:'8',  firstName:'Ruan',   lastName:'de Beer',    email:'r.debeer@medi.co.za',      occupation:'Dermatologist',       sourceLabel:'MedLeads SA — Monthly',   pipelineStatus:'InProgress',           agentName:'Naledi van Wyk',  createdAt: new Date(Date.now()-86400000*28).toISOString() },
+    { id:'9',  firstName:'Zanele', lastName:'Dube',       email:'z.dube@charlotte.co.za',   occupation:'Gynaecologist',       sourceLabel:'Wits Career Fair 2026',   pipelineStatus:'Closed',               agentName:'Kabelo Petersen', createdAt: new Date(Date.now()-86400000*30).toISOString() },
+    { id:'10', firstName:'Marco',  lastName:'Ferreira',   email:'m.ferreira@netcare.co.za', occupation:'Neurologist',         sourceLabel:'MedLeads SA — Monthly',   pipelineStatus:'Assigned',             agentName:'Bongani Ntuli',   createdAt: new Date(Date.now()-86400000*30).toISOString() },
   ],
 };
 

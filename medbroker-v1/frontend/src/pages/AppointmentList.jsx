@@ -44,14 +44,14 @@ const ALL_APPOINTMENTS = [
     firstDate:'Tomorrow · 14:00', isToday:false, m1:'Pending',    m2:null,          signed:null  },
   { id:'A3', leadName:'Dr Amara Osei',       leadEmail:'a.osei@mediclinic.co.za',
     occupation:'Cardiologist',        portfolio:'M&M',
-    source:'MedLeads SA — Monthly',    status:'Assigned',   brokerCode:'SB',
+    source:'MedLeads SA — Monthly',    status:'ClosedWon',  brokerCode:'SB',
     brokerName:'Sandra van der Berg',  agentName:'Kabelo Petersen',
-    firstDate:'14 May 2026',      isToday:false, m1:'Seen',       m2:'Rescheduled', signed:'Yes' },
+    firstDate:'14 May 2026',      isToday:false, m1:'Seen',       m2:'Seen',        signed:'Yes' },
   { id:'A4', leadName:'Dr Lerato Mokoena',   leadEmail:'l.mokoena@life.co.za',
     occupation:'Orthopaedic Surgeon', portfolio:'Discovery',
-    source:'Manual — Referral',        status:'Assigned',   brokerCode:'SB',
+    source:'Manual — Referral',        status:'InProgress', brokerCode:'SB',
     brokerName:'Sandra van der Berg',  agentName:'Thabo Molefe',
-    firstDate:'21 May 2026',      isToday:false, m1:'Pending',    m2:null,          signed:null  },
+    firstDate:'21 May 2026',      isToday:false, m1:'Seen',       m2:null,          signed:null  },
   { id:'A5', leadName:'Dr James van Rooyen', leadEmail:'j.vanrooyen@uhw.co.za',
     occupation:'Radiologist',         portfolio:'Discovery',
     source:'Healthwise Doctor DB',     status:'Assigned',   brokerCode:'PJ',
@@ -64,9 +64,9 @@ const ALL_APPOINTMENTS = [
     firstDate:'23 May 2026',      isToday:false, m1:'Pending',    m2:null,          signed:null  },
   { id:'A7', leadName:'Dr Marco Ferreira',   leadEmail:'m.ferreira@netcare.co.za',
     occupation:'Neurologist',         portfolio:'M&M',
-    source:'MedLeads SA — Monthly',    status:'Assigned',   brokerCode:'RB',
+    source:'MedLeads SA — Monthly',    status:'ClosedLost', brokerCode:'RB',
     brokerName:'Riaan Botha',          agentName:'Naledi van Wyk',
-    firstDate:'24 May 2026',      isToday:false, m1:'Cancelled',  m2:null,          signed:'No'  },
+    firstDate:'24 May 2026',      isToday:false, m1:'Seen',       m2:'Seen',        signed:'No'  },
   { id:'A8', leadName:'Dr Zanele Dube',      leadEmail:'z.dube@charlotte.co.za',
     occupation:'Gynaecologist',       portfolio:'Discovery',
     source:'Wits Career Fair 2026',    status:'Unassigned', brokerCode:'',
@@ -301,10 +301,10 @@ export default function AppointmentList() {
 
   const filtered = ALL_APPOINTMENTS.filter(a => {
     if (isBroker && a.brokerCode !== 'SB') return false;
-    if (statusFilter === 'Unassigned' && a.status !== 'Unassigned') return false;
-    if (statusFilter === 'Assigned'   && a.status !== 'Assigned')   return false;
-    if (statusFilter === 'Today'      && !a.isToday)                return false;
-    if (statusFilter === 'Signed'     && a.signed !== 'Yes')        return false;
+    // Status chips — 'Today' is date-derived, others are status values
+    if (statusFilter === 'Today'      && !a.isToday)                              return false;
+    if (statusFilter !== 'All' && statusFilter !== 'Today'
+        && a.status !== statusFilter)                                              return false;
     if (sourceFilter    && a.source    !== sourceFilter)    return false;
     if (portfolioFilter && a.portfolio !== portfolioFilter) return false;
     if (brokerFilter    && a.brokerCode !== brokerFilter)   return false;
@@ -315,12 +315,13 @@ export default function AppointmentList() {
     return true;
   });
 
-  const myAppts    = isBroker ? MY_APPOINTMENTS : ALL_APPOINTMENTS;
-  const unassigned = myAppts.filter(a => a.status === 'Unassigned').length;
-  const assigned   = myAppts.filter(a => a.status === 'Assigned').length;
-  const todayCount = myAppts.filter(a => a.isToday).length;
-  const signedCount= myAppts.filter(a => a.signed === 'Yes').length;
-  const availCount = AVAILABLE_TO_CLAIM.filter(a => !claimedIds.has(a.id)).length;
+  const myAppts     = isBroker ? MY_APPOINTMENTS : ALL_APPOINTMENTS;
+  const unassigned  = myAppts.filter(a => a.status === 'Unassigned').length;
+  const assigned    = myAppts.filter(a => a.status === 'Assigned').length;
+  const inProgress  = myAppts.filter(a => a.status === 'InProgress').length;
+  const todayCount  = myAppts.filter(a => a.isToday).length;
+  const closedWon   = myAppts.filter(a => a.status === 'ClosedWon').length;
+  const availCount  = AVAILABLE_TO_CLAIM.filter(a => !claimedIds.has(a.id)).length;
   const hasFilter  = statusFilter !== 'All' || search || sourceFilter || portfolioFilter || brokerFilter;
 
   const subtitleMap = {
@@ -434,15 +435,28 @@ export default function AppointmentList() {
   }
 
   function FiltersBar() {
+    // Chips: All + the 5 appointment statuses + Today (date-derived, not a status)
+    const chips = ['All', 'Unassigned', 'Assigned', 'InProgress', 'ClosedWon', 'ClosedLost', 'Today'];
     return (
       <>
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
-          {['All','Unassigned','Assigned','Today','Signed'].map(st => (
-            <button key={st} onClick={() => setStatusFilter(st)}
-              style={{ ...s.chip, ...(statusFilter === st ? s.chipActive : {}) }}>
-              {st}
-            </button>
-          ))}
+          {chips.map(chip => {
+            const isActive = statusFilter === chip;
+            const meta = APPT_STATUS_META[chip];
+            return (
+              <button key={chip} onClick={() => setStatusFilter(chip)} style={{
+                ...s.chip,
+                ...(isActive && chip === 'All'   ? s.chipActive : {}),
+                ...(isActive && chip === 'Today' ? s.chipActive : {}),
+                ...(isActive && meta ? { background: meta.bg, color: meta.colour, borderColor: meta.border, fontWeight: 500 } : {}),
+              }}>
+                {chip === 'InProgress' ? 'In Progress'
+                  : chip === 'ClosedWon'  ? 'Closed Won'
+                  : chip === 'ClosedLost' ? 'Closed Lost'
+                  : chip}
+              </button>
+            );
+          })}
         </div>
         <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
           <input type="text" placeholder="Search lead name or email…"
@@ -583,7 +597,7 @@ export default function AppointmentList() {
                 {[
                   { label: 'Total assigned',    value: MY_APPOINTMENTS.length + claimedIds.size, colour: '#1d4ed8' },
                   { label: 'Today',             value: MY_APPOINTMENTS.filter(a => a.isToday).length, colour: '#d97706' },
-                  { label: 'Signed this month', value: MY_APPOINTMENTS.filter(a => a.signed === 'Yes').length, colour: '#15803d' },
+                  { label: 'Closed Won',        value: MY_APPOINTMENTS.filter(a => a.status === 'ClosedWon').length, colour: '#15803d' },
                 ].map(m => (
                   <div key={m.label} style={s.metricCard}>
                     <div style={{ fontSize: '0.688rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>{m.label}</div>
@@ -670,10 +684,10 @@ export default function AppointmentList() {
         <>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '12px', marginBottom: '16px' }}>
             {[
-              { label: isBroker ? 'My appointments' : 'Unassigned', value: isBroker ? assigned    : unassigned,  colour: '#d97706' },
-              { label: isBroker ? 'Today'           : 'Assigned',   value: isBroker ? todayCount  : assigned,    colour: '#1d4ed8' },
-              { label: 'Today',             value: todayCount,  colour: '#7c3aed' },
-              { label: 'Signed this month', value: signedCount, colour: '#15803d' },
+              { label: 'Unassigned',  value: unassigned,  colour: '#d97706' },
+              { label: 'Assigned',    value: assigned,    colour: '#1d4ed8' },
+              { label: 'In Progress', value: inProgress,  colour: '#0891b2' },
+              { label: 'Closed Won',  value: closedWon,   colour: '#15803d' },
             ].map(m => (
               <div key={m.label} style={s.metricCard}>
                 <div style={{ fontSize: '0.688rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>{m.label}</div>
