@@ -2,24 +2,25 @@
  * pages/AppointmentList.jsx
  *
  * Role behaviour:
- *   GlobalAdmin/Admin — all appointments, broker/source/portfolio filters, Reassign
- *   Supervisor        — direct reports only, Reassign
+ *   GlobalAdmin/Admin — all appointments, broker/source/portfolio filters
+ *                       Assign (assign model only) and Reassign (assign model only)
+ *   Supervisor        — direct reports only, same actions as Admin
  *   Agent             — appointments they booked
- *   Broker (assign)   — assigned appointments only, no claim tab
+ *   Broker (assign)   — assigned appointments only
  *   Broker (claim)    — two tabs: My Appointments | Available to Claim
  *
- * Feature flags consumed:
- *   appointments.claimModel     'assign' | 'claim'
- *   appointments.tokens.enabled token balance card in claim mode
+ * Feature flags:
+ *   appointments.claimModel       'assign' | 'claim'
+ *   appointments.tokens.enabled   token balance card
+ *   appointments.tokens.paymentProvider 'none' | 'stripe'
  *
- * Book Appointment does NOT exist here — only on Lead Detail.
- *
- * HOW TO TEST THE CLAIM MODEL:
- *   1. Switch to GlobalAdmin in the role switcher
- *   2. Go to Admin → Feature Flags
- *   3. Under Core, change "Appointment workflow" to "claim" and click Save
- *   4. Switch role to Broker
- *   5. Navigate to Appointments — you will see two tabs
+ * WORKFLOW RULES:
+ *   - An Appointment always has an Agent (set at booking time from Lead Detail).
+ *     The Agent field is read-only on the Assign Broker modal.
+ *   - In CLAIM model: Assign and Reassign buttons are hidden — brokers self-serve
+ *     via the Available to Claim tab.
+ *   - In ASSIGN model: Admin/Supervisor can assign a broker to Unassigned appointments
+ *     and reassign the broker on already-assigned ones.
  */
 
 import { useState } from 'react';
@@ -34,61 +35,58 @@ const ALL_APPOINTMENTS = [
   { id:'A1', leadName:'Dr Priya Naidoo',     leadEmail:'p.naidoo@netcare.co.za',
     occupation:'Anaesthesiologist',   portfolio:'Discovery',
     source:'Wits Career Fair 2026',    status:'Assigned',   brokerCode:'SB',
-    brokerName:'Sandra van der Berg',  agentName:'T. Molefe',
+    brokerName:'Sandra van der Berg',  agentName:'Thabo Molefe',
     firstDate:'Today · 10:00',    isToday:true,  m1:'Pending',    m2:null,          signed:null  },
   { id:'A2', leadName:'Dr Sipho Dlamini',    leadEmail:'s.dlamini@wits.ac.za',
     occupation:'General Practitioner',portfolio:'Discovery',
     source:'Wits Career Fair 2026',    status:'Unassigned', brokerCode:'',
-    brokerName:'—',                    agentName:'N. van Wyk',
+    brokerName:'—',                    agentName:'Naledi van Wyk',
     firstDate:'Tomorrow · 14:00', isToday:false, m1:'Pending',    m2:null,          signed:null  },
   { id:'A3', leadName:'Dr Amara Osei',       leadEmail:'a.osei@mediclinic.co.za',
     occupation:'Cardiologist',        portfolio:'M&M',
     source:'MedLeads SA — Monthly',    status:'Assigned',   brokerCode:'SB',
-    brokerName:'Sandra van der Berg',  agentName:'K. Petersen',
+    brokerName:'Sandra van der Berg',  agentName:'Kabelo Petersen',
     firstDate:'14 May 2026',      isToday:false, m1:'Seen',       m2:'Rescheduled', signed:'Yes' },
   { id:'A4', leadName:'Dr Lerato Mokoena',   leadEmail:'l.mokoena@life.co.za',
     occupation:'Orthopaedic Surgeon', portfolio:'Discovery',
     source:'Manual — Referral',        status:'Assigned',   brokerCode:'SB',
-    brokerName:'Sandra van der Berg',  agentName:'T. Molefe',
+    brokerName:'Sandra van der Berg',  agentName:'Thabo Molefe',
     firstDate:'21 May 2026',      isToday:false, m1:'Pending',    m2:null,          signed:null  },
   { id:'A5', leadName:'Dr James van Rooyen', leadEmail:'j.vanrooyen@uhw.co.za',
     occupation:'Radiologist',         portfolio:'Discovery',
     source:'Healthwise Doctor DB',     status:'Assigned',   brokerCode:'PJ',
-    brokerName:'Pieter Joubert',       agentName:'B. Ntuli',
+    brokerName:'Pieter Joubert',       agentName:'Bongani Ntuli',
     firstDate:'22 May 2026',      isToday:false, m1:'Pending',    m2:null,          signed:null  },
   { id:'A6', leadName:'Dr Ayesha Moosa',     leadEmail:'a.moosa@sunward.co.za',
     occupation:'Psychiatrist',        portfolio:'M&M',
     source:'Manual — Referral',        status:'Unassigned', brokerCode:'',
-    brokerName:'—',                    agentName:'T. Molefe',
+    brokerName:'—',                    agentName:'Thabo Molefe',
     firstDate:'23 May 2026',      isToday:false, m1:'Pending',    m2:null,          signed:null  },
   { id:'A7', leadName:'Dr Marco Ferreira',   leadEmail:'m.ferreira@netcare.co.za',
     occupation:'Neurologist',         portfolio:'M&M',
     source:'MedLeads SA — Monthly',    status:'Assigned',   brokerCode:'RB',
-    brokerName:'Riaan Botha',          agentName:'N. van Wyk',
+    brokerName:'Riaan Botha',          agentName:'Naledi van Wyk',
     firstDate:'24 May 2026',      isToday:false, m1:'Cancelled',  m2:null,          signed:'No'  },
   { id:'A8', leadName:'Dr Zanele Dube',      leadEmail:'z.dube@charlotte.co.za',
     occupation:'Gynaecologist',       portfolio:'Discovery',
     source:'Wits Career Fair 2026',    status:'Unassigned', brokerCode:'',
-    brokerName:'—',                    agentName:'K. Petersen',
+    brokerName:'—',                    agentName:'Kabelo Petersen',
     firstDate:'25 May 2026',      isToday:false, m1:'Pending',    m2:null,          signed:null  },
 ];
 
-// Appointments available for brokers to claim (unassigned, matched to broker region/portfolio)
+// Unassigned appointments matched to Sandra van der Berg's region and portfolios
 const AVAILABLE_TO_CLAIM = [
-  { id:'C1', leadName:'Dr Sipho Dlamini',    occupation:'General Practitioner', portfolio:'Discovery', date:'Tomorrow · 14:00', region:'Gauteng',  source:'Wits Career Fair 2026',  token:'Free'    },
-  { id:'C2', leadName:'Dr Fatima Essop',     occupation:'Paediatrician',        portfolio:'Discovery', date:'22 May · 09:30',  region:'Gauteng',  source:'SA Medical Register Q2', token:'Free'    },
-  { id:'C3', leadName:'Dr Marco Ferreira',   occupation:'Neurologist',          portfolio:'M&M',       date:'23 May · 11:00',  region:'Gauteng',  source:'MedLeads SA — Monthly',  token:'Free'    },
-  { id:'C4', leadName:'Dr Zanele Dube',      occupation:'Gynaecologist',        portfolio:'Discovery', date:'25 May · 14:00',  region:'Limpopo',  source:'Wits Career Fair 2026',  token:'1 token' },
-  { id:'C5', leadName:'Dr Ruan de Beer',     occupation:'Dermatologist',        portfolio:'Discovery', date:'27 May · 10:00',  region:'Gauteng',  source:'MedLeads SA — Monthly',  token:'1 token' },
+  { id:'C1', leadName:'Dr Sipho Dlamini',  occupation:'General Practitioner', portfolio:'Discovery', date:'Tomorrow · 14:00', region:'Gauteng',  source:'Wits Career Fair 2026',  token:'Free'    },
+  { id:'C2', leadName:'Dr Fatima Essop',   occupation:'Paediatrician',        portfolio:'Discovery', date:'22 May · 09:30',  region:'Gauteng',  source:'SA Medical Register Q2', token:'Free'    },
+  { id:'C3', leadName:'Dr Marco Ferreira', occupation:'Neurologist',          portfolio:'M&M',       date:'23 May · 11:00',  region:'Gauteng',  source:'MedLeads SA — Monthly',  token:'Free'    },
+  { id:'C4', leadName:'Dr Zanele Dube',    occupation:'Gynaecologist',        portfolio:'Discovery', date:'25 May · 14:00',  region:'Limpopo',  source:'Wits Career Fair 2026',  token:'1 token' },
+  { id:'C5', leadName:'Dr Ruan de Beer',   occupation:'Dermatologist',        portfolio:'Discovery', date:'27 May · 10:00',  region:'Gauteng',  source:'MedLeads SA — Monthly',  token:'1 token' },
 ];
 
-// Sandra van der Berg's assigned appointments
 const MY_APPOINTMENTS = ALL_APPOINTMENTS.filter(a => a.brokerCode === 'SB');
-
-const SOURCES     = [...new Set(ALL_APPOINTMENTS.map(a => a.source))].sort();
-const PORTFOLIOS  = ['Discovery', 'M&M'];
-const AGENTS      = ['Thabo Molefe','Naledi van Wyk','Kabelo Petersen','Bongani Ntuli','Siphiwe Mahlangu'];
-const BROKERS     = ['Sandra van der Berg','Pieter Joubert','Riaan Botha','Marelize Swart'];
+const SOURCES         = [...new Set(ALL_APPOINTMENTS.map(a => a.source))].sort();
+const PORTFOLIOS      = ['Discovery', 'M&M'];
+const BROKERS         = ['Sandra van der Berg','Pieter Joubert','Riaan Botha','Marelize Swart'];
 
 // ─── Badge helpers ─────────────────────────────────────────────────────────────
 function MeetingBadge({ status }) {
@@ -98,45 +96,112 @@ function MeetingBadge({ status }) {
 }
 function SignedBadge({ signed }) {
   if (!signed) return <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>—</span>;
-  return (
-    <span style={{ ...s.badge, fontSize: '0.688rem',
-      background: signed === 'Yes' ? '#f0fdf4' : '#fef2f2',
-      color:      signed === 'Yes' ? '#15803d' : '#dc2626' }}>
-      {signed}
-    </span>
-  );
+  return <span style={{ ...s.badge, fontSize: '0.688rem', background: signed === 'Yes' ? '#f0fdf4' : '#fef2f2', color: signed === 'Yes' ? '#15803d' : '#dc2626' }}>{signed}</span>;
 }
 function PortfolioBadge({ portfolio }) {
   const meta = PORTFOLIO_META[portfolio] ?? { colour: '#6b7280', bg: '#f3f4f6' };
   return <span style={{ ...s.badge, background: meta.bg, color: meta.colour, fontSize: '0.688rem' }}>{portfolio}</span>;
 }
 
-// ─── Assign / Reassign modal ───────────────────────────────────────────────────
-// isAssign=true  → calls appointmentsApi.assignBroker() (Unassigned → Assigned)
-// isAssign=false → calls appointmentsApi.reassign()     (keeps existing status)
-// In preview mode both return null silently (PREVIEW_MODE in api.js).
-function ReassignModal({ appointment, onClose, isAssign = false }) {
-  const [broker, setBroker] = useState(appointment.brokerName === '—' ? '' : appointment.brokerName);
-  const [agent,  setAgent]  = useState(appointment.agentName ?? '');
-  const [saving, setSaving] = useState(false);
-  const [saved,  setSaved]  = useState(false);
-  const [error,  setError]  = useState('');
+// ─── Buy Tokens modal ──────────────────────────────────────────────────────────
+function BuyTokensModal({ onClose, paymentProvider }) {
+  const PACKS = [
+    { tokens: 5,  price: 'R250',  label: '5 tokens' },
+    { tokens: 10, price: 'R450',  label: '10 tokens — save R50' },
+    { tokens: 20, price: 'R800',  label: '20 tokens — save R200' },
+  ];
+  const [selected, setSelected] = useState(1);
+  const [purchasing, setPurchasing] = useState(false);
+  const [done, setDone] = useState(false);
+
+  async function handlePurchase() {
+    if (paymentProvider === 'none') { setDone(true); return; }
+    setPurchasing(true);
+    // In production: POST /api/tokens/checkout → Stripe Checkout Session URL
+    await new Promise(r => setTimeout(r, 800));
+    setDone(true);
+    setPurchasing(false);
+  }
+
+  return (
+    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ ...s.modal, width: '440px' }}>
+        <div style={s.modalHeader}>
+          <h2 style={s.modalTitle}>Buy Additional Tokens</h2>
+          <button style={s.closeBtn} onClick={onClose}>✕</button>
+        </div>
+
+        {paymentProvider === 'none' ? (
+          <div style={{ ...s.noticeWarn, marginBottom: '14px', fontSize: '0.8125rem' }}>
+            <strong>Payment not yet configured.</strong> Contact your administrator to top up
+            your token balance. Token purchases via Stripe will be available in Phase 2.
+          </div>
+        ) : (
+          <>
+            <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '14px' }}>
+              Select a token pack. You will be redirected to a secure payment page.
+            </p>
+            {!done && PACKS.map((pack, i) => (
+              <label key={i} style={{
+                display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px',
+                border: `1px solid ${selected === i ? '#1d4ed8' : '#e5e7eb'}`,
+                borderRadius: '6px', marginBottom: '8px', cursor: 'pointer',
+                background: selected === i ? '#eff6ff' : 'white',
+              }}>
+                <input type="radio" name="token-pack" checked={selected === i}
+                  onChange={() => setSelected(i)} style={{ accentColor: '#1d4ed8' }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{pack.label}</div>
+                </div>
+                <span style={{ fontWeight: 600 }}>{pack.price}</span>
+              </label>
+            ))}
+            {done && (
+              <div style={{ ...s.noticeSuccess, marginBottom: '14px' }}>
+                ✓ Redirecting to secure payment… (Phase 2 — payment not yet active in preview)
+              </div>
+            )}
+          </>
+        )}
+
+        <div style={s.modalFooter}>
+          <button style={s.ghostBtn} onClick={onClose}>Close</button>
+          {paymentProvider !== 'none' && !done && (
+            <button style={s.primaryBtn} onClick={handlePurchase} disabled={purchasing}>
+              {purchasing ? 'Redirecting…' : `Purchase ${PACKS[selected].label}`}
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Assign Broker modal ───────────────────────────────────────────────────────
+// Agent is always present (set at booking from Lead Detail) and is shown read-only.
+// Only the Broker field is editable.
+// isAssign=true  → Unassigned appointment → calls appointmentsApi.assignBroker()
+// isAssign=false → Already assigned → calls appointmentsApi.reassign()
+function AssignBrokerModal({ appointment, onClose, isAssign = false }) {
+  const [broker,  setBroker]  = useState(appointment.brokerName === '—' ? '' : appointment.brokerName);
+  const [saving,  setSaving]  = useState(false);
+  const [saved,   setSaved]   = useState(false);
+  const [error,   setError]   = useState('');
 
   async function handleSave() {
     if (!broker) return;
     setSaving(true);
     setError('');
     try {
-      // In preview mode these return null silently — no error thrown
       if (isAssign) {
-        await appointmentsApi.assignBroker(appointment.id, broker, agent);
+        // agentId is NOT passed — the API derives it from the Appointment record.
+        // Agent is set at booking time and never changed through this modal.
+        await appointmentsApi.assignBroker(appointment.id, broker, appointment.agentName);
       } else {
-        await appointmentsApi.reassign(appointment.id, broker, agent);
+        await appointmentsApi.reassign(appointment.id, broker, appointment.agentName);
       }
       setSaved(true);
       setTimeout(onClose, 900);
-      // Sam review item: row status in list updates on next page refresh.
-      // In production, refetch() is called after modal close to sync the list.
     } catch (err) {
       setError(err.message ?? 'Save failed. Please try again.');
     } finally {
@@ -148,34 +213,42 @@ function ReassignModal({ appointment, onClose, isAssign = false }) {
     <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ ...s.modal, width: '420px' }}>
         <div style={s.modalHeader}>
-          <h2 style={s.modalTitle}>{isAssign ? 'Assign Broker' : 'Reassign Appointment'}</h2>
+          <h2 style={s.modalTitle}>{isAssign ? 'Assign Broker' : 'Reassign Broker'}</h2>
           <button style={s.closeBtn} onClick={onClose}>✕</button>
         </div>
-        <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '16px' }}>
+        <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '14px' }}>
           {appointment.leadName} · {appointment.firstDate}
-          {isAssign
-            ? ' · This appointment has no broker assigned'
-            : appointment.brokerName !== '—'
-              ? <> · Currently assigned to <strong>{appointment.brokerName}</strong></>
-              : ''
-          }
         </p>
-        {saved && <div style={{ ...s.noticeSuccess, marginBottom: '12px' }}>✓ {isAssign ? 'Broker assigned' : 'Reassigned'} successfully.</div>}
-        {error && <div style={{ ...s.errorBox, marginBottom: '12px' }}>{error}</div>}
+
+        {/* Agent — always read-only. Set at booking time, never changed here. */}
         <div style={s.formGroup}>
-          <label style={s.formLabel}>Broker *</label>
+          <label style={s.formLabel}>Qualified by (Agent)</label>
+          <div style={{
+            padding: '9px 12px', borderRadius: '6px', background: '#f9fafb',
+            border: '1px solid #e5e7eb', fontSize: '0.875rem', color: '#374151',
+            display: 'flex', alignItems: 'center', gap: '8px',
+          }}>
+            <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>🔒</span>
+            {appointment.agentName}
+            <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: '#9ca3af' }}>Read only</span>
+          </div>
+          <div style={s.formHint}>
+            The agent who booked this appointment cannot be changed here.
+          </div>
+        </div>
+
+        {/* Broker — editable */}
+        <div style={s.formGroup}>
+          <label style={s.formLabel}>Assign broker *</label>
           <select style={s.formInput} value={broker} onChange={e => setBroker(e.target.value)}>
             <option value="">— Select broker —</option>
             {BROKERS.map(b => <option key={b}>{b}</option>)}
           </select>
         </div>
-        <div style={s.formGroup}>
-          <label style={s.formLabel}>Agent</label>
-          <select style={s.formInput} value={agent} onChange={e => setAgent(e.target.value)}>
-            <option value="">Select agent…</option>
-            {AGENTS.map(a => <option key={a}>{a}</option>)}
-          </select>
-        </div>
+
+        {saved  && <div style={{ ...s.noticeSuccess, marginBottom: '10px' }}>✓ Broker {isAssign ? 'assigned' : 'reassigned'} successfully.</div>}
+        {error  && <div style={{ ...s.errorBox,      marginBottom: '10px' }}>{error}</div>}
+
         <div style={s.modalFooter}>
           <button style={s.ghostBtn} onClick={onClose}>Cancel</button>
           <button
@@ -183,7 +256,7 @@ function ReassignModal({ appointment, onClose, isAssign = false }) {
             onClick={handleSave}
             disabled={saved || saving || !broker}
           >
-            {saving ? 'Saving…' : saved ? 'Saved ✓' : isAssign ? 'Assign Broker' : 'Save Changes'}
+            {saving ? 'Saving…' : saved ? 'Saved ✓' : isAssign ? 'Assign Broker' : 'Reassign Broker'}
           </button>
         </div>
       </div>
@@ -200,18 +273,21 @@ export default function AppointmentList() {
   const isAdmin      = role === 'Admin' || role === 'GlobalAdmin';
   const isSupervisor = role === 'Supervisor';
   const isBroker     = role === 'Broker';
-  const canReassign  = isAdmin || isSupervisor;
+  const canManage    = isAdmin || isSupervisor;
 
-  // ── Claim model ─────────────────────────────────────────────────────────────
-  // Read the raw string from flags — 'assign' or 'claim'.
-  // The flag() helper coerces booleans but leaves strings untouched.
-  // We read flags[key] directly to avoid any coercion ambiguity for this enum.
-  const claimModel    = flags['appointments.claimModel'] ?? 'assign';
-  const tokensEnabled = flag('appointments.tokens.enabled');
-  // Broker sees the two-tab layout ONLY when flag = 'claim'
-  const showClaimTabs = isBroker && claimModel === 'claim';
+  const claimModel     = flags['appointments.claimModel'] ?? 'assign';
+  const tokensEnabled  = flag('appointments.tokens.enabled');
+  const paymentProvider= flags['appointments.tokens.paymentProvider'] ?? 'none';
+  const showClaimTabs  = isBroker && claimModel === 'claim';
+  // In claim model, admin/supervisor do NOT assign brokers — brokers self-serve.
+  // Assign and Reassign buttons are hidden when claimModel = 'claim'.
+  const showAssignActions = canManage && claimModel === 'assign';
 
-  // ── State ────────────────────────────────────────────────────────────────────
+  // Monthly token allocation from SystemConfig (configurable in AppAdmin → System Settings)
+  // Default 10 — matches SystemConfig.brokerFreeAppointmentsPerMonth seed value
+  const monthlyAllocation = 10;
+  const tokenBalance      = 7; // mock — in production read from TokenLedger
+
   const [activeTab,      setActiveTab]      = useState('mine');
   const [statusFilter,   setStatusFilter]   = useState('All');
   const [search,         setSearch]         = useState('');
@@ -219,10 +295,10 @@ export default function AppointmentList() {
   const [portfolioFilter,setPortfolioFilter]= useState('');
   const [brokerFilter,   setBrokerFilter]   = useState('');
   const [claimedIds,     setClaimedIds]     = useState(new Set());
-  const [reassignTarget, setReassignTarget] = useState(null);
+  const [assignTarget,   setAssignTarget]   = useState(null);
   const [isAssignMode,   setIsAssignMode]   = useState(false);
+  const [showBuyTokens,  setShowBuyTokens]  = useState(false);
 
-  // ── Filtered list ────────────────────────────────────────────────────────────
   const filtered = ALL_APPOINTMENTS.filter(a => {
     if (isBroker && a.brokerCode !== 'SB') return false;
     if (statusFilter === 'Unassigned' && a.status !== 'Unassigned') return false;
@@ -239,32 +315,22 @@ export default function AppointmentList() {
     return true;
   });
 
-  const myAppts     = isBroker ? MY_APPOINTMENTS : ALL_APPOINTMENTS;
-  const unassigned  = myAppts.filter(a => a.status === 'Unassigned').length;
-  const assigned    = myAppts.filter(a => a.status === 'Assigned').length;
-  const todayCount  = myAppts.filter(a => a.isToday).length;
-  const signedCount = myAppts.filter(a => a.signed === 'Yes').length;
-  const availCount  = AVAILABLE_TO_CLAIM.filter(a => !claimedIds.has(a.id)).length;
+  const myAppts    = isBroker ? MY_APPOINTMENTS : ALL_APPOINTMENTS;
+  const unassigned = myAppts.filter(a => a.status === 'Unassigned').length;
+  const assigned   = myAppts.filter(a => a.status === 'Assigned').length;
+  const todayCount = myAppts.filter(a => a.isToday).length;
+  const signedCount= myAppts.filter(a => a.signed === 'Yes').length;
+  const availCount = AVAILABLE_TO_CLAIM.filter(a => !claimedIds.has(a.id)).length;
+  const hasFilter  = statusFilter !== 'All' || search || sourceFilter || portfolioFilter || brokerFilter;
 
   const subtitleMap = {
     GlobalAdmin: 'All appointments across all brokers',
     Admin:       'All appointments across all brokers',
     Supervisor:  'Appointments for your direct reports',
     Agent:       'Appointments you have booked',
-    Broker:      claimModel === 'claim'
-      ? 'My Appointments and Available to Claim'
-      : 'Appointments assigned to you',
+    Broker:      claimModel === 'claim' ? 'My appointments and available to claim' : 'Appointments assigned to you',
   };
-  const subtitle = subtitleMap[role] ?? '';
 
-  const hasFilter = statusFilter !== 'All' || search || sourceFilter || portfolioFilter || brokerFilter;
-
-  function clearFilters() {
-    setStatusFilter('All'); setSearch(''); setSourceFilter('');
-    setPortfolioFilter(''); setBrokerFilter('');
-  }
-
-  // ── Appointments table (shared between My Appointments and main view) ────────
   function AppointmentsTable({ rows, showBroker = true }) {
     return (
       <div style={s.tableCard}>
@@ -276,8 +342,9 @@ export default function AppointmentList() {
               <th style={s.th}>Source</th>
               <th style={s.th}>Status</th>
               <th style={s.th}>First appt</th>
-              <th style={s.th}>1st meeting</th>
-              <th style={s.th}>2nd meeting</th>
+              <th style={s.th}>Agent</th>
+              <th style={s.th}>1st mtg</th>
+              <th style={s.th}>2nd mtg</th>
               <th style={s.th}>Signed?</th>
               {showBroker && !isBroker && <th style={s.th}>Broker</th>}
               <th style={s.th}></th>
@@ -286,13 +353,14 @@ export default function AppointmentList() {
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={10} style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>
+                <td colSpan={12} style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>
                   No appointments match your current filters.
                 </td>
               </tr>
             )}
             {rows.map(a => {
               const sm = APPT_STATUS_META[a.status] ?? APPT_STATUS_META.Unassigned;
+              const isUnassigned = a.status === 'Unassigned';
               return (
                 <tr key={a.id} style={s.tr}
                   onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
@@ -305,7 +373,7 @@ export default function AppointmentList() {
                     <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{a.leadEmail}</div>
                   </td>
                   <td style={s.td}><PortfolioBadge portfolio={a.portfolio} /></td>
-                  <td style={{ ...s.td, fontSize: '0.75rem', color: '#6b7280', maxWidth: '140px' }}>{a.source}</td>
+                  <td style={{ ...s.td, fontSize: '0.75rem', color: '#6b7280', maxWidth: '130px' }}>{a.source}</td>
                   <td style={s.td}>
                     <span style={{ ...s.badge, background: sm.bg, color: sm.colour, border: `1px solid ${sm.border}` }}>
                       {a.status}
@@ -313,6 +381,10 @@ export default function AppointmentList() {
                   </td>
                   <td style={{ ...s.td, fontSize: '0.8125rem', fontWeight: a.isToday ? 600 : 400, color: a.isToday ? '#d97706' : '#111827' }}>
                     {a.firstDate}
+                  </td>
+                  {/* Agent — always present, always read-only */}
+                  <td style={{ ...s.td, fontSize: '0.8125rem', color: '#374151' }}>
+                    {a.agentName}
                   </td>
                   <td style={s.td}><MeetingBadge status={a.m1} /></td>
                   <td style={s.td}><MeetingBadge status={a.m2} /></td>
@@ -324,9 +396,10 @@ export default function AppointmentList() {
                     <button onClick={() => navigate(`/appointments/${a.id}`)} style={s.linkBtn}>
                       View →
                     </button>
-                    {canReassign && a.status === 'Unassigned' && (
+                    {/* Assign/Reassign — only shown in assign model, never in claim model */}
+                    {showAssignActions && isUnassigned && (
                       <button
-                        onClick={() => { setReassignTarget(a); setIsAssignMode(true); }}
+                        onClick={() => { setAssignTarget(a); setIsAssignMode(true); }}
                         style={{
                           background: '#fffbeb', color: '#d97706', border: '1px solid #fde68a',
                           borderRadius: '6px', padding: '3px 10px', cursor: 'pointer',
@@ -336,13 +409,19 @@ export default function AppointmentList() {
                         Assign
                       </button>
                     )}
-                    {canReassign && a.status !== 'Unassigned' && (
+                    {showAssignActions && !isUnassigned && (
                       <button
-                        onClick={() => { setReassignTarget(a); setIsAssignMode(false); }}
+                        onClick={() => { setAssignTarget(a); setIsAssignMode(false); }}
                         style={{ ...s.linkBtn, color: '#6b7280', marginLeft: '4px' }}
                       >
                         Reassign
                       </button>
+                    )}
+                    {/* In claim model — show info note instead of action buttons */}
+                    {canManage && claimModel === 'claim' && isUnassigned && (
+                      <span style={{ fontSize: '0.688rem', color: '#9ca3af', marginLeft: '6px' }}>
+                        Broker will claim
+                      </span>
                     )}
                   </td>
                 </tr>
@@ -354,7 +433,6 @@ export default function AppointmentList() {
     );
   }
 
-  // ── Filters bar (used in My Appointments tab and main view) ──────────────────
   function FiltersBar() {
     return (
       <>
@@ -387,26 +465,60 @@ export default function AppointmentList() {
             </select>
           )}
           {hasFilter && (
-            <button onClick={clearFilters} style={s.ghostBtn}>✕ Clear</button>
+            <button onClick={() => { setStatusFilter('All'); setSearch(''); setSourceFilter(''); setPortfolioFilter(''); setBrokerFilter(''); }} style={s.ghostBtn}>
+              ✕ Clear
+            </button>
           )}
         </div>
       </>
     );
   }
 
-  // ── Render ────────────────────────────────────────────────────────────────────
+  // ── Token card ────────────────────────────────────────────────────────────────
+  function TokenCard() {
+    if (!tokensEnabled) return null;
+    const pct = Math.round((tokenBalance / monthlyAllocation) * 100);
+    return (
+      <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '12px 16px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
+            Monthly token balance
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <div style={{ flex: 1, background: '#e5e7eb', borderRadius: '4px', height: '8px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: '4px', background: pct > 30 ? '#1d4ed8' : '#dc2626', width: `${pct}%`, transition: 'width 0.3s' }} />
+            </div>
+            <span style={{ fontSize: '0.875rem', fontWeight: 600, color: pct > 30 ? '#1d4ed8' : '#dc2626', whiteSpace: 'nowrap' }}>
+              {tokenBalance} / {monthlyAllocation} free remaining
+            </span>
+          </div>
+          {tokenBalance === 0 && (
+            <div style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: '4px' }}>
+              Free allocation exhausted — additional claims cost 1 token each.
+            </div>
+          )}
+        </div>
+        <button
+          onClick={() => setShowBuyTokens(true)}
+          style={s.secondaryBtn}
+        >
+          Buy tokens
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div style={s.page}>
 
-      {/* Page header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '18px' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color: '#111827' }}>Appointments</h1>
-          <p style={{ margin: '3px 0 0', fontSize: '0.813rem', color: '#6b7280' }}>{subtitle}</p>
+          <p style={{ margin: '3px 0 0', fontSize: '0.813rem', color: '#6b7280' }}>{subtitleMap[role] ?? ''}</p>
         </div>
       </div>
 
-      {/* Claim model indicator — Admin/Supervisor only */}
+      {/* Claim model indicator */}
       {(isAdmin || isSupervisor) && (
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '14px',
@@ -420,34 +532,27 @@ export default function AppointmentList() {
           </span>
           <span style={{ opacity: 0.75 }}>
             {claimModel === 'claim'
-              ? '— brokers self-select from the available queue'
-              : '— admin/supervisor assigns brokers to appointments'}
+              ? '— brokers self-select from the Available to Claim queue'
+              : '— use the Assign button to allocate brokers to unassigned appointments'}
           </span>
         </div>
       )}
 
-      {/* Broker notices */}
       {isBroker && claimModel === 'assign' && (
-        <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>
-          You are viewing appointments assigned to you.
-        </div>
+        <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>You are viewing appointments assigned to you.</div>
       )}
       {isBroker && claimModel === 'claim' && (
         <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>
-          <strong>Claim model is active.</strong> Browse available appointments below and claim
-          them, or view the ones already assigned to you.
+          <strong>Claim model is active.</strong> Use the Available to Claim tab to browse and claim appointments in your region and portfolio.
         </div>
       )}
       {isSupervisor && (
-        <div style={{ ...s.noticeWarn, marginBottom: '14px' }}>
-          You are viewing appointments for your direct reports only.
-        </div>
+        <div style={{ ...s.noticeWarn, marginBottom: '14px' }}>You are viewing appointments for your direct reports only.</div>
       )}
 
-      {/* ── BROKER: CLAIM MODEL — two tabs ─────────────────────────────────── */}
+      {/* ── BROKER: CLAIM MODEL — two tabs ──────────────────────────────── */}
       {showClaimTabs && (
         <>
-          {/* Tab bar */}
           <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: '18px' }}>
             {[
               { key: 'mine',      label: 'My Appointments',    badge: MY_APPOINTMENTS.length + claimedIds.size },
@@ -471,16 +576,9 @@ export default function AppointmentList() {
             ))}
           </div>
 
-          {/* Tab 1 — My Appointments */}
           {activeTab === 'mine' && (
             <>
-              {tokensEnabled && (
-                <div style={{ ...s.noticeInfo, marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span><strong>Token balance: 7 of 10 monthly free remaining.</strong> Additional claims cost 1 token each.</span>
-                  <button style={s.ghostBtn}>Buy tokens</button>
-                </div>
-              )}
-              {/* Metrics */}
+              <TokenCard />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px', marginBottom: '16px' }}>
                 {[
                   { label: 'Total assigned',    value: MY_APPOINTMENTS.length + claimedIds.size, colour: '#1d4ed8' },
@@ -494,42 +592,28 @@ export default function AppointmentList() {
                 ))}
               </div>
               <AppointmentsTable rows={MY_APPOINTMENTS} showBroker={false} />
-              {/* Newly claimed rows */}
               {claimedIds.size > 0 && (
                 <div style={{ ...s.noticeSuccess, marginTop: '10px' }}>
-                  {claimedIds.size} appointment{claimedIds.size !== 1 ? 's' : ''} just claimed — pending broker system confirmation.
+                  {claimedIds.size} appointment{claimedIds.size !== 1 ? 's' : ''} just claimed — pending confirmation.
                 </div>
               )}
             </>
           )}
 
-          {/* Tab 2 — Available to Claim */}
           {activeTab === 'available' && (
             <>
               <div style={{ ...s.noticeWarn, marginBottom: '14px', display: 'flex', gap: '8px' }}>
                 <span style={{ flexShrink: 0 }}>⚡</span>
                 <span>
-                  <strong>Claim model active.</strong> These appointments are matched to your
-                  region (Gauteng) and portfolios (Discovery, M&M). First-come-first-served.
-                  {!tokensEnabled && <> All claims are free until the token economy is activated.</>}
-                  {tokensEnabled && <> 10 free per month, then 1 token each.</>}
+                  <strong>Claim model active.</strong> Appointments matched to your region (Gauteng) and portfolios.
+                  {tokensEnabled ? ` ${tokenBalance} of ${monthlyAllocation} free claims remaining this month.` : ' All claims are currently free.'}
                 </span>
               </div>
-
-              {tokensEnabled && (
-                <div style={{ ...s.noticeInfo, marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span><strong>Token balance: 7 of 10 monthly free remaining.</strong></span>
-                  <button style={s.ghostBtn}>Buy tokens</button>
-                </div>
-              )}
-
+              <TokenCard />
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color: '#111827', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 Available to claim
-                <span style={{ ...s.badge, background: '#fffbeb', color: '#d97706', fontSize: '0.75rem' }}>
-                  {availCount} unassigned
-                </span>
+                <span style={{ ...s.badge, background: '#fffbeb', color: '#d97706', fontSize: '0.75rem' }}>{availCount} unassigned</span>
               </div>
-
               <div style={s.tableCard}>
                 <table style={s.table}>
                   <thead>
@@ -556,34 +640,24 @@ export default function AppointmentList() {
                         <td style={{ ...s.td, fontSize: '0.8125rem', color: '#6b7280' }}>{a.region}</td>
                         <td style={{ ...s.td, fontSize: '0.75rem', color: '#6b7280' }}>{a.source}</td>
                         <td style={s.td}>
-                          <span style={{ ...s.badge, fontSize: '0.688rem',
-                            background: a.token === 'Free' ? '#f0fdf4' : '#fffbeb',
-                            color:      a.token === 'Free' ? '#15803d' : '#d97706' }}>
+                          <span style={{ ...s.badge, fontSize: '0.688rem', background: a.token === 'Free' ? '#f0fdf4' : '#fffbeb', color: a.token === 'Free' ? '#15803d' : '#d97706' }}>
                             {a.token}
                           </span>
                         </td>
                         <td style={s.td}>
-                          <button style={s.primaryBtn} onClick={() => {
-                            setClaimedIds(prev => new Set([...prev, a.id]));
-                            // After claiming, switch to My Appointments tab
-                            setActiveTab('mine');
-                          }}>
+                          <button style={s.primaryBtn} onClick={() => { setClaimedIds(prev => new Set([...prev, a.id])); setActiveTab('mine'); }}>
                             Claim
                           </button>
                         </td>
                       </tr>
                     ))}
                     {availCount === 0 && (
-                      <tr>
-                        <td colSpan={8} style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>
-                          No available appointments in your region and portfolio right now.
-                        </td>
-                      </tr>
+                      <tr><td colSpan={8} style={{ textAlign: 'center', padding: '36px', color: '#9ca3af' }}>No available appointments right now.</td></tr>
                     )}
                   </tbody>
                 </table>
                 <div style={{ padding: '9px 14px', fontSize: '0.75rem', color: '#9ca3af', borderTop: '1px solid #e5e7eb', background: '#f9fafb' }}>
-                  Appointments matched to your region (Gauteng) and portfolios (Discovery, M&M).
+                  Matched to your region (Gauteng) and portfolios (Discovery, M&M).
                 </div>
               </div>
             </>
@@ -591,10 +665,9 @@ export default function AppointmentList() {
         </>
       )}
 
-      {/* ── ALL OTHER ROLES + BROKER ASSIGN MODE — single list view ─────────── */}
+      {/* ── ALL OTHER ROLES + BROKER ASSIGN MODE ────────────────────────── */}
       {!showClaimTabs && (
         <>
-          {/* Metrics */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '12px', marginBottom: '16px' }}>
             {[
               { label: isBroker ? 'My appointments' : 'Unassigned', value: isBroker ? assigned    : unassigned,  colour: '#d97706' },
@@ -608,18 +681,23 @@ export default function AppointmentList() {
               </div>
             ))}
           </div>
-
           <FiltersBar />
           <AppointmentsTable rows={filtered} />
         </>
       )}
 
-      {/* Reassign modal */}
-      {reassignTarget && (
-        <ReassignModal
-          appointment={reassignTarget}
+      {/* Modals */}
+      {assignTarget && (
+        <AssignBrokerModal
+          appointment={assignTarget}
           isAssign={isAssignMode}
-          onClose={() => { setReassignTarget(null); setIsAssignMode(false); }}
+          onClose={() => { setAssignTarget(null); setIsAssignMode(false); }}
+        />
+      )}
+      {showBuyTokens && (
+        <BuyTokensModal
+          paymentProvider={paymentProvider}
+          onClose={() => setShowBuyTokens(false)}
         />
       )}
     </div>

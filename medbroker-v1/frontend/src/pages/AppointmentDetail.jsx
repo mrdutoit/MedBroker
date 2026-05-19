@@ -177,8 +177,10 @@ export default function AppointmentDetail() {
   //   - Agent:  may only fetch appointments where agentId  = currentUser.id
   //   - Admin/Supervisor/GlobalAdmin: unrestricted
   // Return HTTP 403 if the requesting user does not own or have rights to the record.
-  const [appt, setAppt] = useState({ ...MOCK_APPOINTMENT, id });
+  const [appt,           setAppt]           = useState({ ...MOCK_APPOINTMENT, id });
   const [showReassign,   setShowReassign]    = useState(false);
+  const [showReturnModal,setShowReturnModal] = useState(false);
+  const [returned,       setReturned]        = useState(false);
   const [outcomeSaved,   setOutcomeSaved]    = useState(false);
   const [meetingSaved,   setMeetingSaved]    = useState(false);
 
@@ -237,8 +239,16 @@ export default function AppointmentDetail() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
-          {canReassign && (
-            <button onClick={() => setShowReassign(true)} style={btnStyle.secondary}>Reassign</button>
+          {canReassign && !returned && appt.customerSigned !== true && (
+            <button
+              onClick={() => setShowReturnModal(true)}
+              style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', padding: '8px 14px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' }}
+            >
+              Return to Leads
+            </button>
+          )}
+          {canReassign && !returned && (
+            <button onClick={() => setShowReassign(true)} style={btnStyle.secondary}>Reassign Broker</button>
           )}
         </div>
       </div>
@@ -380,6 +390,55 @@ export default function AppointmentDetail() {
       </div>
 
       {showReassign && <ReassignModal appt={appt} onClose={() => setShowReassign(false)} />}
+
+      {/* ── Return to Leads confirmation modal ── */}
+      {/* Kai review: button hidden when customerSigned = true to prevent data corruption */}
+      {/* Production: PUT /api/appointments/:id/return — validates not signed, sets
+          Lead.pipelineStatus = 'Unassigned', nulls Lead.assignedAgentId, archives
+          Appointment, writes AuditLog action='AppointmentReturnedToLeads' */}
+      {showReturnModal && (
+        <div style={btnStyle.overlay ?? { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
+          <div style={{ background: 'white', borderRadius: '10px', padding: '24px', width: '420px', maxWidth: '90vw', border: '1px solid #fecaca' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h2 style={{ fontSize: '1rem', fontWeight: 600, color: '#dc2626', margin: 0 }}>Return to Leads queue?</h2>
+              <button onClick={() => setShowReturnModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', color: '#6b7280' }}>✕</button>
+            </div>
+            <p style={{ fontSize: '0.875rem', color: '#374151', marginBottom: '10px' }}>
+              This will return <strong>{appt.leadName}</strong> to the Unassigned leads queue.
+            </p>
+            <ul style={{ fontSize: '0.8125rem', color: '#6b7280', margin: '0 0 16px 16px', lineHeight: 1.8 }}>
+              <li>The appointment record will be archived.</li>
+              <li>The lead will be marked as Unassigned and reappear in the Leads list.</li>
+              <li>An agent can then work the lead and book a new appointment with the prospect.</li>
+              <li>This action is logged in the audit trail.</li>
+            </ul>
+            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '10px 12px', marginBottom: '16px', fontSize: '0.8125rem', color: '#dc2626' }}>
+              ⚠ This cannot be undone. Any meeting records on this appointment will be archived.
+            </div>
+            {returned && (
+              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '10px 12px', marginBottom: '16px', fontSize: '0.875rem', color: '#15803d' }}>
+                ✓ Lead returned to queue. Redirecting to Appointments…
+              </div>
+            )}
+            {!returned && (
+              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+                <button onClick={() => setShowReturnModal(false)} style={{ background: 'none', color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '8px 16px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' }}>
+                  Cancel
+                </button>
+                <button
+                  onClick={() => {
+                    setReturned(true);
+                    setTimeout(() => navigate('/appointments'), 1500);
+                  }}
+                  style={{ background: '#dc2626', color: 'white', border: 'none', borderRadius: '6px', padding: '8px 16px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' }}
+                >
+                  Confirm — Return to Leads
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
