@@ -45,14 +45,15 @@ const MOCK_CALLS = [
 export default function LeadDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const [showCallForm, setShowCallForm] = useState(false);
-  const [showBookForm, setShowBookForm] = useState(false);
+  const [showCallForm,      setShowCallForm]      = useState(false);
+  const [showBookForm,      setShowBookForm]       = useState(false);
+  const [bookingConfirmed,  setBookingConfirmed]   = useState(false);
   const [callForm, setCallForm] = useState({
     outcome: '', notes: '', callbackDateTime: '',
     appointmentDate: '', appointmentTime: '', appointmentAddress: '',
     appointmentPortfolio: '', currentInsurer: '',
   });
-  const [submitting, setSubmitting] = useState(false);
+  const [submitting,  setSubmitting]  = useState(false);
   const [submitError, setSubmitError] = useState('');
 
   // In preview mode, use mock data
@@ -90,11 +91,23 @@ export default function LeadDetail() {
     }
   }
 
-  const status = displayLead?.pipelineStatus ?? 'Unassigned';
+  const status = bookingConfirmed ? 'AppointmentBooked' : (displayLead?.pipelineStatus ?? 'Unassigned');
   const sc = STATUS_COLOURS[status] ?? STATUS_COLOURS.Unassigned;
+  // Lead has been converted to an Appointment — mirrors the Salesforce Lead→Opportunity pattern
+  const isConverted = status === 'AppointmentBooked';
 
   return (
     <div style={{ padding: '24px', maxWidth: '960px' }}>
+
+      {/* Conversion notice — shown after booking */}
+      {isConverted && (
+        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '10px 14px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.875rem', color: '#15803d' }}>
+          <span>✅ <strong>Appointment booked.</strong> This lead has been converted — it is now visible in the <strong>Appointments</strong> list.</span>
+          <button onClick={() => navigate('/appointments')} style={{ background: '#15803d', color: 'white', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit' }}>
+            View in Appointments →
+          </button>
+        </div>
+      )}
 
       {/* Header */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '24px' }}>
@@ -114,7 +127,10 @@ export default function LeadDetail() {
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button onClick={() => setShowCallForm(true)} style={s.primaryBtn}>Log Call</button>
-          <button onClick={() => setShowBookForm(true)} style={s.secondaryBtn}>Book Appointment</button>
+          {/* Book Appointment only shown while lead is not yet converted */}
+          {!isConverted && (
+            <button onClick={() => setShowBookForm(true)} style={s.secondaryBtn}>Book Appointment</button>
+          )}
         </div>
       </div>
 
@@ -329,7 +345,30 @@ export default function LeadDetail() {
             </div>
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px', paddingTop: '14px', borderTop: '1px solid #e5e7eb' }}>
               <button onClick={() => setShowBookForm(false)} style={s.secondaryBtn}>Cancel</button>
-              <button onClick={() => { setShowBookForm(false); }} style={s.primaryBtn}>Confirm Booking</button>
+              <button
+                onClick={() => {
+                  /**
+                   * Lead → Appointment conversion (Salesforce Lead→Opportunity pattern)
+                   *
+                   * In production this POST /api/appointments call:
+                   *   1. Creates a new Appointment child record linked to this Lead (leadId FK)
+                   *   2. Sets Lead.pipelineStatus = 'AppointmentBooked' (server-side)
+                   *   3. Returns the new Appointment ID
+                   *
+                   * The Lead is NOT deleted — it remains as the source of truth for
+                   * the person's contact details and pipeline history.
+                   * The Appointments list queries WHERE Lead.pipelineStatus = 'AppointmentBooked'
+                   * and joins the Appointment child record for meeting/outcome data.
+                   *
+                   * In preview mode: update local UI state to reflect the conversion.
+                   */
+                  setBookingConfirmed(true);
+                  setShowBookForm(false);
+                }}
+                style={s.primaryBtn}
+              >
+                Confirm Booking
+              </button>
             </div>
           </div>
         </div>
