@@ -221,7 +221,7 @@ function AssignBrokerModal({ appointment, onClose, isAssign = false }) {
           {appointment.leadName} · {appointment.firstDate}
         </p>
 
-        {/* Agent — always read-only. Set at booking time, never changed here. */}
+        {/* Agent — always read-only on both Assign and Reassign */}
         <div style={s.formGroup}>
           <label style={s.formLabel}>Qualified by (Agent)</label>
           <div style={{
@@ -234,13 +234,20 @@ function AssignBrokerModal({ appointment, onClose, isAssign = false }) {
             <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: '#9ca3af' }}>Read only</span>
           </div>
           <div style={s.formHint}>
-            The agent who booked this appointment cannot be changed here.
+            The agent who booked this appointment is read only and cannot be changed here.
           </div>
         </div>
 
-        {/* Broker — editable */}
+        {/* Broker — editable on both Assign and Reassign */}
         <div style={s.formGroup}>
-          <label style={s.formLabel}>Assign broker *</label>
+          <label style={s.formLabel}>
+            {isAssign ? 'Assign broker *' : 'Reassign broker *'}
+          </label>
+          {!isAssign && appointment.brokerName && appointment.brokerName !== '—' && (
+            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '6px' }}>
+              Currently assigned to: <strong>{appointment.brokerName}</strong>
+            </div>
+          )}
           <select style={s.formInput} value={broker} onChange={e => setBroker(e.target.value)}>
             <option value="">— Select broker —</option>
             {BROKERS.map(b => <option key={b}>{b}</option>)}
