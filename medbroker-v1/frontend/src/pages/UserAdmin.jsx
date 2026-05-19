@@ -34,6 +34,7 @@ const MOCK_USERS = [
 const SUPERVISORS = MOCK_USERS.filter(u => u.role === 'Supervisor').map(u => u.displayName);
 
 const ROLE_STYLE = {
+  GlobalAdmin: { bg: '#fdf2ff', colour: '#7e22ce' },
   Admin:      { bg: '#fef2f2', colour: '#dc2626' },
   Supervisor: { bg: '#fffbeb', colour: '#d97706' },
   Agent:      { bg: '#eff6ff', colour: '#1d4ed8' },
@@ -124,7 +125,12 @@ function UserModal({ mode, user, onClose }) {
   const isEdit = mode === 'edit';
   const [form, setForm] = useState(
     isEdit
-      ? { ...user }
+      ? {
+          ...user,
+          // Guarantee these are always arrays regardless of what the mock data provides
+          portfolios: Array.isArray(user.portfolios) ? user.portfolios : [],
+          products:   Array.isArray(user.products)   ? user.products   : [],
+        }
       : { ...BLANK_FORM }
   );
 
@@ -197,10 +203,25 @@ function UserModal({ mode, user, onClose }) {
           </>
         )}
 
+      {/* Role + Status row */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
           <div style={s.formGroup}>
             <label style={s.formLabel}>Role *</label>
-            <select style={s.formInput} value={form.role} onChange={e => setForm(f => ({ ...f, role: e.target.value, portfolios: [], products: [] }))}>
+            <select
+              style={s.formInput}
+              value={form.role}
+              onChange={e => {
+                const newRole = e.target.value;
+                // Clear portfolios and products when switching away from roles that use them
+                const keepPortfolios = ['Agent', 'Supervisor', 'Broker'].includes(newRole);
+                setForm(f => ({
+                  ...f,
+                  role: newRole,
+                  portfolios: keepPortfolios ? f.portfolios : [],
+                  products:   newRole === 'Broker' ? f.products : [],
+                }));
+              }}
+            >
               {ROLES.map(r => <option key={r} value={r}>{r}</option>)}
             </select>
           </div>
@@ -212,7 +233,7 @@ function UserModal({ mode, user, onClose }) {
               </select>
             </div>
           )}
-          {['Admin', 'Supervisor'].includes(form.role) ? null : (
+          {!['Admin', 'Supervisor', 'GlobalAdmin'].includes(form.role) && (
             <div style={s.formGroup}>
               <label style={s.formLabel}>Region *</label>
               <select style={s.formInput} value={form.region} onChange={e => setForm(f => ({ ...f, region: e.target.value }))}>

@@ -12,6 +12,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRole } from '../context/RoleContext.jsx';
+import { useFlags } from '../context/FlagContext.jsx';
 import { s, APPT_STATUS_META, MEETING_STATUS_META, PORTFOLIO_META } from '../styles/tokens.js';
 
 // ─── Mock data ────────────────────────────────────────────────────────────────
@@ -103,10 +104,17 @@ function PortfolioBadge({ portfolio }) {
 export default function AppointmentList() {
   const navigate = useNavigate();
   const { role, persona } = useRole();
+  const { flag } = useFlags();
 
-  const isAdmin      = role === 'Admin';
+  const isAdmin      = role === 'Admin' || role === 'GlobalAdmin';
   const isSupervisor = role === 'Supervisor';
   const isBroker     = role === 'Broker';
+
+  // Feature flag: 'assign' = admin assigns brokers; 'claim' = brokers self-select
+  const claimModel    = flag('appointments.claimModel') || 'assign';
+  const tokensEnabled = flag('appointments.tokens.enabled');
+  // Broker sees claim tab only when claimModel = 'claim'
+  const showClaimTab  = isBroker && claimModel === 'claim';
 
   const [activeTab,    setActiveTab]    = useState('mine');   // 'mine' | 'available'
   const [statusFilter, setStatusFilter] = useState('All');
@@ -135,10 +143,13 @@ export default function AppointmentList() {
   const available   = AVAILABLE_TO_CLAIM.filter(a => !claimedIds.has(a.leadName)).length;
 
   const subtitle = {
+    GlobalAdmin: 'All appointments across all brokers',
     Admin:      'All appointments across all brokers',
     Supervisor: 'Appointments for your direct reports',
     Agent:      'Appointments you have booked',
-    Broker:     'Your appointments and available appointments to claim',
+    Broker:     claimModel === 'claim'
+      ? 'Your appointments and available appointments to claim'
+      : 'Appointments assigned to you',
   }[role];
 
   return (
@@ -151,9 +162,14 @@ export default function AppointmentList() {
       </div>
 
       {/* Notices */}
-      {isBroker && (
+      {isBroker && claimModel === 'claim' && (
         <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>
           You are viewing your appointments and available appointments to claim in your region and portfolio.
+        </div>
+      )}
+      {isBroker && claimModel === 'assign' && (
+        <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>
+          You are viewing appointments assigned to you.
         </div>
       )}
       {isSupervisor && (
@@ -162,12 +178,12 @@ export default function AppointmentList() {
         </div>
       )}
 
-      {/* Broker tabs */}
-      {isBroker && (
+      {/* Broker tabs — only shown in claim model */}
+      {showClaimTab && (
         <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: '16px' }}>
           {[
             { key: 'mine',      label: 'My Appointments' },
-            { key: 'available', label: `Available to Claim`, badge: available },
+            { key: 'available', label: 'Available to Claim', badge: available },
           ].map(tab => (
             <button
               key={tab.key}
@@ -196,10 +212,10 @@ export default function AppointmentList() {
       )}
 
       {/* ── MY APPOINTMENTS VIEW ── */}
-      {(!isBroker || activeTab === 'mine') && (
+      {(!showClaimTab || activeTab === 'mine') && (
         <>
-          {/* Broker token card */}
-          {isBroker && (
+          {/* Token balance card — broker + claim model + tokens enabled */}
+          {isBroker && claimModel === 'claim' && tokensEnabled && (
             <div style={{ ...s.noticeInfo, marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span><strong>Token balance: 7 of 10 monthly free remaining.</strong> Additional appointments cost 1 token each.</span>
               <button style={s.ghostBtn}>Buy tokens</button>
@@ -326,8 +342,8 @@ export default function AppointmentList() {
         </>
       )}
 
-      {/* ── AVAILABLE TO CLAIM VIEW (Broker only) ── */}
-      {isBroker && activeTab === 'available' && (
+      {/* ── AVAILABLE TO CLAIM VIEW (Broker only, claim model only) ── */}
+      {showClaimTab && activeTab === 'available' && (
         <>
           <div style={{ ...s.noticeWarn, marginBottom: '14px', display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
             <span style={{ fontSize: '1rem', flexShrink: 0 }}>⚡</span>

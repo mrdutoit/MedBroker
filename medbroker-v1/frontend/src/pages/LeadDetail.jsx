@@ -46,6 +46,7 @@ export default function LeadDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [showCallForm, setShowCallForm] = useState(false);
+  const [showBookForm, setShowBookForm] = useState(false);
   const [callForm, setCallForm] = useState({
     outcome: '', notes: '', callbackDateTime: '',
     appointmentDate: '', appointmentTime: '', appointmentAddress: '',
@@ -113,7 +114,7 @@ export default function LeadDetail() {
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button onClick={() => setShowCallForm(true)} style={s.primaryBtn}>Log Call</button>
-          <button style={s.secondaryBtn}>Book Appointment</button>
+          <button onClick={() => setShowBookForm(true)} style={s.secondaryBtn}>Book Appointment</button>
         </div>
       </div>
 
@@ -258,6 +259,78 @@ export default function LeadDetail() {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* ── Book Appointment modal ── */}
+      {showBookForm && (
+        <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) setShowBookForm(false); }}>
+          <div style={{ ...s.modal, width: '520px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '1.125rem', fontWeight: 600 }}>Book Appointment</h2>
+              <button onClick={() => setShowBookForm(false)} style={s.closeBtn}>✕</button>
+            </div>
+            <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '14px' }}>
+              Dr {displayLead.firstName} {displayLead.lastName} · {displayLead.occupation}
+            </p>
+            {/* M365 availability notice */}
+            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: '#1e40af' }}>
+              <strong>Microsoft 365 availability check</strong> — brokers ranked by fewest appointments in your region and portfolio.
+            </div>
+            {/* Broker selection */}
+            <div style={s.formGroup}>
+              <label style={s.label}>Select broker *</label>
+              {[
+                { name: 'Sandra van der Berg', slots: '1 appointment this week · Next slot: Mon, 10:00', best: true },
+                { name: 'Pieter Joubert',      slots: '3 appointments this week · Next slot: Tue, 14:00', best: false },
+                { name: 'Marelize Swart',      slots: '4 appointments this week · Next slot: Wed, 09:00', best: false },
+              ].map((b, i) => (
+                <label key={i} style={{
+                  display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px',
+                  border: `1px solid ${i === 0 ? '#1d4ed8' : '#e5e7eb'}`,
+                  borderRadius: '6px', marginBottom: '6px', cursor: 'pointer',
+                  background: i === 0 ? '#eff6ff' : 'white',
+                }}>
+                  <input type="radio" name="book-broker" defaultChecked={i === 0} style={{ accentColor: '#1d4ed8' }} />
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{b.name}</div>
+                    <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{b.slots}</div>
+                  </div>
+                  {b.best && <span style={{ fontSize: '0.688rem', background: '#f0fdf4', color: '#15803d', borderRadius: '4px', padding: '2px 6px' }}>Most available</span>}
+                </label>
+              ))}
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div style={s.formGroup}>
+                <label style={s.label}>Date *</label>
+                <input type="date" style={s.input} />
+              </div>
+              <div style={s.formGroup}>
+                <label style={s.label}>Time *</label>
+                <input type="time" style={s.input} />
+              </div>
+            </div>
+            <div style={s.formGroup}>
+              <label style={s.label}>Address *</label>
+              <input style={s.input} placeholder="123 Rivonia Rd, Sandton" />
+            </div>
+            <div style={s.formGroup}>
+              <label style={s.label}>Portfolio *</label>
+              <select style={s.input}>
+                <option value="">Select…</option>
+                <option>Discovery</option>
+                <option>Money and Medicine</option>
+              </select>
+            </div>
+            <div style={s.formGroup}>
+              <label style={s.label}>Current insurance company</label>
+              <input style={s.input} placeholder="e.g. Old Mutual, Momentum" />
+            </div>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px', paddingTop: '14px', borderTop: '1px solid #e5e7eb' }}>
+              <button onClick={() => setShowBookForm(false)} style={s.secondaryBtn}>Cancel</button>
+              <button onClick={() => { setShowBookForm(false); }} style={s.primaryBtn}>Confirm Booking</button>
+            </div>
           </div>
         </div>
       )}

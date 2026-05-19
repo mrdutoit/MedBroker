@@ -13,6 +13,7 @@ import { useFetch } from '../hooks/useFetch.js';
 import { leadsApi, usersApi } from '../services/api.js';
 import { formatDistanceToNow } from 'date-fns';
 import { useRole } from '../context/RoleContext.jsx';
+import { useFlags } from '../context/FlagContext.jsx';
 import { s, STATUS_META } from '../styles/tokens.js';
 
 const STATUS_CHIPS = ['All', ...Object.keys(STATUS_META)];
@@ -47,9 +48,12 @@ export default function LeadList() {
   const navigate = useNavigate();
   const { role, persona } = useRole();
 
-  const isAdmin      = role === 'Admin';
+  const isAdmin      = role === 'Admin' || role === 'GlobalAdmin';
   const isSupervisor = role === 'Supervisor';
   const isAgent      = role === 'Agent';
+
+  const { flag } = useFlags();
+  const showImport = flag('leads.importCsv.enabled') || flag('leads.importSubscription.enabled');
 
   const [activeStatus, setActiveStatus] = useState('All');
   const [search,       setSearch]       = useState('');
@@ -124,7 +128,7 @@ export default function LeadList() {
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button onClick={refetch} style={s.secondaryBtn}>Refresh</button>
-          {(isAdmin || isSupervisor) && (
+          {(isAdmin || isSupervisor) && showImport && (
             <button onClick={() => navigate('/leads/import')} style={s.primaryBtn}>
               Import Leads
             </button>
