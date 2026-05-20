@@ -1,24 +1,33 @@
 /**
  * pages/FeatureFlags.jsx
- * Feature flag management UI — Admin role only.
+ *
+ * Feature flag management UI — GlobalAdmin only.
  * Reads from and writes to FlagContext. In production, changes are
  * persisted via PATCH /api/flags/:key.
+ *
+ * FLAG TIERS:
+ *   Core        — fundamental per-customer behaviour; review at onboarding
+ *   Operational — UI/workflow preferences; can be changed at any time
+ *   Phase2      — not yet built; toggling has no effect until Phase 2 deploys
+ *
+ * tasks.enabled sits in Core (not Phase2) because the Tasks page IS built
+ * and functional — it is simply off by default. Phase2 flags are for features
+ * that do not exist yet in the codebase.
  */
 
 import { useState } from 'react';
 import { useFlags } from '../context/FlagContext.jsx';
-import { s } from '../styles/tokens.js';
+import { s }        from '../styles/tokens.js';
 
-// Flag metadata for the admin UI — mirrors the FeatureFlag table seed data.
-// In production this would come from GET /api/flags/meta.
+// ─── Flag metadata ─────────────────────────────────────────────────────────────
+// Mirrors the FeatureFlag table seed data. In production comes from GET /api/flags/meta.
 const FLAG_META = [
   // ── Core ────────────────────────────────────────────────────────────────────
   {
     key: 'auth.sso.enabled', tier: 'Core',
     label: 'Single Sign-On',
     description: 'Enable SSO via Microsoft 365 or Google Workspace. When disabled, users log in with a standalone email and password managed within MedBroker.',
-    valueType: 'boolean',
-    requiresRestart: false, isPhase2: false,
+    valueType: 'boolean', requiresRestart: false, isPhase2: false,
   },
   {
     key: 'auth.sso.provider', tier: 'Core',
@@ -37,9 +46,8 @@ const FLAG_META = [
   {
     key: 'appointments.tokens.enabled', tier: 'Core',
     label: 'Broker token economy',
-    description: 'Brokers receive 10 free appointments per month. Additional appointments cost tokens. Requires claim model.',
-    valueType: 'boolean',
-    requiresRestart: false, isPhase2: false,
+    description: 'Brokers receive a monthly free appointment allocation. Additional appointments cost tokens. Requires claim model.',
+    valueType: 'boolean', requiresRestart: false, isPhase2: false,
     dependsOn: { key: 'appointments.claimModel', value: 'claim' },
   },
   {
@@ -54,15 +62,22 @@ const FLAG_META = [
     key: 'events.enabled', tier: 'Core',
     label: 'Events module',
     description: 'Show the Events section in navigation. Disable for customers who do not run career fair or university events.',
-    valueType: 'boolean',
-    requiresRestart: false, isPhase2: false,
+    valueType: 'boolean', requiresRestart: false, isPhase2: false,
   },
   {
     key: 'leads.autoUnassign.enabled', tier: 'Core',
     label: 'Lead auto-return',
     description: 'Automatically return leads to the Unassigned queue after the configured inactivity period.',
-    valueType: 'boolean',
-    requiresRestart: false, isPhase2: false,
+    valueType: 'boolean', requiresRestart: false, isPhase2: false,
+  },
+  // tasks.enabled is Core — the Tasks page IS built and functional.
+  // It is off by default but fully operational when enabled.
+  // Phase2 flags are reserved for features not yet built.
+  {
+    key: 'tasks.enabled', tier: 'Core',
+    label: 'Task management',
+    description: 'Enable the Tasks page. Tasks are generated automatically from appointment events, callbacks, and rescheduling activity.',
+    valueType: 'boolean', requiresRestart: false, isPhase2: false,
   },
   // ── Operational ─────────────────────────────────────────────────────────────
   {
@@ -107,34 +122,28 @@ const FLAG_META = [
     description: 'Show the third meeting section on the Appointment Detail page.',
     valueType: 'boolean', requiresRestart: false, isPhase2: false,
   },
-  // ── Phase 2 ─────────────────────────────────────────────────────────────────
-  {
-    key: 'tasks.enabled', tier: 'Phase2',
-    label: 'Task management',
-    description: 'Enable the Tasks page and automatic task generation from appointment events, callbacks, and rescheduling.',
-    valueType: 'boolean', requiresRestart: false, isPhase2: true,
-  },
+  // ── Phase 2 — features not yet built ────────────────────────────────────────
   {
     key: 'broker.tokenIncentives.enabled', tier: 'Phase2',
     label: 'Broker deal incentives',
-    description: 'Award bonus tokens to brokers who close deals.',
+    description: 'Award bonus tokens to brokers who close deals. Not yet implemented.',
     valueType: 'boolean', requiresRestart: false, isPhase2: true,
   },
   {
     key: 'popia.subjectAccessRequest.enabled', tier: 'Phase2',
     label: 'POPIA subject access requests',
-    description: 'Enable the admin endpoint and UI for processing POPIA data subject access requests.',
+    description: 'Enable the admin endpoint and UI for processing POPIA data subject access requests. Not yet implemented.',
     valueType: 'boolean', requiresRestart: false, isPhase2: true,
   },
 ];
 
 const TIER_META = {
-  Core:        { label: 'Core',        description: 'Fundamental behaviour — vary between customers. Review at onboarding.',  colour: '#dc2626', bg: '#fef2f2' },
-  Operational: { label: 'Operational', description: 'UI and workflow preferences — can be changed at any time.',              colour: '#1d4ed8', bg: '#eff6ff' },
-  Phase2:      { label: 'Phase 2',     description: 'Features not yet live. Turning these on has no effect until Phase 2 is deployed.', colour: '#9ca3af', bg: '#f3f4f6' },
+  Core:        { label: 'Core',        description: 'Fundamental behaviour — varies between customers. Review at onboarding and do not change in production without testing.' },
+  Operational: { label: 'Operational', description: 'UI and workflow preferences — can be changed at any time without a deployment.' },
+  Phase2:      { label: 'Phase 2',     description: 'Features not yet built. These flags are visible for planning purposes only — enabling them has no effect until Phase 2 is deployed.' },
 };
 
-// ─── Toggle component ─────────────────────────────────────────────────────────
+// ─── Toggle ────────────────────────────────────────────────────────────────────
 function Toggle({ value, onChange, disabled }) {
   const on = value === true || value === '1' || value === 'true';
   return (
@@ -151,21 +160,21 @@ function Toggle({ value, onChange, disabled }) {
         position: 'absolute', top: '3px',
         left: on ? '21px' : '3px',
         width: '18px', height: '18px', borderRadius: '50%',
-        background: 'white',
-        boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+        background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
         transition: 'left 0.2s',
       }} />
     </div>
   );
 }
 
-// ─── Single flag row ──────────────────────────────────────────────────────────
+// ─── FlagRow ───────────────────────────────────────────────────────────────────
 function FlagRow({ meta, rawValue, onSave }) {
   const [localValue, setLocalValue] = useState(rawValue);
   const [saving,     setSaving]     = useState(false);
   const [saved,      setSaved]      = useState(false);
 
-  const isDirty = String(localValue) !== String(rawValue);
+  const isDirty   = String(localValue) !== String(rawValue);
+  const isLocked  = meta.isPhase2;
 
   async function handleSave() {
     setSaving(true);
@@ -182,69 +191,79 @@ function FlagRow({ meta, rawValue, onSave }) {
     <div style={{
       display: 'flex', alignItems: 'flex-start', gap: '14px',
       padding: '14px 0', borderBottom: '1px solid #f3f4f6',
-      opacity: meta.isPhase2 ? 0.65 : 1,
+      opacity: isLocked ? 0.5 : 1,
     }}>
       {/* Control */}
-      <div style={{ width: '160px', flexShrink: 0, paddingTop: '2px' }}>
+      <div style={{ paddingTop: '2px', flexShrink: 0 }}>
         {meta.valueType === 'boolean' && (
-          <Toggle value={boolValue} onChange={v => setLocalValue(v)} disabled={meta.isPhase2} />
+          <Toggle value={localValue} onChange={v => setLocalValue(v)} disabled={isLocked} />
         )}
         {meta.valueType === 'enum' && (
           <select
             value={localValue}
             onChange={e => setLocalValue(e.target.value)}
-            disabled={meta.isPhase2}
-            style={{ ...s.select, fontSize: '0.8125rem', padding: '5px 8px', width: '150px' }}
+            disabled={isLocked}
+            style={{
+              border: '1px solid #e5e7eb', borderRadius: '6px', padding: '4px 8px',
+              fontSize: '0.8125rem', background: 'white', cursor: isLocked ? 'not-allowed' : 'pointer',
+              fontFamily: 'inherit', minWidth: '110px',
+            }}
           >
             {(meta.allowedValues ?? []).map(v => <option key={v} value={v}>{v}</option>)}
           </select>
         )}
       </div>
 
-      {/* Label + description */}
-      <div style={{ flex: 1 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px' }}>
-          <span style={{ fontWeight: 600, fontSize: '0.875rem', color: '#111827' }}>{meta.label}</span>
-          <code style={{ fontSize: '0.688rem', color: '#9ca3af', background: '#f3f4f6', padding: '1px 5px', borderRadius: '3px' }}>
-            {meta.key}
-          </code>
+      {/* Label and description */}
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: '0.875rem', fontWeight: 500, color: '#111827' }}>{meta.label}</span>
+          <span style={{ fontSize: '0.6875rem', color: '#9ca3af', fontFamily: 'monospace' }}>{meta.key}</span>
           {meta.requiresRestart && (
-            <span style={{ fontSize: '0.625rem', background: '#fffbeb', color: '#d97706', border: '1px solid #fde68a', borderRadius: '3px', padding: '1px 5px' }}>
+            <span style={{
+              fontSize: '0.625rem', fontWeight: 600, padding: '1px 6px', borderRadius: '10px',
+              background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a',
+            }}>
               Restart required
             </span>
           )}
-          {meta.isPhase2 && (
-            <span style={{ fontSize: '0.625rem', background: '#f3f4f6', color: '#9ca3af', borderRadius: '3px', padding: '1px 5px' }}>
-              Phase 2
+          {isLocked && (
+            <span style={{
+              fontSize: '0.625rem', fontWeight: 600, padding: '1px 6px', borderRadius: '10px',
+              background: '#f3f4f6', color: '#9ca3af',
+            }}>
+              Phase 2 — not yet available
             </span>
           )}
         </div>
-        <div style={{ fontSize: '0.8125rem', color: '#6b7280', lineHeight: 1.5 }}>{meta.description}</div>
-        {meta.dependsOn && (
-          <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '3px' }}>
-            Requires: <code style={{ background: '#f3f4f6', padding: '1px 4px', borderRadius: '2px' }}>{meta.dependsOn.key}</code> = {String(meta.dependsOn.value)}
-          </div>
-        )}
+        <p style={{ margin: 0, fontSize: '0.8125rem', color: '#6b7280', lineHeight: 1.5 }}>{meta.description}</p>
       </div>
 
       {/* Save action */}
-      <div style={{ width: '80px', flexShrink: 0, textAlign: 'right', paddingTop: '2px' }}>
-        {saved && <span style={{ color: '#15803d', fontSize: '0.75rem' }}>✓ Saved</span>}
-        {!saved && isDirty && !meta.isPhase2 && (
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            style={{ ...s.primaryBtn, fontSize: '0.75rem', padding: '5px 10px' }}
-          >
-            {saving ? '…' : 'Save'}
-          </button>
-        )}
-      </div>
+      {!isLocked && (
+        <div style={{ flexShrink: 0, paddingTop: '2px' }}>
+          {saved ? (
+            <span style={{ fontSize: '0.8125rem', color: '#15803d', fontWeight: 500 }}>✓ Saved</span>
+          ) : isDirty ? (
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              style={{
+                padding: '4px 12px', borderRadius: '6px', border: 'none',
+                background: '#1d4ed8', color: 'white', fontSize: '0.8125rem',
+                cursor: saving ? 'wait' : 'pointer', fontFamily: 'inherit', fontWeight: 500,
+              }}
+            >
+              {saving ? '…' : 'Save'}
+            </button>
+          ) : null}
+        </div>
+      )}
     </div>
   );
 }
 
-// ─── Main page ────────────────────────────────────────────────────────────────
+// ─── Main page ─────────────────────────────────────────────────────────────────
 export default function FeatureFlags() {
   const { flags, setFlag } = useFlags();
   const [activeTier, setActiveTier] = useState('Core');
@@ -261,7 +280,7 @@ export default function FeatureFlags() {
       </div>
 
       <div style={{ ...s.noticeWarn, marginBottom: '18px', fontSize: '0.8125rem' }}>
-        <strong>Admin only.</strong> Flag changes affect all users immediately. Core flags should be reviewed
+        <strong>GlobalAdmin only.</strong> Flag changes affect all users immediately. Core flags should be reviewed
         at customer onboarding and not changed in production without testing.
       </div>
 
@@ -283,7 +302,12 @@ export default function FeatureFlags() {
               }}
             >
               {meta.label}
-              <span style={{ fontSize: '0.688rem', background: activeTier === key ? '#eff6ff' : '#f3f4f6', color: activeTier === key ? '#1d4ed8' : '#9ca3af', borderRadius: '10px', padding: '1px 6px' }}>
+              <span style={{
+                fontSize: '0.6875rem',
+                background: activeTier === key ? '#eff6ff' : '#f3f4f6',
+                color: activeTier === key ? '#1d4ed8' : '#9ca3af',
+                borderRadius: '10px', padding: '1px 6px',
+              }}>
                 {count}
               </span>
             </button>
