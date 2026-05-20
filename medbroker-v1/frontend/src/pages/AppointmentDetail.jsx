@@ -33,9 +33,9 @@
  *   Broker (claim model): same as above + Available to Claim pool
  */
 
-import { useState, useContext } from 'react';
+import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { RoleContext, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext';
+import { useRole, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext';
 import { useFlags }                           from '../context/FlagContext';
 import { useWindowSize }                      from '../hooks/useWindowSize';
 import { appointmentsApi }                    from '../services/api';
@@ -363,7 +363,7 @@ function ReturnToLeadsModal({ appointment, onClose }) {
 export default function AppointmentDetail() {
   const { id }          = useParams();
   const navigate        = useNavigate();
-  const { role }        = useContext(RoleContext);
+  const { role }        = useRole();
   const { flag }        = useFlags();
   const { isMobile }    = useWindowSize();
 
