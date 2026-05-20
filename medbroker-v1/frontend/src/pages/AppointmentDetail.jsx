@@ -6,448 +6,561 @@
  *
  * This page is reached from the Appointments list (View →) and shows:
  *   - Lead/contact details (read-only — editable from Lead Detail)
- *   - Appointment logistics (broker, portfolio, first appointment date/address)
+ *   - Appointment logistics (broker, agent, portfolio, first appointment date/address)
  *   - Meeting tracking: First, Second, optional Third meeting
  *   - Appointment outcome: Signed?, Products sold, Broker switch?
- *   - Reassign broker / agent actions (Admin/Supervisor only)
+ *   - Reassign Broker action (Admin/Supervisor only)
+ *   - Return to Leads action (Admin/Supervisor only, hidden once signed)
  *
  * Book Appointment does NOT appear here — that action lives on Lead Detail
  * and is how a Lead is converted to an Appointment in the first place.
+ *
+ * AGENT FIELD — CRITICAL RULE:
+ *   The Agent on an Appointment is always the user who booked it from Lead Detail.
+ *   In production this is derived from the booking user's JWT at POST /api/appointments
+ *   time and is never subsequently editable. The Reassign Broker modal mirrors the
+ *   Assign Broker modal: agent is a read-only display field; only broker is editable.
+ *
+ * STATUS TRANSITIONS (server-side only — see leadStatusService.js):
+ *   Saving outcome with customerSigned = true  → ClosedWon
+ *   Saving outcome with customerSigned = false → ClosedLost
+ *   First meeting marked Seen                  → InProgress
+ *
+ * ROW-LEVEL OWNERSHIP (production):
+ *   Admin/Supervisor: all appointments
+ *   Agent: appointments where agentId = req.user.id
+ *   Broker (assign model): appointments where brokerId = req.user.id
+ *   Broker (claim model): same as above + Available to Claim pool
  */
 
-import { useState } from 'react';
+import { useState, useContext } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { useRole } from '../context/RoleContext.jsx';
-import { PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
-import { useWindowSize } from '../hooks/useWindowSize.js';
+import { RoleContext, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext';
+import { useFlags }                           from '../context/FlagContext';
+import { useWindowSize }                      from '../hooks/useWindowSize';
+import { appointmentsApi }                    from '../services/api';
+import tokens                                  from '../styles/tokens';
 
-// ─── Mock appointment data ────────────────────────────────────────────────────
+const s = tokens;
+
+// ─── Mock data ─────────────────────────────────────────────────────────────────
+// In production: fetched from GET /api/appointments/:id
+// The agent field is set at booking time from the JWT and is never editable.
 const MOCK_APPOINTMENT = {
-  id: 'A1',
-  // Lead details (source of truth — contact info lives on Lead)
-  leadId: 'L1',
-  leadName: 'Dr Priya Naidoo',
-  leadEmail: 'p.naidoo@netcare.co.za',
-  occupation: 'Anaesthesiologist',
-  hospitalOrPractice: 'Netcare Sunninghill Hospital',
-  sourceLabel: 'Wits Career Fair 2026',
+  id:             'appt-001',
+  leadId:         'lead-042',
+  leadName:       'Dr Priya Naidoo',
+  occupation:     'Anaesthesiologist',
+  mobile:         '082 456 7890',
   currentInsurer: 'Discovery Life',
-  // Appointment details
-  status: 'Assigned',
-  portfolio: 'Discovery',
-  agentName: 'Thabo Molefe',
-  brokerName: 'Sandra van der Berg',
-  firstAppointmentDate: '2026-05-19',
-  firstAppointmentTime: '10:00',
-  firstAppointmentAddress: '123 Rivonia Road, Sandton, 2196',
-  productsInterestedIn: ['Life Insurance', 'Income Protection'],
-  // Meeting tracking (null status = "Please select")
-  meeting1Date: '2026-05-19', meeting1Status: null,   meeting1Feedback: '',
-  meeting2Date: '',           meeting2Status: null,   meeting2Feedback: '',
-  meeting3Date: '',           meeting3Status: null,   meeting3Feedback: '',
-  // Outcome (null = not yet recorded)
+  portfolio:      'Discovery',
+  source:         'Wits Career Fair 2026',
+  productsInterested: ['Life Insurance', 'Income Protection'],
+
+  status:         'Assigned',
+  firstDate:      '2026-05-20',
+  firstTime:      '10:00',
+  address:        '123 Rivonia Rd, Sandton',
+  brokerName:     'Sandra van der Berg',
+  agentName:      'Thabo Molefe',        // read-only — set from JWT at booking time
+  brokerSwitch:   false,
   customerSigned: null,
-  isBrokerSwitch: null,
-  productsSold: [],
-  // Audit
-  createdAt: new Date(Date.now() - 86400000 * 2).toISOString(),
+  productsSold:   [],
+
+  meetings: [
+    { number: 1, date: '2026-05-20', status: '',  notes: '', required: true  },
+    { number: 2, date: '',           status: '',  notes: '', required: true  },
+    { number: 3, date: '',           status: '',  notes: '', required: false },
+  ],
 };
 
-const MEETING_STATUS_OPTIONS = ['', 'Seen', 'Rescheduled', 'Cancelled'];
-const AGENTS  = ['Thabo Molefe', 'Naledi van Wyk', 'Kabelo Petersen', 'Bongani Ntuli', 'Siphiwe Mahlangu'];
-const BROKERS = ['Sandra van der Berg', 'Pieter Joubert', 'Riaan Botha', 'Marelize Swart'];
+const BROKERS = [
+  { id: 'broker-sb', name: 'Sandra van der Berg' },
+  { id: 'broker-pj', name: 'Pieter Joubert'       },
+  { id: 'broker-rb', name: 'Riaan Botha'           },
+  { id: 'broker-ms', name: 'Marelize Swart'        },
+];
 
-const STATUS_META = {
-  Unassigned: { bg: '#fffbeb', colour: '#d97706', border: '#fde68a' },
-  Assigned:   { bg: '#eff6ff', colour: '#1d4ed8', border: '#bfdbfe' },
-  Claimed:    { bg: '#f0fdf4', colour: '#15803d', border: '#bbf7d0' },
-};
+const MEETING_STATUSES = ['Seen', 'Rescheduled', 'Cancelled'];
 
-// ─── Sub-components ───────────────────────────────────────────────────────────
-function SectionHeading({ children }) {
+// ─── Status chip ───────────────────────────────────────────────────────────────
+function StatusChip({ status }) {
+  const map = {
+    Unassigned:  s.chipAmber,
+    Assigned:    s.chipBlue,
+    InProgress:  s.chipPurple,
+    ClosedWon:   s.chipGreen,
+    ClosedLost:  s.chipRed,
+  };
+  return <span style={{ ...s.chip, ...(map[status] ?? s.chipGray) }}>{status}</span>;
+}
+
+// ─── Field row ─────────────────────────────────────────────────────────────────
+function FieldRow({ label, value, children }) {
   return (
-    <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px', marginTop: '6px' }}>
-      {children}
+    <div style={s.fieldRow}>
+      <span style={s.fieldLabel}>{label}</span>
+      <span style={s.fieldValue}>{children ?? value}</span>
     </div>
   );
 }
 
-function Field({ label, value, children }) {
-  return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem', gap: '12px' }}>
-      <span style={{ color: '#6b7280', flexShrink: 0 }}>{label}</span>
-      <span style={{ color: '#111827', fontWeight: 500, textAlign: 'right' }}>{children ?? value ?? '—'}</span>
-    </div>
-  );
-}
+// ─── Meeting section ───────────────────────────────────────────────────────────
+function MeetingSection({ meeting, onChange, thirdMeetingEnabled }) {
+  const { isMobile } = useWindowSize();
+  const isOptional   = meeting.number === 3;
+  const isLocked     = isOptional && !thirdMeetingEnabled;
 
-function MeetingSection({ title, required, date, onDateChange, status, onStatusChange, feedback, onFeedbackChange, rescheduledDate, onRescheduledChange }) {
+  const label = isOptional
+    ? <span style={{ color: s.colors.text3 }}>Third Meeting <span style={{ fontSize: '0.75rem' }}>(optional)</span></span>
+    : `${meeting.number === 1 ? 'First' : 'Second'} Meeting`;
+
   return (
-    <div style={{ background: '#f9fafb', border: `1px solid ${required ? '#e5e7eb' : '#e5e7eb'}`, borderStyle: required ? 'solid' : 'dashed', borderRadius: '8px', padding: '14px 16px', marginBottom: '12px' }}>
-      <div style={{ fontSize: '0.75rem', fontWeight: 700, color: required ? '#374151' : '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '12px' }}>
-        {title} {!required && <span style={{ fontWeight: 400 }}>(optional)</span>}
-      </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+    <div style={{
+      ...s.card,
+      borderStyle: isOptional ? 'dashed' : 'solid',
+      opacity: isLocked ? 0.6 : 1,
+      marginBottom: '12px',
+    }}>
+      <div style={{ ...s.cardTitle, marginBottom: '12px' }}>{label}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
         <div>
-          <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: '#374151', marginBottom: '4px' }}>Date</label>
-          <input type="date" value={date} onChange={e => onDateChange(e.target.value)}
-            style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: '6px', padding: '7px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box' }} />
+          <label style={s.formLabel}>Date</label>
+          <input
+            type="date"
+            style={s.formInput}
+            value={meeting.date}
+            disabled={isLocked}
+            onChange={e => onChange(meeting.number, 'date', e.target.value)}
+          />
         </div>
         <div>
-          <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: '#374151', marginBottom: '4px' }}>Status</label>
-          <select value={status ?? ''} onChange={e => onStatusChange(e.target.value || null)}
-            style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: '6px', padding: '7px 10px', fontSize: '0.875rem', fontFamily: 'inherit', background: 'white' }}>
+          <label style={s.formLabel}>Status</label>
+          <select
+            style={s.formInput}
+            value={meeting.status}
+            disabled={isLocked}
+            onChange={e => onChange(meeting.number, 'status', e.target.value)}
+          >
             <option value="">Please select</option>
-            {MEETING_STATUS_OPTIONS.filter(o => o).map(o => <option key={o} value={o}>{o}</option>)}
+            {MEETING_STATUSES.map(st => <option key={st}>{st}</option>)}
           </select>
         </div>
       </div>
-      {status === 'Rescheduled' && (
-        <div style={{ marginBottom: '10px' }}>
-          <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: '#d97706', marginBottom: '4px' }}>Rescheduled date &amp; time *</label>
-          <input type="datetime-local" value={rescheduledDate ?? ''} onChange={e => onRescheduledChange(e.target.value)}
-            style={{ width: '100%', border: '1px solid #fde68a', borderRadius: '6px', padding: '7px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box' }} />
-        </div>
-      )}
       <div>
-        <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: '#374151', marginBottom: '4px' }}>Meeting feedback</label>
-        <textarea value={feedback} onChange={e => onFeedbackChange(e.target.value)} rows={2}
-          placeholder="Notes from the meeting…"
-          style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: '6px', padding: '7px 10px', fontSize: '0.875rem', fontFamily: 'inherit', resize: 'vertical', boxSizing: 'border-box' }} />
+        <label style={s.formLabel}>Meeting Feedback</label>
+        <textarea
+          style={{ ...s.formInput, height: '60px', resize: 'vertical' }}
+          placeholder={isOptional ? '' : 'Notes from the meeting…'}
+          value={meeting.notes}
+          disabled={isLocked}
+          onChange={e => onChange(meeting.number, 'notes', e.target.value)}
+        />
       </div>
     </div>
   );
 }
 
-// ─── Reassign modal ───────────────────────────────────────────────────────────
-function ReassignModal({ appt, onClose }) {
-  const [broker, setBroker] = useState(appt.brokerName);
-  const [agent,  setAgent]  = useState(appt.agentName);
+// ─── Reassign Broker modal ─────────────────────────────────────────────────────
+//
+// CRITICAL: This modal is identical in behaviour to the Assign Broker modal on
+// AppointmentList. The Agent field is ALWAYS read-only — it shows who booked
+// the appointment and cannot be changed through this interface. Only the Broker
+// field is editable.
+//
+// isAssign=false here (this is always a reassign from AppointmentDetail).
+// The current broker is pre-selected so the user can see who is currently assigned
+// before choosing a replacement.
+//
+// Production: calls PUT /api/appointments/:id/reassign → { brokerId }
+// The endpoint updates the broker, keeps the current status, and writes an audit
+// log entry. It does NOT accept an agentId — agent is immutable at the API level.
+function ReassignBrokerModal({ appointment, onClose }) {
+  const [broker, setBroker] = useState(appointment.brokerName ?? '');
+  const [saving, setSaving] = useState(false);
   const [saved,  setSaved]  = useState(false);
-  function handleSave() { setSaved(true); setTimeout(onClose, 800); }
-  const s = {
-    overlay:  { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
-    modal:    { background: 'white', borderRadius: '10px', padding: '24px', width: '400px', maxWidth: '90vw' },
-    label:    { display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: '#374151', marginBottom: '5px' },
-    select:   { width: '100%', border: '1px solid #d1d5db', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', marginBottom: '14px' },
-    row:      { display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px', paddingTop: '14px', borderTop: '1px solid #f3f4f6' },
-    primary:  { background: '#1d4ed8', color: 'white', border: 'none', borderRadius: '6px', padding: '8px 16px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
-    ghost:    { background: 'none', color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '8px 16px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
-  };
-  return (
-    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={s.modal}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h2 style={{ fontSize: '1rem', fontWeight: 600 }}>Reassign Appointment</h2>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', color: '#6b7280' }}>✕</button>
-        </div>
-        {saved && <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '8px 12px', fontSize: '0.875rem', color: '#15803d', marginBottom: '12px' }}>✓ Reassigned successfully.</div>}
-        <label style={s.label}>Broker</label>
-        <select style={s.select} value={broker} onChange={e => setBroker(e.target.value)}>
-          <option value="">— Unassigned —</option>
-          {BROKERS.map(b => <option key={b}>{b}</option>)}
-        </select>
-        <label style={s.label}>Agent</label>
-        <select style={s.select} value={agent} onChange={e => setAgent(e.target.value)}>
-          {AGENTS.map(a => <option key={a}>{a}</option>)}
-        </select>
-        <div style={s.row}>
-          <button style={s.ghost} onClick={onClose}>Cancel</button>
-          <button style={s.primary} onClick={handleSave} disabled={saved}>{saved ? 'Saved ✓' : 'Save Changes'}</button>
-        </div>
-      </div>
-    </div>
-  );
-}
+  const [error,  setError]  = useState('');
 
-// ─── Main page ────────────────────────────────────────────────────────────────
-export default function AppointmentDetail() {
-  const { id }   = useParams();
-  const navigate = useNavigate();
-  const { role } = useRole();
-  const { isMobile } = useWindowSize();
+  const brokerChanged = broker !== appointment.brokerName;
 
-  const isAdmin     = role === 'Admin' || role === 'GlobalAdmin';
-  const isSupervisor = role === 'Supervisor';
-  const canReassign = isAdmin || isSupervisor;
-
-  // In preview mode, use mock data (production: fetch from GET /api/appointments/:id)
-  //
-  // PRODUCTION SECURITY NOTE (Kai review item):
-  // GET /api/appointments/:id must validate row-level ownership before responding:
-  //   - Broker: may only fetch appointments where brokerId = currentUser.id
-  //   - Agent:  may only fetch appointments where agentId  = currentUser.id
-  //   - Admin/Supervisor/GlobalAdmin: unrestricted
-  // Return HTTP 403 if the requesting user does not own or have rights to the record.
-  const [appt,           setAppt]           = useState({ ...MOCK_APPOINTMENT, id });
-  const [showReassign,   setShowReassign]    = useState(false);
-  const [showReturnModal,setShowReturnModal] = useState(false);
-  const [returned,       setReturned]        = useState(false);
-  const [outcomeSaved,   setOutcomeSaved]    = useState(false);
-  const [meetingSaved,   setMeetingSaved]    = useState(false);
-
-  // All products available for the selected portfolio
-  const portId     = appt.portfolio === 'Discovery' ? 'disc' : 'mm';
-  const allProducts = PRODUCTS_BY_PORTFOLIO[portId] ?? [];
-
-  const sm = STATUS_META[appt.status] ?? STATUS_META.Unassigned;
-
-  function updateMeeting(num, field, value) {
-    setAppt(prev => ({ ...prev, [`meeting${num}${field}`]: value }));
+  async function handleSave() {
+    if (!broker || !brokerChanged) return;
+    setSaving(true);
+    setError('');
+    try {
+      await appointmentsApi.reassign(appointment.id, broker);
+      setSaved(true);
+      setTimeout(onClose, 900);
+    } catch (err) {
+      setError(err?.message ?? 'Save failed. Please try again.');
+    } finally {
+      setSaving(false);
+    }
   }
 
-  function toggleProduct(prod) {
+  return (
+    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ ...s.modal, width: '420px' }}>
+
+        {/* Header */}
+        <div style={s.modalHeader}>
+          <h2 style={s.modalTitle}>Reassign Broker</h2>
+          <button style={s.closeBtn} onClick={onClose} aria-label="Close">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="16" height="16">
+              <path d="M3 3l10 10M13 3L3 13"/>
+            </svg>
+          </button>
+        </div>
+
+        {/* Context line */}
+        <p style={{ fontSize: '0.8125rem', color: s.colors.text2, marginBottom: '16px' }}>
+          {appointment.leadName} · Currently assigned to <strong>{appointment.brokerName}</strong>
+        </p>
+
+        {saved && (
+          <div style={{ ...s.noticeSuccess, marginBottom: '12px' }}>
+            ✓ Broker reassigned successfully
+          </div>
+        )}
+        {error && (
+          <div style={{ ...s.noticeError, marginBottom: '12px' }}>{error}</div>
+        )}
+
+        {/* Agent — read-only, always */}
+        <div style={{ marginBottom: '14px' }}>
+          <label style={s.formLabel}>
+            Agent
+            <span style={{ marginLeft: '6px', fontSize: '0.6875rem', color: s.colors.text3, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+              (read only)
+            </span>
+          </label>
+          <div style={{
+            ...s.formInput,
+            background:  s.colors.surface2,
+            color:       s.colors.text2,
+            cursor:      'not-allowed',
+            display:     'flex',
+            alignItems:  'center',
+            gap:         '6px',
+          }}>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="13" height="13" style={{ flexShrink: 0, opacity: 0.5 }}>
+              <rect x="4" y="7" width="8" height="6" rx="1"/><path d="M6 7V5a2 2 0 014 0v2"/>
+            </svg>
+            {appointment.agentName}
+          </div>
+          <p style={{ fontSize: '0.6875rem', color: s.colors.text3, marginTop: '4px' }}>
+            Set when the appointment was booked. Cannot be changed here.
+          </p>
+        </div>
+
+        {/* Broker — editable, pre-populated with current broker */}
+        <div style={{ marginBottom: '20px' }}>
+          <label style={s.formLabel}>Reassign broker *</label>
+          <select
+            style={s.formInput}
+            value={broker}
+            onChange={e => setBroker(e.target.value)}
+            disabled={saved}
+          >
+            <option value="">Select broker…</option>
+            {BROKERS.map(b => (
+              <option key={b.id} value={b.name}>{b.name}</option>
+            ))}
+          </select>
+          {broker && broker === appointment.brokerName && (
+            <p style={{ fontSize: '0.6875rem', color: s.colors.text3, marginTop: '4px' }}>
+              Select a different broker to reassign.
+            </p>
+          )}
+        </div>
+
+        {/* Footer */}
+        <div style={s.modalFooter}>
+          <button style={s.btnGhost} onClick={onClose} disabled={saving}>
+            Cancel
+          </button>
+          <button
+            style={{ ...s.btnPrimary, opacity: (!broker || !brokerChanged || saving || saved) ? 0.5 : 1 }}
+            onClick={handleSave}
+            disabled={!broker || !brokerChanged || saving || saved}
+          >
+            {saved ? 'Saved ✓' : saving ? 'Saving…' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Return to Leads confirmation modal ────────────────────────────────────────
+// Destructive action — uses red confirm button and plain-language consequences.
+// Hidden when appointment is already ClosedWon (customerSigned = true).
+// Production: PUT /api/appointments/:id/return validates customerSigned IS NOT TRUE.
+function ReturnToLeadsModal({ appointment, onClose }) {
+  const [returning, setReturning] = useState(false);
+  const [done,      setDone]      = useState(false);
+
+  async function handleReturn() {
+    setReturning(true);
+    try {
+      await appointmentsApi.returnToLeads(appointment.id);
+      setDone(true);
+      setTimeout(onClose, 900);
+    } catch {
+      setReturning(false);
+    }
+  }
+
+  return (
+    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ ...s.modal, width: '400px' }}>
+        <div style={s.modalHeader}>
+          <h2 style={s.modalTitle}>Return to Leads?</h2>
+          <button style={s.closeBtn} onClick={onClose} aria-label="Close">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="16" height="16">
+              <path d="M3 3l10 10M13 3L3 13"/>
+            </svg>
+          </button>
+        </div>
+        <p style={{ fontSize: '0.875rem', color: s.colors.text, marginBottom: '10px' }}>
+          This appointment will be returned to the unassigned leads queue.
+        </p>
+        <p style={{ fontSize: '0.8125rem', color: s.colors.text2, marginBottom: '20px', lineHeight: 1.5 }}>
+          The appointment record will be archived. The lead will be available to assign to the next available agent.
+        </p>
+        {done && (
+          <div style={{ ...s.noticeSuccess, marginBottom: '12px' }}>
+            ✓ Returned to leads queue
+          </div>
+        )}
+        <div style={s.modalFooter}>
+          <button style={s.btnGhost} onClick={onClose} disabled={returning}>
+            Cancel
+          </button>
+          <button
+            style={{ ...s.btnPrimary, background: s.colors.red, opacity: returning || done ? 0.5 : 1 }}
+            onClick={handleReturn}
+            disabled={returning || done}
+          >
+            {done ? 'Done ✓' : returning ? 'Returning…' : 'Return to Leads'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── Main page ─────────────────────────────────────────────────────────────────
+export default function AppointmentDetail() {
+  const { id }         = useParams();
+  const navigate       = useNavigate();
+  const { role }       = useContext(RoleContext);
+  const { flag, flags }= useFlags();
+  const { isMobile }   = useWindowSize();
+
+  const canManage         = ['GlobalAdmin', 'Admin', 'Supervisor'].includes(role);
+  const thirdMeetingEnabled = !!flag('appointments.thirdMeeting.enabled');
+
+  // Initialise from mock data (production: fetch from GET /api/appointments/:id)
+  const [appt,              setAppt]              = useState({ ...MOCK_APPOINTMENT, id: id ?? MOCK_APPOINTMENT.id });
+  const [showReassign,      setShowReassign]      = useState(false);
+  const [showReturnConfirm, setShowReturnConfirm] = useState(false);
+  const [outcomeSaved,      setOutcomeSaved]      = useState(false);
+
+  // Derived
+  const isClosed         = appt.status === 'ClosedWon' || appt.status === 'ClosedLost';
+  const canReturn        = canManage && !isClosed && appt.customerSigned !== true;
+  const canReassign      = canManage && !isClosed;
+  const productsForPortfolio = PRODUCTS_BY_PORTFOLIO[appt.portfolio] ?? [];
+
+  function handleMeetingChange(meetingNumber, field, value) {
     setAppt(prev => ({
       ...prev,
-      productsSold: prev.productsSold.includes(prod)
-        ? prev.productsSold.filter(p => p !== prod)
-        : [...prev.productsSold, prod],
+      meetings: prev.meetings.map(m =>
+        m.number === meetingNumber ? { ...m, [field]: value } : m
+      ),
     }));
   }
 
-  const btnStyle = {
-    primary:   { background: '#1d4ed8', color: 'white', border: 'none', borderRadius: '6px', padding: '8px 16px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' },
-    secondary: { background: 'white', color: '#374151', border: '1px solid #d1d5db', borderRadius: '6px', padding: '8px 16px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
-    ghost:     { background: 'none', color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '7px 14px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
-    link:      { background: 'none', border: 'none', color: '#1d4ed8', cursor: 'pointer', fontSize: '0.8125rem', padding: '3px 6px', fontFamily: 'inherit' },
-  };
+  function handleOutcomeChange(field, value) {
+    setAppt(prev => ({ ...prev, [field]: value }));
+  }
 
-  const card = { background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 18px', marginBottom: '14px' };
-  const cardTitle = { fontSize: '0.875rem', fontWeight: 600, color: '#374151', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid #f3f4f6' };
+  function handleProductToggle(product) {
+    setAppt(prev => ({
+      ...prev,
+      productsSold: prev.productsSold.includes(product)
+        ? prev.productsSold.filter(p => p !== product)
+        : [...prev.productsSold, product],
+    }));
+  }
+
+  function handleSaveOutcome() {
+    // Production: POST /api/appointments/:id/outcome → computeAppointmentStatus()
+    setOutcomeSaved(true);
+    setTimeout(() => setOutcomeSaved(false), 3000);
+  }
 
   return (
-    <div style={{ padding: isMobile ? '16px' : '24px', maxWidth: '960px' }}>
+    <div style={{ padding: isMobile ? '12px' : '24px', maxWidth: '960px' }}>
 
-      {/* Back + header */}
-      <button onClick={() => navigate('/appointments')} style={{ background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '0.875rem', padding: 0, marginBottom: '6px', fontFamily: 'inherit' }}>
-        ← Back to Appointments
-      </button>
-
-      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '20px' }}>
-        <div>
-          <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111827', margin: '4px 0 6px' }}>
-            {appt.leadName}
-          </h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 500, background: sm.bg, color: sm.colour, border: `1px solid ${sm.border}` }}>
-              {appt.status}
-            </span>
-            <span style={{ display: 'inline-block', padding: '2px 10px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 500, background: appt.portfolio === 'Discovery' ? '#eff6ff' : '#f5f3ff', color: appt.portfolio === 'Discovery' ? '#1d4ed8' : '#7c3aed' }}>
-              {appt.portfolio}
-            </span>
-            <span style={{ fontSize: '0.813rem', color: '#6b7280' }}>
-              {appt.firstAppointmentDate} · {appt.firstAppointmentTime}
-            </span>
-          </div>
-        </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
-          {canReassign && !returned && appt.customerSigned !== true && (
-            <button
-              onClick={() => setShowReturnModal(true)}
-              style={{ background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca', borderRadius: '6px', padding: '8px 14px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' }}
-            >
-              Return to Leads
-            </button>
-          )}
-          {canReassign && !returned && (
-            <button onClick={() => setShowReassign(true)} style={btnStyle.secondary}>Reassign Broker</button>
-          )}
-        </div>
-      </div>
-
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-
-        {/* Lead details (read-only) */}
-        <div style={card}>
-          <div style={cardTitle}>
-            Lead Details
-            <button onClick={() => navigate(`/leads/${appt.leadId}`)} style={{ ...btnStyle.link, float: 'right', fontSize: '0.75rem' }}>
-              View lead →
-            </button>
-          </div>
-          <Field label="Email"             value={appt.leadEmail} />
-          <Field label="Occupation"        value={appt.occupation} />
-          <Field label="Hospital / Practice" value={appt.hospitalOrPractice} />
-          <Field label="Lead source"       value={appt.sourceLabel} />
-          <Field label="Current insurer"   value={appt.currentInsurer} />
-          <Field label="Products interested in">
-            {appt.productsInterestedIn?.join(', ') || '—'}
-          </Field>
-        </div>
-
-        {/* Appointment details */}
-        <div style={card}>
-          <div style={cardTitle}>Appointment Details</div>
-          <Field label="Status">
-            <span style={{ display: 'inline-block', padding: '2px 9px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 500, background: sm.bg, color: sm.colour }}>{appt.status}</span>
-          </Field>
-          <Field label="First appointment date" value={`${appt.firstAppointmentDate} · ${appt.firstAppointmentTime}`} />
-          <Field label="Address"      value={appt.firstAppointmentAddress} />
-          <Field label="Broker"       value={appt.brokerName} />
-          <Field label="Agent"        value={appt.agentName} />
-          <Field label="Broker switch?" value={appt.isBrokerSwitch === true ? 'Yes' : appt.isBrokerSwitch === false ? 'No' : '—'} />
-        </div>
-      </div>
-
-      {/* Meeting tracking */}
-      <div style={card}>
-        <div style={cardTitle}>Meeting Tracking</div>
-        <MeetingSection
-          title="First Meeting" required
-          date={appt.meeting1Date}              onDateChange={v => updateMeeting(1,'Date',v)}
-          status={appt.meeting1Status}          onStatusChange={v => updateMeeting(1,'Status',v)}
-          feedback={appt.meeting1Feedback}      onFeedbackChange={v => updateMeeting(1,'Feedback',v)}
-          rescheduledDate={appt.meeting1RescheduledDate} onRescheduledChange={v => updateMeeting(1,'RescheduledDate',v)}
-        />
-        <MeetingSection
-          title="Second Meeting" required
-          date={appt.meeting2Date}              onDateChange={v => updateMeeting(2,'Date',v)}
-          status={appt.meeting2Status}          onStatusChange={v => updateMeeting(2,'Status',v)}
-          feedback={appt.meeting2Feedback}      onFeedbackChange={v => updateMeeting(2,'Feedback',v)}
-          rescheduledDate={appt.meeting2RescheduledDate} onRescheduledChange={v => updateMeeting(2,'RescheduledDate',v)}
-        />
-        <MeetingSection
-          title="Third Meeting" required={false}
-          date={appt.meeting3Date}              onDateChange={v => updateMeeting(3,'Date',v)}
-          status={appt.meeting3Status}          onStatusChange={v => updateMeeting(3,'Status',v)}
-          feedback={appt.meeting3Feedback}      onFeedbackChange={v => updateMeeting(3,'Feedback',v)}
-          rescheduledDate={appt.meeting3RescheduledDate} onRescheduledChange={v => updateMeeting(3,'RescheduledDate',v)}
-        />
-        {meetingSaved && (
-          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '8px 12px', fontSize: '0.875rem', color: '#15803d', marginBottom: '8px' }}>
-            ✓ Meeting details saved.
-          </div>
-        )}
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button style={btnStyle.primary} onClick={() => { setMeetingSaved(true); setTimeout(() => setMeetingSaved(false), 2000); }}>
-            Save Meeting Details
+      {/* ── Topbar ──────────────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '16px', gap: '12px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <button style={s.backBtn} onClick={() => navigate('/appointments')} aria-label="Back">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" width="16" height="16">
+              <path d="M10 3L5 8l5 5"/>
+            </svg>
           </button>
+          <div>
+            <div style={s.pageTitle}>{appt.leadName} — Appointment</div>
+            <div style={s.pageSubtitle}>
+              Booked from {appt.source} · Broker: {appt.brokerName}
+            </div>
+          </div>
+        </div>
+        {canManage && (
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {canReassign && (
+              <button style={s.btnSecondary} onClick={() => setShowReassign(true)}>
+                Reassign Broker
+              </button>
+            )}
+            {canReturn && (
+              <button
+                style={{ ...s.btnSecondary, color: s.colors.red, borderColor: s.colors.red }}
+                onClick={() => setShowReturnConfirm(true)}
+              >
+                Return to Leads
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* ── Status bar ──────────────────────────────────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
+        <StatusChip status={appt.status} />
+        <span style={{ ...s.chip, ...s.chipPurple }}>{appt.portfolio}</span>
+        {appt.firstDate && (
+          <span style={{ fontSize: '0.8125rem', color: s.colors.text3 }}>
+            First appointment: {appt.firstDate} {appt.firstTime} · {appt.address}
+          </span>
+        )}
+      </div>
+
+      {/* ── Detail cards ────────────────────────────────────────────────────── */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+        <div style={s.card}>
+          <div style={s.cardTitle}>Lead Details</div>
+          <FieldRow label="Name"                value={appt.leadName} />
+          <FieldRow label="Occupation"           value={appt.occupation} />
+          <FieldRow label="Mobile"               value={appt.mobile} />
+          <FieldRow label="Current insurer"      value={appt.currentInsurer} />
+          <FieldRow label="Portfolio"            value={appt.portfolio} />
+          <FieldRow label="Products interested"  value={appt.productsInterested.join(', ')} />
+        </div>
+        <div style={s.card}>
+          <div style={s.cardTitle}>Appointment Details</div>
+          <FieldRow label="Status">
+            <StatusChip status={appt.status} />
+          </FieldRow>
+          <FieldRow label="First appt date" value={`${appt.firstDate}  ${appt.firstTime}`} />
+          <FieldRow label="Address"          value={appt.address} />
+          <FieldRow label="Broker"           value={appt.brokerName} />
+          <FieldRow label="Agent"            value={appt.agentName} />
+          <FieldRow label="Source"           value={appt.source} />
         </div>
       </div>
 
-      {/* Outcome */}
-      <div style={card}>
-        <div style={cardTitle}>Appointment Outcome</div>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
+      {/* ── Meeting tracking ────────────────────────────────────────────────── */}
+      {appt.meetings.map(meeting => (
+        <MeetingSection
+          key={meeting.number}
+          meeting={meeting}
+          onChange={handleMeetingChange}
+          thirdMeetingEnabled={thirdMeetingEnabled}
+        />
+      ))}
+
+      {/* ── Appointment outcome ─────────────────────────────────────────────── */}
+      <div style={s.card}>
+        <div style={s.cardTitle}>Appointment Outcome</div>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: '#374151', marginBottom: '5px' }}>Customer Signed?</label>
+            <label style={s.formLabel}>Customer Signed?</label>
             <select
+              style={s.formInput}
               value={appt.customerSigned === null ? '' : appt.customerSigned ? 'Yes' : 'No'}
-              onChange={e => setAppt(p => ({ ...p, customerSigned: e.target.value === '' ? null : e.target.value === 'Yes' }))}
-              style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', background: 'white' }}
+              onChange={e => handleOutcomeChange('customerSigned', e.target.value === '' ? null : e.target.value === 'Yes')}
             >
               <option value="">Please select</option>
-              <option>Yes</option>
-              <option>No</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
             </select>
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: '#374151', marginBottom: '5px' }}>Broker Switch?</label>
+            <label style={s.formLabel}>Broker Switch?</label>
             <select
-              value={appt.isBrokerSwitch === null ? '' : appt.isBrokerSwitch ? 'Yes' : 'No'}
-              onChange={e => setAppt(p => ({ ...p, isBrokerSwitch: e.target.value === '' ? null : e.target.value === 'Yes' }))}
-              style={{ width: '100%', border: '1px solid #d1d5db', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', background: 'white' }}
+              style={s.formInput}
+              value={appt.brokerSwitch === null ? '' : appt.brokerSwitch ? 'Yes' : 'No'}
+              onChange={e => handleOutcomeChange('brokerSwitch', e.target.value === '' ? null : e.target.value === 'Yes')}
             >
               <option value="">Please select</option>
-              <option>Yes</option>
-              <option>No</option>
+              <option value="Yes">Yes</option>
+              <option value="No">No</option>
             </select>
           </div>
         </div>
-
         <div style={{ marginBottom: '14px' }}>
-          <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>
-            Products Sold
-            <span style={{ marginLeft: '8px', fontSize: '0.75rem', color: '#6b7280', fontWeight: 400 }}>— {appt.portfolio} portfolio</span>
-          </label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-            {allProducts.map(prod => {
-              const selected = appt.productsSold.includes(prod);
-              return (
-                <label key={prod} style={{
-                  display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer',
-                  padding: '4px 10px', borderRadius: '20px', fontSize: '0.8125rem', userSelect: 'none',
-                  background: selected ? '#f0fdf4' : '#f3f4f6',
-                  color:      selected ? '#15803d' : '#374151',
-                  border:     `1px solid ${selected ? '#bbf7d0' : '#e5e7eb'}`,
-                }}>
-                  <input type="checkbox" checked={selected} onChange={() => toggleProduct(prod)} style={{ accentColor: '#15803d' }} />
-                  {prod}
-                </label>
-              );
-            })}
+          <label style={s.formLabel}>Products Sold</label>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px' }}>
+            {productsForPortfolio.map(product => (
+              <label key={product} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8125rem', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={appt.productsSold.includes(product)}
+                  onChange={() => handleProductToggle(product)}
+                />
+                {product}
+              </label>
+            ))}
           </div>
         </div>
-
-        {outcomeSaved && (
-          <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '8px 12px', fontSize: '0.875rem', color: '#15803d', marginBottom: '8px' }}>
-            ✓ Outcome saved. Appointment status updated to{' '}
-            <strong>{appt.customerSigned === true ? 'Closed Won' : appt.customerSigned === false ? 'Closed Lost' : 'In Progress'}</strong>.
-          </div>
-        )}
-        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
-          <button style={btnStyle.primary} onClick={() => {
-            // Update appointment status based on outcome
-            if (appt.customerSigned === true)  setAppt(prev => ({ ...prev, status: 'ClosedWon'  }));
-            if (appt.customerSigned === false) setAppt(prev => ({ ...prev, status: 'ClosedLost' }));
-            if (appt.customerSigned === null)  setAppt(prev => ({ ...prev, status: 'InProgress' }));
-            setOutcomeSaved(true);
-            setTimeout(() => setOutcomeSaved(false), 3000);
-          }}>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          <button style={s.btnPrimary} onClick={handleSaveOutcome}>
             Save Outcome
           </button>
+          {outcomeSaved && (
+            <span style={{ fontSize: '0.8125rem', color: s.colors.green }}>✓ Outcome saved</span>
+          )}
         </div>
+        {appt.customerSigned === true && (
+          <p style={{ fontSize: '0.8125rem', color: s.colors.green, marginTop: '10px', fontWeight: 500 }}>
+            ✓ This appointment is closed — ClosedWon
+          </p>
+        )}
+        {appt.customerSigned === false && (
+          <p style={{ fontSize: '0.8125rem', color: s.colors.red, marginTop: '10px', fontWeight: 500 }}>
+            This appointment is closed — ClosedLost
+          </p>
+        )}
       </div>
 
-      {showReassign && <ReassignModal appt={appt} onClose={() => setShowReassign(false)} />}
+      {/* ── Reassign Broker modal ────────────────────────────────────────────── */}
+      {showReassign && (
+        <ReassignBrokerModal
+          appointment={appt}
+          onClose={() => setShowReassign(false)}
+        />
+      )}
 
-      {/* ── Return to Leads confirmation modal ── */}
-      {/* Kai review: button hidden when customerSigned = true to prevent data corruption */}
-      {/* Production: PUT /api/appointments/:id/return — validates not signed, sets
-          Lead.pipelineStatus = 'Unassigned', nulls Lead.assignedAgentId, archives
-          Appointment, writes AuditLog action='AppointmentReturnedToLeads' */}
-      {showReturnModal && (
-        <div style={btnStyle.overlay ?? { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 }}>
-          <div style={{ background: 'white', borderRadius: '10px', padding: '24px', width: '420px', maxWidth: '90vw', border: '1px solid #fecaca' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-              <h2 style={{ fontSize: '1rem', fontWeight: 600, color: '#dc2626', margin: 0 }}>Return to Leads queue?</h2>
-              <button onClick={() => setShowReturnModal(false)} style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', color: '#6b7280' }}>✕</button>
-            </div>
-            <p style={{ fontSize: '0.875rem', color: '#374151', marginBottom: '10px' }}>
-              This will return <strong>{appt.leadName}</strong> to the Unassigned leads queue.
-            </p>
-            <ul style={{ fontSize: '0.8125rem', color: '#6b7280', margin: '0 0 16px 16px', lineHeight: 1.8 }}>
-              <li>The appointment record will be archived.</li>
-              <li>The lead will be marked as Unassigned and reappear in the Leads list.</li>
-              <li>An agent can then work the lead and book a new appointment with the prospect.</li>
-              <li>This action is logged in the audit trail.</li>
-            </ul>
-            <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '10px 12px', marginBottom: '16px', fontSize: '0.8125rem', color: '#dc2626' }}>
-              ⚠ This cannot be undone. Any meeting records on this appointment will be archived.
-            </div>
-            {returned && (
-              <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '10px 12px', marginBottom: '16px', fontSize: '0.875rem', color: '#15803d' }}>
-                ✓ Lead returned to queue. Redirecting to Appointments…
-              </div>
-            )}
-            {!returned && (
-              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-                <button onClick={() => setShowReturnModal(false)} style={{ background: 'none', color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '8px 16px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' }}>
-                  Cancel
-                </button>
-                <button
-                  onClick={() => {
-                    setReturned(true);
-                    setTimeout(() => navigate('/appointments'), 1500);
-                  }}
-                  style={{ background: '#dc2626', color: 'white', border: 'none', borderRadius: '6px', padding: '8px 16px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' }}
-                >
-                  Confirm — Return to Leads
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+      {/* ── Return to Leads modal ────────────────────────────────────────────── */}
+      {showReturnConfirm && (
+        <ReturnToLeadsModal
+          appointment={appt}
+          onClose={() => setShowReturnConfirm(false)}
+        />
       )}
     </div>
   );
