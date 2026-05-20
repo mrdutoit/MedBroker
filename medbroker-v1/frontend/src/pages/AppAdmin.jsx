@@ -67,8 +67,8 @@ export default function AppAdmin() {
             </p>
             <button style={s.primaryBtn}>+ Add Portfolio</button>
           </div>
-          <div style={s.tableCard}>
-            <table style={s.table}>
+          <div style={{ ...s.tableCard, overflowX: 'auto' }}>
+            <table style={{ ...s.table, minWidth: '600px' }}>
               <thead><tr>
                 <th style={s.th}>Portfolio name</th>
                 <th style={s.th}>Brokers assigned</th>
@@ -107,8 +107,8 @@ export default function AppAdmin() {
             </p>
             <button style={s.primaryBtn}>+ Add Product</button>
           </div>
-          <div style={s.tableCard}>
-            <table style={s.table}>
+          <div style={{ ...s.tableCard, overflowX: 'auto' }}>
+            <table style={{ ...s.table, minWidth: '600px' }}>
               <thead><tr>
                 <th style={s.th}>Product name</th>
                 <th style={s.th}>Portfolio</th>
@@ -148,8 +148,8 @@ export default function AppAdmin() {
             </p>
             <button style={s.primaryBtn}>+ Add Subscription</button>
           </div>
-          <div style={s.tableCard}>
-            <table style={s.table}>
+          <div style={{ ...s.tableCard, overflowX: 'auto' }}>
+            <table style={{ ...s.table, minWidth: '600px' }}>
               <thead><tr>
                 <th style={s.th}>Subscription name</th>
                 <th style={s.th}>Provider</th>

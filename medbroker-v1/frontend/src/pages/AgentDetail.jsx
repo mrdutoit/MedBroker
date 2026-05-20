@@ -122,7 +122,7 @@ export default function AgentDetail() {
       {/* Recent leads */}
       <div style={s.card}>
         <div style={s.cardTitle}>Recent Lead Activity</div>
-        <table style={s.table}>
+        <table style={{ ...s.table, minWidth: '600px' }}>
           <thead>
             <tr>
               {['Lead', 'Source', 'Status', 'Last Call', 'Outcome', ''].map(h => (

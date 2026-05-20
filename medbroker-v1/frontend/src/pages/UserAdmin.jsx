@@ -330,8 +330,8 @@ export default function UserAdmin() {
       </div>
 
       {/* Table */}
-      <div style={s.tableCard}>
-        <table style={s.table}>
+      <div style={{ ...s.tableCard, overflowX: 'auto' }}>
+        <table style={{ ...s.table, minWidth: '600px' }}>
           <thead>
             <tr>
               <th style={s.th}>Name</th>

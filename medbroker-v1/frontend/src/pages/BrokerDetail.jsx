@@ -129,7 +129,7 @@ export default function BrokerDetail() {
       {/* Recent appointments */}
       <div style={s.card}>
         <div style={s.cardTitle}>Recent Appointments</div>
-        <table style={s.table}>
+        <table style={{ ...s.table, minWidth: '600px' }}>
           <thead>
             <tr>
               {['Lead', 'Portfolio', '1st Meeting', '2nd Meeting', 'Signed', 'Products'].map(h => (

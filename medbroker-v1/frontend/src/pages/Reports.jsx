@@ -139,9 +139,9 @@ export default function Reports() {
       </div>
 
       {/* Broker performance */}
-      <div style={{ ...s.card, marginBottom: '14px' }}>
+      <div style={{ ...s.card, marginBottom: '14px', overflowX: 'auto', overflowX: 'auto' }}>
         <div style={s.cardTitle}>Broker Performance</div>
-        <table style={s.table}>
+        <table style={{ ...s.table, minWidth: '600px' }}>
           <thead>
             <tr>
               {['Broker', 'Appointments', 'Closed Won', 'Policy Value', 'Conversion', ''].map(h => (
@@ -186,7 +186,7 @@ export default function Reports() {
       {/* Agent activity */}
       <div style={s.card}>
         <div style={s.cardTitle}>Agent Activity</div>
-        <table style={s.table}>
+        <table style={{ ...s.table, minWidth: '600px' }}>
           <thead>
             <tr>
               {['Agent', 'Leads Assigned', 'Calls Made', 'Appts Booked', 'Booking Rate', ''].map(h => (

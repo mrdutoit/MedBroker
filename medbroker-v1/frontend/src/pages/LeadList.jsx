@@ -334,7 +334,7 @@ export default function LeadList() {
           </div>
 
           <div style={{ ...s.tableCard, overflowX: 'auto' }}>
-            <table style={{ ...s.table, minWidth: isMobile ? '600px' : 'auto' }}>
+            <table style={{ ...s.table, minWidth: '700px' }}>
               <thead>
                 <tr>
                   <th style={s.th}>Name</th>

@@ -344,7 +344,7 @@ export default function AppointmentList() {
     function AppointmentsTable({ rows, showBroker = true }) {
       return (
         <div style={{ ...s.tableCard, overflowX: 'auto' }}>
-          <table style={{ ...s.table, minWidth: isMobile ? '700px' : 'auto' }}>
+          <table style={{ ...s.table, minWidth: '860px' }}>
           <thead>
             <tr>
               <th style={s.th}>Lead</th>
@@ -637,8 +637,8 @@ export default function AppointmentList() {
                 Available to claim
                 <span style={{ ...s.badge, background: '#fffbeb', color: '#d97706', fontSize: '0.75rem' }}>{availCount} unassigned</span>
               </div>
-              <div style={s.tableCard}>
-                <table style={s.table}>
+              <div style={{ ...s.tableCard, overflowX: 'auto' }}>
+                <table style={{ ...s.table, minWidth: '680px' }}>
                   <thead>
                     <tr>
                       <th style={s.th}>Lead</th>
