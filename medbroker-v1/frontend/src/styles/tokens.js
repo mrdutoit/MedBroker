@@ -97,7 +97,7 @@ export const s = {
   },
   tableCard: {
     background: 'white', border: '1px solid #e5e7eb',
-    borderRadius: '8px', overflow: 'hidden',
+    borderRadius: '8px', overflow: 'auto',
   },
   table: { width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' },
   th: {
