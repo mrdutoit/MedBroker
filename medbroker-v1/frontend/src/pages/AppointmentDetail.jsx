@@ -355,7 +355,7 @@ export default function AppointmentDetail() {
   const { id }         = useParams();
   const navigate       = useNavigate();
   const { role }       = useContext(RoleContext);
-  const { flag, flags }= useFlags();
+  const { flag }       = useFlags();
   const { isMobile }   = useWindowSize();
 
   const canManage         = ['GlobalAdmin', 'Admin', 'Supervisor'].includes(role);
