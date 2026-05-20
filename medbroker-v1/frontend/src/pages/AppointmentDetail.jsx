@@ -39,9 +39,7 @@ import { RoleContext, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext';
 import { useFlags }                           from '../context/FlagContext';
 import { useWindowSize }                      from '../hooks/useWindowSize';
 import { appointmentsApi }                    from '../services/api';
-import tokens                                  from '../styles/tokens';
-
-const s = tokens;
+import { s, APPT_STATUS_META }                from '../styles/tokens.js';
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 // In production: fetched from GET /api/appointments/:id
@@ -85,35 +83,34 @@ const MEETING_STATUSES = ['Seen', 'Rescheduled', 'Cancelled'];
 
 // ─── Status chip ───────────────────────────────────────────────────────────────
 function StatusChip({ status }) {
-  const map = {
-    Unassigned:  s.chipAmber,
-    Assigned:    s.chipBlue,
-    InProgress:  s.chipPurple,
-    ClosedWon:   s.chipGreen,
-    ClosedLost:  s.chipRed,
-  };
-  return <span style={{ ...s.chip, ...(map[status] ?? s.chipGray) }}>{status}</span>;
+  const meta = APPT_STATUS_META[status] ?? { colour: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb', label: status };
+  return (
+    <span style={{
+      display: 'inline-block', padding: '2px 9px', borderRadius: '20px',
+      fontSize: '0.75rem', fontWeight: 500,
+      color: meta.colour, background: meta.bg, border: `1px solid ${meta.border}`,
+    }}>
+      {meta.label}
+    </span>
+  );
 }
 
 // ─── Field row ─────────────────────────────────────────────────────────────────
-function FieldRow({ label, value, children }) {
+function FieldRow({ label, children }) {
   return (
-    <div style={s.fieldRow}>
-      <span style={s.fieldLabel}>{label}</span>
-      <span style={s.fieldValue}>{children ?? value}</span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem' }}>
+      <span style={{ color: '#6b7280', flexShrink: 0, marginRight: '16px' }}>{label}</span>
+      <span style={{ color: '#111827', fontWeight: 500, textAlign: 'right' }}>{children}</span>
     </div>
   );
 }
 
 // ─── Meeting section ───────────────────────────────────────────────────────────
-function MeetingSection({ meeting, onChange, thirdMeetingEnabled }) {
-  const { isMobile } = useWindowSize();
-  const isOptional   = meeting.number === 3;
-  const isLocked     = isOptional && !thirdMeetingEnabled;
+function MeetingSection({ meeting, onChange, thirdMeetingEnabled, isMobile }) {
+  const isOptional = meeting.number === 3;
+  const isLocked   = isOptional && !thirdMeetingEnabled;
 
-  const label = isOptional
-    ? <span style={{ color: s.colors.text3 }}>Third Meeting <span style={{ fontSize: '0.75rem' }}>(optional)</span></span>
-    : `${meeting.number === 1 ? 'First' : 'Second'} Meeting`;
+  const titles = ['', 'First Meeting', 'Second Meeting', 'Third Meeting (optional)'];
 
   return (
     <div style={{
@@ -122,7 +119,7 @@ function MeetingSection({ meeting, onChange, thirdMeetingEnabled }) {
       opacity: isLocked ? 0.6 : 1,
       marginBottom: '12px',
     }}>
-      <div style={{ ...s.cardTitle, marginBottom: '12px' }}>{label}</div>
+      <div style={s.cardTitle}>{titles[meeting.number]}</div>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
         <div>
           <label style={s.formLabel}>Date</label>
@@ -163,13 +160,12 @@ function MeetingSection({ meeting, onChange, thirdMeetingEnabled }) {
 
 // ─── Reassign Broker modal ─────────────────────────────────────────────────────
 //
-// CRITICAL: This modal is identical in behaviour to the Assign Broker modal on
-// AppointmentList. The Agent field is ALWAYS read-only — it shows who booked
-// the appointment and cannot be changed through this interface. Only the Broker
-// field is editable.
+// CRITICAL: Mirrors AssignBrokerModal behaviour exactly.
+// The Agent field is ALWAYS read-only — it shows who booked the appointment
+// and cannot be changed through this interface. Only the Broker field is editable.
 //
-// isAssign=false here (this is always a reassign from AppointmentDetail).
-// The current broker is pre-selected so the user can see who is currently assigned
+// isAssign=false (this is always a reassign from AppointmentDetail).
+// The current broker is pre-selected so the user can see who is assigned
 // before choosing a replacement.
 //
 // Production: calls PUT /api/appointments/:id/reassign → { brokerId }
@@ -213,7 +209,7 @@ function ReassignBrokerModal({ appointment, onClose }) {
         </div>
 
         {/* Context line */}
-        <p style={{ fontSize: '0.8125rem', color: s.colors.text2, marginBottom: '16px' }}>
+        <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '16px' }}>
           {appointment.leadName} · Currently assigned to <strong>{appointment.brokerName}</strong>
         </p>
 
@@ -223,32 +219,32 @@ function ReassignBrokerModal({ appointment, onClose }) {
           </div>
         )}
         {error && (
-          <div style={{ ...s.noticeError, marginBottom: '12px' }}>{error}</div>
+          <div style={{ ...s.errorBox, marginBottom: '12px' }}>{error}</div>
         )}
 
         {/* Agent — read-only, always */}
         <div style={{ marginBottom: '14px' }}>
           <label style={s.formLabel}>
             Agent
-            <span style={{ marginLeft: '6px', fontSize: '0.6875rem', color: s.colors.text3, fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+            <span style={{ marginLeft: '6px', fontSize: '0.6875rem', color: '#9ca3af', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
               (read only)
             </span>
           </label>
           <div style={{
             ...s.formInput,
-            background:  s.colors.surface2,
-            color:       s.colors.text2,
-            cursor:      'not-allowed',
-            display:     'flex',
-            alignItems:  'center',
-            gap:         '6px',
+            background: '#f9fafb',
+            color: '#6b7280',
+            cursor: 'not-allowed',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
           }}>
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="13" height="13" style={{ flexShrink: 0, opacity: 0.5 }}>
               <rect x="4" y="7" width="8" height="6" rx="1"/><path d="M6 7V5a2 2 0 014 0v2"/>
             </svg>
             {appointment.agentName}
           </div>
-          <p style={{ fontSize: '0.6875rem', color: s.colors.text3, marginTop: '4px' }}>
+          <p style={{ fontSize: '0.6875rem', color: '#9ca3af', marginTop: '4px' }}>
             Set when the appointment was booked. Cannot be changed here.
           </p>
         </div>
@@ -256,6 +252,11 @@ function ReassignBrokerModal({ appointment, onClose }) {
         {/* Broker — editable, pre-populated with current broker */}
         <div style={{ marginBottom: '20px' }}>
           <label style={s.formLabel}>Reassign broker *</label>
+          {appointment.brokerName && (
+            <p style={{ fontSize: '0.6875rem', color: '#6b7280', marginBottom: '6px' }}>
+              Current: {appointment.brokerName}
+            </p>
+          )}
           <select
             style={s.formInput}
             value={broker}
@@ -268,7 +269,7 @@ function ReassignBrokerModal({ appointment, onClose }) {
             ))}
           </select>
           {broker && broker === appointment.brokerName && (
-            <p style={{ fontSize: '0.6875rem', color: s.colors.text3, marginTop: '4px' }}>
+            <p style={{ fontSize: '0.6875rem', color: '#9ca3af', marginTop: '4px' }}>
               Select a different broker to reassign.
             </p>
           )}
@@ -276,11 +277,15 @@ function ReassignBrokerModal({ appointment, onClose }) {
 
         {/* Footer */}
         <div style={s.modalFooter}>
-          <button style={s.btnGhost} onClick={onClose} disabled={saving}>
+          <button
+            style={{ ...s.secondaryBtn, background: 'none', border: 'none' }}
+            onClick={onClose}
+            disabled={saving}
+          >
             Cancel
           </button>
           <button
-            style={{ ...s.btnPrimary, opacity: (!broker || !brokerChanged || saving || saved) ? 0.5 : 1 }}
+            style={{ ...s.primaryBtn, opacity: (!broker || !brokerChanged || saving || saved) ? 0.5 : 1 }}
             onClick={handleSave}
             disabled={!broker || !brokerChanged || saving || saved}
           >
@@ -293,7 +298,7 @@ function ReassignBrokerModal({ appointment, onClose }) {
 }
 
 // ─── Return to Leads confirmation modal ────────────────────────────────────────
-// Destructive action — uses red confirm button and plain-language consequences.
+// Destructive action — red confirm button, plain-language consequences.
 // Hidden when appointment is already ClosedWon (customerSigned = true).
 // Production: PUT /api/appointments/:id/return validates customerSigned IS NOT TRUE.
 function ReturnToLeadsModal({ appointment, onClose }) {
@@ -322,10 +327,10 @@ function ReturnToLeadsModal({ appointment, onClose }) {
             </svg>
           </button>
         </div>
-        <p style={{ fontSize: '0.875rem', color: s.colors.text, marginBottom: '10px' }}>
+        <p style={{ fontSize: '0.875rem', color: '#111827', marginBottom: '10px' }}>
           This appointment will be returned to the unassigned leads queue.
         </p>
-        <p style={{ fontSize: '0.8125rem', color: s.colors.text2, marginBottom: '20px', lineHeight: 1.5 }}>
+        <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '20px', lineHeight: 1.5 }}>
           The appointment record will be archived. The lead will be available to assign to the next available agent.
         </p>
         {done && (
@@ -334,11 +339,15 @@ function ReturnToLeadsModal({ appointment, onClose }) {
           </div>
         )}
         <div style={s.modalFooter}>
-          <button style={s.btnGhost} onClick={onClose} disabled={returning}>
+          <button
+            style={{ ...s.secondaryBtn, background: 'none', border: 'none' }}
+            onClick={onClose}
+            disabled={returning}
+          >
             Cancel
           </button>
           <button
-            style={{ ...s.btnPrimary, background: s.colors.red, opacity: returning || done ? 0.5 : 1 }}
+            style={{ ...s.primaryBtn, background: '#dc2626', opacity: returning || done ? 0.5 : 1 }}
             onClick={handleReturn}
             disabled={returning || done}
           >
@@ -352,13 +361,13 @@ function ReturnToLeadsModal({ appointment, onClose }) {
 
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export default function AppointmentDetail() {
-  const { id }         = useParams();
-  const navigate       = useNavigate();
-  const { role }       = useContext(RoleContext);
-  const { flag }       = useFlags();
-  const { isMobile }   = useWindowSize();
+  const { id }          = useParams();
+  const navigate        = useNavigate();
+  const { role }        = useContext(RoleContext);
+  const { flag }        = useFlags();
+  const { isMobile }    = useWindowSize();
 
-  const canManage         = ['GlobalAdmin', 'Admin', 'Supervisor'].includes(role);
+  const canManage           = ['GlobalAdmin', 'Admin', 'Supervisor'].includes(role);
   const thirdMeetingEnabled = !!flag('appointments.thirdMeeting.enabled');
 
   // Initialise from mock data (production: fetch from GET /api/appointments/:id)
@@ -368,9 +377,10 @@ export default function AppointmentDetail() {
   const [outcomeSaved,      setOutcomeSaved]      = useState(false);
 
   // Derived
-  const isClosed         = appt.status === 'ClosedWon' || appt.status === 'ClosedLost';
-  const canReturn        = canManage && !isClosed && appt.customerSigned !== true;
-  const canReassign      = canManage && !isClosed;
+  const isClosed    = appt.status === 'ClosedWon' || appt.status === 'ClosedLost';
+  const canReturn   = canManage && !isClosed && appt.customerSigned !== true;
+  const canReassign = canManage && !isClosed;
+
   const productsForPortfolio = PRODUCTS_BY_PORTFOLIO[appt.portfolio] ?? [];
 
   function handleMeetingChange(meetingNumber, field, value) {
@@ -413,8 +423,8 @@ export default function AppointmentDetail() {
             </svg>
           </button>
           <div>
-            <div style={s.pageTitle}>{appt.leadName} — Appointment</div>
-            <div style={s.pageSubtitle}>
+            <div style={{ fontSize: '1rem', fontWeight: 600, color: '#111827' }}>{appt.leadName} — Appointment</div>
+            <div style={{ fontSize: '0.8125rem', color: '#6b7280', marginTop: '1px' }}>
               Booked from {appt.source} · Broker: {appt.brokerName}
             </div>
           </div>
@@ -422,13 +432,13 @@ export default function AppointmentDetail() {
         {canManage && (
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {canReassign && (
-              <button style={s.btnSecondary} onClick={() => setShowReassign(true)}>
+              <button style={s.secondaryBtn} onClick={() => setShowReassign(true)}>
                 Reassign Broker
               </button>
             )}
             {canReturn && (
               <button
-                style={{ ...s.btnSecondary, color: s.colors.red, borderColor: s.colors.red }}
+                style={{ ...s.secondaryBtn, color: '#dc2626', borderColor: '#fca5a5' }}
                 onClick={() => setShowReturnConfirm(true)}
               >
                 Return to Leads
@@ -441,9 +451,15 @@ export default function AppointmentDetail() {
       {/* ── Status bar ──────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
         <StatusChip status={appt.status} />
-        <span style={{ ...s.chip, ...s.chipPurple }}>{appt.portfolio}</span>
+        <span style={{
+          display: 'inline-block', padding: '2px 9px', borderRadius: '20px',
+          fontSize: '0.75rem', fontWeight: 500,
+          color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ddd6fe',
+        }}>
+          {appt.portfolio}
+        </span>
         {appt.firstDate && (
-          <span style={{ fontSize: '0.8125rem', color: s.colors.text3 }}>
+          <span style={{ fontSize: '0.8125rem', color: '#6b7280' }}>
             First appointment: {appt.firstDate} {appt.firstTime} · {appt.address}
           </span>
         )}
@@ -453,23 +469,21 @@ export default function AppointmentDetail() {
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
         <div style={s.card}>
           <div style={s.cardTitle}>Lead Details</div>
-          <FieldRow label="Name"                value={appt.leadName} />
-          <FieldRow label="Occupation"           value={appt.occupation} />
-          <FieldRow label="Mobile"               value={appt.mobile} />
-          <FieldRow label="Current insurer"      value={appt.currentInsurer} />
-          <FieldRow label="Portfolio"            value={appt.portfolio} />
-          <FieldRow label="Products interested"  value={appt.productsInterested.join(', ')} />
+          <FieldRow label="Name">{appt.leadName}</FieldRow>
+          <FieldRow label="Occupation">{appt.occupation}</FieldRow>
+          <FieldRow label="Mobile">{appt.mobile}</FieldRow>
+          <FieldRow label="Current insurer">{appt.currentInsurer}</FieldRow>
+          <FieldRow label="Portfolio">{appt.portfolio}</FieldRow>
+          <FieldRow label="Products interested">{appt.productsInterested.join(', ')}</FieldRow>
         </div>
         <div style={s.card}>
           <div style={s.cardTitle}>Appointment Details</div>
-          <FieldRow label="Status">
-            <StatusChip status={appt.status} />
-          </FieldRow>
-          <FieldRow label="First appt date" value={`${appt.firstDate}  ${appt.firstTime}`} />
-          <FieldRow label="Address"          value={appt.address} />
-          <FieldRow label="Broker"           value={appt.brokerName} />
-          <FieldRow label="Agent"            value={appt.agentName} />
-          <FieldRow label="Source"           value={appt.source} />
+          <FieldRow label="Status"><StatusChip status={appt.status} /></FieldRow>
+          <FieldRow label="First appt date">{appt.firstDate}  {appt.firstTime}</FieldRow>
+          <FieldRow label="Address">{appt.address}</FieldRow>
+          <FieldRow label="Broker">{appt.brokerName}</FieldRow>
+          <FieldRow label="Agent">{appt.agentName}</FieldRow>
+          <FieldRow label="Source">{appt.source}</FieldRow>
         </div>
       </div>
 
@@ -480,6 +494,7 @@ export default function AppointmentDetail() {
           meeting={meeting}
           onChange={handleMeetingChange}
           thirdMeetingEnabled={thirdMeetingEnabled}
+          isMobile={isMobile}
         />
       ))}
 
@@ -528,20 +543,20 @@ export default function AppointmentDetail() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button style={s.btnPrimary} onClick={handleSaveOutcome}>
+          <button style={s.primaryBtn} onClick={handleSaveOutcome}>
             Save Outcome
           </button>
           {outcomeSaved && (
-            <span style={{ fontSize: '0.8125rem', color: s.colors.green }}>✓ Outcome saved</span>
+            <span style={{ fontSize: '0.8125rem', color: '#15803d' }}>✓ Outcome saved</span>
           )}
         </div>
         {appt.customerSigned === true && (
-          <p style={{ fontSize: '0.8125rem', color: s.colors.green, marginTop: '10px', fontWeight: 500 }}>
+          <p style={{ fontSize: '0.8125rem', color: '#15803d', marginTop: '10px', fontWeight: 500 }}>
             ✓ This appointment is closed — ClosedWon
           </p>
         )}
         {appt.customerSigned === false && (
-          <p style={{ fontSize: '0.8125rem', color: s.colors.red, marginTop: '10px', fontWeight: 500 }}>
+          <p style={{ fontSize: '0.8125rem', color: '#dc2626', marginTop: '10px', fontWeight: 500 }}>
             This appointment is closed — ClosedLost
           </p>
         )}
