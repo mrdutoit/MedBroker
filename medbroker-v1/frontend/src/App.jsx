@@ -90,6 +90,10 @@ function AppLayout({ children }) {
   // Section labels only rendered when at least one item beneath them is visible
   const showAdminSection = isAdminOrAbove;
 
+  // Unread notification count — in production fetched from GET /api/notifications?unread=true
+  // Matches the 4 unread items in MOCK_NOTIFICATIONS in Notifications.jsx
+  const [unreadCount] = useState(4);
+
   function closeNav() { if (isMobile) setSidebarOpen(false); }
 
   const sidebarWidth = isMobile
@@ -151,7 +155,7 @@ function AppLayout({ children }) {
           )}
 
           <div style={SECTION}>Productivity</div>
-          <NavItem to="/notifications" label="Notifications" badge={5} onClick={closeNav} />
+          <NavItem to="/notifications" label="Notifications" badge={unreadCount > 0 ? unreadCount : null} onClick={closeNav} />
           {showTasks && <NavItem to="/tasks" label="Tasks" onClick={closeNav} />}
 
           <div style={SECTION}>Analytics</div>

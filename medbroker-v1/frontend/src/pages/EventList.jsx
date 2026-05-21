@@ -1,11 +1,16 @@
 /**
  * pages/EventList.jsx
  * University events management — create events, view attendance, download QR codes.
+ *
+ * Style: migrated from local const s to shared tokens.js (s, imported).
+ * All business logic and mock data unchanged.
  */
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, isPast } from 'date-fns';
+import { s } from '../styles/tokens.js';
+import { useWindowSize } from '../hooks/useWindowSize.js';
 
 const MOCK_EVENTS = [
   {
@@ -43,6 +48,7 @@ const STATUS_STYLE = {
 
 export default function EventList() {
   const navigate = useNavigate();
+  const { isMobile } = useWindowSize();
   const [showCreate, setShowCreate] = useState(false);
   const [form, setForm] = useState({ name: '', university: '', venue: '', eventDate: '' });
   const [creating, setCreating] = useState(false);
@@ -50,70 +56,77 @@ export default function EventList() {
   function handleCreate(e) {
     e.preventDefault();
     setCreating(true);
-    setTimeout(() => { setCreating(false); setShowCreate(false); setForm({ name: '', university: '', venue: '', eventDate: '' }); }, 1000);
+    setTimeout(() => {
+      setCreating(false);
+      setShowCreate(false);
+      setForm({ name: '', university: '', venue: '', eventDate: '' });
+    }, 1000);
   }
 
   return (
-    <div style={{ padding: '24px' }}>
+    <div style={{ padding: isMobile ? '12px' : '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h1 style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111827', margin: 0 }}>Events</h1>
+        <h1 style={{ fontSize: '1.375rem', fontWeight: 600, color: '#111827', margin: 0 }}>Events</h1>
         <button onClick={() => setShowCreate(true)} style={s.primaryBtn}>+ Create Event</button>
       </div>
 
-      {/* Summary */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '20px' }}>
+      {/* Summary metrics */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '12px', marginBottom: '20px' }}>
         {[
-          { label: 'Total events', value: MOCK_EVENTS.length },
-          { label: 'Active', value: MOCK_EVENTS.filter(e => e.status === 'Active').length },
-          { label: 'Total RSVPs', value: MOCK_EVENTS.reduce((a, e) => a + e.rsvpCount, 0) },
+          { label: 'Total events',   value: MOCK_EVENTS.length },
+          { label: 'Active',         value: MOCK_EVENTS.filter(e => e.status === 'Active').length },
+          { label: 'Total RSVPs',    value: MOCK_EVENTS.reduce((a, e) => a + e.rsvpCount, 0) },
           { label: 'Total attended', value: MOCK_EVENTS.reduce((a, e) => a + e.attendedCount + e.walkinCount, 0) },
         ].map(c => (
           <div key={c.label} style={s.metricCard}>
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{c.label}</div>
+            <div style={{ fontSize: '0.6875rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{c.label}</div>
             <div style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827' }}>{c.value}</div>
           </div>
         ))}
       </div>
 
       {/* Events grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '14px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(340px, 1fr))', gap: '14px' }}>
         {MOCK_EVENTS.map(event => {
           const ss = STATUS_STYLE[event.status] ?? STATUS_STYLE.Draft;
           const pastEvent = isPast(new Date(event.eventDate));
-          const attendanceRate = event.rsvpCount > 0 ? Math.round((event.attendedCount / event.rsvpCount) * 100) : 0;
+          const attendanceRate = event.rsvpCount > 0
+            ? Math.round((event.attendedCount / event.rsvpCount) * 100)
+            : 0;
 
           return (
-            <div key={event.id} style={s.eventCard}>
+            <div key={event.id} style={{
+              background: 'white', border: '1px solid #e5e7eb',
+              borderRadius: '10px', padding: '18px 20px',
+            }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                 <span style={{ ...s.badge, background: ss.bg, color: ss.text, border: `1px solid ${ss.border}` }}>
                   {event.status}
                 </span>
-                <span style={{ fontSize: '0.813rem', color: pastEvent ? '#9ca3af' : '#374151', fontWeight: 500 }}>
+                <span style={{ fontSize: '0.8125rem', color: pastEvent ? '#9ca3af' : '#374151', fontWeight: 500 }}>
                   {format(new Date(event.eventDate), 'd MMM yyyy')}
                 </span>
               </div>
 
               <h3 style={{ fontSize: '0.9375rem', fontWeight: 600, color: '#111827', margin: '0 0 4px', lineHeight: 1.35 }}>{event.name}</h3>
-              <p style={{ fontSize: '0.813rem', color: '#6b7280', margin: '0 0 12px' }}>{event.university}</p>
+              <p style={{ fontSize: '0.8125rem', color: '#6b7280', margin: '0 0 12px' }}>{event.university}</p>
               <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0 0 14px' }}>📍 {event.venue}</p>
 
-              {/* Attendance stats */}
               {event.status !== 'Draft' && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '14px' }}>
                   {[
-                    { label: 'RSVPs', value: event.rsvpCount },
+                    { label: 'RSVPs',    value: event.rsvpCount },
                     { label: 'Attended', value: event.attendedCount + event.walkinCount },
                     { label: 'Walk-ins', value: event.walkinCount },
                   ].map(stat => (
                     <div key={stat.label} style={{ background: '#f9fafb', borderRadius: '6px', padding: '8px', textAlign: 'center' }}>
                       <div style={{ fontSize: '1.125rem', fontWeight: 700, color: '#111827' }}>{stat.value}</div>
-                      <div style={{ fontSize: '0.688rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{stat.label}</div>
+                      <div style={{ fontSize: '0.6875rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{stat.label}</div>
                     </div>
                   ))}
                 </div>
               )}
 
-              {/* Attendance rate bar */}
               {event.status === 'Closed' && event.rsvpCount > 0 && (
                 <div style={{ marginBottom: '14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
@@ -128,12 +141,8 @@ export default function EventList() {
 
               <div style={{ display: 'flex', gap: '6px' }}>
                 <button onClick={() => navigate(`/events/${event.id}`)} style={s.secondaryBtn}>View details</button>
-                {event.status === 'Active' && (
-                  <button style={s.secondaryBtn}>Download QR</button>
-                )}
-                {event.status === 'Closed' && (
-                  <button style={s.secondaryBtn}>Download report</button>
-                )}
+                {event.status === 'Active'  && <button style={s.secondaryBtn}>Download QR</button>}
+                {event.status === 'Closed' && <button style={s.secondaryBtn}>Download report</button>}
               </div>
             </div>
           );
@@ -142,35 +151,41 @@ export default function EventList() {
 
       {/* Create event modal */}
       {showCreate && (
-        <div style={s.overlay}>
-          <div style={s.modal}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '1.125rem', fontWeight: 600, margin: 0 }}>Create Event</h2>
-              <button onClick={() => setShowCreate(false)} style={s.closeBtn}>✕</button>
+        <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) setShowCreate(false); }}>
+          <div style={{ ...s.modal, width: '460px' }}>
+            <div style={s.modalHeader}>
+              <h2 style={s.modalTitle}>Create Event</h2>
+              <button onClick={() => setShowCreate(false)} style={s.closeBtn}>
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="16" height="16">
+                  <path d="M3 3l10 10M13 3L3 13"/>
+                </svg>
+              </button>
             </div>
             <form onSubmit={handleCreate}>
               {[
-                { key: 'name', label: 'Event Name *', type: 'text', placeholder: 'Wits Medical School Career Fair' },
-                { key: 'university', label: 'University *', type: 'text', placeholder: 'University of the Witwatersrand' },
-                { key: 'venue', label: 'Venue', type: 'text', placeholder: 'Great Hall, Braamfontein' },
-                { key: 'eventDate', label: 'Event Date *', type: 'date', placeholder: '' },
+                { key: 'name',       label: 'Event Name *',  type: 'text', placeholder: 'Wits Medical School Career Fair' },
+                { key: 'university', label: 'University *',  type: 'text', placeholder: 'University of the Witwatersrand' },
+                { key: 'venue',      label: 'Venue',         type: 'text', placeholder: 'Great Hall, Braamfontein' },
+                { key: 'eventDate',  label: 'Event Date *',  type: 'date', placeholder: '' },
               ].map(field => (
                 <div key={field.key} style={{ marginBottom: '12px' }}>
-                  <label style={{ display: 'block', fontSize: '0.875rem', fontWeight: 500, color: '#374151', marginBottom: '5px' }}>{field.label}</label>
+                  <label style={s.formLabel}>{field.label}</label>
                   <input
                     type={field.type}
                     placeholder={field.placeholder}
                     value={form[field.key]}
                     onChange={e => setForm(f => ({ ...f, [field.key]: e.target.value }))}
-                    style={s.input}
+                    style={s.formInput}
                     required={field.label.endsWith('*')}
                   />
                 </div>
               ))}
-              <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end', marginTop: '16px' }}>
-                <button type="button" onClick={() => setShowCreate(false)} style={s.ghostBtn}>Cancel</button>
+              <div style={s.modalFooter}>
+                <button type="button" onClick={() => setShowCreate(false)} style={{ ...s.secondaryBtn, background: 'none', border: 'none' }}>
+                  Cancel
+                </button>
                 <button type="submit" disabled={creating} style={s.primaryBtn}>
-                  {creating ? 'Creating...' : 'Create Event'}
+                  {creating ? 'Creating…' : 'Create Event'}
                 </button>
               </div>
             </form>
@@ -180,16 +195,3 @@ export default function EventList() {
     </div>
   );
 }
-
-const s = {
-  primaryBtn: { background: '#1d4ed8', color: 'white', border: 'none', borderRadius: '6px', padding: '8px 16px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500 },
-  secondaryBtn: { background: 'white', color: '#374151', border: '1px solid #d1d5db', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.813rem' },
-  ghostBtn: { background: 'none', color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '8px 14px', cursor: 'pointer', fontSize: '0.875rem' },
-  metricCard: { background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '14px 16px' },
-  eventCard: { background: 'white', border: '1px solid #e5e7eb', borderRadius: '10px', padding: '18px 20px' },
-  badge: { display: 'inline-block', padding: '2px 9px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 500 },
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.4)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50 },
-  modal: { background: 'white', borderRadius: '10px', padding: '24px', width: '460px', maxWidth: '90vw' },
-  closeBtn: { background: 'none', border: 'none', fontSize: '1.125rem', cursor: 'pointer', color: '#6b7280' },
-  input: { width: '100%', border: '1px solid #d1d5db', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box' },
-};

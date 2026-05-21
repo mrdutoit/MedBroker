@@ -8,6 +8,19 @@ import { useState } from 'react';
 import { s } from '../styles/tokens.js';
 import { PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
 
+const MOCK_AUDIT_LOG = [
+  { id: 1, action: 'Lead assigned',             entity: 'Lead',        entityRef: 'Dr Priya Naidoo',     performedBy: 'Admin User',   role: 'Admin',       timestamp: '2026-05-20 14:32' },
+  { id: 2, action: 'Broker reassigned',          entity: 'Appointment', entityRef: 'Dr Sipho Dlamini',    performedBy: 'Admin User',   role: 'Admin',       timestamp: '2026-05-20 13:15' },
+  { id: 3, action: 'Appointment returned to queue', entity: 'Appointment', entityRef: 'Dr Amara Osei',    performedBy: 'Supervisor One', role: 'Supervisor', timestamp: '2026-05-20 11:04' },
+  { id: 4, action: 'Feature flag updated',       entity: 'FeatureFlag', entityRef: 'tasks.enabled → true', performedBy: 'Global Administrator', role: 'GlobalAdmin', timestamp: '2026-05-20 10:47' },
+  { id: 5, action: 'User created',               entity: 'User',        entityRef: 'Riaan Botha (Broker)', performedBy: 'Admin User',  role: 'Admin',       timestamp: '2026-05-19 16:22' },
+  { id: 6, action: 'System settings updated',    entity: 'SystemConfig', entityRef: 'brokerFreeAppointmentsPerMonth: 10 → 12', performedBy: 'Admin User', role: 'Admin', timestamp: '2026-05-19 15:08' },
+  { id: 7, action: 'Lead auto-returned to queue', entity: 'Lead',       entityRef: 'Dr Ruan de Beer',     performedBy: 'System',       role: 'System',      timestamp: '2026-05-19 07:00' },
+  { id: 8, action: 'Appointment outcome saved',  entity: 'Appointment', entityRef: 'Dr Lerato Mokoena — ClosedWon', performedBy: 'Sandra van der Berg', role: 'Broker', timestamp: '2026-05-18 16:45' },
+  { id: 9, action: 'Lead imported (batch)',      entity: 'LeadImportBatch', entityRef: 'SA Medical Register — Q2 2026 (42 records)', performedBy: 'Admin User', role: 'Admin', timestamp: '2026-05-15 09:30' },
+  { id: 10, action: 'Call outcome logged',       entity: 'CallAttempt', entityRef: 'Dr Zanele Dube — CallbackRequested', performedBy: 'Thabo Molefe', role: 'Agent', timestamp: '2026-05-14 11:22' },
+];
+
 const MOCK_SUBSCRIPTIONS = [
   { name: 'MedLeads SA — Monthly Bundle',   provider: 'MedLeads SA (Pty) Ltd',  imported: 342, lastImport: '1 May 2026',  status: 'Active' },
   { name: 'Healthwise Doctor Database',     provider: 'Healthwise Data',         imported: 187, lastImport: '15 Apr 2026', status: 'Active' },
@@ -40,7 +53,7 @@ export default function AppAdmin() {
       <h1 style={{ margin: '0 0 18px', fontSize: '1.375rem', fontWeight: 600, color: '#111827' }}>App Administration</h1>
 
       <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: '20px' }}>
-        {[['portfolios', 'Portfolios'], ['products', 'Products'], ['subscriptions', 'Medical Subscriptions'], ['settings', 'System Settings']].map(([key, label]) => (
+        {[['portfolios', 'Portfolios'], ['products', 'Products'], ['subscriptions', 'Medical Subscriptions'], ['settings', 'System Settings'], ['audit', 'Audit Log']].map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -280,6 +293,77 @@ export default function AppAdmin() {
             <button style={s.primaryBtn} onClick={saveSettings}>Save Settings</button>
           </div>
         </div>
+      )}
+      {/* Audit Log */}
+      {tab === 'audit' && (
+        <>
+          <div style={{ marginBottom: '12px' }}>
+            <p style={{ color: '#6b7280', fontSize: '0.875rem', margin: '0 0 6px' }}>
+              Immutable record of significant system actions for FAIS Act and POPIA compliance.
+              Entries are written by the system and cannot be edited or deleted.
+            </p>
+            <div style={{ ...s.noticeInfo, fontSize: '0.8125rem' }}>
+              In production, this log is written by the API to the <strong>AuditLog</strong> table.
+              Search and date-range filtering will be available when the backend is connected.
+            </div>
+          </div>
+          <div style={{ ...s.tableCard, overflowX: 'auto' }}>
+            <table style={{ ...s.table, minWidth: '860px' }}>
+              <thead><tr>
+                <th style={s.th}>Timestamp</th>
+                <th style={s.th}>Action</th>
+                <th style={s.th}>Entity</th>
+                <th style={s.th}>Detail</th>
+                <th style={s.th}>Performed by</th>
+                <th style={s.th}>Role</th>
+              </tr></thead>
+              <tbody>
+                {MOCK_AUDIT_LOG.map(entry => (
+                  <tr key={entry.id} style={s.tr}
+                    onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
+                    onMouseLeave={e => e.currentTarget.style.background = ''}
+                  >
+                    <td style={{ ...s.td, color: '#6b7280', fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
+                      {entry.timestamp}
+                    </td>
+                    <td style={{ ...s.td, fontWeight: 500, fontSize: '0.8125rem' }}>{entry.action}</td>
+                    <td style={s.td}>
+                      <span style={{
+                        ...s.badge, fontSize: '0.688rem',
+                        background: '#f3f4f6', color: '#374151',
+                      }}>
+                        {entry.entity}
+                      </span>
+                    </td>
+                    <td style={{ ...s.td, color: '#6b7280', fontSize: '0.8125rem', maxWidth: '260px' }}>
+                      {entry.entityRef}
+                    </td>
+                    <td style={{ ...s.td, fontSize: '0.8125rem' }}>{entry.performedBy}</td>
+                    <td style={s.td}>
+                      <span style={{
+                        ...s.badge, fontSize: '0.688rem',
+                        background: entry.role === 'System' ? '#f3f4f6'
+                          : entry.role === 'GlobalAdmin' ? '#fdf4ff'
+                          : entry.role === 'Admin' ? '#eff6ff'
+                          : entry.role === 'Supervisor' ? '#f0fdf4'
+                          : entry.role === 'Agent' ? '#fffbeb'
+                          : '#f5f3ff',
+                        color: entry.role === 'System' ? '#6b7280'
+                          : entry.role === 'GlobalAdmin' ? '#7e22ce'
+                          : entry.role === 'Admin' ? '#1d4ed8'
+                          : entry.role === 'Supervisor' ? '#15803d'
+                          : entry.role === 'Agent' ? '#d97706'
+                          : '#7c3aed',
+                      }}>
+                        {entry.role}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </>
       )}
     </div>
   );
