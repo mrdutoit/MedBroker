@@ -15,7 +15,7 @@
  */
 
 import { useState }      from 'react';
-import { useNavigate, Navigate } from 'react-router-dom';
+import { useNavigate }   from 'react-router-dom';
 import { useRole }        from '../context/RoleContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s }             from '../styles/tokens.js';
@@ -219,32 +219,75 @@ function PipelineFunnel({ data }) {
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export default function Reports() {
   const navigate          = useNavigate();
-  const { role }          = useRole();
+  const { role, persona } = useRole();
   const { isMobile }      = useWindowSize();
   const [period, setPeriod] = useState('Monthly');
 
-  // Defence in depth — the route guard in App.jsx is the primary gate, but a
-  // component should not render org-wide analytics for a role that may not see
-  // them. Agents and Brokers are redirected to their default landing page.
-  const canView = ['GlobalAdmin', 'Admin', 'Supervisor'].includes(role);
-  if (!canView) return <Navigate to="/leads" replace />;
+  // ── Who is viewing, and at what scope ───────────────────────────────────────
+  // Management sees everything. Supervisors see their direct reports. Agents and
+  // Brokers see only their own performance. In production the report API scopes
+  // by the authenticated user; here we match the preview persona by name.
+  const isManager    = role === 'GlobalAdmin' || role === 'Admin';
+  const isSupervisor = role === 'Supervisor';
+  const isAgentView  = role === 'Agent';
+  const isBrokerView = role === 'Broker';
+  const selfView     = isAgentView || isBrokerView;
+  const me           = persona?.displayName;
 
-  // Supervisors see only their direct reports. In production the report API
-  // scopes by the supervisor's team from the JWT; this mirrors it for preview.
-  // (Mock team: Supervisor One -> Thabo Molefe, Naledi van Wyk.)
+  // Supervisor team (mock): Supervisor One → Thabo Molefe, Naledi van Wyk.
   const SUPERVISOR_AGENTS = ['Thabo Molefe', 'Naledi van Wyk'];
-  const scopeAgents = list =>
-    role === 'Supervisor' ? list.filter(a => SUPERVISOR_AGENTS.includes(a.name)) : list;
 
   const pipeline = PIPELINE_DATA[period];
   const trend    = TREND_DATA[period];
-  const brokers  = BROKER_DATA[period];
-  const agents   = scopeAgents(AGENT_DATA[period]);
 
-  const totalLeads    = pipeline.reduce((a, b) => a + b.count, 0);
-  const closedWon     = pipeline.find(r => r.status === 'Closed Won')?.count ?? 0;
-  const totalPolicies = brokers.reduce((a, b) => a + b.policyValue, 0);
-  const convRate      = pct(closedWon, totalLeads);
+  // Row-level scope per role.
+  const brokers =
+      isBrokerView ? BROKER_DATA[period].filter(b => b.name === me)
+    : isAgentView  ? []
+    :                BROKER_DATA[period];
+  const agents =
+      isAgentView   ? AGENT_DATA[period].filter(a => a.name === me)
+    : isBrokerView  ? []
+    : isSupervisor  ? AGENT_DATA[period].filter(a => SUPERVISOR_AGENTS.includes(a.name))
+    :                 AGENT_DATA[period];
+
+  // Section visibility.
+  const showOrgCharts   = isManager || isSupervisor;   // org-wide pipeline/trend
+  const showBrokerTable = brokers.length > 0;
+  const showAgentTable  = agents.length > 0;
+
+  // ── KPI cards — scoped to the viewer ────────────────────────────────────────
+  const myAgent  = agents[0];
+  const myBroker = brokers[0];
+
+  const orgTotalLeads = pipeline.reduce((sum, r) => sum + r.count, 0);
+  const orgClosedWon  = pipeline.find(r => r.status === 'Closed Won')?.count ?? 0;
+  const orgPolicies   = BROKER_DATA[period].reduce((sum, b) => sum + b.policyValue, 0);
+
+  const kpis = selfView
+    ? (isAgentView && myAgent
+        ? [
+            { label: 'My leads',            value: myAgent.leads.toLocaleString(), sub: 'Assigned to you'      },
+            { label: 'Calls made',          value: myAgent.calls.toLocaleString(), sub: 'Outbound calls'       },
+            { label: 'Appointments booked', value: myAgent.appts.toString(),       sub: 'From your leads'      },
+            { label: 'Booking rate',        value: myAgent.conversion,             sub: 'Leads → appointments' },
+          ]
+        : isBrokerView && myBroker
+        ? [
+            { label: 'My appointments', value: myBroker.appts.toString(),  sub: 'Allocated to you'  },
+            { label: 'Signed',          value: myBroker.signed.toString(), sub: `${pct(myBroker.signed, myBroker.appts)} conversion` },
+            { label: 'Policy value',    value: fmt(myBroker.policyValue),  sub: 'Your signed policies' },
+            { label: 'Avg per signing', value: fmtK(Math.round(myBroker.policyValue / (myBroker.signed || 1))), sub: 'Policy value' },
+          ]
+        : [])
+    : [
+        { label: 'Total leads',        value: orgTotalLeads.toLocaleString(),  sub: 'All pipeline stages' },
+        { label: 'Closed Won',         value: orgClosedWon.toString(),         sub: `${pct(orgClosedWon, orgTotalLeads)} conversion` },
+        { label: 'Total policy value', value: fmt(orgPolicies),                sub: 'Closed Won policies' },
+        { label: 'Avg per broker',     value: fmtK(Math.round(orgPolicies / (BROKER_DATA[period].length || 1))), sub: 'Policy value' },
+      ];
+
+  const noSelfData = selfView && kpis.length === 0;
 
   return (
     <div style={{ padding: isMobile ? '12px' : '24px' }}>
@@ -254,7 +297,7 @@ export default function Reports() {
         <div>
           <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color: '#111827' }}>Reports</h1>
           <p style={{ margin: '3px 0 0', fontSize: '0.8125rem', color: '#6b7280' }}>
-            {PERIOD_LABELS[period]}
+            {selfView ? `Your performance · ${PERIOD_LABELS[period]}` : PERIOD_LABELS[period]}
           </p>
         </div>
         <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
@@ -278,22 +321,24 @@ export default function Reports() {
       </div>
 
       {/* ── KPI summary ─────────────────────────────────────────────────── */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
-        {[
-          { label: 'Total leads',    value: totalLeads.toLocaleString(), sub: 'All pipeline stages'     },
-          { label: 'Closed Won',     value: closedWon.toString(),        sub: `${convRate} conversion`  },
-          { label: 'Total policy value', value: fmt(totalPolicies),      sub: 'Closed Won policies'     },
-          { label: 'Avg per broker', value: fmtK(Math.round(totalPolicies / brokers.length)), sub: 'Policy value' },
-        ].map(c => (
-          <div key={c.label} style={s.card}>
-            <div style={{ fontSize: '0.6875rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{c.label}</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111827', lineHeight: 1.1 }}>{c.value}</div>
-            <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '3px' }}>{c.sub}</div>
-          </div>
-        ))}
-      </div>
+      {noSelfData ? (
+        <div style={{ ...s.card, marginBottom: '16px', color: '#6b7280', fontSize: '0.875rem' }}>
+          No reporting data for your account in this period.
+        </div>
+      ) : (
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
+          {kpis.map(c => (
+            <div key={c.label} style={s.card}>
+              <div style={{ fontSize: '0.6875rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{c.label}</div>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111827', lineHeight: 1.1 }}>{c.value}</div>
+              <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '3px' }}>{c.sub}</div>
+            </div>
+          ))}
+        </div>
+      )}
 
-      {/* ── Charts row ──────────────────────────────────────────────────── */}
+      {/* ── Charts row — org-wide, management/supervisor only ───────────── */}
+      {showOrgCharts && (
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
         <div style={s.card}>
           <h2 style={s.cardTitle}>Pipeline Status Breakdown</h2>
@@ -304,11 +349,13 @@ export default function Reports() {
           <TrendChart data={trend} />
         </div>
       </div>
+      )}
 
       {/* ── Broker performance ──────────────────────────────────────────── */}
+      {showBrokerTable && (
       <div style={{ ...s.tableCard, overflowX: 'auto', marginBottom: '16px' }}>
         <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid #f3f4f6' }}>
-          <h2 style={s.cardTitle}>Broker Performance</h2>
+          <h2 style={s.cardTitle}>{isBrokerView ? 'My Performance' : 'Broker Performance'}</h2>
         </div>
         <table style={{ ...s.table, minWidth: '600px' }}>
           <thead>
@@ -330,7 +377,7 @@ export default function Reports() {
                 <tr key={b.id} style={s.tr}>
                   <td style={s.td}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                      {i === 0 && <span title="Top performer">🏆</span>}
+                      {!selfView && i === 0 && <span title="Top performer">🏆</span>}
                       <span style={{ fontWeight: 500, color: '#111827' }}>{b.name}</span>
                     </div>
                   </td>
@@ -375,11 +422,13 @@ export default function Reports() {
           </tbody>
         </table>
       </div>
+      )}
 
       {/* ── Agent activity ──────────────────────────────────────────────── */}
+      {showAgentTable && (
       <div style={{ ...s.tableCard, overflowX: 'auto' }}>
         <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid #f3f4f6' }}>
-          <h2 style={s.cardTitle}>Agent Activity</h2>
+          <h2 style={s.cardTitle}>{isAgentView ? 'My Activity' : 'Agent Activity'}</h2>
         </div>
         <table style={{ ...s.table, minWidth: '560px' }}>
           <thead>
@@ -419,6 +468,7 @@ export default function Reports() {
           </tbody>
         </table>
       </div>
+      )}
     </div>
   );
 }
