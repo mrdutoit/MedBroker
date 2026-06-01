@@ -167,9 +167,13 @@ function AppLayout({ children }) {
           <NavItem to="/notifications" label="Notifications" badge={unreadCount > 0 ? unreadCount : null} onClick={closeNav} />
           {showTasks && <NavItem to="/tasks" label="Tasks" onClick={closeNav} />}
 
-          {/* Analytics — visible to all roles; data is scoped per role in Reports */}
+          {/* Analytics — visible to all roles; self-service roles go to their own detail */}
           <div style={SECTION}>Analytics</div>
-          <NavItem to="/reports" label="Reports" onClick={closeNav} />
+          <NavItem
+            to={isAgent ? '/reports/agent/tm' : isBroker ? '/reports/broker/sb' : '/reports'}
+            label="Reports"
+            onClick={closeNav}
+          />
 
           {showAdminSection && (
             <>
@@ -281,6 +285,13 @@ function AppLayoutWrapper() {
   const SELF_REPORT_ID = { Agent: 'tm', Broker: 'sb' };
   const selfReportId   = SELF_REPORT_ID[role] ?? null;
 
+  // Self-service roles skip the Reports overview and land on their own detail.
+  // Management and Supervisors get the overview so they can choose what to view.
+  const reportsLanding =
+      isAgent  ? `/reports/agent/${SELF_REPORT_ID.Agent}`
+    : isBroker ? `/reports/broker/${SELF_REPORT_ID.Broker}`
+    :            null;
+
   return (
     <AppLayout>
       <Routes>
@@ -304,7 +315,7 @@ function AppLayoutWrapper() {
         <Route path="/tasks"         element={flag('tasks.enabled') ? <Tasks /> : <Navigate to={defaultPath} replace />} />
 
         {/* Analytics — all roles; self-service roles see only their own data */}
-        <Route path="/reports" element={<Reports />} />
+        <Route path="/reports" element={reportsLanding ? <Navigate to={reportsLanding} replace /> : <Reports />} />
         <Route
           path="/reports/agent/:id"
           element={
