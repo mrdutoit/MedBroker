@@ -148,6 +148,16 @@ export const appointmentsApi = {
   //   writes AuditLog entry with action='AppointmentReassigned' including previous broker.
   reassign: (id, brokerId, agentId) =>
     request(`/appointments/${id}/reassign`, { method: 'PUT', body: JSON.stringify({ brokerId, agentId }) }),
+  // returnToLeads — Admin/Supervisor returns an appointment to the unassigned leads queue.
+  //   Server-side: validates customerSigned IS NOT TRUE, sets Lead.pipelineStatus = 'Unassigned',
+  //   archives the Appointment, writes AuditLog entry with action='AppointmentReturnedToLeads'.
+  returnToLeads: (id) =>
+    request(`/appointments/${id}/return`, { method: 'PUT' }),
+  // saveOutcome — records the meeting outcome. The server computes the resulting
+  //   Appointment.status via computeAppointmentStatus() — never sent from the client.
+  //   Body: { customerSigned, productsSold, meetings }.
+  saveOutcome: (id, data) =>
+    request(`/appointments/${id}/outcome`, { method: 'POST', body: JSON.stringify(data) }),
 };
 
 // ─── Broker matching ──────────────────────────────────────────────────────────
