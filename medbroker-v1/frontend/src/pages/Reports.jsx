@@ -15,7 +15,8 @@
  */
 
 import { useState }      from 'react';
-import { useNavigate }   from 'react-router-dom';
+import { useNavigate, Navigate } from 'react-router-dom';
+import { useRole }        from '../context/RoleContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s }             from '../styles/tokens.js';
 
@@ -218,13 +219,27 @@ function PipelineFunnel({ data }) {
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export default function Reports() {
   const navigate          = useNavigate();
+  const { role }          = useRole();
   const { isMobile }      = useWindowSize();
   const [period, setPeriod] = useState('Monthly');
+
+  // Defence in depth — the route guard in App.jsx is the primary gate, but a
+  // component should not render org-wide analytics for a role that may not see
+  // them. Agents and Brokers are redirected to their default landing page.
+  const canView = ['GlobalAdmin', 'Admin', 'Supervisor'].includes(role);
+  if (!canView) return <Navigate to="/leads" replace />;
+
+  // Supervisors see only their direct reports. In production the report API
+  // scopes by the supervisor's team from the JWT; this mirrors it for preview.
+  // (Mock team: Supervisor One -> Thabo Molefe, Naledi van Wyk.)
+  const SUPERVISOR_AGENTS = ['Thabo Molefe', 'Naledi van Wyk'];
+  const scopeAgents = list =>
+    role === 'Supervisor' ? list.filter(a => SUPERVISOR_AGENTS.includes(a.name)) : list;
 
   const pipeline = PIPELINE_DATA[period];
   const trend    = TREND_DATA[period];
   const brokers  = BROKER_DATA[period];
-  const agents   = AGENT_DATA[period];
+  const agents   = scopeAgents(AGENT_DATA[period]);
 
   const totalLeads    = pipeline.reduce((a, b) => a + b.count, 0);
   const closedWon     = pipeline.find(r => r.status === 'Closed Won')?.count ?? 0;
