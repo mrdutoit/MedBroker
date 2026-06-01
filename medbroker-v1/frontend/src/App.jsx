@@ -9,7 +9,7 @@
  * Responsive — collapsible sidebar on mobile.
  */
 
-import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useParams } from 'react-router-dom';
 import { lazy, Suspense, useState } from 'react';
 import { RoleProvider, useRole, PERSONAS } from './context/RoleContext.jsx';
 import { FlagProvider, useFlags }           from './context/FlagContext.jsx';
@@ -68,6 +68,15 @@ function NavItem({ to, label, badge, onClick }) {
   );
 }
 
+// ─── Report drill-down guard ────────────────────────────────────────────────
+// Self-service roles (Agent, Broker) may open only their own report detail.
+// selfId === null means unrestricted (management, supervisors).
+function ReportDrillGuard({ selfId, fallback, children }) {
+  const { id } = useParams();
+  if (selfId !== null && id !== selfId) return <Navigate to={fallback} replace />;
+  return children;
+}
+
 // ─── AppLayout ─────────────────────────────────────────────────────────────────
 function AppLayout({ children }) {
   const { role, setRole, persona } = useRole();
@@ -81,7 +90,6 @@ function AppLayout({ children }) {
   const isAgent        = role === 'Agent';
   const isBroker       = role === 'Broker';
   const isAdminOrAbove = isAdmin;
-  const canViewReports = isAdminOrAbove || role === 'Supervisor';
 
   // ── Flag-controlled visibility ──────────────────────────────────────────────
   const showEvents = flag('events.enabled');
@@ -159,12 +167,9 @@ function AppLayout({ children }) {
           <NavItem to="/notifications" label="Notifications" badge={unreadCount > 0 ? unreadCount : null} onClick={closeNav} />
           {showTasks && <NavItem to="/tasks" label="Tasks" onClick={closeNav} />}
 
-          {canViewReports && (
-            <>
-              <div style={SECTION}>Analytics</div>
-              <NavItem to="/reports" label="Reports" onClick={closeNav} />
-            </>
-          )}
+          {/* Analytics — visible to all roles; data is scoped per role in Reports */}
+          <div style={SECTION}>Analytics</div>
+          <NavItem to="/reports" label="Reports" onClick={closeNav} />
 
           {showAdminSection && (
             <>
@@ -268,8 +273,13 @@ function AppLayoutWrapper() {
   const isAdminOrAbove = role === 'Admin' || isGlobalAdmin;
   const isAgent        = role === 'Agent';
   const isBroker       = role === 'Broker';
-  const canViewReports = isAdminOrAbove || role === 'Supervisor';
   const defaultPath    = isBroker ? '/appointments' : '/leads';
+
+  // Reports drill-down scope. Management and Supervisors are unrestricted (null);
+  // self-service roles may open only their own record. Production derives this id
+  // from the authenticated user — these values match the preview personas.
+  const SELF_REPORT_ID = { Agent: 'tm', Broker: 'sb' };
+  const selfReportId   = SELF_REPORT_ID[role] ?? null;
 
   return (
     <AppLayout>
@@ -293,10 +303,24 @@ function AppLayoutWrapper() {
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/tasks"         element={flag('tasks.enabled') ? <Tasks /> : <Navigate to={defaultPath} replace />} />
 
-        {/* Analytics — Admin / Supervisor / GlobalAdmin only */}
-        <Route path="/reports"            element={canViewReports ? <Reports />      : <Navigate to={defaultPath} replace />} />
-        <Route path="/reports/agent/:id"  element={canViewReports ? <AgentDetail />  : <Navigate to={defaultPath} replace />} />
-        <Route path="/reports/broker/:id" element={canViewReports ? <BrokerDetail /> : <Navigate to={defaultPath} replace />} />
+        {/* Analytics — all roles; self-service roles see only their own data */}
+        <Route path="/reports" element={<Reports />} />
+        <Route
+          path="/reports/agent/:id"
+          element={
+            isBroker
+              ? <Navigate to={defaultPath} replace />
+              : <ReportDrillGuard selfId={isAgent ? selfReportId : null} fallback="/reports"><AgentDetail /></ReportDrillGuard>
+          }
+        />
+        <Route
+          path="/reports/broker/:id"
+          element={
+            isAgent
+              ? <Navigate to={defaultPath} replace />
+              : <ReportDrillGuard selfId={isBroker ? selfReportId : null} fallback="/reports"><BrokerDetail /></ReportDrillGuard>
+          }
+        />
 
         {/* Admin — gated by role */}
         <Route path="/admin/users" element={isAdminOrAbove ? <UserAdmin />  : <Navigate to={defaultPath} replace />} />
