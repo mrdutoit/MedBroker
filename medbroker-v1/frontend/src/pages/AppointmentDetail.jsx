@@ -304,14 +304,17 @@ function ReassignBrokerModal({ appointment, onClose }) {
 function ReturnToLeadsModal({ appointment, onClose }) {
   const [returning, setReturning] = useState(false);
   const [done,      setDone]      = useState(false);
+  const [error,     setError]     = useState(null);
 
   async function handleReturn() {
     setReturning(true);
+    setError(null);
     try {
       await appointmentsApi.returnToLeads(appointment.id);
       setDone(true);
       setTimeout(onClose, 900);
     } catch {
+      setError('Could not return this appointment. Please try again.');
       setReturning(false);
     }
   }
@@ -333,6 +336,9 @@ function ReturnToLeadsModal({ appointment, onClose }) {
         <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '20px', lineHeight: 1.5 }}>
           The appointment record will be archived. The lead will be available to assign to the next available agent.
         </p>
+        {error && (
+          <div style={{ ...s.noticeWarn, marginBottom: '12px' }}>{error}</div>
+        )}
         {done && (
           <div style={{ ...s.noticeSuccess, marginBottom: '12px' }}>
             ✓ Returned to leads queue
@@ -375,6 +381,8 @@ export default function AppointmentDetail() {
   const [showReassign,      setShowReassign]      = useState(false);
   const [showReturnConfirm, setShowReturnConfirm] = useState(false);
   const [outcomeSaved,      setOutcomeSaved]      = useState(false);
+  const [savingOutcome,     setSavingOutcome]     = useState(false);
+  const [outcomeError,      setOutcomeError]      = useState(null);
 
   // Derived
   const isClosed    = appt.status === 'ClosedWon' || appt.status === 'ClosedLost';
@@ -405,10 +413,26 @@ export default function AppointmentDetail() {
     }));
   }
 
-  function handleSaveOutcome() {
-    // Production: POST /api/appointments/:id/outcome → computeAppointmentStatus()
-    setOutcomeSaved(true);
-    setTimeout(() => setOutcomeSaved(false), 3000);
+  async function handleSaveOutcome() {
+    setSavingOutcome(true);
+    setOutcomeError(null);
+    try {
+      // The server computes the resulting status (ClosedWon/ClosedLost/InProgress)
+      // via computeAppointmentStatus() — it is never written directly by the client.
+      const result = await appointmentsApi.saveOutcome(appt.id, {
+        customerSigned: appt.customerSigned,
+        productsSold:   appt.productsSold,
+        meetings:       appt.meetings,
+      });
+      // Production returns the updated record; preview returns null (mock mode).
+      if (result?.status) setAppt(prev => ({ ...prev, status: result.status }));
+      setOutcomeSaved(true);
+      setTimeout(() => setOutcomeSaved(false), 3000);
+    } catch (err) {
+      setOutcomeError('Could not save the outcome. Please try again.');
+    } finally {
+      setSavingOutcome(false);
+    }
   }
 
   return (
@@ -543,13 +567,16 @@ export default function AppointmentDetail() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button style={s.primaryBtn} onClick={handleSaveOutcome}>
-            Save Outcome
+          <button style={s.primaryBtn} onClick={handleSaveOutcome} disabled={savingOutcome}>
+            {savingOutcome ? 'Saving…' : 'Save Outcome'}
           </button>
           {outcomeSaved && (
             <span style={{ fontSize: '0.8125rem', color: '#15803d' }}>✓ Outcome saved</span>
           )}
         </div>
+        {outcomeError && (
+          <div style={{ ...s.noticeWarn, marginTop: '10px' }}>{outcomeError}</div>
+        )}
         {appt.customerSigned === true && (
           <p style={{ fontSize: '0.8125rem', color: '#15803d', marginTop: '10px', fontWeight: 500 }}>
             ✓ This appointment is closed — ClosedWon
