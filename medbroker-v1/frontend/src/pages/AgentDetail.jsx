@@ -10,6 +10,7 @@
 
 import { useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { useRole } from '../context/RoleContext.jsx';
 import { s } from '../styles/tokens.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 
@@ -92,8 +93,14 @@ const PERIOD_LABELS = {
 export default function AgentDetail() {
   const { id }     = useParams();
   const navigate   = useNavigate();
+  const { role }   = useRole();
   const { isMobile } = useWindowSize();
   const [period, setPeriod] = useState('Monthly');
+
+  // Self-service roles land here directly and have no Reports overview to return
+  // to, so the back link is hidden for them. Management/Supervisors arrived from
+  // the overview and keep it.
+  const showBackToReports = role !== 'Agent' && role !== 'Broker';
 
   const agentId  = Object.keys(AGENT_META).includes(id) ? id : 'tm';
   const meta     = AGENT_META[agentId];
@@ -107,10 +114,12 @@ export default function AgentDetail() {
   }));
 
   return (
-    <div style={{ padding: isMobile ? '12px' : '24px' }}>
+    <div style={{ padding: isMobile ? '12px' : '24px', maxWidth: '960px' }}>
 
       {/* Header */}
-      <button style={s.backBtn} onClick={() => navigate('/reports')}>← Back to Reports</button>
+      {showBackToReports && (
+        <button style={s.backBtn} onClick={() => navigate('/reports')}>← Back to Reports</button>
+      )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', margin: '6px 0 18px', flexWrap: 'wrap', gap: '10px' }}>
         <div>
           <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color: '#111827' }}>
