@@ -81,6 +81,7 @@ function AppLayout({ children }) {
   const isAgent        = role === 'Agent';
   const isBroker       = role === 'Broker';
   const isAdminOrAbove = isAdmin;
+  const canViewReports = isAdminOrAbove || role === 'Supervisor';
 
   // ── Flag-controlled visibility ──────────────────────────────────────────────
   const showEvents = flag('events.enabled');
@@ -158,8 +159,12 @@ function AppLayout({ children }) {
           <NavItem to="/notifications" label="Notifications" badge={unreadCount > 0 ? unreadCount : null} onClick={closeNav} />
           {showTasks && <NavItem to="/tasks" label="Tasks" onClick={closeNav} />}
 
-          <div style={SECTION}>Analytics</div>
-          <NavItem to="/reports" label="Reports" onClick={closeNav} />
+          {canViewReports && (
+            <>
+              <div style={SECTION}>Analytics</div>
+              <NavItem to="/reports" label="Reports" onClick={closeNav} />
+            </>
+          )}
 
           {showAdminSection && (
             <>
@@ -263,6 +268,7 @@ function AppLayoutWrapper() {
   const isAdminOrAbove = role === 'Admin' || isGlobalAdmin;
   const isAgent        = role === 'Agent';
   const isBroker       = role === 'Broker';
+  const canViewReports = isAdminOrAbove || role === 'Supervisor';
   const defaultPath    = isBroker ? '/appointments' : '/leads';
 
   return (
@@ -287,10 +293,10 @@ function AppLayoutWrapper() {
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/tasks"         element={flag('tasks.enabled') ? <Tasks /> : <Navigate to={defaultPath} replace />} />
 
-        {/* Analytics */}
-        <Route path="/reports"            element={<Reports />} />
-        <Route path="/reports/agent/:id"  element={<AgentDetail />} />
-        <Route path="/reports/broker/:id" element={<BrokerDetail />} />
+        {/* Analytics — Admin / Supervisor / GlobalAdmin only */}
+        <Route path="/reports"            element={canViewReports ? <Reports />      : <Navigate to={defaultPath} replace />} />
+        <Route path="/reports/agent/:id"  element={canViewReports ? <AgentDetail />  : <Navigate to={defaultPath} replace />} />
+        <Route path="/reports/broker/:id" element={canViewReports ? <BrokerDetail /> : <Navigate to={defaultPath} replace />} />
 
         {/* Admin — gated by role */}
         <Route path="/admin/users" element={isAdminOrAbove ? <UserAdmin />  : <Navigate to={defaultPath} replace />} />
