@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Context
 ====================================================
-Last updated: 20 May 2026
+Last updated: 01 June 2026
 Purpose: Continuity file — load in a new chat to restore full project context.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -243,13 +243,31 @@ medbroker-v1/
 │   └── package.json
 ├── api/
 │   └── src/
-│       ├── functions/
-│       │   └── autoReturnLeads.js
-│       └── services/
-│           └── leadStatusService.js
+│       ├── functions/                  Azure Functions v4 HTTP/timer triggers
+│       │   ├── leads.js                6 routes: list/get/create/assign/calls/delete
+│       │   ├── eventRegistration.js    event registration endpoint
+│       │   └── autoReturnLeads.js      daily timer — getDbClient() is a STUB
+│       ├── services/
+│       │   ├── leadStatusService.js    computeLeadStatus + computeAppointmentStatus
+│       │   ├── leadStatusService.test.js  28 Vitest tests (passing)
+│       │   ├── leadService.js          Leads data access
+│       │   ├── brokerMatchingService.js  broker ranking
+│       │   ├── db.js                    Azure SQL pool (Managed Identity)
+│       │   ├── encryption.js            field-level encryption helper
+│       │   └── zohoService.js           Zoho integration
+│       ├── middleware/
+│       │   └── auth.js                  Entra ID JWT validation (JWKS)
+│       ├── models/
+│       │   └── lead.js
+│       └── config.js
+│   NOTE: Appointments / Flags / Config / Reports / Users API routes are NOT
+│         yet built — see Status.md §4 for the contracts the frontend expects.
 ├── infra/
+│   ├── main.bicep                      IaC
+│   ├── parameters/                     dev.json, prod.json
 │   ├── schema.sql                      v2.2
 │   └── feature-flags.sql              17 seeded flags
+├── mobile/                             RegisterScreen.jsx (event registration)
 └── DEPLOYMENT.md
 
 
@@ -377,3 +395,13 @@ ReassignBrokerModal on AppointmentDetail: mirrors AssignBrokerModal exactly.
   Agent field is always a read-only display (lock icon, "read only" label).
   Only broker field is editable and pre-populated with current broker.
   Broker must be changed before Save is enabled.
+
+Code review fixes (01 Jun 2026):
+  - Reports is gated to Admin/Supervisor/GlobalAdmin (route + nav + in-page
+    redirect); Supervisor scoped to direct reports. Frontend authorisation
+    only — the report API must re-enforce server-side when built.
+  - appointmentsApi gained returnToLeads() and saveOutcome(); both were being
+    called by AppointmentDetail but did not exist, so the buttons failed
+    silently. Save Outcome now persists via the API and shows error/saving states.
+  - Backend is partially built (Leads domain, auth, db, broker matching), not
+    absent as an earlier Status.md claimed — see Status.md §4.

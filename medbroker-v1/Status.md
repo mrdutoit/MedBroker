@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 20 May 2026
+Last updated: 01 June 2026
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -61,6 +61,9 @@ INFRASTRUCTURE FILES
   ✅ autoReturnLeads.js Azure Function timer trigger — daily auto-return
                         (getDbClient() is a stub — needs DB client connected)
   ✅ leadStatusService.js computeLeadStatus() + computeAppointmentStatus()
+  ✅ leadStatusService.test.js  28 Vitest tests covering both status machines
+                        — passing against the real service (added 01 Jun 2026).
+                        Requires api/package.json test wiring (see Section 5).
 
 RESPONSIVENESS
   ✅ Collapsible sidebar on mobile with hamburger button and dark overlay
@@ -69,11 +72,36 @@ RESPONSIVENESS
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-2. BUGS FIXED IN THIS SESSION (20 May 2026)
+2. BUGS FIXED
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+── 01 June 2026 session (code review + fixes) ──
+All four files verified building (esbuild parse) and the status tests pass.
+
+  ✅ api.js — appointmentsApi was MISSING returnToLeads() and saveOutcome().
+     AppointmentDetail called appointmentsApi.returnToLeads(), which was
+     undefined, so the Return to Leads button threw a TypeError swallowed by
+     an empty catch — it did nothing, silently, in preview and production.
+     Added both methods: PUT /appointments/:id/return and
+     POST /appointments/:id/outcome.
+
+  ✅ AppointmentDetail — Save Outcome was a no-op that showed "Outcome saved"
+     without calling any API. Now calls appointmentsApi.saveOutcome(), applies
+     the server-computed status, shows a Saving… state and an error on failure.
+
+  ✅ AppointmentDetail — ReturnToLeadsModal empty catch now surfaces an error
+     to the user instead of silently resetting.
+
+  ✅ Reports — page and routes were ungated: any Agent or Broker could view
+     org-wide pipeline, every broker's policy values, and every agent's
+     activity (and any drill-down by URL). Now gated to Admin / Supervisor /
+     GlobalAdmin in App.jsx (route + nav), with a defence-in-depth redirect in
+     Reports.jsx and Supervisor scoped to direct reports. NOTE: this is
+     frontend authorisation only — the report API must re-enforce server-side.
+
+── 20 May 2026 session ──
 The following bugs were identified, diagnosed, and fixed across multiple
-Vercel build iterations today. All are now resolved and deployed.
+Vercel build iterations. All are now resolved and deployed.
 
   ✅ AppointmentDetail — Reassign Broker modal was titled "Reassign Appointment"
      and had an editable agent field. Fixed: modal now titled "Reassign Broker",
@@ -135,45 +163,83 @@ for all of them. None of the frontend placeholders should be removed.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-4. BACKEND — NOT YET BUILT
+4. BACKEND — PARTIALLY BUILT
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-The entire Node.js / Azure Functions API layer is not yet built.
-The frontend runs entirely on mock data in preview mode.
+Correction (01 Jun 2026): an earlier version of this file said the backend was
+entirely unbuilt. That is not accurate. A real Node.js / Azure Functions API
+layer exists in api/src. The frontend still runs on mock data in preview mode
+(PREVIEW_MODE when VITE_ENTRA_CLIENT_ID is unset), so the live demo needs no
+backend — but the API is not a blank slate.
 
-Critical API contracts already documented in frontend + leadStatusService.js:
+BUILT (api/src):
+  ✅ functions/leads.js          6 routes: GET /leads, GET /leads/{id},
+                                 POST /leads, PUT /leads/{id}/assign,
+                                 POST /leads/{id}/calls (calls computeLeadStatus),
+                                 DELETE /leads/{id}
+  ✅ functions/eventRegistration.js  event registration endpoint
+  ✅ services/leadService.js     data access for the Leads domain
+  ✅ services/brokerMatchingService.js  broker ranking (parameterised queries)
+  ✅ services/leadStatusService.js  status machines (+ tests)
+  ✅ services/db.js              Azure SQL pool, Managed Identity + local pwd fallback
+  ✅ services/encryption.js      field-level encryption helper
+  ✅ services/zohoService.js     Zoho integration
+  ✅ middleware/auth.js          Entra ID JWT validation against JWKS
+  ✅ models/lead.js, config.js
 
-  POST   /api/leads/:id/calls
+NOT YET BUILT (frontend calls these; server side is missing):
+  ⬜ Appointments API   POST /appointments, GET /appointments[/:id],
+                        PUT /appointments/:id/assign, /reassign,
+                        PUT /appointments/:id/return,
+                        POST /appointments/:id/outcome (computeAppointmentStatus)
+                        — appointmentsApi in api.js calls all of these.
+  ⬜ Flags API          GET/PATCH /flags
+  ⬜ Config API         GET/PUT /config (SystemConfig)
+  ⬜ Reports API        GET /reports/pipeline, /reports/broker-activity
+                        MUST enforce role + Supervisor team scoping server-side
+                        (frontend gating added 01 Jun is presentation only).
+  ⬜ Users API          GET /users, /users/me, POST /users
+  ⬜ autoReturnLeads.js getDbClient() is a stub — throws "not implemented".
+                        Connect the real DB client (services/db.js getPool()).
+
+API contracts (the spec for the routes still to build):
+
+  POST   /api/leads/:id/calls          [BUILT]
          Body: { outcome, notes, callbackDateTime? }
          Server calls computeLeadStatus(currentStatus, outcome)
          Returns: { callAttempt, newPipelineStatus }
 
-  POST   /api/appointments
+  POST   /api/appointments             [TO BUILD]
          Derives agentId from JWT — never accepted from request body
          Creates Appointment child record
          Sets Lead.pipelineStatus = 'AppointmentScheduled'
 
-  PUT    /api/appointments/:id/assign
+  PUT    /api/appointments/:id/assign  [TO BUILD]
          Body: { brokerId }  ← agentId from Appointment record, NOT body
          Sets status Unassigned → Assigned
 
-  PUT    /api/appointments/:id/reassign
+  PUT    /api/appointments/:id/reassign  [TO BUILD]
          Body: { brokerId }  ← agentId never accepted here either
          Updates broker, keeps status, writes audit log
 
-  PUT    /api/appointments/:id/return
+  PUT    /api/appointments/:id/return  [TO BUILD]
          No body. Admin/Supervisor only.
          Sets Lead.pipelineStatus = 'Unassigned', archives Appointment.
          Must validate customerSigned IS NOT TRUE.
 
-  GET    /api/leads/sources
+  POST   /api/appointments/:id/outcome  [TO BUILD]
+         Body: { customerSigned, productsSold, meetings }
+         Server calls computeAppointmentStatus(currentStatus, customerSigned, meetingsSeen)
+         Returns the updated appointment (incl. server-computed status).
+
+  GET    /api/leads/sources            [TO BUILD]
          Returns distinct source labels for LeadList filter dropdown.
 
-  GET/PATCH /api/flags
+  GET/PATCH /api/flags                 [TO BUILD]
          GET: all roles — FlagContext calls on startup
          PATCH: GlobalAdmin only
 
-  GET/PUT /api/config
+  GET/PUT /api/config                  [TO BUILD]
          Read/write SystemConfig (Admin/GlobalAdmin only).
 
   NEVER expose direct PATCH on pipelineStatus or Appointment.status.
@@ -198,6 +264,14 @@ DOCUMENT PRODUCTION
            --width 2400 -p puppeteer-config.json
      Then rebuild docx with ImageRun embedding the PNGs.
 
+TESTING
+  ⬜ Wire Vitest in api/package.json so `npm test` runs:
+       "scripts":          { "test": "vitest run", "test:watch": "vitest" }
+       "devDependencies":  { "vitest": "^2.0.0" }
+     leadStatusService.test.js is in api/src/services and passes once wired.
+  ⬜ Add tests for the Appointments, Flags, and Reports endpoints as they are
+     built (validation + role authorisation per route).
+
 SKILLS INSTALLATION
   ⬜ Install updated app-builder.skill
      (includes tokens.js import rules and container-reset guard — added today)
@@ -206,7 +280,16 @@ SKILLS INSTALLATION
   ⬜ Install updated code-azure-SKILL.md
   ⬜ Install updated mark-persona-SKILL.md
 
-GITHUB — files changed and confirmed working since last full sync:
+GITHUB — files changed 01 June 2026 (code-review fixes, verified building):
+  ✅ frontend/src/App.jsx                          (Reports route + nav gated)
+  ✅ frontend/src/pages/Reports.jsx                (role guard + Supervisor scope)
+  ✅ frontend/src/pages/AppointmentDetail.jsx      (Save Outcome wired; error states)
+  ✅ frontend/src/services/api.js                  (added returnToLeads + saveOutcome)
+  ✅ api/src/services/leadStatusService.test.js    (new — 28 tests)
+  ⬜ api/package.json                              (add test script + vitest devDep —
+                                                    see TESTING below before npm test)
+
+GITHUB — files changed 20 May 2026 (confirmed working):
   ✅ frontend/src/App.jsx                          (role switcher restored)
   ✅ frontend/src/pages/AppointmentDetail.jsx      (reassign bug fixed)
   ✅ frontend/src/pages/FeatureFlags.jsx           (tasks.enabled → Core)
@@ -283,6 +366,16 @@ These decisions caused rework when changed — preserve them in every session:
 
   Role switcher         Compact <select> dropdown in sidebar footer amber box.
                         Never replace with individual buttons per role.
+
+  Reports access        Gated to Admin / Supervisor / GlobalAdmin only.
+                        Route guard in App.jsx + redirect in Reports.jsx +
+                        nav item hidden for other roles. Supervisor sees only
+                        direct reports. Never expose Reports to Agent or Broker.
+                        Must also be enforced server-side in the report API.
+
+  appointmentsApi       Must include returnToLeads() and saveOutcome().
+                        AppointmentDetail depends on both; their absence makes
+                        the Return and Save Outcome buttons fail silently.
 
   Section labels in nav Wrap both the label div and its NavItems in a single
                         conditional — never render a section label without items.
