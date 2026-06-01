@@ -6,7 +6,7 @@
  * JWT claims from MSAL (role from claims.roles[0]).
  */
 
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 
 export const ROLES = ['GlobalAdmin', 'Admin', 'Supervisor', 'Agent', 'Broker'];
 
@@ -35,9 +35,33 @@ export const PRODUCTS_BY_PORTFOLIO = {
 
 const RoleContext = createContext(null);
 
+// Preview-mode only: remember the selected role across page refreshes.
+// sessionStorage is scoped to the tab, so it survives a refresh but clears when
+// the window closes. When real auth is connected, replace this with the role
+// claim from the decoded MSAL token (claims.roles[0]) and drop the persistence.
+const ROLE_STORAGE_KEY = 'medbroker.previewRole';
+
+function getInitialRole() {
+  try {
+    const saved = sessionStorage.getItem(ROLE_STORAGE_KEY);
+    if (saved && ROLES.includes(saved)) return saved;
+  } catch {
+    // sessionStorage unavailable (SSR, privacy settings) — fall back to default
+  }
+  return 'Admin';
+}
+
 export function RoleProvider({ children }) {
-  const [role, setRole] = useState('Admin');
+  const [role, setRole] = useState(getInitialRole);
   const persona = PERSONAS[role];
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(ROLE_STORAGE_KEY, role);
+    } catch {
+      // ignore — persistence is a convenience, not a requirement
+    }
+  }, [role]);
 
   return (
     <RoleContext.Provider value={{ role, setRole, persona }}>
