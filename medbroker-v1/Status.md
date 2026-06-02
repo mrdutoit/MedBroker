@@ -1,7 +1,28 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 01 June 2026
+Last updated: 02 June 2026
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+0. NEXT ACTION  (the single current focus — keep this current)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ►  Build the Appointments API (api/src/functions/appointments.js).
+     The frontend already calls every route; the server side does not exist,
+     so Assign / Reassign / Return / Save Outcome only work against mock data.
+     Start with POST /appointments and POST /appointments/:id/outcome.
+     Contracts are in Section 4. Status must be computed server-side via
+     leadStatusService.js — never accepted from the client.
+
+  Quick win first (≈2 min): wire Vitest in api/package.json (Section 5 TESTING)
+  so `npm test` runs the 28 existing status tests before new endpoints land.
+
+  Parallel business-track blocker (not code): client sign-off on the Stage 1
+  and Stage 2 documents (Section 5 CLIENT / BUSINESS).
+
+  NOTE: confirm or re-point this block at the start of each session — it is the
+  first thing a new chat should read. Priority above is grounded in repo state,
+  not a fixed mandate.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. WHAT HAS BEEN BUILT AND IS WORKING
@@ -51,8 +72,20 @@ FRONTEND — ALL PAGES BUILT AND VERIFIED BUILDING ON VERCEL
   ✅ Tasks              Interactive placeholder — tabs (All/Appointments/Rescheduling/
                         Reminders), checkboxes, due date badges, pending count metrics.
                         Flag-gated: tasks.enabled (Core tier, default false, editable)
-  ✅ EventList          Existing (not modified in this build)
-  ✅ EventDetail        Existing (not modified in this build)
+  ✅ EventList          Events module — create event modal, attendance metrics
+                        (RSVPs / attended / walk-ins), status chips
+                        (Draft/Active/Closed/Cancelled), QR code download.
+                        Flag-gated: events.enabled (Core, default true)
+  ✅ EventDetail        Attendee table with RSVP / walk-in / no-show / attended
+                        filters, QR code modal, attendance % and post-event
+                        report download. Runs on mock data.
+
+MOBILE — STUDENT EVENT REGISTRATION APP (React Native / Expo)
+  ✅ RegisterScreen     3-step flow: scan QR (expo-camera) → form → confirmation.
+                        No login; camera-permission gate with manual-token
+                        fallback. Zod validation (SA mobile regex), mandatory
+                        POPIA consent checkbox. Posts to /api/public/register.
+                        No build/CI pipeline yet; not in the Vercel preview.
 
 INFRASTRUCTURE FILES
   ✅ schema.sql         v2.2 — all tables, constraints, indexes, seed data,
@@ -74,6 +107,14 @@ RESPONSIVENESS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 2. BUGS FIXED
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+── 02 June 2026 (repo housekeeping) ──
+  ✅ Removed a stray nested medbroker-v1/medbroker-v1/ directory — a partial,
+     stale duplicate (47 files vs the canonical 101) whose tokens.js diverged
+     from the real one. It was unused (Vercel root is the outer medbroker-v1/
+     frontend) but a latent trap: a future session could read the wrong
+     tokens.js. Canonical tree is now the single medbroker-v1/ at repo root.
+  ✅ Repository made PUBLIC — source can now be fetched directly each session.
 
 ── 01 June 2026 session (code review + fixes) ──
 All four files verified building (esbuild parse) and the status tests pass.
@@ -177,7 +218,12 @@ BUILT (api/src):
                                  POST /leads, PUT /leads/{id}/assign,
                                  POST /leads/{id}/calls (calls computeLeadStatus),
                                  DELETE /leads/{id}
-  ✅ functions/eventRegistration.js  event registration endpoint
+  ✅ functions/eventRegistration.js  PUBLIC POST /api/public/register (authLevel
+                                 'anonymous'). Validates qrToken → Active Event,
+                                 idempotent RSVP-update vs walk-in-create, dedups
+                                 Lead by email/ID, enforces POPIA consent (Zod).
+                                 Depends on Event/EventAttendee tables (schema.sql)
+                                 and leadService.createLead/findDuplicate.
   ✅ services/leadService.js     data access for the Leads domain
   ✅ services/brokerMatchingService.js  broker ranking (parameterised queries)
   ✅ services/leadStatusService.js  status machines (+ tests)
@@ -393,10 +439,12 @@ These decisions caused rework when changed — preserve them in every session:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 1. Start a new conversation in the MedBroker project
-2. Claude will load project files automatically — no need to paste them
+2. Claude will load project files automatically — no need to paste them.
+   The repo is now public, so Claude can also fetch the current source of any
+   file directly from GitHub (mrdutoit/MedBroker) rather than relying on memory.
 3. Say: "Please read the Project_Context.md and Status.md files and confirm
    you have full context before I give you a task."
-4. Claude will confirm.
+4. Claude will confirm, and should read Section 0 (NEXT ACTION) first.
 5. Give your task.
 
 If picking up a pending item from Section 5, reference it by name.
