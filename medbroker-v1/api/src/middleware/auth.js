@@ -68,6 +68,23 @@ export async function validateToken(request) {
   if (payload.aud !== config.auth.clientId) {
     throw { status: 401, message: 'Token audience mismatch' };
   }
+  // Issuer must match the expected tenant issuer. Without this check a validly
+  // signed token from a different tenant/app could be accepted.
+  if (config.auth.issuer && payload.iss !== config.auth.issuer) {
+    throw { status: 401, message: 'Token issuer mismatch' };
+  }
+  // Token-type guard: this is an API and must only accept delegated *access*
+  // tokens, not ID tokens. Access tokens carry a `scp` (scope) claim; ID tokens
+  // do not. If a specific scope is configured, require it to be present.
+  if (!payload.scp) {
+    throw { status: 401, message: 'Not an access token (missing scope claim)' };
+  }
+  if (config.auth.apiScope) {
+    const scopes = String(payload.scp).split(' ');
+    if (!scopes.includes(config.auth.apiScope)) {
+      throw { status: 401, message: 'Required API scope not present' };
+    }
+  }
 
   // Verify signature against the JWKS
   const jwks = await getJwks();
