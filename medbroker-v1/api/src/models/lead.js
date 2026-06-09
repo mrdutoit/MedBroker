@@ -24,11 +24,8 @@ export const PipelineStatus = z.enum([
   'Unassigned',
   'Assigned',
   'InProgress',
-  'AppointmentBooked',
-  'Progressed',
-  'ClosedWon',
-  'ClosedLost',
-  'Uncontactable',
+  'AppointmentScheduled',
+  'Closed',
 ]);
 
 export const LeadSource = z.enum([
@@ -87,9 +84,9 @@ export const CallAttemptSchema = z.object({
     'Voicemail',
     'WrongNumber',
     'CallbackRequested',
+    'ClientContacted',
     'NotInterested',
-    'Interested',
-    'AppointmentBooked',
+    'AppointmentScheduled',
   ]),
   notes:            z.string().max(2000).optional(),
   callbackDateTime: z.string().datetime().optional(),
