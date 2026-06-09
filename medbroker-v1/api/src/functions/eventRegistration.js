@@ -20,6 +20,31 @@ import { app } from '@azure/functions';
 import { z } from 'zod';
 import { executeQuery, executeQueryOne, sql } from '../services/db.js';
 import { createLead, findDuplicate } from '../services/leadService.js';
+import { config } from '../config.js';
+
+// Best-effort in-memory rate limiter (fixed window). Per Function instance, so
+// it is defence-in-depth, not a hard guarantee — the primary control is the
+// Front Door origin lock below plus WAF rate rules at the edge. For a hard
+// distributed limit, back this with Redis/Table storage.
+const RATE_LIMIT = 5;            // registrations
+const RATE_WINDOW_MS = 60_000;   // per minute, per IP + event
+const rateBuckets = new Map();
+
+function isRateLimited(key) {
+  const now = Date.now();
+  const bucket = rateBuckets.get(key);
+  if (!bucket || now > bucket.resetAt) {
+    rateBuckets.set(key, { count: 1, resetAt: now + RATE_WINDOW_MS });
+    return false;
+  }
+  bucket.count += 1;
+  return bucket.count > RATE_LIMIT;
+}
+
+function clientIp(request) {
+  const fwd = request.headers.get('x-forwarded-for');
+  return (fwd ? fwd.split(',')[0].trim() : null) ?? 'unknown';
+}
 
 const RegistrationSchema = z.object({
   // QR token from URL param — identifies the event and validates access
@@ -46,6 +71,15 @@ app.http('eventRegistration', {
   authLevel: 'anonymous', // public endpoint — no JWT; secured by QR token + Front Door rate limiting
   handler: async (request, context) => {
     try {
+      // Origin lock — if a Front Door ID is configured, only accept traffic that
+      // carries the matching header. Blocks direct hits on the Function URL.
+      if (config.frontDoor.id) {
+        const fdid = request.headers.get('x-azure-fdid');
+        if (fdid !== config.frontDoor.id) {
+          return { status: 403, jsonBody: { error: 'Forbidden' } };
+        }
+      }
+
       let body;
       try {
         body = await request.json();
@@ -59,6 +93,11 @@ app.http('eventRegistration', {
       }
 
       const { qrToken, popiConsent, ...leadData } = parsed.data;
+
+      // Rate limit per IP + event token (best-effort, per instance)
+      if (isRateLimited(`${clientIp(request)}:${qrToken}`)) {
+        return { status: 429, jsonBody: { error: 'Too many requests. Please try again shortly.' } };
+      }
 
       // Validate QR token — must match an active event
       const event = await executeQueryOne(

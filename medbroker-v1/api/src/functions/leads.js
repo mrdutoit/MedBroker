@@ -31,6 +31,10 @@ import {
   LeadListQuerySchema,
 } from '../models/lead.js';
 
+// Strict UUID format check for route ids (any version).
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
+
 // ─── GET /api/leads ───────────────────────────────────────────────────────────
 
 app.http('listLeads', {
@@ -78,7 +82,7 @@ app.http('getLeadById', {
       requireRole(claims, ['Agent', 'Supervisor', 'Admin']);
 
       const { id } = request.params;
-      if (!id || !/^[0-9a-f-]{36}$/i.test(id)) {
+      if (!isUuid(id)) {
         return { status: 400, jsonBody: { error: 'Invalid lead ID format' } };
       }
 
@@ -149,6 +153,9 @@ app.http('assignLead', {
       requireRole(claims, ['Admin', 'Supervisor']);
 
       const { id } = request.params;
+      if (!isUuid(id)) {
+        return { status: 400, jsonBody: { error: 'Invalid lead ID format' } };
+      }
 
       let body;
       try {
@@ -188,6 +195,9 @@ app.http('logCallAttempt', {
       requireRole(claims, ['Agent', 'Supervisor', 'Admin']);
 
       const { id } = request.params;
+      if (!isUuid(id)) {
+        return { status: 400, jsonBody: { error: 'Invalid lead ID format' } };
+      }
 
       let body;
       try {
@@ -210,8 +220,8 @@ app.http('logCallAttempt', {
         return { status: 403, jsonBody: { error: 'You are not assigned to this lead' } };
       }
 
-      const { flaggedUncontactable } = await logCallAttempt(id, claims.oid, parsed.data);
-      return { status: 201, jsonBody: { success: true, flaggedUncontactable } };
+      const { flaggedUncontactable, newPipelineStatus } = await logCallAttempt(id, claims.oid, parsed.data);
+      return { status: 201, jsonBody: { success: true, flaggedUncontactable, newPipelineStatus } };
 
     } catch (err) {
       if (err.status) return authErrorResponse(err);
@@ -233,6 +243,9 @@ app.http('deleteLead', {
       requireRole(claims, ['Admin']);
 
       const { id } = request.params;
+      if (!isUuid(id)) {
+        return { status: 400, jsonBody: { error: 'Invalid lead ID format' } };
+      }
       const lead = await getLeadById(id);
       if (!lead) return { status: 404, jsonBody: { error: 'Lead not found' } };
 
