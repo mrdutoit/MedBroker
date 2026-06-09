@@ -1,28 +1,7 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 02 June 2026
+Last updated: 09 June 2026
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-0. NEXT ACTION  (the single current focus — keep this current)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-  ►  Build the Appointments API (api/src/functions/appointments.js).
-     The frontend already calls every route; the server side does not exist,
-     so Assign / Reassign / Return / Save Outcome only work against mock data.
-     Start with POST /appointments and POST /appointments/:id/outcome.
-     Contracts are in Section 4. Status must be computed server-side via
-     leadStatusService.js — never accepted from the client.
-
-  Quick win first (≈2 min): wire Vitest in api/package.json (Section 5 TESTING)
-  so `npm test` runs the 28 existing status tests before new endpoints land.
-
-  Parallel business-track blocker (not code): client sign-off on the Stage 1
-  and Stage 2 documents (Section 5 CLIENT / BUSINESS).
-
-  NOTE: confirm or re-point this block at the start of each session — it is the
-  first thing a new chat should read. Priority above is grounded in repo state,
-  not a fixed mandate.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. WHAT HAS BEEN BUILT AND IS WORKING
@@ -72,20 +51,8 @@ FRONTEND — ALL PAGES BUILT AND VERIFIED BUILDING ON VERCEL
   ✅ Tasks              Interactive placeholder — tabs (All/Appointments/Rescheduling/
                         Reminders), checkboxes, due date badges, pending count metrics.
                         Flag-gated: tasks.enabled (Core tier, default false, editable)
-  ✅ EventList          Events module — create event modal, attendance metrics
-                        (RSVPs / attended / walk-ins), status chips
-                        (Draft/Active/Closed/Cancelled), QR code download.
-                        Flag-gated: events.enabled (Core, default true)
-  ✅ EventDetail        Attendee table with RSVP / walk-in / no-show / attended
-                        filters, QR code modal, attendance % and post-event
-                        report download. Runs on mock data.
-
-MOBILE — STUDENT EVENT REGISTRATION APP (React Native / Expo)
-  ✅ RegisterScreen     3-step flow: scan QR (expo-camera) → form → confirmation.
-                        No login; camera-permission gate with manual-token
-                        fallback. Zod validation (SA mobile regex), mandatory
-                        POPIA consent checkbox. Posts to /api/public/register.
-                        No build/CI pipeline yet; not in the Vercel preview.
+  ✅ EventList          Existing (not modified in this build)
+  ✅ EventDetail        Existing (not modified in this build)
 
 INFRASTRUCTURE FILES
   ✅ schema.sql         v2.2 — all tables, constraints, indexes, seed data,
@@ -108,13 +75,40 @@ RESPONSIVENESS
 2. BUGS FIXED
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-── 02 June 2026 (repo housekeeping) ──
-  ✅ Removed a stray nested medbroker-v1/medbroker-v1/ directory — a partial,
-     stale duplicate (47 files vs the canonical 101) whose tokens.js diverged
-     from the real one. It was unused (Vercel root is the outer medbroker-v1/
-     frontend) but a latent trap: a future session could read the wrong
-     tokens.js. Canonical tree is now the single medbroker-v1/ at repo root.
-  ✅ Repository made PUBLIC — source can now be fetched directly each session.
+── 09 June 2026 session (backend security + correctness pass) ──
+All changed files verified building (esbuild) and the 28 status tests pass.
+
+  ✅ leadService.logCallAttempt — three fixes in one:
+       1. Wired computeLeadStatus() in — call outcomes now progress the lead
+          (previously the status machine was never called).
+       2. Fixed INSERT columns: callbackDateTime→followUpDateTime,
+          attemptedAt→callTime (the old names do not exist in the v2.2 schema,
+          so the insert would have thrown).
+       3. Auto-close after max failed attempts now writes 'Closed' (not the
+          old 'Uncontactable', which the v2.2 CHECK constraint rejects).
+  ✅ models/lead.js — PipelineStatus enum reconciled to the canonical 5
+       (Unassigned, Assigned, InProgress, AppointmentScheduled, Closed) and
+       CallAttempt outcomes to the 7 the CHECK allows (ClientContacted /
+       AppointmentScheduled, not Interested / AppointmentBooked).
+  ✅ brokerMatchingService — fixed the appointment over-count (window over a
+       fanned-out join → scalar subquery), the invalid bp.productType column
+       (now BrokerProduct→Product.name), and the phantom 'Cancelled'/'NoShow'
+       status filter (now real statuses).
+  ✅ auth.js — added JWT issuer (iss) validation and an access-token-type check
+       (requires the scp claim; rejects ID tokens). New config: ENTRA_ISSUER,
+       ENTRA_API_SCOPE.
+  ✅ encryption.js — AES-256-CBC → AES-256-GCM (authenticated); reads legacy
+       v1 CBC blobs. Added blindIndex() HMAC helper. New config: ID_NUMBER_INDEX_KEY.
+  ✅ leadService — dedup by ID number via the blind index (idNumberHash),
+       falling back to email. schema.sql v2.3 adds the idNumberHash column + index.
+  ✅ eventRegistration — Front Door origin lock (FRONT_DOOR_ID) + best-effort
+       in-app rate limit (per IP + event token).
+  ✅ leads.js — strict UUID validation on all id routes; logCall returns
+       newPipelineStatus.
+  ✅ host.json added (concurrency, timeout, App Insights sampling).
+
+  New app settings required: ENTRA_ISSUER (or accept default), optional
+  ENTRA_API_SCOPE, ID_NUMBER_INDEX_KEY (random 32-byte secret), FRONT_DOOR_ID.
 
 ── 01 June 2026 session (code review + fixes) ──
 All four files verified building (esbuild parse) and the status tests pass.
@@ -218,20 +212,21 @@ BUILT (api/src):
                                  POST /leads, PUT /leads/{id}/assign,
                                  POST /leads/{id}/calls (calls computeLeadStatus),
                                  DELETE /leads/{id}
-  ✅ functions/eventRegistration.js  PUBLIC POST /api/public/register (authLevel
-                                 'anonymous'). Validates qrToken → Active Event,
-                                 idempotent RSVP-update vs walk-in-create, dedups
-                                 Lead by email/ID, enforces POPIA consent (Zod).
-                                 Depends on Event/EventAttendee tables (schema.sql)
-                                 and leadService.createLead/findDuplicate.
+  ✅ functions/eventRegistration.js  event registration endpoint
   ✅ services/leadService.js     data access for the Leads domain
   ✅ services/brokerMatchingService.js  broker ranking (parameterised queries)
   ✅ services/leadStatusService.js  status machines (+ tests)
   ✅ services/db.js              Azure SQL pool, Managed Identity + local pwd fallback
   ✅ services/encryption.js      field-level encryption helper
   ✅ services/zohoService.js     Zoho integration
-  ✅ middleware/auth.js          Entra ID JWT validation against JWKS
+  ✅ middleware/auth.js          Entra ID JWT validation (signature, aud, iss,
+                                 token-type/scp) against JWKS
   ✅ models/lead.js, config.js
+
+  NOTE (09 Jun 2026): the Leads domain had a security + correctness pass —
+  computeLeadStatus is now wired into call logging; encryption is AES-GCM;
+  ID-number blind-index dedup; broker-matching query corrected; public endpoint
+  rate-limited + origin-locked; host.json added. See §2 (09 June) for the list.
 
 NOT YET BUILT (frontend calls these; server side is missing):
   ⬜ Appointments API   POST /appointments, GET /appointments[/:id],
@@ -239,6 +234,10 @@ NOT YET BUILT (frontend calls these; server side is missing):
                         PUT /appointments/:id/return,
                         POST /appointments/:id/outcome (computeAppointmentStatus)
                         — appointmentsApi in api.js calls all of these.
+                        computeAppointmentStatus() exists + is tested but is NOT
+                        yet wired to a route (no appointments function file yet).
+                        Wire it into POST /appointments/:id/outcome when this API
+                        is built — same pattern as logCallAttempt→computeLeadStatus.
   ⬜ Flags API          GET/PATCH /flags
   ⬜ Config API         GET/PUT /config (SystemConfig)
   ⬜ Reports API        GET /reports/pipeline, /reports/broker-activity
@@ -439,12 +438,10 @@ These decisions caused rework when changed — preserve them in every session:
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 1. Start a new conversation in the MedBroker project
-2. Claude will load project files automatically — no need to paste them.
-   The repo is now public, so Claude can also fetch the current source of any
-   file directly from GitHub (mrdutoit/MedBroker) rather than relying on memory.
+2. Claude will load project files automatically — no need to paste them
 3. Say: "Please read the Project_Context.md and Status.md files and confirm
    you have full context before I give you a task."
-4. Claude will confirm, and should read Section 0 (NEXT ACTION) first.
+4. Claude will confirm.
 5. Give your task.
 
 If picking up a pending item from Section 5, reference it by name.
