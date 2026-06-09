@@ -2,7 +2,7 @@
 -- MedBroker Lead Management System — Database Schema
 -- Target:  Azure SQL (SQL Server compatible)
 -- Created: 2026-05
--- Version: 2.2
+-- Version: 2.3
 --
 -- Version history:
 --   1.0  Initial schema
@@ -21,6 +21,8 @@
 --            Added: InProgress, ClosedWon, ClosedLost
 --          IX_Lead_AutoUnassign filter updated to exclude 'Closed' and
 --            'AppointmentScheduled' instead of old values.
+--   2.3  Lead.idNumberHash blind-index column + IX_Lead_IdNumberHash, enabling
+--        dedup by SA ID number without storing plaintext (HMAC-SHA256).
 --
 -- Data migration (run before deploying v2.2 application code):
 --   UPDATE Lead SET pipelineStatus = 'AppointmentScheduled' WHERE pipelineStatus = 'AppointmentBooked';
@@ -285,6 +287,9 @@ CREATE TABLE Lead (
     firstName               NVARCHAR(100)       NOT NULL,
     lastName                NVARCHAR(100)       NOT NULL,
     idNumberEncrypted       NVARCHAR(MAX)       NULL,
+    -- Blind index: HMAC-SHA256 of the ID number, for dedup without plaintext.
+    -- Written by the API (services/encryption.js blindIndex) when ID_NUMBER_INDEX_KEY is set.
+    idNumberHash            NVARCHAR(64)        NULL,
     email                   NVARCHAR(255)       NOT NULL,
     mobileNumber            NVARCHAR(20)        NULL,
     whatsappNumber          NVARCHAR(20)        NULL,
@@ -338,6 +343,10 @@ CREATE TABLE Lead (
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Lead_PipelineStatus')
     CREATE INDEX IX_Lead_PipelineStatus
         ON Lead (pipelineStatus) WHERE deletedAt IS NULL;
+
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Lead_IdNumberHash')
+    CREATE INDEX IX_Lead_IdNumberHash
+        ON Lead (idNumberHash) WHERE idNumberHash IS NOT NULL AND deletedAt IS NULL;
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Lead_AssignedAgentId')
     CREATE INDEX IX_Lead_AssignedAgentId
