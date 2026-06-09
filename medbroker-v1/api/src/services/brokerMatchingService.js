@@ -92,27 +92,35 @@ async function getCalendlyAvailability(calendlyEventTypeUri) {
 export async function findMatchingBrokers({ region, products, leadId }) {
   if (!region) throw new Error('region is required for broker matching');
 
-  // Step 1 — Filter by region and product specialisation
+  // Step 1 — Filter by region and product specialisation.
+  // Region and product membership are tested with EXISTS (not JOINs) so a broker
+  // matching several products/regions is not duplicated, and the appointment
+  // count is a scalar subquery so it cannot be inflated by join fan-out.
   const productPlaceholders = products.map((_, i) => `@prod${i}`).join(',');
   const productParams = Object.fromEntries(
-    products.map((p, i) => [`prod${i}`, { type: sql.NVarChar(100), value: p }])
+    products.map((p, i) => [`prod${i}`, { type: sql.NVarChar(200), value: p }])
   );
 
   const eligibleBrokers = await executeQuery(
-    `SELECT DISTINCT
-       b.id, b.displayName, b.email, b.mobileNumber,
-       b.calendlyEventTypeUri,
-       COUNT(a.id) OVER (PARTITION BY b.id) AS upcomingAppointments
+    `SELECT
+       b.id, b.displayName, b.email, b.mobileNumber, b.calendlyEventTypeUri,
+       (SELECT COUNT(*)
+          FROM Appointment ap
+         WHERE ap.brokerId = b.id
+           AND ap.status NOT IN ('ClosedWon', 'ClosedLost')) AS upcomingAppointments
      FROM [User] b
-     JOIN BrokerProduct bp ON bp.brokerId = b.id
-     JOIN BrokerRegion br  ON br.brokerId = b.id
-     LEFT JOIN Appointment a ON a.brokerId = b.id
-       AND a.scheduledAt > GETUTCDATE()
-       AND a.status NOT IN ('Cancelled', 'NoShow')
      WHERE b.role = 'Broker'
        AND b.isActive = 1
-       AND br.region = @region
-       AND bp.productType IN (${productPlaceholders || "''"})
+       AND EXISTS (
+         SELECT 1 FROM BrokerRegion br
+          WHERE br.brokerId = b.id AND br.region = @region
+       )
+       AND EXISTS (
+         SELECT 1 FROM BrokerProduct bp
+           JOIN Product p ON p.id = bp.productId
+          WHERE bp.brokerId = b.id
+            AND p.name IN (${productPlaceholders || "''"})
+       )
      ORDER BY upcomingAppointments ASC`,
     {
       region: { type: sql.NVarChar(100), value: region },

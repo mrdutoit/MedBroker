@@ -10,7 +10,8 @@
  */
 
 import { executeQuery, executeQueryOne, sql } from './db.js';
-import { encrypt } from './encryption.js';
+import { encrypt, blindIndex } from './encryption.js';
+import { computeLeadStatus } from './leadStatusService.js';
 import { config } from '../config.js';
 
 /**
@@ -109,17 +110,18 @@ export async function getLeadById(id) {
  */
 export async function createLead(data, createdById) {
   const encryptedIdNumber = data.idNumber ? await encrypt(data.idNumber) : null;
+  const idNumberHash = data.idNumber ? blindIndex(data.idNumber) : null;
   const newId = crypto.randomUUID();
 
   await executeQuery(
     `INSERT INTO Lead (
-       id, firstName, lastName, idNumberEncrypted, email,
+       id, firstName, lastName, idNumberEncrypted, idNumberHash, email,
        mobileNumber, whatsappNumber, universityAttended, yearOfAttendance,
        degreeAttained, occupation, hospitalOrPractice, existingCover, policies,
        medicalAid, medicalAidProvider, leadSource, linkedEventId, pipelineStatus,
        createdById, createdAt, updatedAt
      ) VALUES (
-       @id, @firstName, @lastName, @idNumberEncrypted, @email,
+       @id, @firstName, @lastName, @idNumberEncrypted, @idNumberHash, @email,
        @mobileNumber, @whatsappNumber, @universityAttended, @yearOfAttendance,
        @degreeAttained, @occupation, @hospitalOrPractice, @existingCover, @policies,
        @medicalAid, @medicalAidProvider, @leadSource, @linkedEventId, 'Unassigned',
@@ -130,6 +132,7 @@ export async function createLead(data, createdById) {
       firstName:            { type: sql.NVarChar(100),      value: data.firstName },
       lastName:             { type: sql.NVarChar(100),      value: data.lastName },
       idNumberEncrypted:    { type: sql.NVarChar(sql.MAX),  value: encryptedIdNumber },
+      idNumberHash:         { type: sql.NVarChar(64),       value: idNumberHash },
       email:                { type: sql.NVarChar(255),      value: data.email },
       mobileNumber:         { type: sql.NVarChar(20),       value: data.mobileNumber ?? null },
       whatsappNumber:       { type: sql.NVarChar(20),       value: data.whatsappNumber ?? null },
@@ -178,47 +181,60 @@ export async function assignLead(leadId, agentId) {
 export async function logCallAttempt(leadId, agentId, attemptData) {
   const attemptId = crypto.randomUUID();
 
+  // callTime defaults to GETUTCDATE(); followUpDateTime holds the callback time.
   await executeQuery(
-    `INSERT INTO CallAttempt (id, leadId, agentId, outcome, notes, callbackDateTime, attemptedAt)
-     VALUES (@id, @leadId, @agentId, @outcome, @notes, @callbackDateTime, GETUTCDATE())`,
+    `INSERT INTO CallAttempt (id, leadId, agentId, outcome, notes, followUpDateTime, callTime)
+     VALUES (@id, @leadId, @agentId, @outcome, @notes, @followUpDateTime, GETUTCDATE())`,
     {
-      id:               { type: sql.UniqueIdentifier,    value: attemptId },
-      leadId:           { type: sql.UniqueIdentifier,    value: leadId },
-      agentId:          { type: sql.UniqueIdentifier,    value: agentId },
-      outcome:          { type: sql.NVarChar(50),        value: attemptData.outcome },
-      notes:            { type: sql.NVarChar(2000),      value: attemptData.notes ?? null },
-      callbackDateTime: { type: sql.DateTimeOffset,      value: attemptData.callbackDateTime ?? null },
+      id:               { type: sql.UniqueIdentifier, value: attemptId },
+      leadId:           { type: sql.UniqueIdentifier, value: leadId },
+      agentId:          { type: sql.UniqueIdentifier, value: agentId },
+      outcome:          { type: sql.NVarChar(50),     value: attemptData.outcome },
+      notes:            { type: sql.NVarChar(2000),   value: attemptData.notes ?? null },
+      followUpDateTime: { type: sql.DateTimeOffset,   value: attemptData.callbackDateTime ?? null },
     }
   );
 
-  // Count failed attempts (non-positive outcomes) and auto-flag if threshold reached
-  const failedOutcomes = ['NoAnswer', 'Voicemail', 'WrongNumber'];
-  const isFailedAttempt = failedOutcomes.includes(attemptData.outcome);
+  // Apply the status machine. Read the current status, compute the next one.
+  const current = await executeQueryOne(
+    `SELECT pipelineStatus FROM Lead WHERE id = @leadId AND deletedAt IS NULL`,
+    { leadId: { type: sql.UniqueIdentifier, value: leadId } }
+  );
+  const currentStatus = current?.pipelineStatus ?? 'Unassigned';
 
+  let newStatus = computeLeadStatus(currentStatus, attemptData.outcome);
   let flaggedUncontactable = false;
 
-  if (isFailedAttempt) {
+  // Repeated unreachable outcomes auto-close the lead. (v2.2 collapsed the old
+  // 'Uncontactable' status into 'Closed'.) Only while the lead is still open.
+  const UNREACHABLE = ['NoAnswer', 'Voicemail', 'WrongNumber'];
+  if (UNREACHABLE.includes(attemptData.outcome) && newStatus !== 'Closed') {
     const countResult = await executeQuery(
-      `SELECT COUNT(*) AS failedCount
-       FROM CallAttempt
+      `SELECT COUNT(*) AS failedCount FROM CallAttempt
        WHERE leadId = @leadId AND outcome IN ('NoAnswer', 'Voicemail', 'WrongNumber')`,
       { leadId: { type: sql.UniqueIdentifier, value: leadId } }
     );
-
-    const failedCount = countResult[0]?.failedCount ?? 0;
-
-    if (failedCount >= config.app.maxCallAttempts) {
-      await executeQuery(
-        `UPDATE Lead
-         SET pipelineStatus = 'Uncontactable', assignedAgentId = NULL, updatedAt = GETUTCDATE()
-         WHERE id = @leadId`,
-        { leadId: { type: sql.UniqueIdentifier, value: leadId } }
-      );
+    if ((countResult[0]?.failedCount ?? 0) >= config.app.maxCallAttempts) {
+      newStatus = 'Closed';
       flaggedUncontactable = true;
     }
   }
 
-  return { flaggedUncontactable };
+  if (newStatus !== currentStatus) {
+    // Free the lead back to the queue only when auto-closed as unreachable.
+    const unassignClause = flaggedUncontactable ? 'assignedAgentId = NULL,' : '';
+    await executeQuery(
+      `UPDATE Lead
+         SET pipelineStatus = @newStatus, ${unassignClause} updatedAt = GETUTCDATE()
+       WHERE id = @leadId AND deletedAt IS NULL`,
+      {
+        leadId:    { type: sql.UniqueIdentifier, value: leadId },
+        newStatus: { type: sql.NVarChar(50),     value: newStatus },
+      }
+    );
+  }
+
+  return { newPipelineStatus: newStatus, flaggedUncontactable };
 }
 
 /**
@@ -244,11 +260,18 @@ export async function deleteLead(leadId) {
  * @returns {Promise<string|null>} existing lead ID or null
  */
 export async function findDuplicate(email, idNumber) {
+  // Prefer matching on the ID-number blind index (a keyed hash) when available —
+  // this dedupes by ID number without ever querying plaintext. Falls back to
+  // email if no index key is configured.
   if (idNumber) {
-    // Note: We can't query encrypted ID numbers directly (no searchable encryption here).
-    // For dedup, we rely on email as the primary dedup key.
-    // Full dedup by ID number would require a deterministic encryption scheme — flagged
-    // as a future enhancement. See FR-037 acceptance criteria.
+    const hash = blindIndex(idNumber);
+    if (hash) {
+      const byIdNumber = await executeQueryOne(
+        `SELECT id FROM Lead WHERE idNumberHash = @hash AND deletedAt IS NULL`,
+        { hash: { type: sql.NVarChar(64), value: hash } }
+      );
+      if (byIdNumber) return byIdNumber.id;
+    }
   }
 
   const existing = await executeQueryOne(
