@@ -12,6 +12,10 @@ param location string = 'southafricanorth'
 @description('A short unique suffix (3-6 chars) to make globally unique resource names.')
 param uniqueSuffix string
 
+@description('SQL administrator password. Supply at deploy time (e.g. from Key Vault or a secure pipeline variable); never commit a value. Managed Identity is used for app access — this admin login is for break-glass/DDL only.')
+@secure()
+param sqlAdminPassword string
+
 // ─── Derived names (no hyphens in storage/keyvault names) ───────────────────
 var appName         = 'medbroker'
 var rgPrefix        = '${appName}-${environment}'
@@ -63,7 +67,7 @@ resource sqlServer 'Microsoft.Sql/servers@2023-05-01-preview' = {
     // note: Managed Identity is used for app authentication — no admin password in code.
     // Set the admin login manually in the Portal or via az sql server update after deployment.
     administratorLogin: 'medbroker_admin'
-    administratorLoginPassword: 'CHANGE_ME_ON_FIRST_LOGIN'  // Must be changed immediately after deploy
+    administratorLoginPassword: sqlAdminPassword
     minimalTlsVersion: '1.2'
   }
 
@@ -130,7 +134,9 @@ resource functionApp 'Microsoft.Web/sites@2023-01-01' = {
         // or via Key Vault references: @Microsoft.KeyVault(SecretUri=...)
       ]
       cors: {
-        allowedOrigins: ['https://${swaName}.azurestaticapps.net', 'http://localhost:5173']
+        allowedOrigins: environment == 'prod'
+          ? ['https://${swaName}.azurestaticapps.net']
+          : ['https://${swaName}.azurestaticapps.net', 'http://localhost:5173']
         supportCredentials: true
       }
     }
