@@ -318,12 +318,12 @@ TESTING
      built (validation + role authorisation per route).
 
 SKILLS INSTALLATION
-  ⬜ Install updated app-builder.skill
-     (includes tokens.js import rules and container-reset guard — added today)
-     Settings → Custom Skills → find app-builder → replace content
-  ⬜ Install updated code-nodejs-SKILL.md
-  ⬜ Install updated code-azure-SKILL.md
-  ⬜ Install updated mark-persona-SKILL.md
+  ✅ app-builder.skill — INSTALLED (09 Jun 2026). Now includes the commercial/
+     handover pack, observability/test/standalone-auth patterns, Profile D —
+     Vercel, the concurrency-based sizing method, and the Pre-Handover Review
+     (security/performance/sizing gate).
+  ✅ document-output — INSTALLED (commercial + POPIA operational document types)
+  ✅ code-nodejs — INSTALLED (Vitest, pino logging, standalone auth, migrations)
 
 GITHUB — files changed 01 June 2026 (code-review fixes, verified building):
   ✅ frontend/src/App.jsx                          (Reports route + nav gated)
