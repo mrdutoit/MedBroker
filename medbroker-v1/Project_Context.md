@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Context
 ====================================================
-Last updated: 02 June 2026
+Last updated: 01 June 2026
 Purpose: Continuity file — load in a new chat to restore full project context.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -16,12 +16,6 @@ Regulated under FAIS Act, FSCA oversight, and POPIA (medical professionals'
 data carries elevated obligations).
 Target hosting: under R2,000/month.
 
-The system also runs a lead-acquisition channel via university and career-fair
-events (see Section 11). A companion React Native mobile app lets students
-self-register at events by scanning a QR code; each registration becomes a Lead
-in the main pipeline. The web app is therefore one of two runtime targets — a
-desktop/admin web frontend and a student-facing mobile app — sharing one backend.
-
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 2. TECHNOLOGY STACK
@@ -30,7 +24,6 @@ desktop/admin web frontend and a student-facing mobile app — sharing one backe
 Profile: A — Microsoft Azure
 
   Frontend       React (Vite)                Vercel (preview) → Azure SWA (production)
-  Mobile         React Native (Expo ~51)      Student event registration app (iOS + Android)
   Backend API    Node.js — Azure Functions v4 Consumption plan
   Database       Azure SQL Serverless         southafricanorth (Johannesburg)
   Auth           Azure Entra ID External      SSO via M365 — lazy-loaded MSAL
@@ -39,10 +32,8 @@ Profile: A — Microsoft Azure
   CI/CD          GitHub Actions → Azure
   Calendar       Microsoft 365 Graph API      Replaces Calendly (not required)
 
-Repository: GitHub → mrdutoit/MedBroker (PUBLIC as of 02 Jun 2026)
+Repository: GitHub → mrdutoit/MedBroker (private)
             Folder structure: medbroker-v1/ at root
-            Claude can fetch canonical source directly via codeload/raw —
-            no longer dependent on files pasted into the chat.
 Live preview: Vercel — Root Directory set to medbroker-v1/frontend
 Auth bypass:  Active in preview mode — role switcher <select> in sidebar footer
 
@@ -129,18 +120,6 @@ SystemConfig (configurable in AppAdmin → System Settings):
   brokerFreeAppointmentsPerMonth  default 10
   leadAutoUnassignMonths          default 6
   maxCallAttempts                 default 3
-  qrTokenExpiryHours              default 720 (event QR token validity window)
-
-EVENT entities (lead-acquisition channel — see Section 11):
-  Event          status CHECK (Draft | Active | Closed | Cancelled), qrToken
-                 (UNIQUEIDENTIFIER, UNIQUE), eventDate, venue, university,
-                 soft-delete (deletedAt).
-  EventAttendee  links Event ↔ Lead. UNIQUE (eventId, leadId). Flags: rsvp,
-                 attended, attendedAt, popiConsent. Pre-registered attendees
-                 are RSVPs; on-the-day registrants are walk-ins.
-  Lead.linkedEventId  FK to Event — set when a Lead originates from an event.
-  Lead.leadSource     'EventAttendance' for event-sourced leads (alongside the
-                      CSV / medical-subscription / manual sources).
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -253,11 +232,8 @@ medbroker-v1/
 │   │   │   ├── SingleSignOn.jsx
 │   │   │   ├── Notifications.jsx
 │   │   │   ├── Tasks.jsx               Built + functional. Gated by tasks.enabled flag.
-│   │   │   ├── EventList.jsx           Events module — create event, attendance
-│   │   │   │                           metrics, QR download. Statuses: Draft/
-│   │   │   │                           Active/Closed/Cancelled. Flag: events.enabled
-│   │   │   └── EventDetail.jsx         Attendee list (RSVP/walk-in/no-show), QR
-│   │   │                               code display, post-event report download
+│   │   │   ├── EventList.jsx
+│   │   │   └── EventDetail.jsx
 │   │   ├── App.jsx                     Responsive nav, <select> role switcher,
 │   │   │                               collapsible sidebar, all routes
 │   │   └── main.jsx
@@ -269,10 +245,7 @@ medbroker-v1/
 │   └── src/
 │       ├── functions/                  Azure Functions v4 HTTP/timer triggers
 │       │   ├── leads.js                6 routes: list/get/create/assign/calls/delete
-│       │   ├── eventRegistration.js    PUBLIC POST /api/public/register —
-│       │   │                           anonymous (QR-token secured), idempotent,
-│       │   │                           mandatory POPIA consent. Creates Lead +
-│       │   │                           EventAttendee. See Section 11.
+│       │   ├── eventRegistration.js    event registration endpoint
 │       │   └── autoReturnLeads.js      daily timer — getDbClient() is a STUB
 │       ├── services/
 │       │   ├── leadStatusService.js    computeLeadStatus + computeAppointmentStatus
@@ -294,13 +267,8 @@ medbroker-v1/
 │   ├── parameters/                     dev.json, prod.json
 │   ├── schema.sql                      v2.2
 │   └── feature-flags.sql              17 seeded flags
-├── mobile/                             React Native (Expo) — student event app
-│   ├── package.json                    expo ~51, expo-camera, expo-barcode-scanner, zod
-│   └── src/screens/
-│       └── RegisterScreen.jsx          Scan QR → form → submit. No login.
-│                                       POPIA consent mandatory. See Section 11.
-└── DEPLOYMENT.md                       Free Vercel deploy guide (frontend in
-                                        ~30 min) + Azure backend section
+├── mobile/                             RegisterScreen.jsx (event registration)
+└── DEPLOYMENT.md
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -438,69 +406,63 @@ Code review fixes (01 Jun 2026):
   - Backend is partially built (Leads domain, auth, db, broker matching), not
     absent as an earlier Status.md claimed — see Status.md §4.
 
-Events as a lead-acquisition channel (not a standalone module): event
-  registrations create Lead records (leadSource = 'EventAttendance',
-  linkedEventId set), so attendees flow into the same pipeline as any other
-  lead. The Events module is gated by events.enabled (Core, default true) and
-  can be switched off for customers who do not run events.
-
-Public registration endpoint is intentionally anonymous: POST /api/public/register
-  carries no JWT because students scan a QR code on their own phones. Access is
-  controlled by the event's qrToken (a UUID valid only while the event is
-  'Active') plus Azure Front Door rate limiting. POPIA consent is mandatory and
-  enforced server-side (Zod refine). The endpoint is idempotent — re-submitting
-  the same attendee updates the existing record rather than duplicating it.
-
-Repo de-duplicated (02 Jun 2026): a stray nested medbroker-v1/medbroker-v1/
-  directory (a partial, stale copy with a divergent tokens.js) was removed from
-  the repository. The canonical tree is the single medbroker-v1/ at repo root.
-
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-11. EVENTS AND MOBILE REGISTRATION SUBSYSTEM
+11. SECURITY POSTURE & MANDATORY CONTROLS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-PURPOSE
-  MedBroker runs recruitment events at South African medical schools and career
-  fairs (Wits, UCT, UP, UKZN in the mock data). The subsystem captures attendees
-  as leads. It is a front-of-funnel acquisition channel, not a separate product.
+Added 09 June 2026 after a review-method correction. The earlier security pass
+was code-led and surfaced code-level issues well (JWT claims, injection,
+encryption, query bugs) but under-weighted controls that live OUTSIDE the code.
+All reviews now run against the mandatory control checklist in the app-builder
+skill (Pre-Handover Review → Security pass), not by code reading alone.
 
-THREE PARTS
-  1. Web (staff)   EventList + EventDetail. Admin/staff create events, monitor
-                   RSVP vs walk-in vs no-show, display/download the event QR
-                   code, and download a post-event report.
-  2. Mobile (student)  React Native / Expo app, single RegisterScreen with a
-                   three-step flow: scan QR → complete form → confirmation.
-                   No login. Camera permission requested; manual token entry is
-                   the fallback. Offline capture is an intended behaviour
-                   (queue locally, sync on reconnect).
-  3. Backend       POST /api/public/register (functions/eventRegistration.js).
+A Web Application Firewall is a BASELINE requirement for MedBroker — it is
+internet-facing and processes special personal information (ID numbers, medical
+detail) under POPIA. The WAF must front every public surface, not only the QR
+registration endpoint. Options: Azure Front Door Premium (managed OWASP +
+rate limiting), or a cheaper equivalent — Cloudflare in front of the Azure
+origin, or Application Gateway WAF v2 — chosen on cost vs feature need.
 
-EVENT LIFECYCLE / STATUSES (CK_Event_Status)
-  Draft → Active → Closed     (Cancelled is a terminal off-ramp)
-  QR registration only succeeds while the event is 'Active'.
+Controls to confirm BEFORE go-live (none are live exposure yet — the DB is not
+deployed and no client data flows; but each must be closed before it does):
 
-REGISTRATION FLOW (server logic)
-  - Validate qrToken against an Active, non-deleted Event. If none → HTTP 403
-    "This registration link is no longer active".
-  - If the email already has an EventAttendee for this event (a pre-registered
-    RSVP): update the Lead's contact fields and mark the attendee attended.
-  - Otherwise (walk-in): dedup the Lead by email/ID number; create the Lead if
-    new (leadSource 'EventAttendance', linkedEventId set); insert an
-    EventAttendee row (rsvp = 0, attended = 1).
-  - POPIA consent (popiConsent === true) is required or the request is rejected.
+  EDGE / TRANSPORT
+    ⬜ WAF across all public surfaces (managed ruleset + rate limiting)
+    ⬜ DDoS protection at the edge
+    ⬜ HTTPS enforced, min TLS 1.2, HSTS
+    ⬜ Browser security headers (CSP, frame-ancestors, X-Content-Type-Options,
+       Referrer-Policy, Permissions-Policy)
 
-DATA MODEL  (see Section 4 for the entity summary)
-  Event (status, qrToken UNIQUE) · EventAttendee (UNIQUE eventId+leadId; rsvp,
-  attended, popiConsent) · Lead.linkedEventId FK · Lead.leadSource.
-  SystemConfig.qrTokenExpiryHours (default 720) governs the token window.
+  LOGGING / AUDIT (POPIA/FAIS accountability)
+    ⬜ Special PI never written to logs (App Insights scrubbing) — encryption is
+       moot if ID/medical data lands in plaintext telemetry
+    ⬜ Tamper-evident audit trail of who VIEWED and CHANGED special PI
 
-FEATURE FLAG
-  events.enabled (Core, default true) — "Show the Events section in navigation.
-  Disable for customers who do not run university or career fair events."
+  APPLICATION
+    🟡 IDOR swept systematically on every object id (agent/broker scoping done;
+       not yet audited exhaustively)
+    ⬜ Token lifecycle: expiry, refresh, logout/revocation
+    ⬜ CSV import hardening: formula injection (= + - @), row/size caps
+    ⬜ Bulk-export / report exfiltration limits
+    ⬜ Rate limiting on authenticated endpoints (not just the public one)
 
-STATUS  Web pages and the mobile screen are built and run on mock data. The
-  backend endpoint is built but, like the rest of the API, depends on the
-  Azure SQL schema (Event / EventAttendee tables exist in schema.sql) and a
-  live DB connection. The mobile app has no CI/build pipeline yet and is not
-  covered by the Vercel preview (which deploys only the web frontend).
+  CLOUD POSTURE
+    🟡 Least-privilege RBAC; Managed Identity scoped (network isolation /
+       SQL private endpoint / deny-public unconfirmed)
+    ⬜ Backup + geo-redundancy + tested restore
+
+  SUPPLY CHAIN / ASSURANCE
+    ⬜ Dependency + secret scanning; SAST/DAST in CI
+    ⬜ Penetration test before go-live
+
+  POPIA / THIRD PARTIES
+    ⬜ Operator (sub-processor) agreements: Microsoft, Calendly, Zoho (§20–21)
+    ⬜ Cross-border transfer assessment for any data processed outside SA
+    ⬜ Breach-notification process (§22); Information Officer registered
+    🟡 Consent captured; SAR + erasure paths (SAR endpoint still Phase 2)
+
+ALREADY ADDRESSED (09 June backend pass): parameterised queries; Entra JWT
+issuer + audience + token-type validation; AES-256-GCM authenticated encryption;
+ID-number blind index; public endpoint rate limit + Front Door origin lock;
+strict UUID validation; generic error responses; Key Vault + Managed Identity.
