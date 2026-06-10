@@ -295,7 +295,58 @@ API contracts (the spec for the routes still to build):
 5. PENDING ITEMS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-CLIENT / BUSINESS
+SECURITY & CODE REVIEW REMEDIATION (10 Jun 2026)
+  Full report: docs/security/MedBroker_Security_Code_Review_Findings.docx
+  Control posture & detail: Project_Context.md §11.
+  Nothing below is live exposure yet (DB not deployed); all are go-live gates.
+
+  ✅ FIXED this session (safe, no demo impact):
+     C1  @azure/keyvault-keys dependency corrected (encrypt/decrypt would have
+         crashed at runtime); unused @azure/keyvault-secrets + node-fetch removed
+     C3  SQL admin password placeholder → @secure() Bicep parameter
+     C9  CORS localhost excluded in prod; 8s timeout on Zoho calls
+     C2  autoReturnLeads safety banner added (kept as stub; injection trap flagged)
+
+  ⬜ PARKED for the deployment / implementation phase:
+     [High]   C2  Rewrite autoReturnLeads parameterised against db.js (or leave
+                  disabled) — currently inert (getDbClient throws)
+     [Med]    C4  db.js: refresh MI token on reconnect; memoise pool init; add
+                  transient-fault retry/backoff
+     [Med]    C5  Network isolation: SQL private endpoint, remove 0.0.0.0 rule,
+                  Key Vault publicNetworkAccess off
+     [Med]    C6  Identity-based AzureWebJobsStorage (drop storage account key)
+     [Med]    C7  Wire pino structured logging + add /health endpoint
+     [Med]    C8  Geo-redundant backups + a tested restore
+     EDGE / TRANSPORT
+     [High]   WAF across all public surfaces — adopt Cloudflare Pro in front of
+              the Azure origin (~R400/mo) vs Front Door Premium (~R6,000/mo);
+              lock the origin to Cloudflare. (Decision recorded; see below.)
+     [High]   DDoS protection (included once Cloudflare/edge is in front)
+     [Med]    HSTS + browser security headers (CSP, frame-ancestors,
+              X-Content-Type-Options, Referrer-Policy) via SWA config
+     ABUSE / LOGGING
+     [Med]    Rate limiting on authenticated endpoints (not just public)
+     [High]   Special PI never written to logs — App Insights/console scrubbing
+     [High]   Audit trail of who viewed/changed special PI (write to AuditLog)
+     [Med]    Bulk-export / report exfiltration limits (when reports API built)
+     ASSURANCE
+     [Med]    Dependency + secret scanning in CI; SAST/DAST
+     [High]   Penetration test before go-live
+     POPIA
+     [High]   Operator agreements: Microsoft, Calendly, Zoho, Cloudflare (§20-21)
+     [High]   Cross-border transfer assessment (Zoho global, Calendly US,
+              Cloudflare edge); Information Officer registration; breach process
+     [Med]    SAR + erasure endpoint (Phase 2)
+     WHEN CsvImportBatch IS BUILT
+     [High]   CSV/file-import hardening: formula injection (= + - @), row/size caps
+
+  WAF DECISION (10 Jun 2026): Cloudflare Pro in front of the Azure origin,
+  chosen over Azure Front Door Premium on cost (~R400 vs ~R6,000/mo) while
+  keeping SQL Server, Managed Identity and SA residency on Azure. Caveats: lock
+  the origin to Cloudflare, confirm the rate-limiting tier, and record that TLS
+  terminates at Cloudflare's global edge (POPIA transit note).
+
+
   ⬜ Client sign-off on Stage 1 Requirements Summary v0.3
   ⬜ Client sign-off on Stage 2 Architecture and Design Specification v1.1
   ⬜ Confirm FAIS record retention periods per entity
