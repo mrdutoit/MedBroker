@@ -21,6 +21,7 @@ import { z } from 'zod';
 import { executeQuery, executeQueryOne, sql } from '../services/db.js';
 import { createLead, findDuplicate } from '../services/leadService.js';
 import { config } from '../config.js';
+import { resolveOrganisationId } from '../context/tenant.js';
 
 // Best-effort in-memory rate limiter (fixed window). Per Function instance, so
 // it is defence-in-depth, not a hard guarantee — the primary control is the
@@ -100,10 +101,15 @@ app.http('eventRegistration', {
       }
 
       // Validate QR token — must match an active event
+      const organisationId = resolveOrganisationId();
       const event = await executeQueryOne(
         `SELECT id, name, status FROM Event
-         WHERE qrToken = @qrToken AND status = 'Active' AND deletedAt IS NULL`,
-        { qrToken: { type: sql.UniqueIdentifier, value: qrToken } }
+         WHERE qrToken = @qrToken AND status = 'Active' AND deletedAt IS NULL
+           AND organisationId = @organisationId`,
+        {
+          qrToken: { type: sql.UniqueIdentifier, value: qrToken },
+          organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+        }
       );
 
       if (!event) {
@@ -117,10 +123,12 @@ app.http('eventRegistration', {
       const existingRsvp = await executeQueryOne(
         `SELECT ea.id, ea.leadId FROM EventAttendee ea
          JOIN Lead l ON l.id = ea.leadId
-         WHERE ea.eventId = @eventId AND l.email = @email AND ea.deletedAt IS NULL`,
+         WHERE ea.eventId = @eventId AND l.email = @email AND ea.deletedAt IS NULL
+           AND ea.organisationId = @organisationId`,
         {
           eventId: { type: sql.UniqueIdentifier, value: event.id },
           email:   { type: sql.NVarChar(255),     value: leadData.email },
+          organisationId: { type: sql.UniqueIdentifier, value: organisationId },
         }
       );
 
@@ -139,9 +147,10 @@ app.http('eventRegistration', {
              occupation = COALESCE(@occupation, occupation),
              hospitalOrPractice = COALESCE(@hospitalOrPractice, hospitalOrPractice),
              updatedAt = GETUTCDATE()
-           WHERE id = @leadId`,
+           WHERE id = @leadId AND organisationId = @organisationId`,
           {
             leadId:            { type: sql.UniqueIdentifier, value: leadId },
+            organisationId:    { type: sql.UniqueIdentifier, value: organisationId },
             firstName:         { type: sql.NVarChar(100),    value: leadData.firstName },
             lastName:          { type: sql.NVarChar(100),    value: leadData.lastName },
             mobileNumber:      { type: sql.NVarChar(20),     value: leadData.mobileNumber ?? null },
@@ -153,10 +162,11 @@ app.http('eventRegistration', {
         // Mark as attended
         await executeQuery(
           `UPDATE EventAttendee SET attended = 1, attendedAt = GETUTCDATE()
-           WHERE eventId = @eventId AND leadId = @leadId`,
+           WHERE eventId = @eventId AND leadId = @leadId AND organisationId = @organisationId`,
           {
             eventId: { type: sql.UniqueIdentifier, value: event.id },
             leadId:  { type: sql.UniqueIdentifier, value: leadId },
+            organisationId: { type: sql.UniqueIdentifier, value: organisationId },
           }
         );
 
@@ -175,10 +185,11 @@ app.http('eventRegistration', {
 
         // Create EventAttendee record
         await executeQuery(
-          `INSERT INTO EventAttendee (id, eventId, leadId, rsvp, attended, popiConsent, registeredAt)
-           VALUES (@id, @eventId, @leadId, 0, 1, @popiConsent, GETUTCDATE())`,
+          `INSERT INTO EventAttendee (id, organisationId, eventId, leadId, rsvp, attended, popiConsent, registeredAt)
+           VALUES (@id, @organisationId, @eventId, @leadId, 0, 1, @popiConsent, GETUTCDATE())`,
           {
             id:          { type: sql.UniqueIdentifier, value: crypto.randomUUID() },
+            organisationId: { type: sql.UniqueIdentifier, value: organisationId },
             eventId:     { type: sql.UniqueIdentifier, value: event.id },
             leadId:      { type: sql.UniqueIdentifier, value: leadId },
             popiConsent: { type: sql.Bit,              value: popiConsent ? 1 : 0 },
