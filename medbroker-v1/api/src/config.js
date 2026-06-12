@@ -14,6 +14,13 @@ const required = (key) => {
 const optional = (key, defaultValue = undefined) => process.env[key] ?? defaultValue;
 
 export const config = {
+  // Tenancy — the organisation this instance serves.
+  // Single-tenant deployments leave ORG_ID unset and inherit the well-known
+  // default organisation (matches the DF_*_Org column defaults in schema.sql and
+  // the seeded Organisation row). Multi-tenant later: stop using this constant
+  // and resolve the org per request inside api/src/context/tenant.js.
+  organisationId: optional('ORG_ID', 'D0000000-0000-0000-0000-000000000001'),
+
   // Azure SQL Database
   db: {
     server:   required('DB_SERVER'),
