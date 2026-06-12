@@ -2,7 +2,7 @@
 -- MedBroker Lead Management System — Database Schema
 -- Target:  Azure SQL (SQL Server compatible)
 -- Created: 2026-05
--- Version: 2.3
+-- Version: 2.4
 --
 -- Version history:
 --   1.0  Initial schema
@@ -23,6 +23,19 @@
 --            'AppointmentScheduled' instead of old values.
 --   2.3  Lead.idNumberHash blind-index column + IX_Lead_IdNumberHash, enabling
 --        dedup by SA ID number without storing plaintext (HMAC-SHA256).
+--   2.4  Multi-tenant-ready: Organisation table + organisationId on every
+--        tenant-owned table, NOT NULL with a DEFAULT of the well-known default
+--        organisation so single-tenant instances need set nothing. The app
+--        resolves the current org through one chokepoint (api/src/context/
+--        tenant.js) and sets it explicitly on writes. Reference data (Region)
+--        and the SystemConfig singleton stay global; junction tables inherit
+--        their org via their parent entity's FK.
+--        MULTI-TENANT ACTIVATION (only when moving off single-tenant):
+--          1. DROP the DF_*_Org DEFAULT constraints so a missing org becomes an
+--             error rather than silently defaulting.
+--          2. Enable row-level security with an organisationId predicate per
+--             table as the enforcement boundary (do not rely on every query).
+--          3. Scope any remaining read queries by organisationId.
 --
 -- Data migration (run before deploying v2.2 application code):
 --   UPDATE Lead SET pipelineStatus = 'AppointmentScheduled' WHERE pipelineStatus = 'AppointmentBooked';
@@ -59,6 +72,32 @@ IF NOT EXISTS (SELECT 1 FROM SystemConfig WHERE id = 1)
     INSERT INTO SystemConfig (id) VALUES (1);
 
 -- =============================================================================
+-- SECTION 1b — ORGANISATION (tenant root)
+--
+-- One row per customer organisation. Single-tenant instances have exactly one
+-- row (the default organisation, seeded below); every tenant-owned table carries
+-- organisationId defaulting to it. Multi-tenant later = more rows here + the
+-- activation steps in the version history above.
+-- =============================================================================
+
+IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'Organisation')
+CREATE TABLE Organisation (
+    id          UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    name        NVARCHAR(300)       NOT NULL,
+    code        NVARCHAR(50)        NOT NULL,
+    isActive    BIT                 NOT NULL DEFAULT 1,
+    createdAt   DATETIMEOFFSET      NOT NULL DEFAULT GETUTCDATE(),
+    CONSTRAINT PK_Organisation      PRIMARY KEY (id),
+    CONSTRAINT UQ_Organisation_Code UNIQUE (code)
+);
+
+-- Default organisation — the single tenant for a single-tenant instance.
+-- Its id matches the DF_*_Org column defaults and config.organisationId.
+IF NOT EXISTS (SELECT 1 FROM Organisation WHERE id = 'D0000000-0000-0000-0000-000000000001')
+    INSERT INTO Organisation (id, name, code)
+    VALUES ('D0000000-0000-0000-0000-000000000001', 'Default Organisation', 'default');
+
+-- =============================================================================
 -- SECTION 2 — LOOKUP / REFERENCE TABLES
 -- =============================================================================
 
@@ -73,6 +112,9 @@ CREATE TABLE Region (
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'Portfolio')
 CREATE TABLE Portfolio (
     id          UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    organisationId          UNIQUEIDENTIFIER    NOT NULL
+        CONSTRAINT DF_Portfolio_Org DEFAULT 'D0000000-0000-0000-0000-000000000001'
+        CONSTRAINT FK_Portfolio_Org REFERENCES Organisation(id),
     name        NVARCHAR(200)       NOT NULL,
     isActive    BIT                 NOT NULL DEFAULT 1,
     createdAt   DATETIMEOFFSET      NOT NULL DEFAULT GETUTCDATE(),
@@ -84,6 +126,9 @@ CREATE TABLE Portfolio (
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'Product')
 CREATE TABLE Product (
     id              UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    organisationId          UNIQUEIDENTIFIER    NOT NULL
+        CONSTRAINT DF_Product_Org DEFAULT 'D0000000-0000-0000-0000-000000000001'
+        CONSTRAINT FK_Product_Org REFERENCES Organisation(id),
     portfolioId     UNIQUEIDENTIFIER    NOT NULL,
     name            NVARCHAR(200)       NOT NULL,
     isActive        BIT                 NOT NULL DEFAULT 1,
@@ -98,6 +143,9 @@ CREATE TABLE Product (
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'MedicalSubscription')
 CREATE TABLE MedicalSubscription (
     id              UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    organisationId          UNIQUEIDENTIFIER    NOT NULL
+        CONSTRAINT DF_MedSub_Org DEFAULT 'D0000000-0000-0000-0000-000000000001'
+        CONSTRAINT FK_MedSub_Org REFERENCES Organisation(id),
     name            NVARCHAR(300)       NOT NULL,
     providerName    NVARCHAR(300)       NULL,
     notes           NVARCHAR(1000)      NULL,
@@ -127,6 +175,9 @@ CREATE TABLE MedicalSubscription (
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'User')
 CREATE TABLE [User] (
     id                      UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    organisationId          UNIQUEIDENTIFIER    NOT NULL
+        CONSTRAINT DF_User_Org DEFAULT 'D0000000-0000-0000-0000-000000000001'
+        CONSTRAINT FK_User_Org REFERENCES Organisation(id),
     -- Azure Entra ID object ID (oid claim). NULL for GCP deployments.
     entraObjectId           NVARCHAR(100)       NULL,
     -- Google Workspace UID from Firebase Authentication. NULL for Azure deployments.
@@ -231,6 +282,9 @@ CREATE TABLE BrokerProduct (
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'Event')
 CREATE TABLE Event (
     id              UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    organisationId          UNIQUEIDENTIFIER    NOT NULL
+        CONSTRAINT DF_Event_Org DEFAULT 'D0000000-0000-0000-0000-000000000001'
+        CONSTRAINT FK_Event_Org REFERENCES Organisation(id),
     name            NVARCHAR(300)       NOT NULL,
     description     NVARCHAR(2000)      NULL,
     eventDate       DATE                NOT NULL,
@@ -255,6 +309,9 @@ CREATE TABLE Event (
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'CsvImportBatch')
 CREATE TABLE CsvImportBatch (
     id              UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    organisationId          UNIQUEIDENTIFIER    NOT NULL
+        CONSTRAINT DF_CsvImport_Org DEFAULT 'D0000000-0000-0000-0000-000000000001'
+        CONSTRAINT FK_CsvImport_Org REFERENCES Organisation(id),
     sourceLabel     NVARCHAR(300)       NOT NULL,
     importedById    UNIQUEIDENTIFIER    NOT NULL,
     totalRows       INT                 NOT NULL DEFAULT 0,
@@ -282,6 +339,9 @@ CREATE TABLE CsvImportBatch (
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'Lead')
 CREATE TABLE Lead (
     id                      UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    organisationId          UNIQUEIDENTIFIER    NOT NULL
+        CONSTRAINT DF_Lead_Org DEFAULT 'D0000000-0000-0000-0000-000000000001'
+        CONSTRAINT FK_Lead_Org REFERENCES Organisation(id),
 
     -- Personal information
     firstName               NVARCHAR(100)       NOT NULL,
@@ -382,6 +442,9 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Lead_AutoUnassign')
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'CallAttempt')
 CREATE TABLE CallAttempt (
     id                      UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    organisationId          UNIQUEIDENTIFIER    NOT NULL
+        CONSTRAINT DF_CallAttempt_Org DEFAULT 'D0000000-0000-0000-0000-000000000001'
+        CONSTRAINT FK_CallAttempt_Org REFERENCES Organisation(id),
     leadId                  UNIQUEIDENTIFIER    NOT NULL,
     agentId                 UNIQUEIDENTIFIER    NOT NULL,
     outcome                 NVARCHAR(50)        NOT NULL,
@@ -423,6 +486,9 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_CallAttempt_FollowUp')
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'Appointment')
 CREATE TABLE Appointment (
     id                          UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    organisationId          UNIQUEIDENTIFIER    NOT NULL
+        CONSTRAINT DF_Appt_Org DEFAULT 'D0000000-0000-0000-0000-000000000001'
+        CONSTRAINT FK_Appt_Org REFERENCES Organisation(id),
     leadId                      UNIQUEIDENTIFIER    NOT NULL,
 
     -- Ownership
@@ -536,6 +602,9 @@ CREATE TABLE AppointmentProduct (
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'EventAttendee')
 CREATE TABLE EventAttendee (
     id              UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    organisationId          UNIQUEIDENTIFIER    NOT NULL
+        CONSTRAINT DF_EvtAtt_Org DEFAULT 'D0000000-0000-0000-0000-000000000001'
+        CONSTRAINT FK_EvtAtt_Org REFERENCES Organisation(id),
     eventId         UNIQUEIDENTIFIER    NOT NULL,
     leadId          UNIQUEIDENTIFIER    NOT NULL,
     rsvp            BIT                 NOT NULL DEFAULT 0,
@@ -559,6 +628,9 @@ CREATE TABLE EventAttendee (
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'Notification')
 CREATE TABLE Notification (
     id              UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    organisationId          UNIQUEIDENTIFIER    NOT NULL
+        CONSTRAINT DF_Notif_Org DEFAULT 'D0000000-0000-0000-0000-000000000001'
+        CONSTRAINT FK_Notif_Org REFERENCES Organisation(id),
     recipientId     UNIQUEIDENTIFIER    NOT NULL,
     -- type values:
     --   LeadAssigned          — agent receives when a lead is assigned to them
@@ -596,6 +668,9 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Notification_Recipient
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'Task')
 CREATE TABLE Task (
     id              UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    organisationId          UNIQUEIDENTIFIER    NOT NULL
+        CONSTRAINT DF_Task_Org DEFAULT 'D0000000-0000-0000-0000-000000000001'
+        CONSTRAINT FK_Task_Org REFERENCES Organisation(id),
     -- The user this task is assigned to (agent or broker)
     assignedToId    UNIQUEIDENTIFIER    NOT NULL,
     -- The lead or appointment this task relates to
@@ -632,6 +707,9 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Task_AssignedTo')
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'TokenLedger')
 CREATE TABLE TokenLedger (
     id              UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    organisationId          UNIQUEIDENTIFIER    NOT NULL
+        CONSTRAINT DF_TokLedger_Org DEFAULT 'D0000000-0000-0000-0000-000000000001'
+        CONSTRAINT FK_TokLedger_Org REFERENCES Organisation(id),
     brokerId        UNIQUEIDENTIFIER    NOT NULL,
     -- Current token balance. Maintained as a running total; recomputable
     -- from TokenTransaction history if correction is needed.
@@ -648,6 +726,9 @@ CREATE TABLE TokenLedger (
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'TokenTransaction')
 CREATE TABLE TokenTransaction (
     id              UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    organisationId          UNIQUEIDENTIFIER    NOT NULL
+        CONSTRAINT DF_TokTxn_Org DEFAULT 'D0000000-0000-0000-0000-000000000001'
+        CONSTRAINT FK_TokTxn_Org REFERENCES Organisation(id),
     brokerId        UNIQUEIDENTIFIER    NOT NULL,
     -- type: 'Credit' = tokens purchased or incentive award; 'Debit' = claim cost
     type            NVARCHAR(20)        NOT NULL,
@@ -673,6 +754,9 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_TokenTransaction_Broke
 IF NOT EXISTS (SELECT 1 FROM sys.tables WHERE name = 'AuditLog')
 CREATE TABLE AuditLog (
     id              UNIQUEIDENTIFIER    NOT NULL DEFAULT NEWID(),
+    organisationId          UNIQUEIDENTIFIER    NOT NULL
+        CONSTRAINT DF_Audit_Org DEFAULT 'D0000000-0000-0000-0000-000000000001'
+        CONSTRAINT FK_Audit_Org REFERENCES Organisation(id),
     entityType      NVARCHAR(100)       NOT NULL,
     entityId        NVARCHAR(100)       NOT NULL,
     action          NVARCHAR(100)       NOT NULL,
@@ -688,6 +772,15 @@ IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_AuditLog_Entity')
 
 IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_AuditLog_PerformedAt')
     CREATE INDEX IX_AuditLog_PerformedAt ON AuditLog (performedAt DESC);
+
+
+-- organisationId indexes (multi-tenant readiness; harmless in single-tenant)
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Lead_Org')
+    CREATE INDEX IX_Lead_Org ON Lead (organisationId) WHERE deletedAt IS NULL;
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_Appointment_Org')
+    CREATE INDEX IX_Appointment_Org ON Appointment (organisationId);
+IF NOT EXISTS (SELECT 1 FROM sys.indexes WHERE name = 'IX_CallAttempt_Org')
+    CREATE INDEX IX_CallAttempt_Org ON CallAttempt (organisationId);
 
 -- =============================================================================
 -- SECTION 16 — SEED DATA
