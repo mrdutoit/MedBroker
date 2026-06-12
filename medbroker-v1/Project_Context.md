@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Context
 ====================================================
-Last updated: 01 June 2026
+Last updated: 12 June 2026
 Purpose: Continuity file — load in a new chat to restore full project context.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -423,6 +423,11 @@ detail) under POPIA. The WAF must front every public surface, not only the QR
 registration endpoint. Options: Azure Front Door Premium (managed OWASP +
 rate limiting), or a cheaper equivalent — Cloudflare in front of the Azure
 origin, or Application Gateway WAF v2 — chosen on cost vs feature need.
+DECISION (10 June 2026): Cloudflare Pro in front of the Azure origin (~R400/mo:
+OWASP managed ruleset + always-on DDoS + rate limiting), chosen over Front Door
+Premium (~R6,000/mo) while keeping SQL Server, Managed Identity and SA residency
+on Azure. Lock the origin to Cloudflare; TLS terminates at Cloudflare's global
+edge (record as a POPIA transit note).
 
 Controls to confirm BEFORE go-live (none are live exposure yet — the DB is not
 deployed and no client data flows; but each must be closed before it does):
@@ -466,3 +471,46 @@ ALREADY ADDRESSED (09 June backend pass): parameterised queries; Entra JWT
 issuer + audience + token-type validation; AES-256-GCM authenticated encryption;
 ID-number blind index; public endpoint rate limit + Front Door origin lock;
 strict UUID validation; generic error responses; Key Vault + Managed Identity.
+
+UPDATE (10–12 June): full eight-area checklist + fresh code review completed —
+report at docs/security/MedBroker_Security_Code_Review_Findings.docx; the live
+remediation backlog (fixed-vs-parked, severity-tagged) is in Status.md §5.
+Fixed this session (safe, no demo impact): C1 — corrected the @azure/keyvault-keys
+dependency that would have crashed encryption at runtime; C3 — SQL admin password
+moved to a @secure() Bicep parameter; C9 — CORS prod-excludes localhost, Zoho
+calls time-bounded. autoReturnLeads kept as an inert stub with an injection-trap
+banner. All larger controls above remain parked for the deployment phase.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12. TENANCY & DELIVERY MODEL
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Decided 12 June 2026. Full internal playbook (pipeline/IaC/repo examples):
+docs/delivery/MedBroker_Delivery_MultiTenancy_Playbook.docx.
+
+MODEL: single-tenant, multi-tenant-ready. One product codebase; each customer
+runs an isolated instance (own resource group, database, Key Vault, config)
+provisioned from one parameterised Bicep template. Customer differences are
+expressed through configuration and feature flags — never code forks. Separate
+repositories only when the APP is a different product, not per customer. This
+keeps clean POPIA isolation and simple offboarding (delete the resource group),
+and flexibility to become a product for other brokerages OR stay bespoke.
+
+THREE KEEP-THE-DOOR-OPEN RULES (so a future multi-tenant move is bounded, not a
+rebuild) — implemented in schema v2.4 and the data layer:
+  1. organisationId on every tenant-owned table (NOT NULL, DEFAULT = the seeded
+     default organisation D0000000-0000-0000-0000-000000000001, so single-tenant
+     sets nothing). Region + SystemConfig stay global; junctions inherit via FK.
+  2. One tenant-resolution chokepoint: api/src/context/tenant.js
+     resolveOrganisationId() — returns config.organisationId today; multi-tenant
+     later changes ONLY this function. Threaded through leadService,
+     eventRegistration, brokerMatchingService.
+  3. UUID keys throughout (no merge-collision risk).
+
+Isolation guardrail: api/src/services/leadService.tenant.integration.test.js
+(DB-gated; runs in CI/at deployment). Proves cross-org dedup is blocked.
+
+MULTI-TENANT ACTIVATION (only if/when leaving single-tenant; see Status.md):
+resolve org from token/host in the chokepoint; DROP the DF_*_Org defaults so a
+missing org errors; enable row-level security per table as the enforcement
+boundary; consolidate databases (or DB-per-tenant on one server).
