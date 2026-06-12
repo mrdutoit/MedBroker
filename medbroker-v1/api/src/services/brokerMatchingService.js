@@ -12,6 +12,7 @@
 
 import { executeQuery, sql } from './db.js';
 import { config } from '../config.js';
+import { resolveOrganisationId } from '../context/tenant.js';
 
 // Simple circuit breaker state for Calendly
 const calendlyCircuit = {
@@ -107,10 +108,12 @@ export async function findMatchingBrokers({ region, products, leadId }) {
        (SELECT COUNT(*)
           FROM Appointment ap
          WHERE ap.brokerId = b.id
+           AND ap.organisationId = @organisationId
            AND ap.status NOT IN ('ClosedWon', 'ClosedLost')) AS upcomingAppointments
      FROM [User] b
      WHERE b.role = 'Broker'
        AND b.isActive = 1
+       AND b.organisationId = @organisationId
        AND EXISTS (
          SELECT 1 FROM BrokerRegion br
           WHERE br.brokerId = b.id AND br.region = @region
@@ -124,6 +127,7 @@ export async function findMatchingBrokers({ region, products, leadId }) {
      ORDER BY upcomingAppointments ASC`,
     {
       region: { type: sql.NVarChar(100), value: region },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
       ...productParams,
     }
   );

@@ -13,6 +13,7 @@ import { executeQuery, executeQueryOne, sql } from './db.js';
 import { encrypt, blindIndex } from './encryption.js';
 import { computeLeadStatus } from './leadStatusService.js';
 import { config } from '../config.js';
+import { resolveOrganisationId } from '../context/tenant.js';
 
 /**
  * List leads with optional filters and pagination.
@@ -22,8 +23,8 @@ import { config } from '../config.js';
 export async function listLeads({ status, agentId, brokerId, eventId, search, page, pageSize }) {
   const offset = (page - 1) * pageSize;
 
-  let whereClause = 'WHERE l.deletedAt IS NULL';
-  const params = {};
+  let whereClause = 'WHERE l.deletedAt IS NULL AND l.organisationId = @organisationId';
+  const params = { organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } };
 
   if (status) {
     whereClause += ' AND l.pipelineStatus = @status';
@@ -97,8 +98,11 @@ export async function getLeadById(id) {
        l.leadSource, l.linkedEventId, l.pipelineStatus,
        l.assignedAgentId, l.assignedBrokerId, l.createdAt, l.updatedAt
      FROM Lead l
-     WHERE l.id = @id AND l.deletedAt IS NULL`,
-    { id: { type: sql.UniqueIdentifier, value: id } }
+     WHERE l.id = @id AND l.deletedAt IS NULL AND l.organisationId = @organisationId`,
+    {
+      id: { type: sql.UniqueIdentifier, value: id },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
   );
 }
 
@@ -115,13 +119,13 @@ export async function createLead(data, createdById) {
 
   await executeQuery(
     `INSERT INTO Lead (
-       id, firstName, lastName, idNumberEncrypted, idNumberHash, email,
+       id, organisationId, firstName, lastName, idNumberEncrypted, idNumberHash, email,
        mobileNumber, whatsappNumber, universityAttended, yearOfAttendance,
        degreeAttained, occupation, hospitalOrPractice, existingCover, policies,
        medicalAid, medicalAidProvider, leadSource, linkedEventId, pipelineStatus,
        createdById, createdAt, updatedAt
      ) VALUES (
-       @id, @firstName, @lastName, @idNumberEncrypted, @idNumberHash, @email,
+       @id, @organisationId, @firstName, @lastName, @idNumberEncrypted, @idNumberHash, @email,
        @mobileNumber, @whatsappNumber, @universityAttended, @yearOfAttendance,
        @degreeAttained, @occupation, @hospitalOrPractice, @existingCover, @policies,
        @medicalAid, @medicalAidProvider, @leadSource, @linkedEventId, 'Unassigned',
@@ -129,6 +133,7 @@ export async function createLead(data, createdById) {
      )`,
     {
       id:                   { type: sql.UniqueIdentifier,   value: newId },
+      organisationId:       { type: sql.UniqueIdentifier,   value: resolveOrganisationId() },
       firstName:            { type: sql.NVarChar(100),      value: data.firstName },
       lastName:             { type: sql.NVarChar(100),      value: data.lastName },
       idNumberEncrypted:    { type: sql.NVarChar(sql.MAX),  value: encryptedIdNumber },
@@ -163,10 +168,11 @@ export async function assignLead(leadId, agentId) {
   await executeQuery(
     `UPDATE Lead
      SET assignedAgentId = @agentId, pipelineStatus = 'Assigned', updatedAt = GETUTCDATE()
-     WHERE id = @leadId AND deletedAt IS NULL`,
+     WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
     {
       leadId:  { type: sql.UniqueIdentifier, value: leadId },
       agentId: { type: sql.UniqueIdentifier, value: agentId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
     }
   );
 }
@@ -180,13 +186,15 @@ export async function assignLead(leadId, agentId) {
  */
 export async function logCallAttempt(leadId, agentId, attemptData) {
   const attemptId = crypto.randomUUID();
+  const organisationId = resolveOrganisationId();
 
   // callTime defaults to GETUTCDATE(); followUpDateTime holds the callback time.
   await executeQuery(
-    `INSERT INTO CallAttempt (id, leadId, agentId, outcome, notes, followUpDateTime, callTime)
-     VALUES (@id, @leadId, @agentId, @outcome, @notes, @followUpDateTime, GETUTCDATE())`,
+    `INSERT INTO CallAttempt (id, organisationId, leadId, agentId, outcome, notes, followUpDateTime, callTime)
+     VALUES (@id, @organisationId, @leadId, @agentId, @outcome, @notes, @followUpDateTime, GETUTCDATE())`,
     {
       id:               { type: sql.UniqueIdentifier, value: attemptId },
+      organisationId:   { type: sql.UniqueIdentifier, value: organisationId },
       leadId:           { type: sql.UniqueIdentifier, value: leadId },
       agentId:          { type: sql.UniqueIdentifier, value: agentId },
       outcome:          { type: sql.NVarChar(50),     value: attemptData.outcome },
@@ -197,8 +205,11 @@ export async function logCallAttempt(leadId, agentId, attemptData) {
 
   // Apply the status machine. Read the current status, compute the next one.
   const current = await executeQueryOne(
-    `SELECT pipelineStatus FROM Lead WHERE id = @leadId AND deletedAt IS NULL`,
-    { leadId: { type: sql.UniqueIdentifier, value: leadId } }
+    `SELECT pipelineStatus FROM Lead WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
+    {
+      leadId: { type: sql.UniqueIdentifier, value: leadId },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+    }
   );
   const currentStatus = current?.pipelineStatus ?? 'Unassigned';
 
@@ -211,8 +222,12 @@ export async function logCallAttempt(leadId, agentId, attemptData) {
   if (UNREACHABLE.includes(attemptData.outcome) && newStatus !== 'Closed') {
     const countResult = await executeQuery(
       `SELECT COUNT(*) AS failedCount FROM CallAttempt
-       WHERE leadId = @leadId AND outcome IN ('NoAnswer', 'Voicemail', 'WrongNumber')`,
-      { leadId: { type: sql.UniqueIdentifier, value: leadId } }
+       WHERE leadId = @leadId AND organisationId = @organisationId
+         AND outcome IN ('NoAnswer', 'Voicemail', 'WrongNumber')`,
+      {
+        leadId: { type: sql.UniqueIdentifier, value: leadId },
+        organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+      }
     );
     if ((countResult[0]?.failedCount ?? 0) >= config.app.maxCallAttempts) {
       newStatus = 'Closed';
@@ -226,10 +241,11 @@ export async function logCallAttempt(leadId, agentId, attemptData) {
     await executeQuery(
       `UPDATE Lead
          SET pipelineStatus = @newStatus, ${unassignClause} updatedAt = GETUTCDATE()
-       WHERE id = @leadId AND deletedAt IS NULL`,
+       WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
       {
         leadId:    { type: sql.UniqueIdentifier, value: leadId },
         newStatus: { type: sql.NVarChar(50),     value: newStatus },
+        organisationId: { type: sql.UniqueIdentifier, value: organisationId },
       }
     );
   }
@@ -246,8 +262,11 @@ export async function logCallAttempt(leadId, agentId, attemptData) {
 export async function deleteLead(leadId) {
   await executeQuery(
     `UPDATE Lead SET deletedAt = GETUTCDATE(), updatedAt = GETUTCDATE()
-     WHERE id = @leadId`,
-    { leadId: { type: sql.UniqueIdentifier, value: leadId } }
+     WHERE id = @leadId AND organisationId = @organisationId`,
+    {
+      leadId: { type: sql.UniqueIdentifier, value: leadId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
   );
 }
 
@@ -260,6 +279,7 @@ export async function deleteLead(leadId) {
  * @returns {Promise<string|null>} existing lead ID or null
  */
 export async function findDuplicate(email, idNumber) {
+  const organisationId = resolveOrganisationId();
   // Prefer matching on the ID-number blind index (a keyed hash) when available —
   // this dedupes by ID number without ever querying plaintext. Falls back to
   // email if no index key is configured.
@@ -267,16 +287,22 @@ export async function findDuplicate(email, idNumber) {
     const hash = blindIndex(idNumber);
     if (hash) {
       const byIdNumber = await executeQueryOne(
-        `SELECT id FROM Lead WHERE idNumberHash = @hash AND deletedAt IS NULL`,
-        { hash: { type: sql.NVarChar(64), value: hash } }
+        `SELECT id FROM Lead WHERE idNumberHash = @hash AND deletedAt IS NULL AND organisationId = @organisationId`,
+        {
+          hash: { type: sql.NVarChar(64), value: hash },
+          organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+        }
       );
       if (byIdNumber) return byIdNumber.id;
     }
   }
 
   const existing = await executeQueryOne(
-    `SELECT id FROM Lead WHERE email = @email AND deletedAt IS NULL`,
-    { email: { type: sql.NVarChar(255), value: email } }
+    `SELECT id FROM Lead WHERE email = @email AND deletedAt IS NULL AND organisationId = @organisationId`,
+    {
+      email: { type: sql.NVarChar(255), value: email },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+    }
   );
 
   return existing?.id ?? null;
