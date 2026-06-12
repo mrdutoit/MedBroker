@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 09 June 2026
+Last updated: 12 June 2026
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -294,6 +294,32 @@ API contracts (the spec for the routes still to build):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 5. PENDING ITEMS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+MULTI-TENANCY READINESS (12 Jun 2026)
+  Model: single-tenant, multi-tenant-ready (see docs/delivery playbook).
+  ✅ DONE (pre-deployment, while cheap):
+     - schema.sql v2.4: Organisation table + seeded default org
+       (D0000000-0000-0000-0000-000000000001); organisationId NOT NULL on 15
+       tenant-owned tables, DEFAULT = default org (single-tenant sets nothing);
+       org indexes on Lead/Appointment/CallAttempt. Region + SystemConfig stay
+       global; junction tables inherit org via their parent FK.
+     - config.organisationId (ORG_ID env, defaults to the default org).
+     - context/tenant.js — single resolveOrganisationId() chokepoint.
+     - organisationId threaded through the data layer: leadService (all reads +
+       writes), eventRegistration (public path), brokerMatchingService.
+     - UUID keys already in use (no merge-collision risk).
+  ⬜ MULTI-TENANT ACTIVATION (only if/when we leave single-tenant — NOT now):
+     - Change resolveOrganisationId() to resolve org from the validated token /
+       host (one function — nothing else changes shape).
+     - DROP the DF_*_Org DEFAULT constraints so a missing org errors instead of
+       silently defaulting.
+     - Enable row-level security (organisationId predicate per table) as the
+       enforcement boundary; scope any remaining/edge read queries.
+     - Consolidate instance DBs (or DB-per-tenant on one server).
+  NOTE (separate, pre-existing): leadService SELECTs reference l.leadSource and
+  l.assignedBrokerId, absent from schema v2.4 (source = the four linked* columns;
+  broker lives on Appointment). App-vs-schema drift to fix when the lead read
+  path is next worked — NOT touched by this tenancy change.
 
 SECURITY & CODE REVIEW REMEDIATION (10 Jun 2026)
   Full report: docs/security/MedBroker_Security_Code_Review_Findings.docx
