@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Context
 ====================================================
-Last updated: 12 June 2026
+Last updated: 13 June 2026
 Purpose: Continuity file — load in a new chat to restore full project context.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -32,7 +32,7 @@ Profile: A — Microsoft Azure
   CI/CD          GitHub Actions → Azure
   Calendar       Microsoft 365 Graph API      Replaces Calendly (not required)
 
-Repository: GitHub → mrdutoit/MedBroker (private)
+Repository: GitHub → mrdutoit/MedBroker (public)
             Folder structure: medbroker-v1/ at root
 Live preview: Vercel — Root Directory set to medbroker-v1/frontend
 Auth bypass:  Active in preview mode — role switcher <select> in sidebar footer
@@ -68,7 +68,10 @@ Preview role switcher: GlobalAdmin / Admin / Supervisor / Agent (T. Molefe) /
 4. DATA MODEL — KEY ENTITIES AND STATUS SETS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Schema version: 2.2 (infra/schema.sql)
+Schema version: 2.4 (infra/schema.sql)
+  (v2.3 added Lead.idNumberHash blind index; v2.4 added the Organisation table
+   and organisationId on tenant-owned tables. Both additive — the status sets
+   below are unchanged. See §11 for security and §12 for the tenancy model.)
 
 LEAD pipeline statuses (5 values):
   Unassigned            Imported, not yet assigned to an agent
@@ -205,17 +208,32 @@ medbroker-v1/
 │   │   ├── context/
 │   │   │   ├── RoleContext.jsx         Exports: useRole(), PERSONAS, PRODUCTS_BY_PORTFOLIO
 │   │   │   │                           Does NOT export RoleContext object directly
-│   │   │   └── FlagContext.jsx         Exports: FlagProvider, useFlags()
-│   │   │                               flag() helper, DEFAULT_FLAGS
+│   │   │   ├── FlagContext.jsx         Exports: FlagProvider, useFlags()
+│   │   │   │                           flag() helper, DEFAULT_FLAGS
+│   │   │   └── ThemeContext.jsx        NEW — Exports: ThemeProvider, useTheme(), THEMES
+│   │   │                               Sets data-theme on <html>; persists to sessionStorage
+│   │   │                               DEFAULT_THEME = 'linen'. THEMES = 4 design systems.
 │   │   ├── hooks/
 │   │   │   ├── useFetch.js
 │   │   │   └── useWindowSize.js        isMobile/isTablet/isDesktop breakpoints
 │   │   ├── styles/
 │   │   │   └── tokens.js               Named exports only — export const s = { ... }
-│   │   │                               Also exports: APPT_STATUS_META, STATUS_META, etc.
+│   │   │                               Also exports: colors, radius, shadow, type,
+│   │   │                               CHART_PALETTE, APPT_STATUS_META, STATUS_META,
+│   │   │                               MEETING_STATUS_META, PORTFOLIO_META.
+│   │   │                               CRITICAL: colour values resolve to CSS variables
+│   │   │                               (e.g. colors.primary = 'var(--accent)') so the
+│   │   │                               whole token layer reskins on theme switch.
 │   │   │                               NO default export. tableCard uses overflow:'auto'
 │   │   ├── services/
 │   │   │   └── api.js                  Preview-safe; MSAL lazy-loaded; null in preview
+│   │   ├── components/
+│   │   │   └── Logo.jsx                NEW — MB angular duotone mark (blue→cyan gradient).
+│   │   │                               Props: size (default 30), withWordmark, dark.
+│   │   │                               Fixed brand colours (not theme-adaptive).
+│   │   ├── assets/
+│   │   │   ├── logo-mark.svg           NEW — standalone SVG mark for external use
+│   │   │   └── favicon.svg             NEW — mark on gradient tile, 32×32
 │   │   ├── pages/
 │   │   │   ├── LeadList.jsx
 │   │   │   ├── LeadDetail.jsx
@@ -223,7 +241,9 @@ medbroker-v1/
 │   │   │   ├── AppointmentList.jsx     AssignBrokerModal (agent always read-only)
 │   │   │   ├── AppointmentDetail.jsx   ReassignBrokerModal (agent always read-only)
 │   │   │   │                           ReturnToLeadsModal (red destructive confirm)
-│   │   │   ├── Reports.jsx
+│   │   │   ├── Reports.jsx             Recharts charts (BarChart, ResponsiveContainer)
+│   │   │   ├── Settings.jsx            NEW — theme picker (live), profile, avatar stub
+│   │   │   │                           Route: /settings — all roles
 │   │   │   ├── AgentDetail.jsx
 │   │   │   ├── BrokerDetail.jsx
 │   │   │   ├── UserAdmin.jsx
@@ -234,23 +254,36 @@ medbroker-v1/
 │   │   │   ├── Tasks.jsx               Built + functional. Gated by tasks.enabled flag.
 │   │   │   ├── EventList.jsx
 │   │   │   └── EventDetail.jsx
+│   │   ├── themes.css                  NEW — 4 design systems on CSS-variable contract:
+│   │   │                               [data-theme="midnight|ember|terra|linen"]
+│   │   │                               Variables: --bg --panel --ink --mut --line
+│   │   │                               --accent --accent2 --live --limited --danger
+│   │   │                               --glow --disp --mesh --grain --gridline
+│   │   │                               Atmosphere: grain + grid overlays via body::before/after
+│   │   ├── index.css                   Structural resets + a11y (focus rings, scrollbars)
+│   │   │                               Cosmetics live in themes.css not here.
 │   │   ├── App.jsx                     Responsive nav, <select> role switcher,
-│   │   │                               collapsible sidebar, all routes
-│   │   └── main.jsx
-│   ├── index.html
+│   │   │                               collapsible sidebar, all routes.
+│   │   │                               Includes: ThemeProvider wrap, Logo lockup,
+│   │   │                               footer theme swatches, /settings route.
+│   │   └── main.jsx                    Imports themes.css then index.css (order matters)
+│   ├── index.html                      data-theme="linen" (default theme set here to
+│   │                                   prevent flash before React loads)
 │   ├── vite.config.js
 │   ├── vercel.json                     SPA rewrite rule — mandatory
-│   └── package.json
+│   └── package.json                    recharts ^2.12.7 added
 ├── api/
 │   └── src/
 │       ├── functions/                  Azure Functions v4 HTTP/timer triggers
 │       │   ├── leads.js                6 routes: list/get/create/assign/calls/delete
 │       │   ├── eventRegistration.js    event registration endpoint
 │       │   └── autoReturnLeads.js      daily timer — getDbClient() is a STUB
+│       ├── context/
+│       │   └── tenant.js                resolveOrganisationId() — single tenancy
+│       │                                chokepoint (returns config.organisationId)
 │       ├── services/
 │       │   ├── leadStatusService.js    computeLeadStatus + computeAppointmentStatus
-│       │   ├── leadStatusService.test.js  28 Vitest tests (passing)
-│       │   ├── leadService.js          Leads data access
+│       │   ├── leadService.js          Leads data access (org-scoped reads/writes)
 │       │   ├── brokerMatchingService.js  broker ranking
 │       │   ├── db.js                    Azure SQL pool (Managed Identity)
 │       │   ├── encryption.js            field-level encryption helper
@@ -259,13 +292,17 @@ medbroker-v1/
 │       │   └── auth.js                  Entra ID JWT validation (JWKS)
 │       ├── models/
 │       │   └── lead.js
-│       └── config.js
+│       └── config.js                    config.organisationId (ORG_ID env)
+│   NOTE: leadStatusService.test.js (28 tests) and
+│         leadService.tenant.integration.test.js currently sit at the
+│         medbroker-v1/ ROOT, not under api/src. Move both into
+│         api/src/services/ before wiring Vitest (Status.md §5 → Testing).
 │   NOTE: Appointments / Flags / Config / Reports / Users API routes are NOT
 │         yet built — see Status.md §4 for the contracts the frontend expects.
 ├── infra/
 │   ├── main.bicep                      IaC
 │   ├── parameters/                     dev.json, prod.json
-│   ├── schema.sql                      v2.2
+│   ├── schema.sql                      v2.4
 │   └── feature-flags.sql              17 seeded flags
 ├── mobile/                             RegisterScreen.jsx (event registration)
 └── DEPLOYMENT.md
@@ -275,7 +312,49 @@ medbroker-v1/
 8. CRITICAL IMPLEMENTATION RULES
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-TOKENS.JS IMPORT — mandatory pattern, Vercel build will fail otherwise:
+THEME SYSTEM — how it works:
+  themes.css defines four [data-theme="..."] blocks with CSS variables.
+  ThemeContext.jsx sets data-theme on <html> when the user switches.
+  tokens.js colour values point at these variables (e.g. 'var(--panel)').
+  Result: token-driven surfaces reskin instantly on theme switch.
+  Default: 'linen' set in both index.html (prevents flash) and ThemeContext.
+
+INLINE COLOUR ANTI-PATTERN — will break non-default themes:
+  Never use hardcoded hex in inline style objects. Use CSS variables:
+    ✅  color: 'var(--ink)'       ❌  color: '#111827'
+    ✅  background: 'var(--panel)' ❌  background: 'white'
+    ✅  border: '1px solid var(--line)'  ❌  border: '1px solid #e5e7eb'
+    ✅  color: 'var(--accent)'    ❌  color: '#1d4ed8'
+  STATUS_META / APPT_STATUS_META chip colours are the intentional exception
+  (fixed semantic colours for recognisability across themes).
+
+HOVER ANTI-PATTERN — causes stuck colours on dark themes:
+  Never set element.style.background to hardcoded hex in mouse handlers.
+    ✅  onMouseEnter={e => e.currentTarget.style.background =
+          'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
+        onMouseLeave={e => e.currentTarget.style.background = ''}
+    ❌  onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
+        onMouseLeave={e => e.currentTarget.style.background = 'white'}
+  Setting '' (empty string) on leave removes the inline style cleanly.
+
+LOGO COMPONENT — import from components/:
+  import { Logo } from '../components/Logo.jsx';
+  <Logo size={30} />                    // mark only
+  <Logo size={34} withWordmark />       // mark + "MedBroker / LEAD MANAGEMENT"
+  <Logo size={30} dark />               // brightened variant for dark backgrounds
+  Fixed brand colours (#2F4FE0→#17B6C9). Not theme-adaptive by design.
+
+THEMECONTEXT IMPORT:
+  import { useTheme, THEMES } from '../context/ThemeContext.jsx';
+  const { theme, setTheme, themes } = useTheme();
+  THEMES is an array: [{ id, name, mood, swatch:[c1,c2] }, ...]
+
+AVATAR / PROFILE PERSISTENCE:
+  Settings.jsx avatar picker stores choice in React state only (memory).
+  Resets on page refresh. Persistent storage requires the Users API (pending).
+  Do not add localStorage/sessionStorage as a workaround — persist to the DB.
+
+
   tokens.js uses NAMED exports only. There is no default export.
   Correct:  import { s, APPT_STATUS_META } from '../styles/tokens.js';
   Wrong:    import tokens from '../styles/tokens.js';  ← Rollup build failure
@@ -507,10 +586,50 @@ rebuild) — implemented in schema v2.4 and the data layer:
      eventRegistration, brokerMatchingService.
   3. UUID keys throughout (no merge-collision risk).
 
-Isolation guardrail: api/src/services/leadService.tenant.integration.test.js
-(DB-gated; runs in CI/at deployment). Proves cross-org dedup is blocked.
+Isolation guardrail: leadService.tenant.integration.test.js (currently at the
+medbroker-v1/ root — relocate to api/src/services/ with the unit test;
+DB-gated; runs in CI/at deployment). Proves cross-org dedup is blocked.
 
-MULTI-TENANT ACTIVATION (only if/when leaving single-tenant; see Status.md):
-resolve org from token/host in the chokepoint; DROP the DF_*_Org defaults so a
-missing org errors; enable row-level security per table as the enforcement
-boundary; consolidate databases (or DB-per-tenant on one server).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+13. DESIGN SYSTEM (added 13 June 2026)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FOUR THEMES — ported from html-design-studio skill token contract:
+  linen    Light · cool · minimal      (DEFAULT for the app)
+  terra    Light · earthy · editorial
+  midnight Dark · technical · premium
+  ember    Dark · warm · confident
+
+Each theme defines the same CSS variable contract in themes.css:
+  --bg --bg2 --panel --panel2 --ink --mut --line --glass
+  --accent --accent2 --live --limited --na --danger --glow
+  --disp (display font) --mesh (background gradient)
+  --grain (noise texture opacity) --gridop --gridline (grid overlay)
+
+Theme atmosphere: body::before (grain texture) + body::after (masked grid).
+These only render when themes.css is loaded via main.jsx.
+
+LOGO — "MB Angular Duotone" mark (final as of 13 June 2026):
+  Geometry: M (round caps, two open peaks, left leg down, no right descender)
+            + B (flat horizontal runs, tight Q-arc corners, square caps,
+                 equal-height bowls, spine offset 6px right of M peak — no overlap)
+  Gradient: #2F4FE0 → #1A7FCF → #17B6C9 (left to right, userSpaceOnUse)
+  Dark variant: #4F6FFF → #2090DD → #22D3EE (Logo dark prop)
+  Assets: Logo.jsx (React), logo-mark.svg (standalone), favicon.svg (32×32 tile)
+
+COLOUR SWEEP — completed 13 June 2026:
+  All 15 frontend pages swept. Every hardcoded hex replaced with CSS variables.
+  onMouseEnter/Leave anti-pattern fixed across all 7 affected pages.
+  See §8 CRITICAL IMPLEMENTATION RULES for the correct patterns.
+
+SETTINGS PAGE (/settings — all roles):
+  Three sections: Appearance (live theme picker), Profile (name/email/role),
+  Avatar (accent colour picker; photo upload is a stub pending Users API).
+  Theme choice saved to sessionStorage; Users API will persist it server-side.
+
+RECHARTS — added to package.json (^2.12.7):
+  Used in Reports.jsx for BarChart / ResponsiveContainer.
+  Chart colours driven by CHART_PALETTE from tokens.js (→ CSS variables).
+  Tooltip surface uses var(--panel) / var(--ink) so it themes correctly.
+

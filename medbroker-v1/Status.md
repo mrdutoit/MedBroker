@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 12 June 2026
+Last updated: 13 June 2026
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -55,7 +55,7 @@ FRONTEND — ALL PAGES BUILT AND VERIFIED BUILDING ON VERCEL
   ✅ EventDetail        Existing (not modified in this build)
 
 INFRASTRUCTURE FILES
-  ✅ schema.sql         v2.2 — all tables, constraints, indexes, seed data,
+  ✅ schema.sql         v2.4 — all tables, constraints, indexes, seed data,
                         migration SQL documented in version history comments
   ✅ feature-flags.sql  FeatureFlag table + 17 seeded flags (3 tiers)
   ✅ autoReturnLeads.js Azure Function timer trigger — daily auto-return
@@ -390,7 +390,9 @@ TESTING
   ⬜ Wire Vitest in api/package.json so `npm test` runs:
        "scripts":          { "test": "vitest run", "test:watch": "vitest" }
        "devDependencies":  { "vitest": "^2.0.0" }
-     leadStatusService.test.js is in api/src/services and passes once wired.
+     leadStatusService.test.js (28 tests) and leadService.tenant.integration.test.js
+     currently sit at the medbroker-v1/ ROOT — relocate both into api/src/services/
+     first, otherwise an api-scoped `vitest run` will not discover them.
   ⬜ Add tests for the Appointments, Flags, and Reports endpoints as they are
      built (validation + role authorisation per route).
 
@@ -511,7 +513,44 @@ These decisions caused rework when changed — preserve them in every session:
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-7. HOW TO START A NEW CHAT
+0. NEXT ACTION  (update this block at the end of every session)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Priority: Appointments API build (see §1 + §5).
+
+DESIGN SYSTEM — STATUS AS OF 13 JUNE 2026
+  All files produced and VERIFIED (full esbuild bundle, tokens contract clean).
+  Applied to GitHub via design/theme-system branch + fix/hover-theme branch.
+
+  THEME DEFAULT: Linen (light). User can switch via Settings or sidebar swatches.
+  Preference persists in sessionStorage; Users API will persist it server-side later.
+
+  FILES DEPLOYED TO REPO (all in medbroker-v1/frontend/):
+    index.html, package.json, src/main.jsx, src/themes.css, src/index.css,
+    src/App.jsx, src/context/ThemeContext.jsx, src/components/Logo.jsx,
+    src/styles/tokens.js, src/pages/Reports.jsx, src/pages/Settings.jsx,
+    src/assets/logo-mark.svg, src/assets/favicon.svg
+
+  FULL COLOUR SWEEP COMPLETED — all 15 pages:
+    LeadList, AppointmentList, AppAdmin, AgentDetail, BrokerDetail, EventDetail,
+    UserAdmin (hover fix + sweep), AppointmentDetail, LeadDetail, LeadImport,
+    Notifications, EventList, FeatureFlags, Tasks (colour sweep only)
+    → All hardcoded hex replaced with CSS variables (var(--ink/mut/panel/line/accent/live))
+    → onMouseEnter/Leave anti-pattern fixed (no more stuck white rows on dark themes)
+
+  KNOWN REMAINING (non-blocking):
+    - STATUS_META / APPT_STATUS_META chips still use fixed semantic colours (intentional)
+    - User avatar and theme preference persist in sessionStorage only until Users API built
+    - Test files still at repo root (not api/src/services/) — move before wiring Vitest
+
+  LOGO: MB angular duotone mark (blue→cyan gradient, equal bowls, no overlap,
+    centred tiles). Files: Logo.jsx, logo-mark.svg, favicon.svg
+
+  SKILLS UPDATED THIS SESSION:
+    ✅ app-builder.skill v2 — adds inline-colour sweep rules + onMouseEnter anti-pattern
+       (requires reinstall: delete existing app-builder skill, then Save skill)
+
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 1. Start a new conversation in the MedBroker project
