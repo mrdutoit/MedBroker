@@ -19,7 +19,7 @@ export const THEMES = [
 ];
 
 const THEME_IDS = THEMES.map(t => t.id);
-const DEFAULT_THEME = 'midnight';
+const DEFAULT_THEME = 'linen';
 const THEME_STORAGE_KEY = 'medbroker.theme';
 
 const ThemeContext = createContext(null);
