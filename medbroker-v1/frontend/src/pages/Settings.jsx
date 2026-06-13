@@ -81,7 +81,7 @@ export default function Settings() {
                   background: colors.surface, fontFamily: 'inherit',
                   border: `1px solid ${active ? 'var(--accent)' : colors.line}`,
                   borderRadius: 'var(--r-card)',
-                  boxShadow: active ? '0 0 0 2px color-mix(in srgb, var(--accent) 50%, transparent)' : 'none',
+                  boxShadow: active ? '0 0 0 2px 'color-mix(in srgb, var(--accent) 50%, transparent)'' : 'none',
                   transition: 'box-shadow 0.18s, border-color 0.18s, transform 0.18s',
                 }}
               >

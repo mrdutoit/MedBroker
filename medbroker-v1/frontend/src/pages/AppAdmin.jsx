@@ -95,14 +95,14 @@ export default function AppAdmin() {
                   <td style={{ ...s.td, fontWeight: 500 }}>Discovery</td>
                   <td style={s.td}>3</td><td style={s.td}>3</td>
                   <td style={{ ...s.td, color:'var(--accent)', fontWeight: 600 }}>487</td>
-                  <td style={s.td}><span style={{ ...s.badge, background: color-mix(in srgb, #15803d 14%, var(--panel)), color: '#15803d' }}>Active</span></td>
+                  <td style={s.td}><span style={{ ...s.badge, background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d' }}>Active</span></td>
                   <td style={s.td}><button style={s.linkBtn}>Edit</button></td>
                 </tr>
                 <tr style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
                   <td style={{ ...s.td, fontWeight: 500 }}>Money and Medicine</td>
                   <td style={s.td}>2</td><td style={s.td}>2</td>
                   <td style={{ ...s.td, color:'var(--accent)', fontWeight: 600 }}>214</td>
-                  <td style={s.td}><span style={{ ...s.badge, background: color-mix(in srgb, #15803d 14%, var(--panel)), color: '#15803d' }}>Active</span></td>
+                  <td style={s.td}><span style={{ ...s.badge, background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d' }}>Active</span></td>
                   <td style={s.td}><button style={s.linkBtn}>Edit</button></td>
                 </tr>
               </tbody>
@@ -135,14 +135,14 @@ export default function AppAdmin() {
                     <td style={{ ...s.td, fontWeight: 500 }}>{p.name}</td>
                     <td style={s.td}>
                       <span style={{ ...s.badge, fontSize: '0.688rem',
-                        background: p.portfolio === 'Discovery' ? color-mix(in srgb, #1d4ed8 14%, var(--panel)) : color-mix(in srgb, #7c3aed 14%, var(--panel)),
+                        background: p.portfolio === 'Discovery' ? 'color-mix(in srgb, #1d4ed8 14%, var(--panel))' : 'color-mix(in srgb, #7c3aed 14%, var(--panel))',
                         color:      p.portfolio === 'Discovery' ? 'var(--accent)' : '#a78bfa',
                       }}>
                         {p.portfolio === 'Money and Medicine' ? 'M&M' : p.portfolio}
                       </span>
                     </td>
                     <td style={s.td}>{p.sold}</td>
-                    <td style={s.td}><span style={{ ...s.badge, background: color-mix(in srgb, #15803d 14%, var(--panel)), color: '#15803d' }}>Active</span></td>
+                    <td style={s.td}><span style={{ ...s.badge, background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d' }}>Active</span></td>
                     <td style={s.td}><button style={s.linkBtn}>Edit</button></td>
                   </tr>
                 ))}
@@ -180,7 +180,7 @@ export default function AppAdmin() {
                     <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>{sub.lastImport}</td>
                     <td style={s.td}>
                       <span style={{ ...s.badge,
-                        background: sub.status === 'Active' ? color-mix(in srgb, #15803d 14%, var(--panel)) : color-mix(in srgb, #d97706 14%, var(--panel)),
+                        background: sub.status === 'Active' ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'color-mix(in srgb, #d97706 14%, var(--panel))',
                         color:      sub.status === 'Active' ? '#15803d' : '#d97706',
                       }}>
                         {sub.status}
@@ -343,11 +343,11 @@ export default function AppAdmin() {
                       <span style={{
                         ...s.badge, fontSize: '0.688rem',
                         background: entry.role === 'System' ? 'var(--panel2)'
-                          : entry.role === 'GlobalAdmin' ? color-mix(in srgb, #7e22ce 14%, var(--panel))
-                          : entry.role === 'Admin' ? color-mix(in srgb, #1d4ed8 14%, var(--panel))
-                          : entry.role === 'Supervisor' ? color-mix(in srgb, #15803d 14%, var(--panel))
-                          : entry.role === 'Agent' ? color-mix(in srgb, #d97706 14%, var(--panel))
-                          : color-mix(in srgb, #7c3aed 14%, var(--panel)),
+                          : entry.role === 'GlobalAdmin' ? 'color-mix(in srgb, #7e22ce 14%, var(--panel))'
+                          : entry.role === 'Admin' ? 'color-mix(in srgb, #1d4ed8 14%, var(--panel))'
+                          : entry.role === 'Supervisor' ? 'color-mix(in srgb, #15803d 14%, var(--panel))'
+                          : entry.role === 'Agent' ? 'color-mix(in srgb, #d97706 14%, var(--panel))'
+                          : 'color-mix(in srgb, #7c3aed 14%, var(--panel))',
                         color: entry.role === 'System' ? 'var(--mut)'
                           : entry.role === 'GlobalAdmin' ? '#c084fc'
                           : entry.role === 'Admin' ? 'var(--accent)'

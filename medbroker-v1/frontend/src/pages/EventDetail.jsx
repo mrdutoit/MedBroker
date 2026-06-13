@@ -40,7 +40,7 @@ function YesNo({ value }) {
     <span style={{
       display: 'inline-block', padding: '1px 8px', borderRadius: '20px',
       fontSize: '0.75rem', fontWeight: 500,
-      background: value ? color-mix(in srgb, #15803d 14%, var(--panel)) : 'var(--panel2)',
+      background: value ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'var(--panel2)',
       color:      value ? '#15803d' : 'var(--mut)',
     }}>
       {value ? 'Yes' : 'No'}

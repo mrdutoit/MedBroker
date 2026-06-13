@@ -205,8 +205,9 @@ function FlagRow({ meta, rawValue, onSave }) {
             disabled={isLocked}
             style={{
               border: '1px solid var(--line)', borderRadius: '6px', padding: '4px 8px',
-              fontSize: '0.8125rem', background:'var(--panel)', cursor: isLocked ? 'not-allowed' : 'pointer',
-              fontFamily: 'inherit', minWidth: '110px',
+              fontSize: '0.8125rem', background: 'var(--panel)', color: 'var(--ink)',
+              cursor: isLocked ? 'not-allowed' : 'pointer',
+              fontFamily: 'inherit', minWidth: '110px', colorScheme: 'light dark',
             }}
           >
             {(meta.allowedValues ?? []).map(v => <option key={v} value={v}>{v}</option>)}
@@ -222,7 +223,7 @@ function FlagRow({ meta, rawValue, onSave }) {
           {meta.requiresRestart && (
             <span style={{
               fontSize: '0.625rem', fontWeight: 600, padding: '1px 6px', borderRadius: '10px',
-              background: 'color-mix(in srgb, #d97706 15%, var(--panel))', color: '#d97706', border: '1px solid color-mix(in srgb, #d97706 35%, var(--panel))',
+              background: 'color-mix(in srgb, #d97706 15%, var(--panel))', color: '#d97706', border: '1px solid 'color-mix(in srgb, #d97706 35%, var(--panel))'',
             }}>
               Restart required
             </span>

@@ -97,7 +97,7 @@ function MeetingBadge({ status }) {
 }
 function SignedBadge({ signed }) {
   if (!signed) return <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>—</span>;
-  return <span style={{ ...s.badge, fontSize: '0.688rem', background: signed === 'Yes' ? color-mix(in srgb, #15803d 14%, var(--panel)) : color-mix(in srgb, #dc2626 14%, var(--panel)), color: signed === 'Yes' ? '#15803d' : '#dc2626' }}>{signed}</span>;
+  return <span style={{ ...s.badge, fontSize: '0.688rem', background: signed === 'Yes' ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'color-mix(in srgb, #dc2626 14%, var(--panel))', color: signed === 'Yes' ? '#15803d' : '#dc2626' }}>{signed}</span>;
 }
 function PortfolioBadge({ portfolio }) {
   const meta = PORTFOLIO_META[portfolio] ?? { colour: 'var(--mut)', bg: 'var(--panel2)' };
@@ -411,7 +411,7 @@ export default function AppointmentList() {
                       <button
                         onClick={() => { setAssignTarget(a); setIsAssignMode(true); }}
                         style={{
-                          background: 'color-mix(in srgb, #d97706 14%, var(--panel))', color: '#d97706', border: '1px solid color-mix(in srgb, #d97706 30%, var(--panel))',
+                          background: 'color-mix(in srgb, #d97706 14%, var(--panel))', color: '#d97706', border: '1px solid 'color-mix(in srgb, #d97706 30%, var(--panel))'',
                           borderRadius: '6px', padding: '3px 10px', cursor: 'pointer',
                           fontSize: '0.75rem', fontWeight: 500, fontFamily: 'inherit', marginLeft: '6px',
                         }}
@@ -546,7 +546,7 @@ export default function AppointmentList() {
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '14px',
           padding: '6px 12px', borderRadius: '6px', fontSize: '0.8125rem',
-          background: claimModel === 'claim' ? color-mix(in srgb, #15803d 14%, var(--panel)) : color-mix(in srgb, #1d4ed8 14%, var(--panel)),
+          background: claimModel === 'claim' ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'color-mix(in srgb, #1d4ed8 14%, var(--panel))',
           color:      claimModel === 'claim' ? '#15803d' : 'var(--accent)',
           border: `1px solid ${claimModel === 'claim' ? 'color-mix(in srgb, #15803d 30%, var(--panel))' : 'color-mix(in srgb, #1d4ed8 30%, var(--panel))'}`,
         }}>
@@ -663,7 +663,7 @@ export default function AppointmentList() {
                         <td style={{ ...s.td, fontSize: '0.8125rem', color:'var(--mut)' }}>{a.region}</td>
                         <td style={{ ...s.td, fontSize: '0.75rem', color:'var(--mut)' }}>{a.source}</td>
                         <td style={s.td}>
-                          <span style={{ ...s.badge, fontSize: '0.688rem', background: a.token === 'Free' ? color-mix(in srgb, #15803d 14%, var(--panel)) : color-mix(in srgb, #d97706 14%, var(--panel)), color: a.token === 'Free' ? '#15803d' : '#d97706' }}>
+                          <span style={{ ...s.badge, fontSize: '0.688rem', background: a.token === 'Free' ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'color-mix(in srgb, #d97706 14%, var(--panel))', color: a.token === 'Free' ? '#15803d' : '#d97706' }}>
                             {a.token}
                           </span>
                         </td>
