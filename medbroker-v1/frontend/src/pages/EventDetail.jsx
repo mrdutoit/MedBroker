@@ -188,7 +188,7 @@ export default function EventDetail() {
               </button>
             </div>
             {/* SVG QR placeholder — in production generate from qrToken */}
-            <div style={{ background:'var(--panel2)', border: '1px solid var(--line)', borderRadius: '8px', padding: '24px', marginBottom: '14px', display: 'inline-block' }}>
+            <div style={{ background:'#ffffff', border: '1px solid var(--line)', borderRadius: '8px', padding: '24px', marginBottom: '14px', display: 'inline-block' }}>
               <svg width="160" height="160" viewBox="0 0 160 160" fill="none">
                 <rect x="10" y="10" width="60" height="60" rx="4" fill="#111827"/>
                 <rect x="90" y="10" width="60" height="60" rx="4" fill="#111827"/>
