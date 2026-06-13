@@ -61,8 +61,8 @@ export default function AppAdmin() {
               padding: '9px 18px', border: 'none', background: 'none', cursor: 'pointer',
               fontSize: '0.875rem', fontFamily: 'inherit',
               fontWeight: tab === key ? 600 : 400,
-              color: tab === key ? '#1d4ed8' : '#6b7280',
-              borderBottom: tab === key ? '2px solid #1d4ed8' : '2px solid transparent',
+              color: tab === key ? 'var(--accent)' : 'var(--mut)',
+              borderBottom: tab === key ? '2px solid var(--accent)' : '2px solid transparent',
               marginBottom: '-1px',
             }}
           >
@@ -95,14 +95,14 @@ export default function AppAdmin() {
                   <td style={{ ...s.td, fontWeight: 500 }}>Discovery</td>
                   <td style={s.td}>3</td><td style={s.td}>3</td>
                   <td style={{ ...s.td, color:'var(--accent)', fontWeight: 600 }}>487</td>
-                  <td style={s.td}><span style={{ ...s.badge, background: '#f0fdf4', color: '#15803d' }}>Active</span></td>
+                  <td style={s.td}><span style={{ ...s.badge, background: color-mix(in srgb, #15803d 14%, var(--panel)), color: '#15803d' }}>Active</span></td>
                   <td style={s.td}><button style={s.linkBtn}>Edit</button></td>
                 </tr>
                 <tr style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
                   <td style={{ ...s.td, fontWeight: 500 }}>Money and Medicine</td>
                   <td style={s.td}>2</td><td style={s.td}>2</td>
                   <td style={{ ...s.td, color:'var(--accent)', fontWeight: 600 }}>214</td>
-                  <td style={s.td}><span style={{ ...s.badge, background: '#f0fdf4', color: '#15803d' }}>Active</span></td>
+                  <td style={s.td}><span style={{ ...s.badge, background: color-mix(in srgb, #15803d 14%, var(--panel)), color: '#15803d' }}>Active</span></td>
                   <td style={s.td}><button style={s.linkBtn}>Edit</button></td>
                 </tr>
               </tbody>
@@ -135,14 +135,14 @@ export default function AppAdmin() {
                     <td style={{ ...s.td, fontWeight: 500 }}>{p.name}</td>
                     <td style={s.td}>
                       <span style={{ ...s.badge, fontSize: '0.688rem',
-                        background: p.portfolio === 'Discovery' ? '#eff6ff' : '#f5f3ff',
-                        color:      p.portfolio === 'Discovery' ? '#1d4ed8' : '#7c3aed',
+                        background: p.portfolio === 'Discovery' ? color-mix(in srgb, #1d4ed8 14%, var(--panel)) : color-mix(in srgb, #7c3aed 14%, var(--panel)),
+                        color:      p.portfolio === 'Discovery' ? 'var(--accent)' : '#a78bfa',
                       }}>
                         {p.portfolio === 'Money and Medicine' ? 'M&M' : p.portfolio}
                       </span>
                     </td>
                     <td style={s.td}>{p.sold}</td>
-                    <td style={s.td}><span style={{ ...s.badge, background: '#f0fdf4', color: '#15803d' }}>Active</span></td>
+                    <td style={s.td}><span style={{ ...s.badge, background: color-mix(in srgb, #15803d 14%, var(--panel)), color: '#15803d' }}>Active</span></td>
                     <td style={s.td}><button style={s.linkBtn}>Edit</button></td>
                   </tr>
                 ))}
@@ -180,7 +180,7 @@ export default function AppAdmin() {
                     <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>{sub.lastImport}</td>
                     <td style={s.td}>
                       <span style={{ ...s.badge,
-                        background: sub.status === 'Active' ? '#f0fdf4' : '#fffbeb',
+                        background: sub.status === 'Active' ? color-mix(in srgb, #15803d 14%, var(--panel)) : color-mix(in srgb, #d97706 14%, var(--panel)),
                         color:      sub.status === 'Active' ? '#15803d' : '#d97706',
                       }}>
                         {sub.status}
@@ -342,18 +342,18 @@ export default function AppAdmin() {
                     <td style={s.td}>
                       <span style={{
                         ...s.badge, fontSize: '0.688rem',
-                        background: entry.role === 'System' ? '#f3f4f6'
-                          : entry.role === 'GlobalAdmin' ? '#fdf4ff'
-                          : entry.role === 'Admin' ? '#eff6ff'
-                          : entry.role === 'Supervisor' ? '#f0fdf4'
-                          : entry.role === 'Agent' ? '#fffbeb'
-                          : '#f5f3ff',
-                        color: entry.role === 'System' ? '#6b7280'
-                          : entry.role === 'GlobalAdmin' ? '#7e22ce'
-                          : entry.role === 'Admin' ? '#1d4ed8'
+                        background: entry.role === 'System' ? 'var(--panel2)'
+                          : entry.role === 'GlobalAdmin' ? color-mix(in srgb, #7e22ce 14%, var(--panel))
+                          : entry.role === 'Admin' ? color-mix(in srgb, #1d4ed8 14%, var(--panel))
+                          : entry.role === 'Supervisor' ? color-mix(in srgb, #15803d 14%, var(--panel))
+                          : entry.role === 'Agent' ? color-mix(in srgb, #d97706 14%, var(--panel))
+                          : color-mix(in srgb, #7c3aed 14%, var(--panel)),
+                        color: entry.role === 'System' ? 'var(--mut)'
+                          : entry.role === 'GlobalAdmin' ? '#c084fc'
+                          : entry.role === 'Admin' ? 'var(--accent)'
                           : entry.role === 'Supervisor' ? '#15803d'
                           : entry.role === 'Agent' ? '#d97706'
-                          : '#7c3aed',
+                          : '#a78bfa',
                       }}>
                         {entry.role}
                       </span>

@@ -44,17 +44,17 @@ const CATEGORIES = [
 const PRIORITIES = ['High', 'Medium', 'Low'];
 
 const CATEGORY_META = {
-  callback:     { label: 'Callback',     colour: '#d97706', bg: '#fffbeb' },
-  appointment:  { label: 'Appointment',  colour: '#1d4ed8', bg: '#eff6ff' },
-  rescheduling: { label: 'Reschedule',   colour: '#7c3aed', bg: '#f5f3ff' },
-  outcome:      { label: 'Outcome',      colour: '#15803d', bg: '#f0fdf4' },
-  manual:       { label: 'Manual',       colour: '#374151', bg: '#f9fafb' },
+  callback:     { label: 'Callback',     colour: '#d97706', bg: 'color-mix(in srgb, #d97706 14%, var(--panel))' },
+  appointment:  { label: 'Appointment',  colour: 'var(--accent)', bg: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))' },
+  rescheduling: { label: 'Reschedule',   colour: '#a78bfa', bg: 'color-mix(in srgb, #7c3aed 14%, var(--panel))' },
+  outcome:      { label: 'Outcome',      colour: '#15803d', bg: 'color-mix(in srgb, #15803d 14%, var(--panel))' },
+  manual:       { label: 'Manual',       colour: 'var(--ink)', bg: 'var(--panel2)' },
 };
 
 const PRIORITY_META = {
-  High:   { colour: '#dc2626', bg: '#fef2f2' },
-  Medium: { colour: '#d97706', bg: '#fffbeb' },
-  Low:    { colour: '#6b7280', bg: '#f3f4f6' },
+  High:   { colour: '#dc2626', bg: 'color-mix(in srgb, #dc2626 14%, var(--panel))' },
+  Medium: { colour: '#d97706', bg: 'color-mix(in srgb, #d97706 14%, var(--panel))' },
+  Low:    { colour: 'var(--mut)', bg: 'var(--panel2)' },
 };
 
 // Today for relative due date calculation
@@ -67,13 +67,13 @@ function daysUntil(dateStr) {
 }
 
 function dueMeta(dateStr, done) {
-  if (done) return { label: 'Done', colour: '#15803d', bg: '#f0fdf4' };
-  if (!dateStr) return { label: 'No due date', colour: '#9ca3af', bg: '#f3f4f6' };
+  if (done) return { label: 'Done', colour: '#15803d', bg: 'color-mix(in srgb, #15803d 14%, var(--panel))' };
+  if (!dateStr) return { label: 'No due date', colour: 'var(--mut)', bg: 'var(--panel2)' };
   const days = daysUntil(dateStr);
-  if (days < 0)  return { label: `Overdue ${Math.abs(days)}d`, colour: '#dc2626', bg: '#fef2f2' };
-  if (days === 0) return { label: 'Due today',    colour: '#d97706', bg: '#fffbeb' };
-  if (days === 1) return { label: 'Due tomorrow', colour: '#d97706', bg: '#fffbeb' };
-  return { label: `Due ${dateStr.slice(5)}`, colour: '#1d4ed8', bg: '#eff6ff' };
+  if (days < 0)  return { label: `Overdue ${Math.abs(days)}d`, colour: '#dc2626', bg: 'color-mix(in srgb, #dc2626 14%, var(--panel))' };
+  if (days === 0) return { label: 'Due today',    colour: '#d97706', bg: 'color-mix(in srgb, #d97706 14%, var(--panel))' };
+  if (days === 1) return { label: 'Due tomorrow', colour: '#d97706', bg: 'color-mix(in srgb, #d97706 14%, var(--panel))' };
+  return { label: `Due ${dateStr.slice(5)}`, colour: 'var(--accent)', bg: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))' };
 }
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
@@ -320,7 +320,7 @@ function TaskRow({ task, onToggle, isAdmin, isMobile }) {
           onClick={e => { e.stopPropagation(); onToggle(task.id); }}
           style={{
             width: '18px', height: '18px', borderRadius: '4px', flexShrink: 0, marginTop: '2px',
-            border: task.done ? 'none' : '2px solid #d1d5db',
+            border: task.done ? 'none' : '2px solid var(--line)',
             background:task.done ? 'var(--accent)' : 'var(--panel)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer', transition: 'all 0.15s',
@@ -375,7 +375,7 @@ function TaskRow({ task, onToggle, isAdmin, isMobile }) {
             {due.label}
           </span>
           <svg
-            viewBox="0 0 16 16" fill="none" stroke="#9ca3af" strokeWidth="1.6"
+            viewBox="0 0 16 16" fill="none" stroke="var(--mut)" strokeWidth="1.6"
             width="14" height="14"
             style={{ transform: expanded ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s', flexShrink: 0 }}
           >
@@ -550,8 +550,8 @@ export default function Tasks() {
                 padding: '8px 12px', border: 'none', background: 'none', cursor: 'pointer',
                 fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap',
                 fontWeight: activeTab === key ? 600 : 400,
-                color: activeTab === key ? '#1d4ed8' : '#6b7280',
-                borderBottom: activeTab === key ? '2px solid #1d4ed8' : '2px solid transparent',
+                color: activeTab === key ? 'var(--accent)' : 'var(--mut)',
+                borderBottom: activeTab === key ? '2px solid var(--accent)' : '2px solid transparent',
                 marginBottom: '-1px',
                 display: 'flex', alignItems: 'center', gap: '5px',
               }}
@@ -560,8 +560,8 @@ export default function Tasks() {
               {count > 0 && (
                 <span style={{
                   fontSize: '0.625rem', fontWeight: 600,
-                  background: activeTab === key ? '#eff6ff' : '#f3f4f6',
-                  color: activeTab === key ? '#1d4ed8' : '#9ca3af',
+                  background: activeTab === key ? 'color-mix(in srgb, #1d4ed8 14%, var(--panel))' : 'var(--panel2)',
+                  color: activeTab === key ? 'var(--accent)' : 'var(--mut)',
                   borderRadius: '10px', padding: '1px 5px',
                 }}>
                   {count}

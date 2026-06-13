@@ -133,8 +133,8 @@ export default function LeadImport() {
               padding: '9px 18px', border: 'none', background: 'none', cursor: 'pointer',
               fontSize: '0.875rem', fontFamily: 'inherit',
               fontWeight: tab === key ? 600 : 400,
-              color: tab === key ? '#1d4ed8' : '#6b7280',
-              borderBottom: tab === key ? '2px solid #1d4ed8' : '2px solid transparent',
+              color: tab === key ? 'var(--accent)' : 'var(--mut)',
+              borderBottom: tab === key ? '2px solid var(--accent)' : '2px solid transparent',
               marginBottom: '-1px',
             }}
           >
@@ -170,7 +170,7 @@ export default function LeadImport() {
           <div
             onClick={() => fileRef.current?.click()}
             style={{
-              border: `2px dashed ${csvFile ? '#86efac' : '#d1d5db'}`,
+              border: `2px dashed ${csvFile ? '#4ade80' : 'var(--line)'}`,
               borderRadius: '8px', padding: '36px', textAlign: 'center',
               cursor: 'pointer', marginBottom: '14px',
               background:csvFile ? 'color-mix(in srgb, var(--live) 10%, var(--panel))' : 'var(--panel2)',
@@ -232,7 +232,7 @@ export default function LeadImport() {
           {importResult && (
             <div style={{
               ...s.noticeSuccess, marginBottom: '14px',
-              ...(importResult.fail > 0 ? { background: '#fef2f2', borderColor: '#fecaca', color: '#dc2626' } : {}),
+              ...(importResult.fail > 0 ? { background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', borderColor: 'color-mix(in srgb, #dc2626 30%, var(--panel))', color: '#dc2626' } : {}),
             }}>
               {importResult.fail === 0
                 ? `✅ Successfully imported ${importResult.ok} leads (${importResult.skipped} duplicates skipped). Redirecting…`
@@ -266,7 +266,7 @@ export default function LeadImport() {
           <div
             onClick={() => setSubFile(subFile ? null : { name: 'subscription-data.csv' })}
             style={{
-              border: `2px dashed ${subFile ? '#86efac' : '#d1d5db'}`,
+              border: `2px dashed ${subFile ? '#4ade80' : 'var(--line)'}`,
               borderRadius: '8px', padding: '32px', textAlign: 'center', cursor: 'pointer', marginBottom: '14px',
               background:subFile ? 'color-mix(in srgb, var(--live) 10%, var(--panel))' : 'var(--panel2)',
             }}

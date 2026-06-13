@@ -40,10 +40,10 @@ const MOCK_EVENTS = [
 ];
 
 const STATUS_STYLE = {
-  Draft:     { bg: '#f3f4f6', text: '#6b7280', border: '#e5e7eb' },
-  Active:    { bg: '#f0fdf4', text: '#15803d', border: '#bbf7d0' },
-  Closed:    { bg: '#f5f3ff', text: '#6d28d9', border: '#ddd6fe' },
-  Cancelled: { bg: '#fef2f2', text: '#dc2626', border: '#fecaca' },
+  Draft:     { bg: 'var(--panel2)', text: 'var(--mut)', border: 'var(--line)' },
+  Active:    { bg: 'color-mix(in srgb, #15803d 14%, var(--panel))', text: '#15803d', border: 'color-mix(in srgb, #15803d 30%, var(--panel))' },
+  Closed:    { bg: 'color-mix(in srgb, #7c3aed 14%, var(--panel))', text: '#a78bfa', border: 'color-mix(in srgb, #7c3aed 30%, var(--panel))' },
+  Cancelled: { bg: 'color-mix(in srgb, #dc2626 14%, var(--panel))', text: '#dc2626', border: 'color-mix(in srgb, #dc2626 30%, var(--panel))' },
 };
 
 export default function EventList() {
@@ -133,7 +133,7 @@ export default function EventList() {
                     <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>Attendance rate</span>
                     <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#15803d' }}>{attendanceRate}%</span>
                   </div>
-                  <div style={{ background: '#e5e7eb', borderRadius: '4px', height: '6px' }}>
+                  <div style={{ background: 'var(--panel2)', borderRadius: '4px', height: '6px' }}>
                     <div style={{ background: '#10b981', width: `${attendanceRate}%`, height: '100%', borderRadius: '4px' }} />
                   </div>
                 </div>

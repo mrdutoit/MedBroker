@@ -83,7 +83,7 @@ const MEETING_STATUSES = ['Seen', 'Rescheduled', 'Cancelled'];
 
 // ─── Status chip ───────────────────────────────────────────────────────────────
 function StatusChip({ status }) {
-  const meta = APPT_STATUS_META[status] ?? { colour: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb', label: status };
+  const meta = APPT_STATUS_META[status] ?? { colour: 'var(--mut)', bg: 'var(--panel2)', border: 'var(--line)', label: status };
   return (
     <span style={{
       display: 'inline-block', padding: '2px 9px', borderRadius: '20px',
@@ -478,7 +478,7 @@ export default function AppointmentDetail() {
         <span style={{
           display: 'inline-block', padding: '2px 9px', borderRadius: '20px',
           fontSize: '0.75rem', fontWeight: 500,
-          color: '#7c3aed', background: '#f5f3ff', border: '1px solid #ddd6fe',
+          color: '#a78bfa', background: color-mix(in srgb, #7c3aed 14%, var(--panel)), border: '1px solid color-mix(in srgb, #7c3aed 30%, var(--panel))',
         }}>
           {appt.portfolio}
         </span>

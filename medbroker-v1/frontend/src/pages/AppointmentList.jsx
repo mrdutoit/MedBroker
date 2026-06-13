@@ -92,15 +92,15 @@ const BROKERS         = ['Sandra van der Berg','Pieter Joubert','Riaan Botha','M
 // ─── Badge helpers ─────────────────────────────────────────────────────────────
 function MeetingBadge({ status }) {
   if (!status) return <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>—</span>;
-  const meta = MEETING_STATUS_META[status] ?? { colour: '#6b7280', bg: '#f3f4f6' };
+  const meta = MEETING_STATUS_META[status] ?? { colour: 'var(--mut)', bg: 'var(--panel2)' };
   return <span style={{ ...s.badge, background: meta.bg, color: meta.colour, fontSize: '0.688rem' }}>{status}</span>;
 }
 function SignedBadge({ signed }) {
   if (!signed) return <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>—</span>;
-  return <span style={{ ...s.badge, fontSize: '0.688rem', background: signed === 'Yes' ? '#f0fdf4' : '#fef2f2', color: signed === 'Yes' ? '#15803d' : '#dc2626' }}>{signed}</span>;
+  return <span style={{ ...s.badge, fontSize: '0.688rem', background: signed === 'Yes' ? color-mix(in srgb, #15803d 14%, var(--panel)) : color-mix(in srgb, #dc2626 14%, var(--panel)), color: signed === 'Yes' ? '#15803d' : '#dc2626' }}>{signed}</span>;
 }
 function PortfolioBadge({ portfolio }) {
-  const meta = PORTFOLIO_META[portfolio] ?? { colour: '#6b7280', bg: '#f3f4f6' };
+  const meta = PORTFOLIO_META[portfolio] ?? { colour: 'var(--mut)', bg: 'var(--panel2)' };
   return <span style={{ ...s.badge, background: meta.bg, color: meta.colour, fontSize: '0.688rem' }}>{portfolio}</span>;
 }
 
@@ -145,12 +145,12 @@ function BuyTokensModal({ onClose, paymentProvider }) {
             {!done && PACKS.map((pack, i) => (
               <label key={i} style={{
                 display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px',
-                border: `1px solid ${selected === i ? '#1d4ed8' : '#e5e7eb'}`,
+                border: `1px solid ${selected === i ? 'var(--accent)' : 'var(--line)'}`,
                 borderRadius: '6px', marginBottom: '8px', cursor: 'pointer',
-                background: selected === i ? '#eff6ff' : 'white',
+                background: selected === i ? 'color-mix(in srgb, var(--accent) 10%, var(--panel))' : 'var(--panel)',
               }}>
                 <input type="radio" name="token-pack" checked={selected === i}
-                  onChange={() => setSelected(i)} style={{ accentColor: '#1d4ed8' }} />
+                  onChange={() => setSelected(i)} style={{ accentColor: 'var(--accent)' }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{pack.label}</div>
                 </div>
@@ -389,7 +389,7 @@ export default function AppointmentList() {
                       {a.status}
                     </span>
                   </td>
-                  <td style={{ ...s.td, fontSize: '0.8125rem', fontWeight: a.isToday ? 600 : 400, color: a.isToday ? '#d97706' : '#111827' }}>
+                  <td style={{ ...s.td, fontSize: '0.8125rem', fontWeight: a.isToday ? 600 : 400, color: a.isToday ? '#d97706' : 'var(--ink)' }}>
                     {a.firstDate}
                   </td>
                   {/* Agent — always present, always read-only */}
@@ -411,7 +411,7 @@ export default function AppointmentList() {
                       <button
                         onClick={() => { setAssignTarget(a); setIsAssignMode(true); }}
                         style={{
-                          background: '#fffbeb', color: '#d97706', border: '1px solid #fde68a',
+                          background: 'color-mix(in srgb, #d97706 14%, var(--panel))', color: '#d97706', border: '1px solid color-mix(in srgb, #d97706 30%, var(--panel))',
                           borderRadius: '6px', padding: '3px 10px', cursor: 'pointer',
                           fontSize: '0.75rem', fontWeight: 500, fontFamily: 'inherit', marginLeft: '6px',
                         }}
@@ -508,10 +508,10 @@ export default function AppointmentList() {
             Monthly token balance
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <div style={{ flex: 1, background: '#e5e7eb', borderRadius: '4px', height: '8px', overflow: 'hidden' }}>
-              <div style={{ height: '100%', borderRadius: '4px', background: pct > 30 ? '#1d4ed8' : '#dc2626', width: `${pct}%`, transition: 'width 0.3s' }} />
+            <div style={{ flex: 1, background: 'var(--panel2)', borderRadius: '4px', height: '8px', overflow: 'hidden' }}>
+              <div style={{ height: '100%', borderRadius: '4px', background: pct > 30 ? 'var(--accent)' : '#dc2626', width: `${pct}%`, transition: 'width 0.3s' }} />
             </div>
-            <span style={{ fontSize: '0.875rem', fontWeight: 600, color: pct > 30 ? '#1d4ed8' : '#dc2626', whiteSpace: 'nowrap' }}>
+            <span style={{ fontSize: '0.875rem', fontWeight: 600, color: pct > 30 ? 'var(--accent)' : '#dc2626', whiteSpace: 'nowrap' }}>
               {tokenBalance} / {monthlyAllocation} free remaining
             </span>
           </div>
@@ -546,9 +546,9 @@ export default function AppointmentList() {
         <div style={{
           display: 'inline-flex', alignItems: 'center', gap: '8px', marginBottom: '14px',
           padding: '6px 12px', borderRadius: '6px', fontSize: '0.8125rem',
-          background: claimModel === 'claim' ? '#f0fdf4' : '#eff6ff',
-          color:      claimModel === 'claim' ? '#15803d' : '#1d4ed8',
-          border: `1px solid ${claimModel === 'claim' ? '#bbf7d0' : '#bfdbfe'}`,
+          background: claimModel === 'claim' ? color-mix(in srgb, #15803d 14%, var(--panel)) : color-mix(in srgb, #1d4ed8 14%, var(--panel)),
+          color:      claimModel === 'claim' ? '#15803d' : 'var(--accent)',
+          border: `1px solid ${claimModel === 'claim' ? 'color-mix(in srgb, #15803d 30%, var(--panel))' : 'color-mix(in srgb, #1d4ed8 30%, var(--panel))'}`,
         }}>
           <span style={{ fontWeight: 600 }}>
             {claimModel === 'claim' ? '⚡ Claim model active' : '👤 Assign model active'}
@@ -585,13 +585,13 @@ export default function AppointmentList() {
                 padding: '9px 16px', border: 'none', background: 'none', cursor: 'pointer',
                 fontSize: '0.875rem', fontFamily: 'inherit',
                 fontWeight: activeTab === tab.key ? 600 : 400,
-                color: activeTab === tab.key ? '#1d4ed8' : '#6b7280',
-                borderBottom: activeTab === tab.key ? '2px solid #1d4ed8' : '2px solid transparent',
+                color: activeTab === tab.key ? 'var(--accent)' : 'var(--mut)',
+                borderBottom: activeTab === tab.key ? '2px solid var(--accent)' : '2px solid transparent',
                 marginBottom: '-1px', display: 'flex', alignItems: 'center', gap: '7px',
               }}>
                 {tab.label}
                 {tab.badge > 0 && (
-                  <span style={{ background: tab.key === 'available' ? '#d97706' : '#1d4ed8', color: 'white', borderRadius: '10px', fontSize: '0.625rem', fontWeight: 600, padding: '1px 6px' }}>
+                  <span style={{ background: tab.key === 'available' ? '#d97706' : 'var(--accent)', color: 'white', borderRadius: '10px', fontSize: '0.625rem', fontWeight: 600, padding: '1px 6px' }}>
                     {tab.badge}
                   </span>
                 )}
@@ -604,7 +604,7 @@ export default function AppointmentList() {
               <TokenCard />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px', marginBottom: '16px' }}>
                 {[
-                  { label: 'Total assigned',    value: MY_APPOINTMENTS.length + claimedIds.size, colour: '#1d4ed8' },
+                  { label: 'Total assigned',    value: MY_APPOINTMENTS.length + claimedIds.size, colour: 'var(--accent)' },
                   { label: 'Today',             value: MY_APPOINTMENTS.filter(a => a.isToday).length, colour: '#d97706' },
                   { label: 'Closed Won',        value: MY_APPOINTMENTS.filter(a => a.status === 'ClosedWon').length, colour: '#15803d' },
                 ].map(m => (
@@ -635,7 +635,7 @@ export default function AppointmentList() {
               <TokenCard />
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color:'var(--ink)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 Available to claim
-                <span style={{ ...s.badge, background: '#fffbeb', color: '#d97706', fontSize: '0.75rem' }}>{availCount} unassigned</span>
+                <span style={{ ...s.badge, background: 'color-mix(in srgb, #d97706 14%, var(--panel))', color: '#d97706', fontSize: '0.75rem' }}>{availCount} unassigned</span>
               </div>
               <div style={{ ...s.tableCard, overflowX: 'auto' }}>
                 <table style={{ ...s.table, minWidth: '680px' }}>
@@ -663,7 +663,7 @@ export default function AppointmentList() {
                         <td style={{ ...s.td, fontSize: '0.8125rem', color:'var(--mut)' }}>{a.region}</td>
                         <td style={{ ...s.td, fontSize: '0.75rem', color:'var(--mut)' }}>{a.source}</td>
                         <td style={s.td}>
-                          <span style={{ ...s.badge, fontSize: '0.688rem', background: a.token === 'Free' ? '#f0fdf4' : '#fffbeb', color: a.token === 'Free' ? '#15803d' : '#d97706' }}>
+                          <span style={{ ...s.badge, fontSize: '0.688rem', background: a.token === 'Free' ? color-mix(in srgb, #15803d 14%, var(--panel)) : color-mix(in srgb, #d97706 14%, var(--panel)), color: a.token === 'Free' ? '#15803d' : '#d97706' }}>
                             {a.token}
                           </span>
                         </td>
@@ -694,7 +694,7 @@ export default function AppointmentList() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: '12px', marginBottom: '16px' }}>
             {[
               { label: 'Unassigned',  value: unassigned,  colour: '#d97706' },
-              { label: 'Assigned',    value: assigned,    colour: '#1d4ed8' },
+              { label: 'Assigned',    value: assigned,    colour: 'var(--accent)' },
               { label: 'In Progress', value: inProgress,  colour: '#0891b2' },
               { label: 'Closed Won',  value: closedWon,   colour: '#15803d' },
             ].map(m => (

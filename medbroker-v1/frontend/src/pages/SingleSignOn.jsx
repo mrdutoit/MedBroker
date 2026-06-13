@@ -13,14 +13,14 @@ function Step({ num, colour, children }) {
     <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-start', marginBottom: '10px' }}>
       <div style={{
         width: '22px', height: '22px', borderRadius: '50%', flexShrink: 0,
-        background: colour === 'blue' ? '#eff6ff' : '#f0fdf4',
-        color:      colour === 'blue' ? '#1d4ed8'  : '#15803d',
+        background: colour === 'blue' ? 'color-mix(in srgb, #1d4ed8 14%, var(--panel))' : 'color-mix(in srgb, #15803d 14%, var(--panel))',
+        color:      colour === 'blue' ? 'var(--accent)' : '#15803d',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         fontSize: '0.6875rem', fontWeight: 600,
       }}>
         {num}
       </div>
-      <div style={{ fontSize: '0.875rem', color: '#4b5563', lineHeight: 1.6 }}>{children}</div>
+      <div style={{ fontSize: '0.875rem', color: 'var(--ink)', lineHeight: 1.6 }}>{children}</div>
     </div>
   );
 }
@@ -30,8 +30,8 @@ export default function SingleSignOn() {
 
   return (
     <div style={{ ...s.page, maxWidth: '800px' }}>
-      <h1 style={{ margin: '0 0 6px', fontSize: '1.375rem', fontWeight: 600, color: '#111827' }}>Single Sign-On</h1>
-      <p style={{ color: '#6b7280', fontSize: '0.875rem', margin: '0 0 18px' }}>Configure how users authenticate into MedBroker</p>
+      <h1 style={{ margin: '0 0 6px', fontSize: '1.375rem', fontWeight: 600, color: 'var(--ink)' }}>Single Sign-On</h1>
+      <p style={{ color: 'var(--mut)', fontSize: '0.875rem', margin: '0 0 18px' }}>Configure how users authenticate into MedBroker</p>
 
       <div style={{ ...s.noticeSuccess, marginBottom: '18px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
         <span style={{ fontSize: '1rem' }}>✅</span>
@@ -42,7 +42,7 @@ export default function SingleSignOn() {
         </div>
       </div>
 
-      <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '20px' }}>
         {[['m365', 'Microsoft 365 (Entra ID)'], ['google', 'Google Workspace']].map(([key, label]) => (
           <button
             key={key}
@@ -51,8 +51,8 @@ export default function SingleSignOn() {
               padding: '9px 18px', border: 'none', background: 'none', cursor: 'pointer',
               fontSize: '0.875rem', fontFamily: 'inherit',
               fontWeight: tab === key ? 600 : 400,
-              color: tab === key ? '#1d4ed8' : '#6b7280',
-              borderBottom: tab === key ? '2px solid #1d4ed8' : '2px solid transparent',
+              color: tab === key ? 'var(--accent)' : 'var(--mut)',
+              borderBottom: tab === key ? '2px solid var(--accent)' : '2px solid transparent',
               marginBottom: '-1px',
             }}
           >
@@ -75,8 +75,8 @@ export default function SingleSignOn() {
               ['User provisioning',        'Auto-provisioned on first sign-in'],
               ['M365 calendar integration','✅ Active — Graph API scopes granted'],
             ].map(([label, value]) => (
-              <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem', gap: '12px' }}>
-                <span style={{ color: '#6b7280', flexShrink: 0 }}>{label}</span>
+              <div key={label} style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid var(--line)', fontSize: '0.875rem', gap: '12px' }}>
+                <span style={{ color: 'var(--mut)', flexShrink: 0 }}>{label}</span>
                 <span style={{ fontWeight: 500, textAlign: 'right', fontFamily: label.includes('ID') || label.includes('URI') ? 'monospace' : 'inherit', fontSize: label.includes('ID') || label.includes('URI') ? '0.75rem' : '0.875rem' }}>{value}</span>
               </div>
             ))}

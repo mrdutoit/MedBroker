@@ -48,8 +48,8 @@ const AGENT_KPI = {
 
 // Call outcome breakdown — scales proportionally per period
 const CALL_OUTCOMES_BASE = [
-  { label: 'No Answer',          pctBase: 34, colour: '#6b7280' },
-  { label: 'Voicemail',          pctBase: 20, colour: '#9ca3af' },
+  { label: 'No Answer',          pctBase: 34, colour: 'var(--mut)' },
+  { label: 'Voicemail',          pctBase: 20, colour: 'var(--mut)' },
   { label: 'Callback Requested', pctBase: 15, colour: '#f59e0b' },
   { label: 'Appointment Booked', pctBase: 17, colour: '#8b5cf6' },
   { label: 'Not Interested',     pctBase: 8,  colour: '#ef4444' },
@@ -75,13 +75,13 @@ const RECENT_LEADS = [
 ];
 
 const STATUS_COLOUR = {
-  AppointmentScheduled: { bg: '#f5f3ff', colour: '#7c3aed' },
-  InProgress:           { bg: '#fffbeb', colour: '#d97706' },
+  AppointmentScheduled: { bg: 'color-mix(in srgb, #7c3aed 14%, var(--panel))', colour: '#a78bfa' },
+  InProgress:           { bg: 'color-mix(in srgb, #d97706 14%, var(--panel))', colour: '#d97706' },
 };
 const OUTCOME_COLOUR = {
-  AppointmentScheduled: { bg: '#f5f3ff', colour: '#7c3aed' },
-  CallbackRequested:    { bg: '#fffbeb', colour: '#d97706' },
-  Voicemail:            { bg: '#f3f4f6', colour: '#6b7280' },
+  AppointmentScheduled: { bg: 'color-mix(in srgb, #7c3aed 14%, var(--panel))', colour: '#a78bfa' },
+  CallbackRequested:    { bg: 'color-mix(in srgb, #d97706 14%, var(--panel))', colour: '#d97706' },
+  Voicemail:            { bg: 'var(--panel2)', colour: 'var(--mut)' },
 };
 
 const PERIOD_LABELS = {
@@ -136,8 +136,8 @@ export default function AgentDetail() {
               <button key={p} onClick={() => setPeriod(p)} style={{
                 padding: '5px 12px', border: 'none', cursor: 'pointer',
                 fontSize: '0.8125rem', fontFamily: 'inherit', fontWeight: period === p ? 600 : 400,
-                background: period === p ? '#1d4ed8' : 'white',
-                color:      period === p ? 'white'   : '#6b7280',
+                background: period === p ? 'var(--accent)' : 'var(--panel)',
+                color:      period === p ? 'white'   : 'var(--mut)',
                 borderRight: p !== 'Yearly' ? '1px solid var(--line)' : 'none',
                 transition: 'background 0.15s',
               }}>
@@ -152,8 +152,8 @@ export default function AgentDetail() {
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: '12px', marginBottom: '18px' }}>
         {[
-          { label: 'Leads assigned',    value: kpi.leads.toLocaleString(),  colour: '#111827' },
-          { label: 'Calls made',        value: kpi.calls.toLocaleString(),  colour: '#111827' },
+          { label: 'Leads assigned',    value: kpi.leads.toLocaleString(),  colour: 'var(--ink)' },
+          { label: 'Calls made',        value: kpi.calls.toLocaleString(),  colour: 'var(--ink)' },
           { label: 'Appts booked',      value: kpi.appts.toString(),        colour: '#7c3aed', sub: `${kpi.conversion} booking rate` },
           { label: 'Callbacks pending', value: kpi.callbacks.toString(),    colour: '#d97706' },
           { label: 'Uncontactable',     value: kpi.uncontactable.toString(),colour: '#ef4444' },
@@ -197,10 +197,10 @@ export default function AgentDetail() {
               return (
                 <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', height: '100%', justifyContent: 'flex-end', gap: '4px' }}>
                   <div style={{ width: '100%', display: 'flex', gap: '2px', alignItems: 'flex-end', height: '120px' }}>
-                    <div style={{ flex: 1, background: isFuture ? '#f3f4f6' : '#bfdbfe', borderRadius: '3px 3px 0 0', height: isFuture ? '4px' : `${Math.max(4, (w.calls / maxActivity) * 100)}%`, transition: 'height 0.3s' }} />
-                    <div style={{ flex: 1, background: isFuture ? '#f3f4f6' : '#10b981', borderRadius: '3px 3px 0 0', height: isFuture ? '4px' : `${Math.max(w.booked > 0 ? 4 : 0, (w.booked / maxActivity) * 100)}%`, transition: 'height 0.3s' }} />
+                    <div style={{ flex: 1, background: isFuture ? 'var(--panel2)' : 'color-mix(in srgb, var(--accent) 40%, var(--panel))', borderRadius: '3px 3px 0 0', height: isFuture ? '4px' : `${Math.max(4, (w.calls / maxActivity) * 100)}%`, transition: 'height 0.3s' }} />
+                    <div style={{ flex: 1, background: isFuture ? 'var(--panel2)' : '#10b981', borderRadius: '3px 3px 0 0', height: isFuture ? '4px' : `${Math.max(w.booked > 0 ? 4 : 0, (w.booked / maxActivity) * 100)}%`, transition: 'height 0.3s' }} />
                   </div>
-                  <span style={{ fontSize: '0.625rem', color: isFuture ? '#d1d5db' : '#9ca3af' }}>{w.label}</span>
+                  <span style={{ fontSize: '0.625rem', color: isFuture ? 'var(--mut)' : 'var(--mut)' }}>{w.label}</span>
                 </div>
               );
             })}
@@ -227,8 +227,8 @@ export default function AgentDetail() {
           </thead>
           <tbody>
             {RECENT_LEADS.map(lead => {
-              const sc = STATUS_COLOUR[lead.status]   ?? { bg: '#f3f4f6', colour: '#6b7280' };
-              const oc = OUTCOME_COLOUR[lead.outcome] ?? { bg: '#f3f4f6', colour: '#6b7280' };
+              const sc = STATUS_COLOUR[lead.status]   ?? { bg: 'var(--panel2)', colour: 'var(--mut)' };
+              const oc = OUTCOME_COLOUR[lead.outcome] ?? { bg: 'var(--panel2)', colour: 'var(--mut)' };
               return (
                 <tr key={lead.name} style={s.tr}
                   onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}

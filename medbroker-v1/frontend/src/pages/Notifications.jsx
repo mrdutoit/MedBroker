@@ -67,8 +67,8 @@ export default function Notifications() {
               padding: '8px 16px', border: 'none', background: 'none', cursor: 'pointer',
               fontSize: '0.875rem', fontFamily: 'inherit',
               fontWeight: tab === key ? 600 : 400,
-              color: tab === key ? '#1d4ed8' : '#6b7280',
-              borderBottom: tab === key ? '2px solid #1d4ed8' : '2px solid transparent',
+              color: tab === key ? 'var(--accent)' : 'var(--mut)',
+              borderBottom: tab === key ? '2px solid var(--accent)' : '2px solid transparent',
               marginBottom: '-1px',
             }}
           >
@@ -89,7 +89,7 @@ export default function Notifications() {
             onClick={() => markRead(n.id)}
             style={{
               display: 'flex', gap: '12px', padding: '12px 0',
-              borderBottom: i < filtered.length - 1 ? '1px solid #f3f4f6' : 'none',
+              borderBottom: i < filtered.length - 1 ? '1px solid var(--line)' : 'none',
               cursor: n.read ? 'default' : 'pointer',
               background: n.read ? 'transparent' : 'rgba(239,246,255,0.3)',
               borderRadius: '4px',
@@ -105,7 +105,7 @@ export default function Notifications() {
               </div>
               <p style={{ fontSize: '0.8125rem', color:'var(--mut)', margin: 0, lineHeight: 1.5 }}>{n.body}</p>
             </div>
-            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: n.read ? 'transparent' : '#1d4ed8', flexShrink: 0, marginTop: '6px' }} />
+            <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: n.read ? 'transparent' : 'var(--accent)', flexShrink: 0, marginTop: '6px' }} />
           </div>
         ))}
       </div>

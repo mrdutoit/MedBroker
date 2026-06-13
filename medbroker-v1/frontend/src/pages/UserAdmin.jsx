@@ -35,10 +35,10 @@ const SUPERVISORS = MOCK_USERS.filter(u => u.role === 'Supervisor').map(u => u.d
 
 const ROLE_STYLE = {
   GlobalAdmin: { bg: '#fdf2ff', colour: '#7e22ce' },
-  Admin:      { bg: '#fef2f2', colour: '#dc2626' },
-  Supervisor: { bg: '#fffbeb', colour: '#d97706' },
-  Agent:      { bg: '#eff6ff', colour: '#1d4ed8' },
-  Broker:     { bg: '#f0fdf4', colour: '#15803d' },
+  Admin:      { bg: 'color-mix(in srgb, #dc2626 14%, var(--panel))', colour: '#dc2626' },
+  Supervisor: { bg: 'color-mix(in srgb, #d97706 14%, var(--panel))', colour: '#d97706' },
+  Agent:      { bg: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))', colour: 'var(--accent)' },
+  Broker:     { bg: 'color-mix(in srgb, #15803d 14%, var(--panel))', colour: '#15803d' },
 };
 
 const BLANK_FORM = {
@@ -65,10 +65,10 @@ function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onP
                 style={{
                   display: 'flex', alignItems: 'center', gap: '5px',
                   cursor: 'pointer', padding: '6px 12px',
-                  border: `1px solid ${checked ? '#bfdbfe' : '#d1d5db'}`,
+                  border: `1px solid ${checked ? 'var(--accent)' : 'var(--line)'}`,
                   borderRadius: '6px', fontSize: '0.875rem',
-                  background: checked ? '#eff6ff' : 'white',
-                  color: checked ? '#1d4ed8' : '#374151',
+                  background: checked ? 'color-mix(in srgb, var(--accent) 10%, var(--panel))' : 'var(--panel)',
+                  color: checked ? 'var(--accent)' : 'var(--ink)',
                   userSelect: 'none',
                 }}
               >
@@ -76,7 +76,7 @@ function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onP
                   type="checkbox"
                   checked={checked}
                   onChange={() => onPortfolioChange(p.name)}
-                  style={{ accentColor: '#1d4ed8' }}
+                  style={{ accentColor: 'var(--accent)' }}
                 />
                 {p.name}
               </label>
@@ -101,9 +101,9 @@ function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onP
                       display: 'flex', alignItems: 'center', gap: '4px',
                       fontSize: '0.75rem', cursor: 'pointer',
                       padding: '3px 8px', borderRadius: '20px',
-                      background: checked ? '#f0fdf4' : '#f3f4f6',
-                      color: checked ? '#15803d' : '#374151',
-                      border: `1px solid ${checked ? '#bbf7d0' : '#e5e7eb'}`,
+                      background: checked ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'var(--panel2)',
+                      color: checked ? '#15803d' : 'var(--ink)',
+                      border: `1px solid ${checked ? 'color-mix(in srgb, #15803d 30%, var(--panel))' : 'var(--line)'}`,
                       userSelect: 'none',
                     }}
                   >
@@ -176,8 +176,8 @@ function UserModal({ mode, user, onClose }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', background:'var(--panel2)', borderRadius: '6px', marginBottom: '14px' }}>
             <div style={{
               width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0,
-              background: ROLE_STYLE[form.role]?.bg ?? '#f3f4f6',
-              color: ROLE_STYLE[form.role]?.colour ?? '#374151',
+              background: ROLE_STYLE[form.role]?.bg ?? 'var(--panel2)',
+              color: ROLE_STYLE[form.role]?.colour ?? 'var(--ink)',
               display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: '0.75rem', fontWeight: 600,
             }}>
@@ -378,8 +378,8 @@ export default function UserAdmin() {
                       ? user.portfolios.map(p => (
                           <span key={p} style={{
                             ...s.badge, fontSize: '0.688rem', marginRight: '3px',
-                            background: p === 'Discovery' ? '#eff6ff' : '#f5f3ff',
-                            color:      p === 'Discovery' ? '#1d4ed8' : '#7c3aed',
+                            background: p === 'Discovery' ? 'color-mix(in srgb, #1d4ed8 14%, var(--panel))' : 'color-mix(in srgb, #7c3aed 14%, var(--panel))',
+                            color:      p === 'Discovery' ? 'var(--accent)' : '#a78bfa',
                           }}>{p === 'Money and Medicine' ? 'M&M' : p}</span>
                         ))
                       : <span style={{ color:'var(--mut)', fontSize: '0.8125rem' }}>—</span>
@@ -389,14 +389,14 @@ export default function UserAdmin() {
                   <td style={s.td}>
                     {user.products.length > 0
                       ? user.products.slice(0, 2).map(p => (
-                          <span key={p} style={{ ...s.badge, background: '#f0fdf4', color: '#15803d', fontSize: '0.625rem', marginRight: '2px' }}>{p}</span>
+                          <span key={p} style={{ ...s.badge, background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d', fontSize: '0.625rem', marginRight: '2px' }}>{p}</span>
                         ))
                       : <span style={{ color:'var(--mut)', fontSize: '0.8125rem' }}>—</span>
                     }
                     {user.products.length > 2 && <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}> +{user.products.length - 2}</span>}
                   </td>
                   <td style={s.td}>
-                    <span style={{ ...s.badge, background: user.isActive ? '#f0fdf4' : '#f3f4f6', color: user.isActive ? '#15803d' : '#9ca3af' }}>
+                    <span style={{ ...s.badge, background: user.isActive ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'var(--panel2)', color: user.isActive ? '#15803d' : 'var(--mut)' }}>
                       {user.isActive ? 'Active' : 'Inactive'}
                     </span>
                   </td>

@@ -47,11 +47,11 @@ function computeNewStatus(currentStatus, outcome) {
 
 // ─── Status colours ────────────────────────────────────────────────────────────
 const STATUS_COLOURS = {
-  Unassigned:           { bg: '#f3f4f6', text: '#6b7280', border: '#e5e7eb' },
-  Assigned:             { bg: '#eff6ff', text: '#1d4ed8', border: '#bfdbfe' },
-  InProgress:           { bg: '#fffbeb', text: '#d97706', border: '#fde68a' },
-  AppointmentScheduled: { bg: '#f5f3ff', text: '#7c3aed', border: '#ddd6fe' },
-  Closed:               { bg: '#f3f4f6', text: '#6b7280', border: '#e5e7eb' },
+  Unassigned:           { bg: 'var(--panel2)', text: 'var(--mut)', border: 'var(--line)' },
+  Assigned:             { bg: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))', text: 'var(--accent)', border: 'color-mix(in srgb, #1d4ed8 30%, var(--panel))' },
+  InProgress:           { bg: 'color-mix(in srgb, #d97706 14%, var(--panel))', text: '#d97706', border: 'color-mix(in srgb, #d97706 30%, var(--panel))' },
+  AppointmentScheduled: { bg: 'color-mix(in srgb, #7c3aed 14%, var(--panel))', text: '#a78bfa', border: 'color-mix(in srgb, #7c3aed 30%, var(--panel))' },
+  Closed:               { bg: 'var(--panel2)', text: 'var(--mut)', border: 'var(--line)' },
 };
 
 // ─── Call outcomes — available in the Log Call dropdown ───────────────────────
@@ -68,13 +68,13 @@ const CALL_OUTCOMES = [
 ];
 
 const OUTCOME_COLOURS = {
-  NoAnswer:             { bg: '#f3f4f6', text: '#6b7280' },
-  Voicemail:            { bg: '#f3f4f6', text: '#6b7280' },
-  WrongNumber:          { bg: '#fef2f2', text: '#dc2626' },
-  CallbackRequested:    { bg: '#fffbeb', text: '#d97706' },
-  ClientContacted:      { bg: '#f0fdf4', text: '#15803d' },
-  NotInterested:        { bg: '#fef2f2', text: '#dc2626' },
-  AppointmentScheduled: { bg: '#f5f3ff', text: '#7c3aed' },
+  NoAnswer:             { bg: 'var(--panel2)', text: 'var(--mut)' },
+  Voicemail:            { bg: 'var(--panel2)', text: 'var(--mut)' },
+  WrongNumber:          { bg: 'color-mix(in srgb, #dc2626 14%, var(--panel))', text: '#dc2626' },
+  CallbackRequested:    { bg: 'color-mix(in srgb, #d97706 14%, var(--panel))', text: '#d97706' },
+  ClientContacted:      { bg: 'color-mix(in srgb, #15803d 14%, var(--panel))', text: '#15803d' },
+  NotInterested:        { bg: 'color-mix(in srgb, #dc2626 14%, var(--panel))', text: '#dc2626' },
+  AppointmentScheduled: { bg: 'color-mix(in srgb, #7c3aed 14%, var(--panel))', text: '#a78bfa' },
 };
 
 const OUTCOME_LABELS = {
@@ -194,11 +194,11 @@ export default function LeadDetail() {
   const cardTitle = { fontSize: '0.875rem', fontWeight: 600, color:'var(--ink)', marginBottom: '12px', paddingBottom: '8px', borderBottom:'1px solid var(--line)' };
   const btn = {
     primary:   { background:'var(--accent)', color:'white', border:'none', borderRadius:'var(--r-sm,8px)', padding:'8px 14px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' },
-    secondary: { background:'var(--panel)', color:'var(--ink)', border: '1px solid #d1d5db', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
+    secondary: { background:'var(--panel)', color:'var(--ink)', border: '1px solid var(--line)', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
     ghost:     { background: 'none', color:'var(--mut)', border: '1px solid var(--line)', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
     back:      { background: 'none', border: 'none', color:'var(--mut)', cursor: 'pointer', fontSize: '0.813rem', padding: 0, fontFamily: 'inherit', marginBottom: '4px' },
   };
-  const inputStyle = { width: '100%', border: '1px solid #d1d5db', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box' };
+  const inputStyle = { width: '100%', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box' };
   const labelStyle = { display: 'block', fontSize: '0.8125rem', fontWeight: 500, color:'var(--ink)', marginBottom: '5px' };
   const badge = (bg, text) => ({ display: 'inline-block', padding: '2px 9px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 500, background: bg, color: text });
 
@@ -207,7 +207,7 @@ export default function LeadDetail() {
 
       {/* Conversion notice */}
       {isConverted && (
-        <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '10px 14px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', fontSize: '0.875rem', color: '#15803d', flexWrap: 'wrap' }}>
+        <div style={{ background: 'color-mix(in srgb, #15803d 14%, var(--panel))', border: '1px solid color-mix(in srgb, #15803d 30%, var(--panel))', borderRadius: '6px', padding: '10px 14px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', fontSize: '0.875rem', color: '#15803d', flexWrap: 'wrap' }}>
           <span>✅ <strong>Appointment booked.</strong> This lead has been converted and is now in the Appointments list.</span>
           <button onClick={() => navigate('/appointments')} style={{ background:'var(--live)', color:'white', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
             View in Appointments →
@@ -245,7 +245,7 @@ export default function LeadDetail() {
 
       {/* Status transition hint */}
       {!isConverted && !isClosed && (
-        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '8px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: '#1e40af' }}>
+        <div style={{ background: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))', border: '1px solid color-mix(in srgb, #1d4ed8 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: 'var(--accent)' }}>
           ℹ Status updates automatically based on call outcomes. Log a call to progress this lead.
           {currentStatus === 'Unassigned' && ' Assign this lead to an agent before logging calls.'}
         </div>
@@ -290,9 +290,9 @@ export default function LeadDetail() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {calls.map(call => {
               const oc = OUTCOME_COLOURS[call.outcome] ?? OUTCOME_COLOURS.NoAnswer;
-              const borderCol = call.outcome === 'CallbackRequested' ? '#fde68a'
-                : call.outcome === 'NotInterested' || call.outcome === 'WrongNumber' ? '#fecaca'
-                : call.outcome === 'AppointmentScheduled' ? '#ddd6fe' : '#e5e7eb';
+              const borderCol = call.outcome === 'CallbackRequested' ? 'color-mix(in srgb, #d97706 30%, var(--panel))'
+                : call.outcome === 'NotInterested' || call.outcome === 'WrongNumber' ? 'color-mix(in srgb, #dc2626 30%, var(--panel))'
+                : call.outcome === 'AppointmentScheduled' ? 'color-mix(in srgb, #7c3aed 30%, var(--panel))' : 'var(--line)';
               return (
                 <div key={call.id} style={{ borderLeft: `3px solid ${borderCol}`, paddingLeft: '10px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
@@ -355,7 +355,7 @@ export default function LeadDetail() {
                 </div>
               )}
               {callForm.outcome === 'ClientContacted' && (
-                <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '12px 14px', marginBottom: '12px' }}>
+                <div style={{ background: 'color-mix(in srgb, #15803d 14%, var(--panel))', border: '1px solid color-mix(in srgb, #15803d 30%, var(--panel))', borderRadius: '6px', padding: '12px 14px', marginBottom: '12px' }}>
                   <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#15803d', marginBottom: '6px' }}>
                     🎉 Client contacted — would you like to book an appointment?
                   </div>
@@ -385,7 +385,7 @@ export default function LeadDetail() {
                   </button>
                 </div>
               )}
-              {submitError && <div style={{ background: '#fef2f2', border: '1px solid #fecaca', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.875rem', marginBottom: '12px' }}>{submitError}</div>}
+              {submitError && <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.875rem', marginBottom: '12px' }}>{submitError}</div>}
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                 <button type="button" onClick={() => setShowCallForm(false)} style={btn.ghost}>Cancel</button>
                 <button type="submit" disabled={submitting} style={btn.primary}>{submitting ? 'Saving…' : 'Save Call'}</button>
@@ -406,7 +406,7 @@ export default function LeadDetail() {
             <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '14px' }}>
               Dr {baseLead.firstName} {baseLead.lastName} · {baseLead.occupation}
             </p>
-            <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: '#1e40af' }}>
+            <div style={{ background: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))', border: '1px solid color-mix(in srgb, #1d4ed8 30%, var(--panel))', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: 'var(--accent)' }}>
               Confirming this booking will move the lead to <strong>Appointment Scheduled</strong> status and it will appear in the Appointments list.
             </div>
 
@@ -419,12 +419,12 @@ export default function LeadDetail() {
                 { name: 'Marelize Swart',      slots: '4 appointments this week · Next slot: Wed, 09:00', best: false },
               ].map((b, i) => (
                 <label key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', border:`1px solid ${i === 0 ? 'var(--accent)' : 'var(--line)'}`, borderRadius: '6px', marginBottom: '6px', cursor: 'pointer', background:i === 0 ? 'color-mix(in srgb, var(--accent) 12%, var(--panel))' : 'var(--panel)' }}>
-                  <input type="radio" name="book-broker" defaultChecked={i === 0} style={{ accentColor: '#1d4ed8' }} />
+                  <input type="radio" name="book-broker" defaultChecked={i === 0} style={{ accentColor: 'var(--accent)' }} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{b.name}</div>
                     <div style={{ fontSize: '0.75rem', color:'var(--mut)' }}>{b.slots}</div>
                   </div>
-                  {b.best && <span style={{ fontSize: '0.688rem', background: '#f0fdf4', color: '#15803d', borderRadius: '4px', padding: '2px 6px' }}>Most available</span>}
+                  {b.best && <span style={{ fontSize: '0.688rem', background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d', borderRadius: '4px', padding: '2px 6px' }}>Most available</span>}
                 </label>
               ))}
             </div>

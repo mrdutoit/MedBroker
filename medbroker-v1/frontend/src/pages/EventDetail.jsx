@@ -40,8 +40,8 @@ function YesNo({ value }) {
     <span style={{
       display: 'inline-block', padding: '1px 8px', borderRadius: '20px',
       fontSize: '0.75rem', fontWeight: 500,
-      background: value ? '#f0fdf4' : '#f3f4f6',
-      color:      value ? '#15803d' : '#6b7280',
+      background: value ? color-mix(in srgb, #15803d 14%, var(--panel)) : 'var(--panel2)',
+      color:      value ? '#15803d' : 'var(--mut)',
     }}>
       {value ? 'Yes' : 'No'}
     </span>
@@ -91,7 +91,7 @@ export default function EventDetail() {
       {/* Stats */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: '12px', marginBottom: '20px' }}>
         {[
-          { label: 'RSVPs',           value: event.rsvpCount,                                       colour: '#1d4ed8' },
+          { label: 'RSVPs',           value: event.rsvpCount,                                       colour: 'var(--accent)' },
           { label: 'Attended',        value: event.attendedCount,                                    colour: '#15803d' },
           { label: 'Walk-ins',        value: event.walkinCount,                                      colour: '#7c3aed' },
           { label: 'No-shows',        value: event.rsvpCount - event.attendedCount,                  colour: '#dc2626' },
@@ -112,7 +112,7 @@ export default function EventDetail() {
             {event.attendedCount + event.walkinCount} of {event.rsvpCount} RSVPs ({attendancePct}%)
           </span>
         </div>
-        <div style={{ background: '#e5e7eb', borderRadius: '6px', height: '10px', overflow: 'hidden' }}>
+        <div style={{ background: 'var(--panel2)', borderRadius: '6px', height: '10px', overflow: 'hidden' }}>
           <div style={{ display: 'flex', height: '100%' }}>
             <div style={{ background: '#10b981', width: `${Math.round((event.attendedCount / event.rsvpCount) * 100)}%` }} />
             <div style={{ background: '#8b5cf6', width: `${Math.round((event.walkinCount  / event.rsvpCount) * 100)}%` }} />
@@ -133,9 +133,9 @@ export default function EventDetail() {
               <button key={key} onClick={() => setAttendeeFilter(key)} style={{
                 padding: '4px 10px', borderRadius: '20px', cursor: 'pointer',
                 fontSize: '0.75rem', fontWeight: 500, border: '1px solid',
-                background:   attendeeFilter === key ? '#1d4ed8' : 'white',
-                color:        attendeeFilter === key ? 'white'   : '#6b7280',
-                borderColor:  attendeeFilter === key ? '#1d4ed8' : '#e5e7eb',
+                background:   attendeeFilter === key ? 'var(--accent)' : 'var(--panel)',
+                color:        attendeeFilter === key ? 'white'   : 'var(--mut)',
+                borderColor:  attendeeFilter === key ? 'var(--accent)' : 'var(--line)',
               }}>
                 {label}
               </button>
