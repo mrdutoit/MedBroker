@@ -1,0 +1,33 @@
+/**
+ * index.css — base resets and accessibility layer.
+ * Theme colour, the base font, document background, and atmosphere live in
+ * themes.css. This file owns only structural resets and a11y defaults.
+ * Imported after themes.css in main.jsx.
+ */
+
+*, *::before, *::after { box-sizing: border-box; }
+html, body, #root { height: 100%; }
+
+button, input, select, textarea { font-family: inherit; }
+
+/* Keyboard focus only — uses the active theme's accent. */
+:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 6px;
+}
+
+::selection { background: color-mix(in srgb, var(--accent) 22%, transparent); }
+
+/* Quiet themed scrollbars. */
+* { scrollbar-width: thin; scrollbar-color: var(--na) transparent; }
+*::-webkit-scrollbar { width: 10px; height: 10px; }
+*::-webkit-scrollbar-thumb { background: var(--na); border-radius: 999px; border: 2px solid transparent; background-clip: padding-box; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

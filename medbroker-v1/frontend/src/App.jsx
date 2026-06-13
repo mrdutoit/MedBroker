@@ -13,7 +13,9 @@ import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useParams
 import { lazy, Suspense, useState } from 'react';
 import { RoleProvider, useRole, PERSONAS } from './context/RoleContext.jsx';
 import { FlagProvider, useFlags }           from './context/FlagContext.jsx';
+import { ThemeProvider, useTheme }          from './context/ThemeContext.jsx';
 import { useWindowSize }                     from './hooks/useWindowSize.js';
+import { Logo }                              from './components/Logo.jsx';
 
 import LeadList        from './pages/LeadList.jsx';
 import AppointmentList from './pages/AppointmentList.jsx';
@@ -32,12 +34,13 @@ const Notifications     = lazy(() => import('./pages/Notifications.jsx'));
 const Tasks             = lazy(() => import('./pages/Tasks.jsx'));
 const SingleSignOn      = lazy(() => import('./pages/SingleSignOn.jsx'));
 const FeatureFlags      = lazy(() => import('./pages/FeatureFlags.jsx'));
+const Settings          = lazy(() => import('./pages/Settings.jsx'));
 
 // ─── Nav section label ─────────────────────────────────────────────────────────
 const SECTION = {
-  fontSize: '0.625rem', fontWeight: 700, color: '#9ca3af',
-  textTransform: 'uppercase', letterSpacing: '0.07em',
-  padding: '10px 10px 4px', userSelect: 'none',
+  fontSize: '0.625rem', fontWeight: 700, color: 'var(--mut)',
+  textTransform: 'uppercase', letterSpacing: '0.16em',
+  padding: '14px 10px 5px', userSelect: 'none', opacity: 0.85,
 };
 
 // ─── NavItem ───────────────────────────────────────────────────────────────────
@@ -48,18 +51,20 @@ function NavItem({ to, label, badge, onClick }) {
       onClick={onClick}
       style={({ isActive }) => ({
         display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        padding: '7px 10px', borderRadius: '6px', textDecoration: 'none',
-        fontSize: '0.8125rem', fontWeight: isActive ? 500 : 400,
-        color: isActive ? '#1d4ed8' : '#374151',
-        background: isActive ? '#eff6ff' : 'transparent',
-        transition: 'background 0.1s',
+        padding: '8px 11px', borderRadius: '10px', textDecoration: 'none',
+        fontSize: '0.8125rem', fontWeight: isActive ? 600 : 400,
+        color: 'var(--ink)',
+        opacity: isActive ? 1 : 0.78,
+        background: isActive ? 'color-mix(in srgb, var(--accent) 16%, transparent)' : 'transparent',
+        border: `1px solid ${isActive ? 'color-mix(in srgb, var(--accent) 35%, transparent)' : 'transparent'}`,
+        transition: 'background 0.15s, opacity 0.15s',
       })}
     >
       <span>{label}</span>
       {badge != null && (
         <span style={{
-          background: '#dc2626', color: 'white', borderRadius: '10px',
-          fontSize: '0.625rem', fontWeight: 600, padding: '1px 5px',
+          background: 'var(--accent)', color: 'white', borderRadius: '999px',
+          fontSize: '0.625rem', fontWeight: 700, padding: '1px 7px',
         }}>
           {badge}
         </span>
@@ -81,6 +86,7 @@ function ReportDrillGuard({ selfId, fallback, children }) {
 function AppLayout({ children }) {
   const { role, setRole, persona } = useRole();
   const { flag }                   = useFlags();
+  const { theme, setTheme, themes } = useTheme();
   const navigate                   = useNavigate();
   const { isMobile, isTablet }     = useWindowSize();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -110,7 +116,7 @@ function AppLayout({ children }) {
     : isTablet ? '200px' : '220px';
 
   return (
-    <div style={{ display: 'flex', height: '100vh', fontFamily: 'system-ui,-apple-system,sans-serif', position: 'relative' }}>
+    <div style={{ display: 'flex', height: '100vh', fontFamily: 'var(--body)', position: 'relative' }}>
 
       {/* Mobile dark overlay */}
       {isMobile && sidebarOpen && (
@@ -123,30 +129,21 @@ function AppLayout({ children }) {
       {/* ── Sidebar ──────────────────────────────────────────────────────── */}
       <nav style={{
         width: sidebarWidth, flexShrink: 0,
-        borderRight: isMobile ? 'none' : '1px solid #e5e7eb',
-        display: 'flex', flexDirection: 'column', background: 'white',
+        borderRight: isMobile ? 'none' : '1px solid var(--line)',
+        display: 'flex', flexDirection: 'column',
+        background: 'color-mix(in srgb, var(--panel) 78%, transparent)',
+        backdropFilter: 'blur(10px)', WebkitBackdropFilter: 'blur(10px)',
         overflowY: 'auto', overflowX: 'hidden',
         transition: 'width 0.25s ease',
         ...(isMobile ? {
           position: 'fixed', top: 0, left: 0, bottom: 0, zIndex: 50,
-          boxShadow: sidebarOpen ? '4px 0 20px rgba(0,0,0,0.15)' : 'none',
+          boxShadow: sidebarOpen ? '4px 0 24px rgba(0,0,0,0.25)' : 'none',
         } : {}),
       }}>
 
         {/* Logo */}
-        <div style={{ padding: '18px 14px 14px', borderBottom: '1px solid #e5e7eb', flexShrink: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <div style={{
-              width: '28px', height: '28px', background: '#1d4ed8', borderRadius: '7px',
-              display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0,
-            }}>
-              <span style={{ color: 'white', fontSize: '14px', fontWeight: 700 }}>M</span>
-            </div>
-            <div>
-              <div style={{ fontWeight: 700, fontSize: '0.9375rem', color: '#111827', letterSpacing: '-0.01em' }}>MedBroker</div>
-              <div style={{ fontSize: '0.625rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Lead Management</div>
-            </div>
-          </div>
+        <div style={{ padding: '18px 14px 14px', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
+          <Logo size={34} withWordmark />
         </div>
 
         {/* Nav items */}
@@ -175,6 +172,9 @@ function AppLayout({ children }) {
             onClick={closeNav}
           />
 
+          <div style={SECTION}>Account</div>
+          <NavItem to="/settings" label="Settings" onClick={closeNav} />
+
           {showAdminSection && (
             <>
               <div style={SECTION}>Admin</div>
@@ -186,13 +186,36 @@ function AppLayout({ children }) {
           )}
         </div>
 
-        {/* ── Sidebar footer — role switcher (preview only) ─────────────── */}
-        <div style={{ padding: '10px 8px', borderTop: '1px solid #e5e7eb', flexShrink: 0 }}>
-          <div style={{ background: '#fffbeb', border: '1px solid #fde68a', borderRadius: '6px', padding: '7px 10px', marginBottom: '8px' }}>
-            <div style={{ fontSize: '0.6875rem', fontWeight: 500, color: '#92400e', marginBottom: '5px' }}>
+        {/* ── Sidebar footer ─────────────────────────────────────────────── */}
+        <div style={{ padding: '10px 10px', borderTop: '1px solid var(--line)', flexShrink: 0 }}>
+
+          {/* Theme switcher */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '2px 4px 10px' }}>
+            <span style={{ fontSize: '0.6rem', letterSpacing: '0.16em', textTransform: 'uppercase', color: 'var(--mut)', marginRight: '2px' }}>Theme</span>
+            {themes.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setTheme(t.id)}
+                title={t.name}
+                aria-label={`${t.name} theme`}
+                style={{
+                  width: '20px', height: '20px', borderRadius: '50%', cursor: 'pointer', padding: 0,
+                  background: `linear-gradient(135deg, ${t.swatch[0]}, ${t.swatch[1]})`,
+                  border: `2px solid ${theme === t.id ? 'var(--ink)' : 'transparent'}`,
+                  transform: theme === t.id ? 'scale(1.12)' : 'none', transition: '0.15s',
+                }}
+              />
+            ))}
+          </div>
+
+          <div style={{
+            background: 'color-mix(in srgb, var(--limited) 14%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--limited) 34%, transparent)',
+            borderRadius: '10px', padding: '7px 10px', marginBottom: '8px',
+          }}>
+            <div style={{ fontSize: '0.6875rem', fontWeight: 600, color: 'var(--limited)', marginBottom: '5px' }}>
               ⚠ Preview mode
             </div>
-            {/* Role switcher — compact dropdown, same pattern as the HTML demo */}
             <select
               value={role}
               onChange={e => {
@@ -202,9 +225,9 @@ function AppLayout({ children }) {
                 closeNav();
               }}
               style={{
-                width: '100%', border: '1px solid #fde68a', borderRadius: '4px',
-                padding: '3px 6px', fontSize: '0.75rem',
-                background: '#fffbeb', color: '#92400e',
+                width: '100%', border: '1px solid var(--line)', borderRadius: '7px',
+                padding: '4px 7px', fontSize: '0.75rem',
+                background: 'var(--glass)', color: 'var(--ink)',
                 cursor: 'pointer', fontFamily: 'inherit',
               }}
             >
@@ -217,19 +240,18 @@ function AppLayout({ children }) {
           </div>
 
           {/* Current user display */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '4px 6px' }}>
             <div style={{
-              width: '28px', height: '28px', borderRadius: '50%', flexShrink: 0,
-              background: isGlobalAdmin ? '#fdf2ff' : '#eff6ff',
-              color: isGlobalAdmin ? '#7e22ce' : '#1d4ed8',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '0.6875rem', fontWeight: 600,
+              width: '30px', height: '30px', borderRadius: '50%', flexShrink: 0,
+              background: 'linear-gradient(135deg, var(--accent), var(--accent2))',
+              color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '0.6875rem', fontWeight: 700,
             }}>
               {persona.initials}
             </div>
             <div>
-              <div style={{ fontSize: '0.75rem', fontWeight: 500, color: '#111827' }}>{persona.displayName}</div>
-              <div style={{ fontSize: '0.625rem', color: '#9ca3af' }}>{persona.role}</div>
+              <div style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--ink)' }}>{persona.displayName}</div>
+              <div style={{ fontSize: '0.625rem', color: 'var(--mut)' }}>{persona.role}</div>
             </div>
           </div>
         </div>
@@ -240,26 +262,24 @@ function AppLayout({ children }) {
 
         {/* Mobile topbar */}
         {isMobile && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', background: 'white', borderBottom: '1px solid #e5e7eb', flexShrink: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px', background: 'color-mix(in srgb, var(--panel) 70%, transparent)', backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)', borderBottom: '1px solid var(--line)', flexShrink: 0 }}>
             <button
               onClick={() => setSidebarOpen(true)}
-              style={{ background: 'none', border: 'none', fontSize: '1.375rem', cursor: 'pointer', color: '#374151', lineHeight: 1 }}
+              style={{ background: 'none', border: 'none', fontSize: '1.375rem', cursor: 'pointer', color: 'var(--ink)', lineHeight: 1 }}
               aria-label="Open navigation"
             >
               ☰
             </button>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-              <div style={{ width: '22px', height: '22px', background: '#1d4ed8', borderRadius: '5px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <span style={{ color: 'white', fontSize: '11px' }}>M</span>
-              </div>
-              <span style={{ fontWeight: 700, fontSize: '0.9375rem', color: '#111827' }}>MedBroker</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <Logo size={22} />
+              <span style={{ fontFamily: 'var(--disp)', fontWeight: 800, fontSize: '0.95rem', color: 'var(--ink)', letterSpacing: '-0.02em' }}>MedBroker</span>
             </div>
-            <div style={{ marginLeft: 'auto', fontSize: '0.75rem', color: '#6b7280' }}>{persona.role}</div>
+            <div style={{ marginLeft: 'auto', fontSize: '0.75rem', color: 'var(--mut)' }}>{persona.role}</div>
           </div>
         )}
 
-        <main style={{ flex: 1, overflowY: 'auto', background: '#f9fafb', minWidth: 0 }}>
-          <Suspense fallback={<div style={{ padding: '24px', color: '#6b7280', fontSize: '0.875rem' }}>Loading…</div>}>
+        <main style={{ flex: 1, overflowY: 'auto', background: 'transparent', minWidth: 0 }}>
+          <Suspense fallback={<div style={{ padding: '24px', color: 'var(--mut)', fontSize: '0.875rem' }}>Loading…</div>}>
             {children}
           </Suspense>
         </main>
@@ -314,6 +334,9 @@ function AppLayoutWrapper() {
         <Route path="/notifications" element={<Notifications />} />
         <Route path="/tasks"         element={flag('tasks.enabled') ? <Tasks /> : <Navigate to={defaultPath} replace />} />
 
+        {/* Account — all roles */}
+        <Route path="/settings"      element={<Settings />} />
+
         {/* Analytics — all roles; self-service roles see only their own data */}
         <Route path="/reports" element={reportsLanding ? <Navigate to={reportsLanding} replace /> : <Reports />} />
         <Route
@@ -348,12 +371,14 @@ function AppLayoutWrapper() {
 // ─── Root ──────────────────────────────────────────────────────────────────────
 export default function App() {
   return (
-    <RoleProvider>
-      <FlagProvider>
-        <BrowserRouter>
-          <AppLayoutWrapper />
-        </BrowserRouter>
-      </FlagProvider>
-    </RoleProvider>
+    <ThemeProvider>
+      <RoleProvider>
+        <FlagProvider>
+          <BrowserRouter>
+            <AppLayoutWrapper />
+          </BrowserRouter>
+        </FlagProvider>
+      </RoleProvider>
+    </ThemeProvider>
   );
 }

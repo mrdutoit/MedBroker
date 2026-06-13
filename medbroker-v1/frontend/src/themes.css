@@ -1,0 +1,69 @@
+/**
+ * themes.css — MedBroker design systems.
+ *
+ * Ported from the html-design-studio token contract. Every theme defines the
+ * same set of CSS variables on [data-theme="..."] (set on <html> by
+ * ThemeContext). Components reference only these variables (via tokens.js), so a
+ * theme switch reskins the whole app. Default theme: linen (set in index.html
+ * and ThemeContext).
+ *
+ * Contract: --bg --bg2 --panel --panel2 --ink --mut --line --glass
+ *           --accent --accent2 --live --limited --na --danger --glow
+ *           --disp --body --mono --mesh --grain --gridop --gridline
+ */
+
+:root{
+  --body:'Manrope',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono',ui-monospace,monospace;
+  --disp:'Manrope',sans-serif;            /* overridden per theme */
+  --r-ico:11px; --r-card:14px; --r-panel:18px;
+}
+
+[data-theme="midnight"]{
+  --bg:#0A1622; --bg2:#0B1A28; --panel:#13283b; --panel2:#0f2030; --ink:#EAF2FA; --mut:#8FA6BC;
+  --line:rgba(255,255,255,.09); --glass:rgba(255,255,255,.04);
+  --accent:#00AEEF; --accent2:#2DD4BF; --live:#2DD4BF; --limited:#F5A623; --na:#5C7088; --danger:#F4737B;
+  --glow:rgba(45,212,191,.35); --disp:'Syne',sans-serif;
+  --mesh:radial-gradient(900px 600px at 12% -8%,rgba(45,212,191,.16),transparent 60%),radial-gradient(1000px 700px at 100% 110%,rgba(0,174,239,.18),transparent 55%),linear-gradient(160deg,#0A1622 0%,#0B1A28 55%,#091420 100%);
+  --grain:.05; --gridop:.5; --gridline:rgba(255,255,255,.07);
+}
+[data-theme="ember"]{
+  --bg:#16100D; --bg2:#1C1411; --panel:#241A14; --panel2:#1d140f; --ink:#F3E9DF; --mut:#B39E8C;
+  --line:rgba(255,235,210,.1); --glass:rgba(255,240,225,.04);
+  --accent:#E8853B; --accent2:#E0B23C; --live:#E0A23C; --limited:#C9692E; --na:#6E5C4C; --danger:#E8696F;
+  --glow:rgba(232,133,59,.3); --disp:'Unbounded',sans-serif;
+  --mesh:radial-gradient(900px 600px at 12% -8%,rgba(232,133,59,.18),transparent 60%),radial-gradient(1000px 700px at 100% 110%,rgba(224,178,60,.14),transparent 55%),linear-gradient(160deg,#16100D 0%,#1C1411 55%,#130D0A 100%);
+  --grain:.05; --gridop:.4; --gridline:rgba(255,235,210,.06);
+}
+[data-theme="terra"]{
+  --bg:#F4EEE0; --bg2:#EFE7D5; --panel:#FBF7EC; --panel2:#F5EFDF; --ink:#2C2A24; --mut:#7A7363;
+  --line:rgba(60,50,30,.14); --glass:rgba(255,250,240,.55);
+  --accent:#5E7A4F; --accent2:#8A9A5B; --live:#5E7A4F; --limited:#C08A3E; --na:#A89C84; --danger:#B8503F;
+  --glow:rgba(94,122,79,.25); --disp:'Fraunces',serif;
+  --mesh:radial-gradient(900px 600px at 10% -10%,rgba(138,154,91,.22),transparent 60%),radial-gradient(1000px 700px at 105% 110%,rgba(192,138,62,.16),transparent 55%),linear-gradient(160deg,#F6F0E2 0%,#F0E8D6 55%,#EFE7D3 100%);
+  --grain:.04; --gridop:.35; --gridline:rgba(80,60,30,.1);
+}
+[data-theme="linen"]{
+  --bg:#F7F6F2; --bg2:#F1F0EA; --panel:#FFFFFF; --panel2:#F7F7F4; --ink:#1F2328; --mut:#6B7280;
+  --line:rgba(20,30,40,.1); --glass:rgba(255,255,255,.6);
+  --accent:#2F5D8A; --accent2:#3B82A6; --live:#2E7D6B; --limited:#B8862E; --na:#A7AEB6; --danger:#C0504A;
+  --glow:rgba(47,93,138,.2); --disp:'Fraunces',serif;
+  --mesh:radial-gradient(900px 600px at 10% -10%,rgba(47,93,138,.1),transparent 60%),radial-gradient(1000px 700px at 105% 110%,rgba(46,125,107,.1),transparent 55%),linear-gradient(160deg,#FAF9F6 0%,#F2F1EC 100%);
+  --grain:.03; --gridop:.3; --gridline:rgba(20,30,40,.06);
+}
+
+body{
+  margin:0; font-family:var(--body); color:var(--ink);
+  background:var(--bg); background-image:var(--mesh); background-attachment:fixed;
+  line-height:1.5; -webkit-font-smoothing:antialiased; font-variant-numeric:tabular-nums;
+  transition:background-color .35s ease, color .35s ease;
+}
+
+/* Atmosphere: faint grain + a masked grid, behind all content (z-index 0). */
+body::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:var(--grain);
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");}
+body::after{content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:var(--gridop);
+  background-image:linear-gradient(var(--gridline) 1px,transparent 1px),linear-gradient(90deg,var(--gridline) 1px,transparent 1px);
+  background-size:46px 46px;mask-image:radial-gradient(circle at 78% -10%,#000,transparent 72%);
+  -webkit-mask-image:radial-gradient(circle at 78% -10%,#000,transparent 72%);}
+#root{position:relative;z-index:1;}
