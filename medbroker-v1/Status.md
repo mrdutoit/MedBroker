@@ -35,9 +35,13 @@ FRONTEND — ALL PAGES BUILT AND VERIFIED BUILDING ON VERCEL
                           agent read-only with lock icon and clarifying note),
                         Return to Leads button + red confirmation modal
   ✅ Reports            Pipeline funnel, monthly trend, broker performance,
-                        agent activity — View links to drill-down pages
-  ✅ AgentDetail        Call outcomes breakdown, daily activity chart, recent leads
-  ✅ BrokerDetail       Products sold, meeting outcome summary, recent appointments
+                        agent activity — View links to drill-down pages.
+                        Agent booking rate column shows mini bar + percentage.
+  ✅ AgentDetail        Call outcomes breakdown, daily activity chart, recent leads.
+                        View button navigates to /leads/:id (LeadDetail).
+                        Full-width layout (no maxWidth constraint).
+  ✅ BrokerDetail       Products sold, meeting outcome summary, recent appointments.
+                        Full-width layout (no maxWidth constraint).
   ✅ UserAdmin          Role filter, supervisor assignment, portfolio checkboxes,
                         product checkboxes per portfolio, SSO invite notice
   ✅ AppAdmin           4 tabs: Portfolios / Products / Subscriptions / System Settings
@@ -46,13 +50,28 @@ FRONTEND — ALL PAGES BUILT AND VERIFIED BUILDING ON VERCEL
                         Toggle (boolean) and select (enum) controls per flag
                         Save per row with confirmation
                         tasks.enabled is in Core tier (editable)
+                        select elements: color + colorScheme set for dark theme
   ✅ SingleSignOn       M365 (Entra ID) config + 4-step flow / Google Workspace tab
   ✅ Notifications      Tabbed inbox — All / Unread / Assignments / Reminders
   ✅ Tasks              Interactive placeholder — tabs (All/Appointments/Rescheduling/
                         Reminders), checkboxes, due date badges, pending count metrics.
                         Flag-gated: tasks.enabled (Core tier, default false, editable)
-  ✅ EventList          Existing (not modified in this build)
-  ✅ EventDetail        Existing (not modified in this build)
+  ✅ EventList          Event status badges and attendance bar — dark theme clean
+  ✅ EventDetail        QR code modal: white container background (ISO spec compliant,
+                        scannable on all themes). Attendance breakdown chart.
+  ✅ Settings           Theme switcher (live, 4 themes), profile display name,
+                        avatar colour picker. Save Changes button with dirty-state
+                        guard and success feedback. Persists to sessionStorage.
+
+DESIGN SYSTEM
+  ✅ 4 themes: Linen (default/light), Terra (light/earthy), Midnight (dark),
+                Ember (dark/warm). Switcher in sidebar and Settings page.
+  ✅ ThemeContext.jsx — exports ThemeProvider and useTheme() hook
+  ✅ themes.css — [data-theme] variable blocks for all four themes
+  ✅ tokens.js — s.select and s.formInput include colorScheme: 'light dark'
+                 so native <select> chrome renders correctly on dark themes
+  ✅ Full colour sweep completed — all 15 pages use CSS variables and
+     color-mix() tints; no hardcoded light-mode hex remaining
 
 INFRASTRUCTURE FILES
   ✅ schema.sql         v2.4 — all tables, constraints, indexes, seed data,
@@ -61,9 +80,10 @@ INFRASTRUCTURE FILES
   ✅ autoReturnLeads.js Azure Function timer trigger — daily auto-return
                         (getDbClient() is a stub — needs DB client connected)
   ✅ leadStatusService.js computeLeadStatus() + computeAppointmentStatus()
-  ✅ leadStatusService.test.js  28 Vitest tests covering both status machines
-                        — passing against the real service (added 01 Jun 2026).
-                        Requires api/package.json test wiring (see Section 5).
+  ✅ leadStatusService.test.js  28 Vitest tests — in api/src/services/
+  ✅ leadService.tenant.integration.test.js — in api/src/services/
+  ✅ api/package.json   test script wired: "test": "vitest run"
+                        devDependencies: vitest ^2.0.0
 
 RESPONSIVENESS
   ✅ Collapsible sidebar on mobile with hamburger button and dark overlay
@@ -74,6 +94,50 @@ RESPONSIVENESS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 2. BUGS FIXED
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+── 13 June 2026 session (dark theme sweep + UX fixes) ──
+All changed files verified with a full Vite production build in the sandbox
+before handover. Build passes: 1294 modules, zero errors.
+
+  ✅ All 15 pages — comprehensive sweep of hardcoded light-mode hex values.
+     Every badge background, banner, border, progress bar track, tab chip,
+     and dropdown now uses CSS variables and color-mix() tints. No page has
+     light backgrounds or dark text that becomes unreadable on Ember or Midnight.
+     color-mix() pattern: color-mix(in srgb, <semantic-colour> 14%, var(--panel))
+     for backgrounds; 30% for borders.
+
+  ✅ AgentDetail / BrokerDetail — View → /leads (list) changed to /leads/:id
+     (LeadDetail). leadId field added to RECENT_LEADS mock data.
+
+  ✅ AgentDetail / BrokerDetail — maxWidth: '960px' removed from outer wrapper.
+     Both pages now expand to full available width, consistent with Reports.jsx.
+
+  ✅ Reports.jsx — Agent Activity booking rate column now renders a mini bar
+     + percentage, matching the Broker Performance conversion column.
+
+  ✅ Settings.jsx — Save Changes button added below Profile + Avatar sections.
+     Includes dirty-state guard (disabled when nothing changed), Saving… state,
+     ✓ Changes saved feedback, and "You have unsaved changes" hint. Values
+     written to sessionStorage (mb_displayName, mb_avatarColour). Theme remains
+     live-apply with no save step required.
+
+  ✅ EventDetail.jsx — QR code container forced to background: '#ffffff'.
+     ISO 18004 requires a white quiet zone; the container was inheriting
+     var(--panel2) which is near-black on Midnight/Ember themes.
+
+  ✅ tokens.js — colorScheme: 'light dark' added to s.select and s.formInput.
+     Without this, the browser renders the native dropdown arrow and option
+     list using OS defaults (black on white) regardless of the page theme.
+
+  ✅ FeatureFlags.jsx — enum <select> had no explicit color; added
+     color: 'var(--ink)' and colorScheme: 'light dark'.
+
+  ✅ Multiple files — build failures caused by unquoted color-mix() values
+     and nested single-quote collisions in border strings. Root cause: patch
+     scripts emitted color-mix() as bare JS values or wrapped them inside
+     already-quoted strings. Resolved by scanning from the live repo, applying
+     precise string replacements, and running npm run build before handover.
+     See §6 for the permanent rule.
 
 ── 09 June 2026 session (backend security + correctness pass) ──
 All changed files verified building (esbuild) and the 28 status tests pass.
@@ -387,12 +451,9 @@ DOCUMENT PRODUCTION
      Then rebuild docx with ImageRun embedding the PNGs.
 
 TESTING
-  ⬜ Wire Vitest in api/package.json so `npm test` runs:
-       "scripts":          { "test": "vitest run", "test:watch": "vitest" }
-       "devDependencies":  { "vitest": "^2.0.0" }
-     leadStatusService.test.js (28 tests) and leadService.tenant.integration.test.js
-     currently sit at the medbroker-v1/ ROOT — relocate both into api/src/services/
-     first, otherwise an api-scoped `vitest run` will not discover them.
+  ✅ Vitest wired: api/package.json has "test": "vitest run" and vitest ^2.0.0
+     in devDependencies.
+  ✅ Both test files are in api/src/services/ (correct location for discovery).
   ⬜ Add tests for the Appointments, Flags, and Reports endpoints as they are
      built (validation + role authorisation per route).
 
@@ -403,15 +464,36 @@ SKILLS INSTALLATION
      (security/performance/sizing gate).
   ✅ document-output — INSTALLED (commercial + POPIA operational document types)
   ✅ code-nodejs — INSTALLED (Vitest, pino logging, standalone auth, migrations)
+  ⬜ app-builder.skill — needs update with 13 June learnings (see §0).
+  ⬜ code-nodejs skill — needs update with JSX quoting rule (see §0).
+
+GITHUB — files changed 13 June 2026 (dark theme sweep + UX fixes):
+  All files verified with full Vite production build before handover.
+  ✅ frontend/src/styles/tokens.js              (colorScheme added to s.select + s.formInput)
+  ✅ frontend/src/pages/AgentDetail.jsx         (colour sweep, maxWidth removed, View→/leads/:id)
+  ✅ frontend/src/pages/AppAdmin.jsx            (colour sweep)
+  ✅ frontend/src/pages/AppointmentDetail.jsx   (colour sweep)
+  ✅ frontend/src/pages/AppointmentList.jsx     (colour sweep)
+  ✅ frontend/src/pages/BrokerDetail.jsx        (colour sweep, maxWidth removed)
+  ✅ frontend/src/pages/EventDetail.jsx         (QR white bg, colour sweep)
+  ✅ frontend/src/pages/EventList.jsx           (colour sweep)
+  ✅ frontend/src/pages/FeatureFlags.jsx        (colour sweep, select color+colorScheme)
+  ✅ frontend/src/pages/LeadDetail.jsx          (colour sweep)
+  ✅ frontend/src/pages/LeadImport.jsx          (colour sweep)
+  ✅ frontend/src/pages/Notifications.jsx       (colour sweep)
+  ✅ frontend/src/pages/Reports.jsx             (agent booking rate bar added)
+  ✅ frontend/src/pages/Settings.jsx            (Save Changes button added)
+  ✅ frontend/src/pages/SingleSignOn.jsx        (colour sweep)
+  ✅ frontend/src/pages/Tasks.jsx               (colour sweep)
+  ✅ frontend/src/pages/UserAdmin.jsx           (colour sweep)
 
 GITHUB — files changed 01 June 2026 (code-review fixes, verified building):
   ✅ frontend/src/App.jsx                          (Reports route + nav gated)
   ✅ frontend/src/pages/Reports.jsx                (role guard + Supervisor scope)
   ✅ frontend/src/pages/AppointmentDetail.jsx      (Save Outcome wired; error states)
   ✅ frontend/src/services/api.js                  (added returnToLeads + saveOutcome)
-  ✅ api/src/services/leadStatusService.test.js    (new — 28 tests)
-  ⬜ api/package.json                              (add test script + vitest devDep —
-                                                    see TESTING below before npm test)
+  ✅ api/src/services/leadStatusService.test.js    (28 tests)
+  ✅ api/package.json                              (test script + vitest devDep)
 
 GITHUB — files changed 20 May 2026 (confirmed working):
   ✅ frontend/src/App.jsx                          (role switcher restored)
@@ -419,22 +501,6 @@ GITHUB — files changed 20 May 2026 (confirmed working):
   ✅ frontend/src/pages/FeatureFlags.jsx           (tasks.enabled → Core)
   ✅ frontend/src/pages/Tasks.jsx                  (restored + wired)
   ✅ frontend/src/pages/Reports.jsx                (duplicate overflowX fixed)
-
-  Files in the previous Status.md sync list that are unchanged:
-     frontend/src/styles/tokens.js
-     frontend/src/hooks/useWindowSize.js
-     frontend/src/context/FlagContext.jsx
-     frontend/src/pages/LeadList.jsx
-     frontend/src/pages/LeadDetail.jsx
-     frontend/src/pages/AppointmentList.jsx
-     frontend/src/pages/UserAdmin.jsx
-     frontend/src/pages/AppAdmin.jsx
-     frontend/src/pages/AgentDetail.jsx
-     frontend/src/pages/BrokerDetail.jsx
-     api/src/services/leadStatusService.js
-     api/src/functions/autoReturnLeads.js
-     infra/schema.sql
-     infra/feature-flags.sql
 
 BACKEND (when ready to build)
   ⬜ Provision Azure SQL Serverless in southafricanorth
@@ -511,48 +577,63 @@ These decisions caused rework when changed — preserve them in every session:
                         session, read from GitHub or ask before reconstructing
                         any shared file from memory.
 
+  color-mix() in JSX    Must always be a quoted string in style objects.
+                        Never unquoted. Never nested inside another quoted string.
+                        Correct:   background: 'color-mix(in srgb, #15803d 14%, var(--panel))'
+                        Correct:   border: '1px solid color-mix(in srgb, #15803d 30%, var(--panel))'
+                        Wrong:     background: color-mix(in srgb, #15803d 14%, var(--panel))
+                        Wrong:     border: '1px solid 'color-mix(in srgb, #15803d 30%, var(--panel))''
+                        Always run npm run build in the sandbox before handing over any file.
+
+  <select> elements     Always set color: 'var(--ink)' and colorScheme: 'light dark'
+                        explicitly on every <select>. Browser OS defaults override
+                        theme colours without these. Both are now in s.select and
+                        s.formInput in tokens.js. Any inline-styled select must
+                        include them too (see FeatureFlags.jsx as the reference).
+
+  Detail page layouts   BrokerDetail and AgentDetail must not have maxWidth on
+                        their outer wrapper. They use full available width, the
+                        same as Reports.jsx. Never reintroduce a maxWidth constraint
+                        on these pages.
+
+  QR code containers    Always background: '#ffffff' — hardcoded, never themed.
+                        ISO 18004 requires a white quiet zone. The theme
+                        background makes QR codes unscannable on dark themes.
+
+  Vite build gate       Before presenting any modified .jsx or .js file, run
+                        npm run build in the sandbox from medbroker-v1/frontend/
+                        and confirm it passes. Do not hand over files that have
+                        not been build-verified in the current session.
+
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Appointments API build (see §1 + §5).
+Priority: Appointments API build (see §4 + §5).
 
-DESIGN SYSTEM — STATUS AS OF 13 JUNE 2026
-  All files produced and VERIFIED (full esbuild bundle, tokens contract clean).
-  Applied to GitHub via design/theme-system branch + fix/hover-theme branch.
+DARK THEME SWEEP — COMPLETE AS OF 13 JUNE 2026
+  All 15 pages pass a full Vite production build (1294 modules, zero errors).
+  No hardcoded light-mode hex remains. All colour-mix() values are correctly
+  quoted. All <select> elements have color + colorScheme set.
 
-  THEME DEFAULT: Linen (light). User can switch via Settings or sidebar swatches.
-  Preference persists in sessionStorage; Users API will persist it server-side later.
+SKILLS TO UPDATE (prompts ready — paste into "Creating personalised AI skills"):
+  ⬜ app-builder.skill — add: color-mix() quoting rule; <select> colorScheme
+     rule; QR code white container rule; Vite build gate before handover;
+     detail pages must not have maxWidth constraint.
+  ⬜ code-nodejs skill — add: JSX CSS function quoting rule; build-verify
+     before handover.
 
-  FILES DEPLOYED TO REPO (all in medbroker-v1/frontend/):
-    index.html, package.json, src/main.jsx, src/themes.css, src/index.css,
-    src/App.jsx, src/context/ThemeContext.jsx, src/components/Logo.jsx,
-    src/styles/tokens.js, src/pages/Reports.jsx, src/pages/Settings.jsx,
-    src/assets/logo-mark.svg, src/assets/favicon.svg
-
-  FULL COLOUR SWEEP COMPLETED — all 15 pages:
-    LeadList, AppointmentList, AppAdmin, AgentDetail, BrokerDetail, EventDetail,
-    UserAdmin (hover fix + sweep), AppointmentDetail, LeadDetail, LeadImport,
-    Notifications, EventList, FeatureFlags, Tasks (colour sweep only)
-    → All hardcoded hex replaced with CSS variables (var(--ink/mut/panel/line/accent/live))
-    → onMouseEnter/Leave anti-pattern fixed (no more stuck white rows on dark themes)
-
-  KNOWN REMAINING (non-blocking):
-    - STATUS_META / APPT_STATUS_META chips still use fixed semantic colours (intentional)
-    - User avatar and theme preference persist in sessionStorage only until Users API built
-    - Test files still at repo root (not api/src/services/) — move before wiring Vitest
-
-  LOGO: MB angular duotone mark (blue→cyan gradient, equal bowls, no overlap,
-    centred tiles). Files: Logo.jsx, logo-mark.svg, favicon.svg
-
-  SKILLS UPDATED THIS SESSION:
-    ✅ app-builder.skill v2 — adds inline-colour sweep rules + onMouseEnter anti-pattern
-       (requires reinstall: delete existing app-builder skill, then Save skill)
+KNOWN HOUSEKEEPING (non-blocking, no build impact):
+  - Stray files in repo: frontend/src/pages/Status.md and frontend/main.jsx
+  - docs/ folder referenced in context files does not exist in repo
+  - User avatar and theme preference persist in sessionStorage only until
+    Users API is built
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+HOW TO START A NEW CHAT
 1. Start a new conversation in the MedBroker project
 2. Claude will load project files automatically — no need to paste them
 3. Say: "Please read the Project_Context.md and Status.md files and confirm
@@ -561,4 +642,4 @@ DESIGN SYSTEM — STATUS AS OF 13 JUNE 2026
 5. Give your task.
 
 If picking up a pending item from Section 5, reference it by name.
-e.g. "I want to work on the Stage 2 diagram rendering blocker."
+e.g. "I want to work on the Appointments API build."

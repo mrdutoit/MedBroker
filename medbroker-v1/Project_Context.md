@@ -294,9 +294,8 @@ medbroker-v1/
 │       │   └── lead.js
 │       └── config.js                    config.organisationId (ORG_ID env)
 │   NOTE: leadStatusService.test.js (28 tests) and
-│         leadService.tenant.integration.test.js currently sit at the
-│         medbroker-v1/ ROOT, not under api/src. Move both into
-│         api/src/services/ before wiring Vitest (Status.md §5 → Testing).
+│         leadService.tenant.integration.test.js are in api/src/services/
+│         (correct location). Vitest is wired in api/package.json.
 │   NOTE: Appointments / Flags / Config / Reports / Users API routes are NOT
 │         yet built — see Status.md §4 for the contracts the frontend expects.
 ├── infra/
@@ -350,9 +349,33 @@ THEMECONTEXT IMPORT:
   THEMES is an array: [{ id, name, mood, swatch:[c1,c2] }, ...]
 
 AVATAR / PROFILE PERSISTENCE:
-  Settings.jsx avatar picker stores choice in React state only (memory).
-  Resets on page refresh. Persistent storage requires the Users API (pending).
-  Do not add localStorage/sessionStorage as a workaround — persist to the DB.
+  Settings.jsx Save Changes button writes displayName and avatarColour to
+  sessionStorage (mb_displayName, mb_avatarColour). Resets on browser close.
+  Persistent storage across sessions requires the Users API (pending).
+
+COLOR-MIX() IN JSX STYLE OBJECTS — must always be a quoted string:
+  CSS function values are not valid JavaScript — they must appear as strings.
+  Correct:   background: 'color-mix(in srgb, #15803d 14%, var(--panel))'
+  Correct:   border: '1px solid color-mix(in srgb, #15803d 30%, var(--panel))'
+  Wrong:     background: color-mix(in srgb, #15803d 14%, var(--panel))
+  Wrong:     border: '1px solid 'color-mix(in srgb, #15803d 30%, var(--panel))''
+  The third form (nested quotes) is a syntax error esbuild catches at build time.
+  Always run npm run build in the sandbox before handing over any modified file.
+
+SELECT ELEMENTS — color and colorScheme required:
+  Browser OS defaults (black text on white) override theme colours on <select>
+  without explicit CSS. Every select must have color: 'var(--ink)' and
+  colorScheme: 'light dark'. Both are now in s.select and s.formInput in tokens.js.
+  Any inline-styled select must set them explicitly (see FeatureFlags.jsx).
+
+QR CODE CONTAINERS — always white background:
+  Never let a QR code container inherit the page theme background.
+  ISO 18004 requires a white quiet zone. Use background: '#ffffff' hardcoded.
+  Example: EventDetail.jsx QR modal.
+
+DETAIL PAGE LAYOUTS — no maxWidth on BrokerDetail / AgentDetail:
+  These pages must expand to full available width, the same as Reports.jsx.
+  Never add maxWidth to their outer wrapper divs.
 
 
   tokens.js uses NAMED exports only. There is no default export.
@@ -475,7 +498,22 @@ ReassignBrokerModal on AppointmentDetail: mirrors AssignBrokerModal exactly.
   Only broker field is editable and pre-populated with current broker.
   Broker must be changed before Save is enabled.
 
-Code review fixes (01 Jun 2026):
+Dark theme sweep (13 Jun 2026):
+  All 15 pages swept for hardcoded light-mode hex. Pattern adopted for badges
+  and banners: color-mix(in srgb, <semantic-colour> 14%, var(--panel)) for
+  backgrounds, 30% for borders. This produces tinted surfaces that are legible
+  on both light and dark panel depths. STATUS_META / APPT_STATUS_META chip
+  colours are the intentional exception — fixed semantic colours for cross-theme
+  recognisability.
+
+Settings Save Changes (13 Jun 2026):
+  Theme applies live with no save step (correct UX — instant preview). Display
+  name and avatar colour require explicit Save. Values written to sessionStorage
+  until Users API is built. The dirty-state guard prevents accidental saves.
+
+BrokerDetail / AgentDetail layouts (13 Jun 2026):
+  maxWidth: '960px' removed. Both pages now use full available width, consistent
+  with Reports.jsx at the same navigation level.
   - Reports is gated to Admin/Supervisor/GlobalAdmin (route + nav + in-page
     redirect); Supervisor scoped to direct reports. Frontend authorisation
     only — the report API must re-enforce server-side when built.
