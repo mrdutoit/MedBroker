@@ -207,7 +207,7 @@ export default function LeadDetail() {
 
       {/* Conversion notice */}
       {isConverted && (
-        <div style={{ background: 'color-mix(in srgb, #15803d 14%, var(--panel))', border: '1px solid color-mix(in srgb, #15803d 30%, var(--panel))'', borderRadius: '6px', padding: '10px 14px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', fontSize: '0.875rem', color: '#15803d', flexWrap: 'wrap' }}>
+        <div style={{ background: 'color-mix(in srgb, #15803d 14%, var(--panel))', border: '1px solid color-mix(in srgb, #15803d 30%, var(--panel))', borderRadius: '6px', padding: '10px 14px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', fontSize: '0.875rem', color: '#15803d', flexWrap: 'wrap' }}>
           <span>✅ <strong>Appointment booked.</strong> This lead has been converted and is now in the Appointments list.</span>
           <button onClick={() => navigate('/appointments')} style={{ background:'var(--live)', color:'white', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
             View in Appointments →
@@ -245,7 +245,7 @@ export default function LeadDetail() {
 
       {/* Status transition hint */}
       {!isConverted && !isClosed && (
-        <div style={{ background: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))', border: '1px solid color-mix(in srgb, #1d4ed8 30%, var(--panel))'', borderRadius: '6px', padding: '8px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: 'var(--accent)' }}>
+        <div style={{ background: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))', border: '1px solid color-mix(in srgb, #1d4ed8 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: 'var(--accent)' }}>
           ℹ Status updates automatically based on call outcomes. Log a call to progress this lead.
           {currentStatus === 'Unassigned' && ' Assign this lead to an agent before logging calls.'}
         </div>
@@ -355,7 +355,7 @@ export default function LeadDetail() {
                 </div>
               )}
               {callForm.outcome === 'ClientContacted' && (
-                <div style={{ background: 'color-mix(in srgb, #15803d 14%, var(--panel))', border: '1px solid color-mix(in srgb, #15803d 30%, var(--panel))'', borderRadius: '6px', padding: '12px 14px', marginBottom: '12px' }}>
+                <div style={{ background: 'color-mix(in srgb, #15803d 14%, var(--panel))', border: '1px solid color-mix(in srgb, #15803d 30%, var(--panel))', borderRadius: '6px', padding: '12px 14px', marginBottom: '12px' }}>
                   <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#15803d', marginBottom: '6px' }}>
                     🎉 Client contacted — would you like to book an appointment?
                   </div>
@@ -385,7 +385,7 @@ export default function LeadDetail() {
                   </button>
                 </div>
               )}
-              {submitError && <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))'', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.875rem', marginBottom: '12px' }}>{submitError}</div>}
+              {submitError && <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.875rem', marginBottom: '12px' }}>{submitError}</div>}
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                 <button type="button" onClick={() => setShowCallForm(false)} style={btn.ghost}>Cancel</button>
                 <button type="submit" disabled={submitting} style={btn.primary}>{submitting ? 'Saving…' : 'Save Call'}</button>
@@ -406,7 +406,7 @@ export default function LeadDetail() {
             <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '14px' }}>
               Dr {baseLead.firstName} {baseLead.lastName} · {baseLead.occupation}
             </p>
-            <div style={{ background: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))', border: '1px solid color-mix(in srgb, #1d4ed8 30%, var(--panel))'', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: 'var(--accent)' }}>
+            <div style={{ background: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))', border: '1px solid color-mix(in srgb, #1d4ed8 30%, var(--panel))', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: 'var(--accent)' }}>
               Confirming this booking will move the lead to <strong>Appointment Scheduled</strong> status and it will appear in the Appointments list.
             </div>
 
