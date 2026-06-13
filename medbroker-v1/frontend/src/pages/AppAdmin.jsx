@@ -91,14 +91,14 @@ export default function AppAdmin() {
                 <th style={s.th}></th>
               </tr></thead>
               <tbody>
-                <tr style={s.tr} onMouseEnter={e => e.currentTarget.style.background='#f9fafb'} onMouseLeave={e => e.currentTarget.style.background=''}>
+                <tr style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
                   <td style={{ ...s.td, fontWeight: 500 }}>Discovery</td>
                   <td style={s.td}>3</td><td style={s.td}>3</td>
                   <td style={{ ...s.td, color: '#1d4ed8', fontWeight: 600 }}>487</td>
                   <td style={s.td}><span style={{ ...s.badge, background: '#f0fdf4', color: '#15803d' }}>Active</span></td>
                   <td style={s.td}><button style={s.linkBtn}>Edit</button></td>
                 </tr>
-                <tr style={s.tr} onMouseEnter={e => e.currentTarget.style.background='#f9fafb'} onMouseLeave={e => e.currentTarget.style.background=''}>
+                <tr style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
                   <td style={{ ...s.td, fontWeight: 500 }}>Money and Medicine</td>
                   <td style={s.td}>2</td><td style={s.td}>2</td>
                   <td style={{ ...s.td, color: '#1d4ed8', fontWeight: 600 }}>214</td>
@@ -131,7 +131,7 @@ export default function AppAdmin() {
               </tr></thead>
               <tbody>
                 {ALL_PRODUCTS.map(p => (
-                  <tr key={p.name} style={s.tr} onMouseEnter={e => e.currentTarget.style.background='#f9fafb'} onMouseLeave={e => e.currentTarget.style.background=''}>
+                  <tr key={p.name} style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
                     <td style={{ ...s.td, fontWeight: 500 }}>{p.name}</td>
                     <td style={s.td}>
                       <span style={{ ...s.badge, fontSize: '0.688rem',
@@ -173,7 +173,7 @@ export default function AppAdmin() {
               </tr></thead>
               <tbody>
                 {MOCK_SUBSCRIPTIONS.map(sub => (
-                  <tr key={sub.name} style={s.tr} onMouseEnter={e => e.currentTarget.style.background='#f9fafb'} onMouseLeave={e => e.currentTarget.style.background=''}>
+                  <tr key={sub.name} style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
                     <td style={{ ...s.td, fontWeight: 500 }}>{sub.name}</td>
                     <td style={{ ...s.td, color: '#6b7280', fontSize: '0.8125rem' }}>{sub.provider}</td>
                     <td style={s.td}>{sub.imported}</td>
@@ -320,7 +320,7 @@ export default function AppAdmin() {
               <tbody>
                 {MOCK_AUDIT_LOG.map(entry => (
                   <tr key={entry.id} style={s.tr}
-                    onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
+                    onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
                     onMouseLeave={e => e.currentTarget.style.background = ''}
                   >
                     <td style={{ ...s.td, color: '#6b7280', fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
