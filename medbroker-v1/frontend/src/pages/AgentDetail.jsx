@@ -69,9 +69,9 @@ const ACTIVITY_DATA = {
 };
 
 const RECENT_LEADS = [
-  { name:'Dr Priya Naidoo',   source:'Wits Career Fair 2026',  status:'AppointmentScheduled', lastCall:'14 May', outcome:'AppointmentScheduled' },
-  { name:'Dr Ayesha Moosa',   source:'Manual — Referral',      status:'InProgress',           lastCall:'13 May', outcome:'CallbackRequested'    },
-  { name:'Dr Marco Ferreira', source:'MedLeads SA — Monthly',  status:'InProgress',           lastCall:'12 May', outcome:'Voicemail'            },
+  { leadId:'lead-001', name:'Dr Priya Naidoo',   source:'Wits Career Fair 2026',  status:'AppointmentScheduled', lastCall:'14 May', outcome:'AppointmentScheduled' },
+  { leadId:'lead-002', name:'Dr Ayesha Moosa',   source:'Manual — Referral',      status:'InProgress',           lastCall:'13 May', outcome:'CallbackRequested'    },
+  { leadId:'lead-003', name:'Dr Marco Ferreira', source:'MedLeads SA — Monthly',  status:'InProgress',           lastCall:'12 May', outcome:'Voicemail'            },
 ];
 
 const STATUS_COLOUR = {
@@ -244,7 +244,7 @@ export default function AgentDetail() {
                     <span style={{ ...s.badge, background: oc.bg, color: oc.colour, fontSize: '0.6875rem' }}>{lead.outcome}</span>
                   </td>
                   <td style={s.td}>
-                    <button style={s.linkBtn} onClick={() => navigate('/leads')}>View →</button>
+                    <button style={s.linkBtn} onClick={() => navigate(`/leads/${lead.leadId}`)}>View →</button>
                   </td>
                 </tr>
               );

@@ -57,9 +57,9 @@ const PRODUCTS_SOLD = [
 
 const MEETING_SUMMARY = [
   { label: '1st meeting — Seen',        value: '16 / 18', colour: '#15803d' },
-  { label: '1st meeting — Rescheduled', value: '2 / 18',  colour: '#111827' },
+  { label: '1st meeting — Rescheduled', value: '2 / 18',  colour: 'var(--mut)' },
   { label: '2nd meeting — Seen',        value: '12 / 16', colour: '#15803d' },
-  { label: '2nd meeting — Rescheduled', value: '2 / 16',  colour: '#111827' },
+  { label: '2nd meeting — Rescheduled', value: '2 / 16',  colour: 'var(--mut)' },
   { label: '2nd meeting — Cancelled',   value: '2 / 16',  colour: '#dc2626' },
   { label: 'Signed after 2nd meeting',  value: '9 / 12 (75%)', colour: '#15803d', bold: true },
 ];
@@ -82,11 +82,11 @@ const fmt = n => `R${(n / 1000000).toFixed(2)}m`;
 function MeetingBadge({ status }) {
   if (!status) return <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>—</span>;
   const meta = {
-    Seen:        { bg: '#f0fdf4', colour: '#15803d' },
-    Rescheduled: { bg: '#fffbeb', colour: '#d97706' },
-    Cancelled:   { bg: '#fef2f2', colour: '#dc2626' },
-    Pending:     { bg: '#f3f4f6', colour: '#6b7280' },
-  }[status] ?? { bg: '#f3f4f6', colour: '#6b7280' };
+    Seen:        { bg: 'color-mix(in srgb, #15803d 12%, var(--panel))', colour: '#15803d' },
+    Rescheduled: { bg: 'color-mix(in srgb, #d97706 12%, var(--panel))', colour: '#d97706' },
+    Cancelled:   { bg: 'color-mix(in srgb, #dc2626 12%, var(--panel))', colour: '#dc2626' },
+    Pending:     { bg: 'color-mix(in srgb, var(--mut) 12%, var(--panel))', colour: 'var(--mut)' },
+  }[status] ?? { bg: 'color-mix(in srgb, var(--mut) 12%, var(--panel))', colour: 'var(--mut)' };
   return <span style={{ ...s.badge, background: meta.bg, color: meta.colour, fontSize: '0.6875rem' }}>{status}</span>;
 }
 
@@ -95,7 +95,7 @@ function SignedBadge({ signed }) {
   return (
     <span style={{
       ...s.badge, fontSize: '0.6875rem',
-      background: signed === 'Yes' ? '#f0fdf4' : '#fef2f2',
+      background: signed === 'Yes' ? 'color-mix(in srgb, #15803d 12%, var(--panel))' : 'color-mix(in srgb, #dc2626 12%, var(--panel))',
       color:      signed === 'Yes' ? '#15803d' : '#dc2626',
     }}>
       {signed}
@@ -144,8 +144,8 @@ export default function BrokerDetail() {
               <button key={p} onClick={() => setPeriod(p)} style={{
                 padding: '5px 12px', border: 'none', cursor: 'pointer',
                 fontSize: '0.8125rem', fontFamily: 'inherit', fontWeight: period === p ? 600 : 400,
-                background: period === p ? '#1d4ed8' : 'white',
-                color:      period === p ? 'white'   : '#6b7280',
+                background: period === p ? 'var(--accent)' : 'var(--panel)',
+                color:      period === p ? '#ffffff'       : 'var(--mut)',
                 borderRight: p !== 'Yearly' ? '1px solid var(--line)' : 'none',
                 transition: 'background 0.15s',
               }}>
@@ -160,11 +160,11 @@ export default function BrokerDetail() {
       {/* KPIs */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: '12px', marginBottom: '18px' }}>
         {[
-          { label: 'Appointments',    value: kpi.appts.toString(),         colour: '#111827' },
+          { label: 'Appointments',    value: kpi.appts.toString(),         colour: 'var(--ink)' },
           { label: 'Signed',          value: kpi.signed.toString(),        colour: '#15803d' },
           { label: 'Conversion',      value: kpi.conversion,               colour: '#15803d' },
           { label: 'Policy value',    value: fmt(kpi.policyValue),         colour: '#15803d' },
-          { label: 'Broker switches', value: kpi.switches.toString(),      colour: '#111827' },
+          { label: 'Broker switches', value: kpi.switches.toString(),      colour: 'var(--ink)' },
         ].map(m => (
           <div key={m.label} style={s.metricCard}>
             <div style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{m.label}</div>
@@ -221,8 +221,8 @@ export default function BrokerDetail() {
           <tbody>
             {RECENT.map(a => {
               const pm = a.portfolio === 'Discovery'
-                ? { bg: '#eff6ff', colour: '#1d4ed8' }
-                : { bg: '#f5f3ff', colour: '#7c3aed' };
+                ? { bg: 'color-mix(in srgb, #1d4ed8 12%, var(--panel))', colour: '#3b82f6' }
+                : { bg: 'color-mix(in srgb, #7c3aed 12%, var(--panel))', colour: '#a78bfa' };
               return (
                 <tr key={a.name} style={s.tr}
                   onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
