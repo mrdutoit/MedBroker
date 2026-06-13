@@ -454,7 +454,17 @@ export default function Reports() {
                     ? <span style={{ color: colors.warn, fontWeight: 600 }}>{a.callbacks}</span>
                     : a.callbacks}
                 </td>
-                <td style={{ ...s.td, textAlign: 'right', fontWeight: 600 }}>{a.conversion}</td>
+                <td style={{ ...s.td, textAlign: 'right' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
+                    <div style={{ width: '50px', background: colors.surfaceSubtle, borderRadius: '999px', height: '6px', overflow: 'hidden' }}>
+                      <div style={{
+                        width: a.conversion,
+                        background: colors.success, height: '100%', borderRadius: '999px',
+                      }} />
+                    </div>
+                    <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>{a.conversion}</span>
+                  </div>
+                </td>
                 <td style={s.td}>
                   <button style={s.viewBtn} onClick={() => navigate(`/reports/agent/${a.id}`)}>
                     View →
