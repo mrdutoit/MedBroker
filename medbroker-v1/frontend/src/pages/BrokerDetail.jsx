@@ -122,7 +122,7 @@ export default function BrokerDetail() {
   const kpi      = BROKER_KPI[brokerId][period];
 
   return (
-    <div style={{ padding: isMobile ? '12px' : '24px', maxWidth: '960px' }}>
+    <div style={{ padding: isMobile ? '12px' : '24px' }}>
 
       {/* Header */}
       {showBackToReports && (
