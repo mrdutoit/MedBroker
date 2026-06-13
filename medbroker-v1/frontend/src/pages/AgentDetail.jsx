@@ -122,23 +122,23 @@ export default function AgentDetail() {
       )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', margin: '6px 0 18px', flexWrap: 'wrap', gap: '10px' }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color: '#111827' }}>
+          <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)' }}>
             Agent Detail — {meta.name}
           </h1>
-          <p style={{ margin: '3px 0 0', fontSize: '0.8125rem', color: '#6b7280' }}>
+          <p style={{ margin: '3px 0 0', fontSize: '0.8125rem', color:'var(--mut)' }}>
             Performance report · {PERIOD_LABELS[period]} · {meta.region} · {meta.portfolio}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           {/* Period selector */}
-          <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', border: '1px solid var(--line)', borderRadius: '8px', overflow: 'hidden' }}>
             {['Monthly','Quarterly','Yearly'].map(p => (
               <button key={p} onClick={() => setPeriod(p)} style={{
                 padding: '5px 12px', border: 'none', cursor: 'pointer',
                 fontSize: '0.8125rem', fontFamily: 'inherit', fontWeight: period === p ? 600 : 400,
                 background: period === p ? '#1d4ed8' : 'white',
                 color:      period === p ? 'white'   : '#6b7280',
-                borderRight: p !== 'Yearly' ? '1px solid #e5e7eb' : 'none',
+                borderRight: p !== 'Yearly' ? '1px solid var(--line)' : 'none',
                 transition: 'background 0.15s',
               }}>
                 {p}
@@ -159,9 +159,9 @@ export default function AgentDetail() {
           { label: 'Uncontactable',     value: kpi.uncontactable.toString(),colour: '#ef4444' },
         ].map(m => (
           <div key={m.label} style={s.metricCard}>
-            <div style={{ fontSize: '0.6875rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{m.label}</div>
+            <div style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{m.label}</div>
             <div style={{ fontSize: '1.5rem', fontWeight: 700, color: m.colour, lineHeight: 1 }}>{m.value}</div>
-            {m.sub && <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '4px' }}>{m.sub}</div>}
+            {m.sub && <div style={{ fontSize: '0.75rem', color:'var(--mut)', marginTop: '4px' }}>{m.sub}</div>}
           </div>
         ))}
       </div>
@@ -174,9 +174,9 @@ export default function AgentDetail() {
           {outcomes.map(o => (
             <div key={o.label} style={{ marginBottom: '9px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-                <span style={{ fontSize: '0.8125rem', color: '#374151' }}>{o.label}</span>
+                <span style={{ fontSize: '0.8125rem', color:'var(--ink)' }}>{o.label}</span>
                 <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>
-                  {o.count} <span style={{ color: '#9ca3af', fontWeight: 400 }}>({o.pctBase}%)</span>
+                  {o.count} <span style={{ color:'var(--mut)', fontWeight: 400 }}>({o.pctBase}%)</span>
                 </span>
               </div>
               <div style={s.barTrack}>
@@ -206,15 +206,15 @@ export default function AgentDetail() {
             })}
           </div>
           <div style={{ display: 'flex', gap: '16px', marginTop: '10px' }}>
-            <span style={{ fontSize: '0.75rem', color: '#6b7280' }}><span style={{ color: '#3b82f6' }}>■</span> Calls made</span>
-            <span style={{ fontSize: '0.75rem', color: '#6b7280' }}><span style={{ color: '#10b981' }}>■</span> Appts booked</span>
+            <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}><span style={{ color: '#3b82f6' }}>■</span> Calls made</span>
+            <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}><span style={{ color: '#10b981' }}>■</span> Appts booked</span>
           </div>
         </div>
       </div>
 
       {/* Recent leads */}
       <div style={{ ...s.tableCard, overflowX: 'auto' }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid #f3f4f6' }}>
+        <div style={{ padding: '12px 16px', borderBottom:'1px solid var(--line)' }}>
           <div style={s.cardTitle}>Recent Lead Activity</div>
         </div>
         <table style={{ ...s.table, minWidth: '600px' }}>
@@ -235,11 +235,11 @@ export default function AgentDetail() {
                   onMouseLeave={e => e.currentTarget.style.background = ''}
                 >
                   <td style={{ ...s.td, fontWeight: 500 }}>{lead.name}</td>
-                  <td style={{ ...s.td, color: '#6b7280', fontSize: '0.8125rem' }}>{lead.source}</td>
+                  <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>{lead.source}</td>
                   <td style={s.td}>
                     <span style={{ ...s.badge, background: sc.bg, color: sc.colour, fontSize: '0.6875rem' }}>{lead.status}</span>
                   </td>
-                  <td style={{ ...s.td, color: '#9ca3af', fontSize: '0.8125rem' }}>{lead.lastCall}</td>
+                  <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>{lead.lastCall}</td>
                   <td style={s.td}>
                     <span style={{ ...s.badge, background: oc.bg, color: oc.colour, fontSize: '0.6875rem' }}>{lead.outcome}</span>
                   </td>

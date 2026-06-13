@@ -46,9 +46,9 @@ export default function Notifications() {
     <div style={{ ...s.page, maxWidth: '760px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color: '#111827' }}>Notifications</h1>
+          <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)' }}>Notifications</h1>
           {unreadCount > 0 && (
-            <p style={{ margin: '3px 0 0', fontSize: '0.813rem', color: '#6b7280' }}>
+            <p style={{ margin: '3px 0 0', fontSize: '0.813rem', color:'var(--mut)' }}>
               {unreadCount} unread notification{unreadCount !== 1 ? 's' : ''}
             </p>
           )}
@@ -58,7 +58,7 @@ export default function Notifications() {
         )}
       </div>
 
-      <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: '18px' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '18px' }}>
         {[['all','All'], ['unread','Unread'], ['assignments','Assignments'], ['reminders','Reminders']].map(([key, label]) => (
           <button
             key={key}
@@ -79,7 +79,7 @@ export default function Notifications() {
 
       <div style={s.card}>
         {filtered.length === 0 && (
-          <div style={{ textAlign: 'center', padding: '32px', color: '#9ca3af', fontSize: '0.875rem' }}>
+          <div style={{ textAlign: 'center', padding: '32px', color:'var(--mut)', fontSize: '0.875rem' }}>
             No notifications in this category.
           </div>
         )}
@@ -100,10 +100,10 @@ export default function Notifications() {
             </div>
             <div style={{ flex: 1 }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px', marginBottom: '3px' }}>
-                <span style={{ fontWeight: n.read ? 400 : 600, fontSize: '0.875rem', color: '#111827' }}>{n.title}</span>
-                <span style={{ fontSize: '0.75rem', color: '#9ca3af', whiteSpace: 'nowrap' }}>{n.time}</span>
+                <span style={{ fontWeight: n.read ? 400 : 600, fontSize: '0.875rem', color:'var(--ink)' }}>{n.title}</span>
+                <span style={{ fontSize: '0.75rem', color:'var(--mut)', whiteSpace: 'nowrap' }}>{n.time}</span>
               </div>
-              <p style={{ fontSize: '0.8125rem', color: '#6b7280', margin: 0, lineHeight: 1.5 }}>{n.body}</p>
+              <p style={{ fontSize: '0.8125rem', color:'var(--mut)', margin: 0, lineHeight: 1.5 }}>{n.body}</p>
             </div>
             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: n.read ? 'transparent' : '#1d4ed8', flexShrink: 0, marginTop: '6px' }} />
           </div>

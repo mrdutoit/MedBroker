@@ -66,7 +66,7 @@ export default function EventList() {
   return (
     <div style={{ padding: isMobile ? '12px' : '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-        <h1 style={{ fontSize: '1.375rem', fontWeight: 600, color: '#111827', margin: 0 }}>Events</h1>
+        <h1 style={{ fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)', margin: 0 }}>Events</h1>
         <button onClick={() => setShowCreate(true)} style={s.primaryBtn}>+ Create Event</button>
       </div>
 
@@ -79,8 +79,8 @@ export default function EventList() {
           { label: 'Total attended', value: MOCK_EVENTS.reduce((a, e) => a + e.attendedCount + e.walkinCount, 0) },
         ].map(c => (
           <div key={c.label} style={s.metricCard}>
-            <div style={{ fontSize: '0.6875rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{c.label}</div>
-            <div style={{ fontSize: '1.875rem', fontWeight: 700, color: '#111827' }}>{c.value}</div>
+            <div style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{c.label}</div>
+            <div style={{ fontSize: '1.875rem', fontWeight: 700, color:'var(--ink)' }}>{c.value}</div>
           </div>
         ))}
       </div>
@@ -96,21 +96,21 @@ export default function EventList() {
 
           return (
             <div key={event.id} style={{
-              background: 'white', border: '1px solid #e5e7eb',
+              background:'var(--panel)', border: '1px solid var(--line)',
               borderRadius: '10px', padding: '18px 20px',
             }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
                 <span style={{ ...s.badge, background: ss.bg, color: ss.text, border: `1px solid ${ss.border}` }}>
                   {event.status}
                 </span>
-                <span style={{ fontSize: '0.8125rem', color: pastEvent ? '#9ca3af' : '#374151', fontWeight: 500 }}>
+                <span style={{ fontSize: '0.8125rem', color:pastEvent ? 'var(--mut)' : 'var(--ink)', fontWeight: 500 }}>
                   {format(new Date(event.eventDate), 'd MMM yyyy')}
                 </span>
               </div>
 
-              <h3 style={{ fontSize: '0.9375rem', fontWeight: 600, color: '#111827', margin: '0 0 4px', lineHeight: 1.35 }}>{event.name}</h3>
-              <p style={{ fontSize: '0.8125rem', color: '#6b7280', margin: '0 0 12px' }}>{event.university}</p>
-              <p style={{ fontSize: '0.75rem', color: '#9ca3af', margin: '0 0 14px' }}>📍 {event.venue}</p>
+              <h3 style={{ fontSize: '0.9375rem', fontWeight: 600, color:'var(--ink)', margin: '0 0 4px', lineHeight: 1.35 }}>{event.name}</h3>
+              <p style={{ fontSize: '0.8125rem', color:'var(--mut)', margin: '0 0 12px' }}>{event.university}</p>
+              <p style={{ fontSize: '0.75rem', color:'var(--mut)', margin: '0 0 14px' }}>📍 {event.venue}</p>
 
               {event.status !== 'Draft' && (
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '14px' }}>
@@ -119,9 +119,9 @@ export default function EventList() {
                     { label: 'Attended', value: event.attendedCount + event.walkinCount },
                     { label: 'Walk-ins', value: event.walkinCount },
                   ].map(stat => (
-                    <div key={stat.label} style={{ background: '#f9fafb', borderRadius: '6px', padding: '8px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '1.125rem', fontWeight: 700, color: '#111827' }}>{stat.value}</div>
-                      <div style={{ fontSize: '0.6875rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{stat.label}</div>
+                    <div key={stat.label} style={{ background:'var(--panel2)', borderRadius: '6px', padding: '8px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '1.125rem', fontWeight: 700, color:'var(--ink)' }}>{stat.value}</div>
+                      <div style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{stat.label}</div>
                     </div>
                   ))}
                 </div>
@@ -130,7 +130,7 @@ export default function EventList() {
               {event.status === 'Closed' && event.rsvpCount > 0 && (
                 <div style={{ marginBottom: '14px' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>Attendance rate</span>
+                    <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>Attendance rate</span>
                     <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#15803d' }}>{attendanceRate}%</span>
                   </div>
                   <div style={{ background: '#e5e7eb', borderRadius: '4px', height: '6px' }}>

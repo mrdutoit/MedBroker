@@ -90,7 +90,7 @@ function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onP
         const allProds = PRODUCTS_BY_PORTFOLIO[portId] || [];
         return (
           <div key={portName} style={{ ...s.formGroup }}>
-            <label style={{ ...s.formLabel, color: '#1d4ed8' }}>{portName} products</label>
+            <label style={{ ...s.formLabel, color:'var(--accent)' }}>{portName} products</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
               {allProds.map(prod => {
                 const checked = products.includes(prod);
@@ -173,7 +173,7 @@ function UserModal({ mode, user, onClose }) {
 
         {/* Identity card for edit */}
         {isEdit && (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', background: '#f9fafb', borderRadius: '6px', marginBottom: '14px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', background:'var(--panel2)', borderRadius: '6px', marginBottom: '14px' }}>
             <div style={{
               width: '32px', height: '32px', borderRadius: '50%', flexShrink: 0,
               background: ROLE_STYLE[form.role]?.bg ?? '#f3f4f6',
@@ -185,7 +185,7 @@ function UserModal({ mode, user, onClose }) {
             </div>
             <div>
               <div style={{ fontWeight: 500 }}>{form.displayName}</div>
-              <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{form.email} · SSO</div>
+              <div style={{ fontSize: '0.75rem', color:'var(--mut)' }}>{form.email} · SSO</div>
             </div>
           </div>
         )}
@@ -197,7 +197,7 @@ function UserModal({ mode, user, onClose }) {
               <input style={s.formInput} value={form.displayName} onChange={e => setForm(f => ({ ...f, displayName: e.target.value }))} placeholder="Dr Jane Smith" />
             </div>
             <div style={s.formGroup}>
-              <label style={s.formLabel}>Email address * <span style={{ fontSize: '0.688rem', color: '#9ca3af' }}>(Microsoft 365 or Google Workspace)</span></label>
+              <label style={s.formLabel}>Email address * <span style={{ fontSize: '0.688rem', color:'var(--mut)' }}>(Microsoft 365 or Google Workspace)</span></label>
               <input type="email" style={s.formInput} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane.smith@medbroker.co.za" />
             </div>
           </>
@@ -292,7 +292,7 @@ export default function UserAdmin() {
   return (
     <div style={s.page}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
-        <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color: '#111827' }}>User Administration</h1>
+        <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)' }}>User Administration</h1>
         <button style={s.primaryBtn} onClick={() => setModal({ mode: 'create' })}>+ Add User</button>
       </div>
 
@@ -303,14 +303,14 @@ export default function UserAdmin() {
           return (
             <div
               key={r}
-              style={{ ...s.metricCard, cursor: 'pointer', border: roleFilter === r ? `1px solid ${rs.colour}` : '1px solid #e5e7eb' }}
+              style={{ ...s.metricCard, cursor: 'pointer', border: roleFilter === r ? `1px solid ${rs.colour}` : '1px solid var(--line)' }}
               onClick={() => setRoleFilter(roleFilter === r ? 'All' : r)}
             >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ fontSize: '0.8125rem', color: '#374151' }}>{r}s</span>
+                <span style={{ fontSize: '0.8125rem', color:'var(--ink)' }}>{r}s</span>
                 <span style={{ ...s.badge, background: rs.bg, color: rs.colour, fontSize: '0.688rem' }}>{r}</span>
               </div>
-              <div style={{ fontSize: '1.75rem', fontWeight: 600, color: '#111827', marginTop: '8px' }}>{counts[r] ?? 0}</div>
+              <div style={{ fontSize: '1.75rem', fontWeight: 600, color:'var(--ink)', marginTop: '8px' }}>{counts[r] ?? 0}</div>
             </div>
           );
         })}
@@ -368,7 +368,7 @@ export default function UserAdmin() {
                       <span style={{ fontWeight: 500, fontSize: '0.875rem' }}>{user.displayName}</span>
                     </div>
                   </td>
-                  <td style={{ ...s.td, fontSize: '0.75rem', color: '#6b7280', fontFamily: 'monospace' }}>{user.email}</td>
+                  <td style={{ ...s.td, fontSize: '0.75rem', color:'var(--mut)', fontFamily: 'monospace' }}>{user.email}</td>
                   <td style={s.td}>
                     <span style={{ ...s.badge, background: rs.bg, color: rs.colour }}>{user.role}</span>
                   </td>
@@ -382,18 +382,18 @@ export default function UserAdmin() {
                             color:      p === 'Discovery' ? '#1d4ed8' : '#7c3aed',
                           }}>{p === 'Money and Medicine' ? 'M&M' : p}</span>
                         ))
-                      : <span style={{ color: '#9ca3af', fontSize: '0.8125rem' }}>—</span>
+                      : <span style={{ color:'var(--mut)', fontSize: '0.8125rem' }}>—</span>
                     }
                   </td>
-                  <td style={{ ...s.td, fontSize: '0.8125rem', color: '#6b7280' }}>{user.supervisor || '—'}</td>
+                  <td style={{ ...s.td, fontSize: '0.8125rem', color:'var(--mut)' }}>{user.supervisor || '—'}</td>
                   <td style={s.td}>
                     {user.products.length > 0
                       ? user.products.slice(0, 2).map(p => (
                           <span key={p} style={{ ...s.badge, background: '#f0fdf4', color: '#15803d', fontSize: '0.625rem', marginRight: '2px' }}>{p}</span>
                         ))
-                      : <span style={{ color: '#9ca3af', fontSize: '0.8125rem' }}>—</span>
+                      : <span style={{ color:'var(--mut)', fontSize: '0.8125rem' }}>—</span>
                     }
-                    {user.products.length > 2 && <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}> +{user.products.length - 2}</span>}
+                    {user.products.length > 2 && <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}> +{user.products.length - 2}</span>}
                   </td>
                   <td style={s.td}>
                     <span style={{ ...s.badge, background: user.isActive ? '#f0fdf4' : '#f3f4f6', color: user.isActive ? '#15803d' : '#9ca3af' }}>

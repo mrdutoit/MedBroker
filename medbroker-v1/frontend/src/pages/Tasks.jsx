@@ -306,7 +306,7 @@ function TaskRow({ task, onToggle, isAdmin, isMobile }) {
 
   return (
     <div style={{
-      borderBottom: '1px solid #f3f4f6',
+      borderBottom:'1px solid var(--line)',
       opacity: task.done ? 0.55 : 1,
       transition: 'opacity 0.2s',
     }}>
@@ -321,7 +321,7 @@ function TaskRow({ task, onToggle, isAdmin, isMobile }) {
           style={{
             width: '18px', height: '18px', borderRadius: '4px', flexShrink: 0, marginTop: '2px',
             border: task.done ? 'none' : '2px solid #d1d5db',
-            background: task.done ? '#1d4ed8' : 'white',
+            background:task.done ? 'var(--accent)' : 'var(--panel)',
             display: 'flex', alignItems: 'center', justifyContent: 'center',
             cursor: 'pointer', transition: 'all 0.15s',
           }}
@@ -337,7 +337,7 @@ function TaskRow({ task, onToggle, isAdmin, isMobile }) {
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'flex-start', gap: '8px', flexWrap: 'wrap' }}>
             <span style={{
-              fontSize: '0.875rem', fontWeight: 500, color: '#111827',
+              fontSize: '0.875rem', fontWeight: 500, color:'var(--ink)',
               textDecoration: task.done ? 'line-through' : 'none',
             }}>
               {task.title}
@@ -357,10 +357,10 @@ function TaskRow({ task, onToggle, isAdmin, isMobile }) {
                 {cat.label}
               </span>
               {/* Assignee */}
-              <span style={{ fontSize: '0.75rem', color: '#6b7280' }}>→ {task.assignedTo}</span>
+              <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>→ {task.assignedTo}</span>
               {/* Linked lead */}
               {task.linkedLead && (
-                <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>· {task.linkedLead}</span>
+                <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>· {task.linkedLead}</span>
               )}
             </div>
           )}
@@ -388,14 +388,14 @@ function TaskRow({ task, onToggle, isAdmin, isMobile }) {
       {expanded && (
         <div style={{
           marginLeft: '28px', marginBottom: '12px', padding: '12px',
-          background: '#f9fafb', borderRadius: '8px', fontSize: '0.8125rem',
+          background:'var(--panel2)', borderRadius: '8px', fontSize: '0.8125rem',
         }}>
           {task.detail && (
-            <p style={{ color: '#374151', marginBottom: '10px', lineHeight: 1.5 }}>{task.detail}</p>
+            <p style={{ color:'var(--ink)', marginBottom: '10px', lineHeight: 1.5 }}>{task.detail}</p>
           )}
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(3, 1fr)', gap: '8px' }}>
             <div>
-              <span style={{ fontSize: '0.6875rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Priority</span>
+              <span style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Priority</span>
               <div style={{ marginTop: '2px' }}>
                 <span style={{
                   fontSize: '0.75rem', fontWeight: 600, padding: '1px 7px', borderRadius: '10px',
@@ -406,24 +406,24 @@ function TaskRow({ task, onToggle, isAdmin, isMobile }) {
               </div>
             </div>
             <div>
-              <span style={{ fontSize: '0.6875rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assigned to</span>
-              <div style={{ fontSize: '0.8125rem', color: '#111827', marginTop: '2px', fontWeight: 500 }}>{task.assignedTo}</div>
+              <span style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assigned to</span>
+              <div style={{ fontSize: '0.8125rem', color:'var(--ink)', marginTop: '2px', fontWeight: 500 }}>{task.assignedTo}</div>
             </div>
             <div>
-              <span style={{ fontSize: '0.6875rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Source</span>
-              <div style={{ fontSize: '0.8125rem', color: '#111827', marginTop: '2px' }}>
+              <span style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Source</span>
+              <div style={{ fontSize: '0.8125rem', color:'var(--ink)', marginTop: '2px' }}>
                 {task.source === 'system' ? 'Auto-generated' : 'Manual'}
               </div>
             </div>
             {task.linkedLead && (
               <div>
-                <span style={{ fontSize: '0.6875rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Linked lead</span>
-                <div style={{ fontSize: '0.8125rem', color: '#1d4ed8', marginTop: '2px', fontWeight: 500 }}>{task.linkedLead}</div>
+                <span style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Linked lead</span>
+                <div style={{ fontSize: '0.8125rem', color:'var(--accent)', marginTop: '2px', fontWeight: 500 }}>{task.linkedLead}</div>
               </div>
             )}
             <div>
-              <span style={{ fontSize: '0.6875rem', color: '#9ca3af', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Created</span>
-              <div style={{ fontSize: '0.8125rem', color: '#111827', marginTop: '2px' }}>{task.createdAt}</div>
+              <span style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Created</span>
+              <div style={{ fontSize: '0.8125rem', color:'var(--ink)', marginTop: '2px' }}>{task.createdAt}</div>
             </div>
           </div>
         </div>
@@ -486,8 +486,8 @@ export default function Tasks() {
       {/* ── Header ──────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color: '#111827' }}>Tasks</h1>
-          <p style={{ margin: '3px 0 0', fontSize: '0.8125rem', color: '#6b7280' }}>
+          <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)' }}>Tasks</h1>
+          <p style={{ margin: '3px 0 0', fontSize: '0.8125rem', color:'var(--mut)' }}>
             Actions across appointments, callbacks, and scheduling
           </p>
         </div>
@@ -502,7 +502,7 @@ export default function Tasks() {
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '10px', marginBottom: '16px' }}>
         {metrics.map(m => (
           <div key={m.label} style={s.metricCard}>
-            <div style={{ fontSize: '0.6875rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
+            <div style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>
               {m.label}
             </div>
             <div style={{ fontSize: '1.5rem', fontWeight: 700, color: m.colour, lineHeight: 1 }}>
@@ -530,14 +530,14 @@ export default function Tasks() {
             {ASSIGNEES.map(a => <option key={a}>{a}</option>)}
           </select>
         )}
-        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8125rem', color: '#6b7280', cursor: 'pointer', marginLeft: 'auto' }}>
+        <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8125rem', color:'var(--mut)', cursor: 'pointer', marginLeft: 'auto' }}>
           <input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} />
           Show completed
         </label>
       </div>
 
       {/* ── Category tabs ───────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: '4px', overflowX: 'auto' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '4px', overflowX: 'auto' }}>
         {CATEGORIES.map(({ key, label }) => {
           const count = key === 'all'
             ? tasks.filter(t => !t.done && (!roleName || t.assignedTo === roleName)).length
@@ -575,7 +575,7 @@ export default function Tasks() {
       {/* ── Task list ───────────────────────────────────────────────────── */}
       <div style={s.card}>
         {filtered.length === 0 ? (
-          <div style={{ padding: '32px', textAlign: 'center', color: '#9ca3af', fontSize: '0.875rem' }}>
+          <div style={{ padding: '32px', textAlign: 'center', color:'var(--mut)', fontSize: '0.875rem' }}>
             {search || filterAssign !== 'All'
               ? 'No tasks match your filters.'
               : showDone ? 'No tasks in this category.' : 'No pending tasks. Good work.'}

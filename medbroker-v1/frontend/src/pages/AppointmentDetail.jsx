@@ -98,9 +98,9 @@ function StatusChip({ status }) {
 // ─── Field row ─────────────────────────────────────────────────────────────────
 function FieldRow({ label, children }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem' }}>
-      <span style={{ color: '#6b7280', flexShrink: 0, marginRight: '16px' }}>{label}</span>
-      <span style={{ color: '#111827', fontWeight: 500, textAlign: 'right' }}>{children}</span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom:'1px solid var(--line)', fontSize: '0.875rem' }}>
+      <span style={{ color:'var(--mut)', flexShrink: 0, marginRight: '16px' }}>{label}</span>
+      <span style={{ color:'var(--ink)', fontWeight: 500, textAlign: 'right' }}>{children}</span>
     </div>
   );
 }
@@ -209,7 +209,7 @@ function ReassignBrokerModal({ appointment, onClose }) {
         </div>
 
         {/* Context line */}
-        <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '16px' }}>
+        <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '16px' }}>
           {appointment.leadName} · Currently assigned to <strong>{appointment.brokerName}</strong>
         </p>
 
@@ -226,14 +226,14 @@ function ReassignBrokerModal({ appointment, onClose }) {
         <div style={{ marginBottom: '14px' }}>
           <label style={s.formLabel}>
             Agent
-            <span style={{ marginLeft: '6px', fontSize: '0.6875rem', color: '#9ca3af', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
+            <span style={{ marginLeft: '6px', fontSize: '0.6875rem', color:'var(--mut)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
               (read only)
             </span>
           </label>
           <div style={{
             ...s.formInput,
-            background: '#f9fafb',
-            color: '#6b7280',
+            background:'var(--panel2)',
+            color:'var(--mut)',
             cursor: 'not-allowed',
             display: 'flex',
             alignItems: 'center',
@@ -244,7 +244,7 @@ function ReassignBrokerModal({ appointment, onClose }) {
             </svg>
             {appointment.agentName}
           </div>
-          <p style={{ fontSize: '0.6875rem', color: '#9ca3af', marginTop: '4px' }}>
+          <p style={{ fontSize: '0.6875rem', color:'var(--mut)', marginTop: '4px' }}>
             Set when the appointment was booked. Cannot be changed here.
           </p>
         </div>
@@ -253,7 +253,7 @@ function ReassignBrokerModal({ appointment, onClose }) {
         <div style={{ marginBottom: '20px' }}>
           <label style={s.formLabel}>Reassign broker *</label>
           {appointment.brokerName && (
-            <p style={{ fontSize: '0.6875rem', color: '#6b7280', marginBottom: '6px' }}>
+            <p style={{ fontSize: '0.6875rem', color:'var(--mut)', marginBottom: '6px' }}>
               Current: {appointment.brokerName}
             </p>
           )}
@@ -269,7 +269,7 @@ function ReassignBrokerModal({ appointment, onClose }) {
             ))}
           </select>
           {broker && broker === appointment.brokerName && (
-            <p style={{ fontSize: '0.6875rem', color: '#9ca3af', marginTop: '4px' }}>
+            <p style={{ fontSize: '0.6875rem', color:'var(--mut)', marginTop: '4px' }}>
               Select a different broker to reassign.
             </p>
           )}
@@ -330,10 +330,10 @@ function ReturnToLeadsModal({ appointment, onClose }) {
             </svg>
           </button>
         </div>
-        <p style={{ fontSize: '0.875rem', color: '#111827', marginBottom: '10px' }}>
+        <p style={{ fontSize: '0.875rem', color:'var(--ink)', marginBottom: '10px' }}>
           This appointment will be returned to the unassigned leads queue.
         </p>
-        <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '20px', lineHeight: 1.5 }}>
+        <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '20px', lineHeight: 1.5 }}>
           The appointment record will be archived. The lead will be available to assign to the next available agent.
         </p>
         {error && (
@@ -447,8 +447,8 @@ export default function AppointmentDetail() {
             </svg>
           </button>
           <div>
-            <div style={{ fontSize: '1rem', fontWeight: 600, color: '#111827' }}>{appt.leadName} — Appointment</div>
-            <div style={{ fontSize: '0.8125rem', color: '#6b7280', marginTop: '1px' }}>
+            <div style={{ fontSize: '1rem', fontWeight: 600, color:'var(--ink)' }}>{appt.leadName} — Appointment</div>
+            <div style={{ fontSize: '0.8125rem', color:'var(--mut)', marginTop: '1px' }}>
               Booked from {appt.source} · Broker: {appt.brokerName}
             </div>
           </div>
@@ -483,7 +483,7 @@ export default function AppointmentDetail() {
           {appt.portfolio}
         </span>
         {appt.firstDate && (
-          <span style={{ fontSize: '0.8125rem', color: '#6b7280' }}>
+          <span style={{ fontSize: '0.8125rem', color:'var(--mut)' }}>
             First appointment: {appt.firstDate} {appt.firstTime} · {appt.address}
           </span>
         )}

@@ -121,10 +121,10 @@ export default function LeadImport() {
   return (
     <div style={{ ...s.page, maxWidth: '720px' }}>
       <button onClick={() => navigate('/leads')} style={s.backBtn}>← Back to Leads</button>
-      <h1 style={{ fontSize: '1.375rem', fontWeight: 600, color: '#111827', margin: '6px 0 18px' }}>Import Leads</h1>
+      <h1 style={{ fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)', margin: '6px 0 18px' }}>Import Leads</h1>
 
       {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '20px' }}>
         {[['csv', 'Historical CSV'], ['subscription', 'Medical Subscription'], ['manual', 'Manual Entry']].map(([key, label]) => (
           <button
             key={key}
@@ -147,7 +147,7 @@ export default function LeadImport() {
       {tab === 'csv' && (
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-            <p style={{ color: '#6b7280', fontSize: '0.875rem', margin: 0 }}>
+            <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
               Required columns: <strong>firstName</strong>, <strong>lastName</strong>, <strong>email</strong>
             </p>
             <button onClick={() => { const c = 'firstName,lastName,email,mobileNumber,occupation\n'; const b = new Blob([c], {type:'text/csv'}); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href=u; a.download='template.csv'; a.click(); }} style={s.secondaryBtn}>
@@ -173,14 +173,14 @@ export default function LeadImport() {
               border: `2px dashed ${csvFile ? '#86efac' : '#d1d5db'}`,
               borderRadius: '8px', padding: '36px', textAlign: 'center',
               cursor: 'pointer', marginBottom: '14px',
-              background: csvFile ? '#f0fdf4' : '#f9fafb',
+              background:csvFile ? 'color-mix(in srgb, var(--live) 10%, var(--panel))' : 'var(--panel2)',
             }}
           >
             <input ref={fileRef} type="file" accept=".csv" onChange={handleFileChange} style={{ display: 'none' }} />
             <div style={{ fontSize: '2rem', marginBottom: '8px' }}>{csvFile ? '✅' : '📁'}</div>
             {csvFile
               ? <p style={{ color: '#15803d', fontWeight: 500 }}>{csvFile.name} — {csvRows.length} valid rows found</p>
-              : <p style={{ color: '#6b7280' }}>Click to select a CSV file</p>
+              : <p style={{ color:'var(--mut)' }}>Click to select a CSV file</p>
             }
           </div>
 
@@ -203,7 +203,7 @@ export default function LeadImport() {
           {/* Preview */}
           {csvRows.length > 0 && (
             <div style={{ marginBottom: '14px' }}>
-              <p style={{ fontSize: '0.875rem', fontWeight: 500, color: '#374151', marginBottom: '8px' }}>
+              <p style={{ fontSize: '0.875rem', fontWeight: 500, color:'var(--ink)', marginBottom: '8px' }}>
                 Preview — first 3 rows:
               </p>
               <div style={s.tableCard}>
@@ -224,7 +224,7 @@ export default function LeadImport() {
                   </tbody>
                 </table>
               </div>
-              {csvRows.length > 3 && <p style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '6px' }}>…and {csvRows.length - 3} more rows</p>}
+              {csvRows.length > 3 && <p style={{ fontSize: '0.75rem', color:'var(--mut)', marginTop: '6px' }}>…and {csvRows.length - 3} more rows</p>}
             </div>
           )}
 
@@ -268,12 +268,12 @@ export default function LeadImport() {
             style={{
               border: `2px dashed ${subFile ? '#86efac' : '#d1d5db'}`,
               borderRadius: '8px', padding: '32px', textAlign: 'center', cursor: 'pointer', marginBottom: '14px',
-              background: subFile ? '#f0fdf4' : '#f9fafb',
+              background:subFile ? 'color-mix(in srgb, var(--live) 10%, var(--panel))' : 'var(--panel2)',
             }}
           >
             {subFile
               ? <p style={{ color: '#15803d', fontWeight: 500 }}>{subFile.name} selected</p>
-              : <p style={{ color: '#6b7280' }}>Click to select subscription CSV file</p>
+              : <p style={{ color:'var(--mut)' }}>Click to select subscription CSV file</p>
             }
           </div>
 

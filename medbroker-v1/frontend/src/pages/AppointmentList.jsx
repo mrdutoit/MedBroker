@@ -91,12 +91,12 @@ const BROKERS         = ['Sandra van der Berg','Pieter Joubert','Riaan Botha','M
 
 // ─── Badge helpers ─────────────────────────────────────────────────────────────
 function MeetingBadge({ status }) {
-  if (!status) return <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>—</span>;
+  if (!status) return <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>—</span>;
   const meta = MEETING_STATUS_META[status] ?? { colour: '#6b7280', bg: '#f3f4f6' };
   return <span style={{ ...s.badge, background: meta.bg, color: meta.colour, fontSize: '0.688rem' }}>{status}</span>;
 }
 function SignedBadge({ signed }) {
-  if (!signed) return <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>—</span>;
+  if (!signed) return <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>—</span>;
   return <span style={{ ...s.badge, fontSize: '0.688rem', background: signed === 'Yes' ? '#f0fdf4' : '#fef2f2', color: signed === 'Yes' ? '#15803d' : '#dc2626' }}>{signed}</span>;
 }
 function PortfolioBadge({ portfolio }) {
@@ -139,7 +139,7 @@ function BuyTokensModal({ onClose, paymentProvider }) {
           </div>
         ) : (
           <>
-            <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '14px' }}>
+            <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '14px' }}>
               Select a token pack. You will be redirected to a secure payment page.
             </p>
             {!done && PACKS.map((pack, i) => (
@@ -217,7 +217,7 @@ function AssignBrokerModal({ appointment, onClose, isAssign = false }) {
           <h2 style={s.modalTitle}>{isAssign ? 'Assign Broker' : 'Reassign Broker'}</h2>
           <button style={s.closeBtn} onClick={onClose}>✕</button>
         </div>
-        <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '14px' }}>
+        <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '14px' }}>
           {appointment.leadName} · {appointment.firstDate}
         </p>
 
@@ -225,13 +225,13 @@ function AssignBrokerModal({ appointment, onClose, isAssign = false }) {
         <div style={s.formGroup}>
           <label style={s.formLabel}>Qualified by (Agent)</label>
           <div style={{
-            padding: '9px 12px', borderRadius: '6px', background: '#f9fafb',
-            border: '1px solid #e5e7eb', fontSize: '0.875rem', color: '#374151',
+            padding: '9px 12px', borderRadius: '6px', background:'var(--panel2)',
+            border: '1px solid var(--line)', fontSize: '0.875rem', color:'var(--ink)',
             display: 'flex', alignItems: 'center', gap: '8px',
           }}>
-            <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>🔒</span>
+            <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>🔒</span>
             {appointment.agentName}
-            <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color: '#9ca3af' }}>Read only</span>
+            <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color:'var(--mut)' }}>Read only</span>
           </div>
           <div style={s.formHint}>
             The agent who booked this appointment is read only and cannot be changed here.
@@ -244,7 +244,7 @@ function AssignBrokerModal({ appointment, onClose, isAssign = false }) {
             {isAssign ? 'Assign broker *' : 'Reassign broker *'}
           </label>
           {!isAssign && appointment.brokerName && appointment.brokerName !== '—' && (
-            <div style={{ fontSize: '0.75rem', color: '#6b7280', marginBottom: '6px' }}>
+            <div style={{ fontSize: '0.75rem', color:'var(--mut)', marginBottom: '6px' }}>
               Currently assigned to: <strong>{appointment.brokerName}</strong>
             </div>
           )}
@@ -363,7 +363,7 @@ export default function AppointmentList() {
           <tbody>
             {rows.length === 0 && (
               <tr>
-                <td colSpan={12} style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>
+                <td colSpan={12} style={{ textAlign: 'center', padding: '40px', color:'var(--mut)' }}>
                   No appointments match your current filters.
                 </td>
               </tr>
@@ -380,10 +380,10 @@ export default function AppointmentList() {
                       {a.isToday && <span style={{ width: '7px', height: '7px', background: '#d97706', borderRadius: '50%', flexShrink: 0 }} />}
                       {a.leadName}
                     </div>
-                    <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{a.leadEmail}</div>
+                    <div style={{ fontSize: '0.75rem', color:'var(--mut)' }}>{a.leadEmail}</div>
                   </td>
                   <td style={s.td}><PortfolioBadge portfolio={a.portfolio} /></td>
-                  <td style={{ ...s.td, fontSize: '0.75rem', color: '#6b7280', maxWidth: '130px' }}>{a.source}</td>
+                  <td style={{ ...s.td, fontSize: '0.75rem', color:'var(--mut)', maxWidth: '130px' }}>{a.source}</td>
                   <td style={s.td}>
                     <span style={{ ...s.badge, background: sm.bg, color: sm.colour, border: `1px solid ${sm.border}` }}>
                       {a.status}
@@ -393,14 +393,14 @@ export default function AppointmentList() {
                     {a.firstDate}
                   </td>
                   {/* Agent — always present, always read-only */}
-                  <td style={{ ...s.td, fontSize: '0.8125rem', color: '#374151' }}>
+                  <td style={{ ...s.td, fontSize: '0.8125rem', color:'var(--ink)' }}>
                     {a.agentName}
                   </td>
                   <td style={s.td}><MeetingBadge status={a.m1} /></td>
                   <td style={s.td}><MeetingBadge status={a.m2} /></td>
                   <td style={s.td}><SignedBadge signed={a.signed} /></td>
                   {showBroker && !isBroker && (
-                    <td style={{ ...s.td, fontSize: '0.8125rem', color: '#6b7280' }}>{a.brokerName}</td>
+                    <td style={{ ...s.td, fontSize: '0.8125rem', color:'var(--mut)' }}>{a.brokerName}</td>
                   )}
                   <td style={{ ...s.td, whiteSpace: 'nowrap' }}>
                     <button onClick={() => navigate(`/appointments/${a.id}`)} style={s.linkBtn}>
@@ -422,14 +422,14 @@ export default function AppointmentList() {
                     {showAssignActions && !isUnassigned && (
                       <button
                         onClick={() => { setAssignTarget(a); setIsAssignMode(false); }}
-                        style={{ ...s.linkBtn, color: '#6b7280', marginLeft: '4px' }}
+                        style={{ ...s.linkBtn, color:'var(--mut)', marginLeft: '4px' }}
                       >
                         Reassign
                       </button>
                     )}
                     {/* In claim model — show info note instead of action buttons */}
                     {canManage && claimModel === 'claim' && isUnassigned && (
-                      <span style={{ fontSize: '0.688rem', color: '#9ca3af', marginLeft: '6px' }}>
+                      <span style={{ fontSize: '0.688rem', color:'var(--mut)', marginLeft: '6px' }}>
                         Broker will claim
                       </span>
                     )}
@@ -502,9 +502,9 @@ export default function AppointmentList() {
     if (!tokensEnabled) return null;
     const pct = Math.round((tokenBalance / monthlyAllocation) * 100);
     return (
-      <div style={{ background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '12px 16px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+      <div style={{ background:'var(--panel)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px 16px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '16px' }}>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: '0.75rem', fontWeight: 600, color: '#374151', marginBottom: '6px' }}>
+          <div style={{ fontSize: '0.75rem', fontWeight: 600, color:'var(--ink)', marginBottom: '6px' }}>
             Monthly token balance
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -536,8 +536,8 @@ export default function AppointmentList() {
 
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '18px' }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color: '#111827' }}>Appointments</h1>
-          <p style={{ margin: '3px 0 0', fontSize: '0.813rem', color: '#6b7280' }}>{subtitleMap[role] ?? ''}</p>
+          <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)' }}>Appointments</h1>
+          <p style={{ margin: '3px 0 0', fontSize: '0.813rem', color:'var(--mut)' }}>{subtitleMap[role] ?? ''}</p>
         </div>
       </div>
 
@@ -576,7 +576,7 @@ export default function AppointmentList() {
       {/* ── BROKER: CLAIM MODEL — two tabs ──────────────────────────────── */}
       {showClaimTabs && (
         <>
-          <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: '18px' }}>
+          <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '18px' }}>
             {[
               { key: 'mine',      label: 'My Appointments',    badge: MY_APPOINTMENTS.length + claimedIds.size },
               { key: 'available', label: 'Available to Claim', badge: availCount },
@@ -609,7 +609,7 @@ export default function AppointmentList() {
                   { label: 'Closed Won',        value: MY_APPOINTMENTS.filter(a => a.status === 'ClosedWon').length, colour: '#15803d' },
                 ].map(m => (
                   <div key={m.label} style={s.metricCard}>
-                    <div style={{ fontSize: '0.688rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>{m.label}</div>
+                    <div style={{ fontSize: '0.688rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>{m.label}</div>
                     <div style={{ fontSize: '1.5rem', fontWeight: 600, color: m.colour, lineHeight: 1 }}>{m.value}</div>
                   </div>
                 ))}
@@ -633,7 +633,7 @@ export default function AppointmentList() {
                 </span>
               </div>
               <TokenCard />
-              <div style={{ fontSize: '0.875rem', fontWeight: 600, color: '#111827', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <div style={{ fontSize: '0.875rem', fontWeight: 600, color:'var(--ink)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 Available to claim
                 <span style={{ ...s.badge, background: '#fffbeb', color: '#d97706', fontSize: '0.75rem' }}>{availCount} unassigned</span>
               </div>
@@ -660,8 +660,8 @@ export default function AppointmentList() {
                         <td style={{ ...s.td, fontSize: '0.8125rem' }}>{a.occupation}</td>
                         <td style={s.td}><PortfolioBadge portfolio={a.portfolio} /></td>
                         <td style={{ ...s.td, fontWeight: 500 }}>{a.date}</td>
-                        <td style={{ ...s.td, fontSize: '0.8125rem', color: '#6b7280' }}>{a.region}</td>
-                        <td style={{ ...s.td, fontSize: '0.75rem', color: '#6b7280' }}>{a.source}</td>
+                        <td style={{ ...s.td, fontSize: '0.8125rem', color:'var(--mut)' }}>{a.region}</td>
+                        <td style={{ ...s.td, fontSize: '0.75rem', color:'var(--mut)' }}>{a.source}</td>
                         <td style={s.td}>
                           <span style={{ ...s.badge, fontSize: '0.688rem', background: a.token === 'Free' ? '#f0fdf4' : '#fffbeb', color: a.token === 'Free' ? '#15803d' : '#d97706' }}>
                             {a.token}
@@ -675,11 +675,11 @@ export default function AppointmentList() {
                       </tr>
                     ))}
                     {availCount === 0 && (
-                      <tr><td colSpan={8} style={{ textAlign: 'center', padding: '36px', color: '#9ca3af' }}>No available appointments right now.</td></tr>
+                      <tr><td colSpan={8} style={{ textAlign: 'center', padding: '36px', color:'var(--mut)' }}>No available appointments right now.</td></tr>
                     )}
                   </tbody>
                 </table>
-                <div style={{ padding: '9px 14px', fontSize: '0.75rem', color: '#9ca3af', borderTop: '1px solid #e5e7eb', background: '#f9fafb' }}>
+                <div style={{ padding: '9px 14px', fontSize: '0.75rem', color:'var(--mut)', borderTop: '1px solid var(--line)', background:'var(--panel2)' }}>
                   Matched to your region (Gauteng) and portfolios (Discovery, M&M).
                 </div>
               </div>
@@ -699,7 +699,7 @@ export default function AppointmentList() {
               { label: 'Closed Won',  value: closedWon,   colour: '#15803d' },
             ].map(m => (
               <div key={m.label} style={s.metricCard}>
-                <div style={{ fontSize: '0.688rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>{m.label}</div>
+                <div style={{ fontSize: '0.688rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>{m.label}</div>
                 <div style={{ fontSize: '1.5rem', fontWeight: 600, color: m.colour, lineHeight: 1 }}>{m.value}</div>
               </div>
             ))}

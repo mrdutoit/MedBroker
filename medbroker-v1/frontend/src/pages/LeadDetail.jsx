@@ -113,9 +113,9 @@ const MOCK_CALLS = [
 // ─── Sub-components ────────────────────────────────────────────────────────────
 function Field({ label, value, children }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom: '1px solid #f3f4f6', fontSize: '0.875rem', gap: '12px' }}>
-      <span style={{ color: '#6b7280', flexShrink: 0 }}>{label}</span>
-      <span style={{ color: '#111827', fontWeight: 500, textAlign: 'right' }}>{children ?? value ?? '—'}</span>
+    <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom:'1px solid var(--line)', fontSize: '0.875rem', gap: '12px' }}>
+      <span style={{ color:'var(--mut)', flexShrink: 0 }}>{label}</span>
+      <span style={{ color:'var(--ink)', fontWeight: 500, textAlign: 'right' }}>{children ?? value ?? '—'}</span>
     </div>
   );
 }
@@ -190,16 +190,16 @@ export default function LeadDetail() {
     }
   }
 
-  const cardStyle = { background: 'white', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '16px 18px', marginBottom: '14px' };
-  const cardTitle = { fontSize: '0.875rem', fontWeight: 600, color: '#374151', marginBottom: '12px', paddingBottom: '8px', borderBottom: '1px solid #f3f4f6' };
+  const cardStyle = { background:'var(--panel)', border: '1px solid var(--line)', borderRadius: '8px', padding: '16px 18px', marginBottom: '14px' };
+  const cardTitle = { fontSize: '0.875rem', fontWeight: 600, color:'var(--ink)', marginBottom: '12px', paddingBottom: '8px', borderBottom:'1px solid var(--line)' };
   const btn = {
-    primary:   { background: '#1d4ed8', color: 'white', border: 'none', borderRadius: '6px', padding: '8px 14px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' },
-    secondary: { background: 'white', color: '#374151', border: '1px solid #d1d5db', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
-    ghost:     { background: 'none', color: '#6b7280', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
-    back:      { background: 'none', border: 'none', color: '#6b7280', cursor: 'pointer', fontSize: '0.813rem', padding: 0, fontFamily: 'inherit', marginBottom: '4px' },
+    primary:   { background:'var(--accent)', color:'white', border:'none', borderRadius:'var(--r-sm,8px)', padding:'8px 14px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' },
+    secondary: { background:'var(--panel)', color:'var(--ink)', border: '1px solid #d1d5db', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
+    ghost:     { background: 'none', color:'var(--mut)', border: '1px solid var(--line)', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
+    back:      { background: 'none', border: 'none', color:'var(--mut)', cursor: 'pointer', fontSize: '0.813rem', padding: 0, fontFamily: 'inherit', marginBottom: '4px' },
   };
   const inputStyle = { width: '100%', border: '1px solid #d1d5db', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box' };
-  const labelStyle = { display: 'block', fontSize: '0.8125rem', fontWeight: 500, color: '#374151', marginBottom: '5px' };
+  const labelStyle = { display: 'block', fontSize: '0.8125rem', fontWeight: 500, color:'var(--ink)', marginBottom: '5px' };
   const badge = (bg, text) => ({ display: 'inline-block', padding: '2px 9px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 500, background: bg, color: text });
 
   return (
@@ -209,7 +209,7 @@ export default function LeadDetail() {
       {isConverted && (
         <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: '6px', padding: '10px 14px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', fontSize: '0.875rem', color: '#15803d', flexWrap: 'wrap' }}>
           <span>✅ <strong>Appointment booked.</strong> This lead has been converted and is now in the Appointments list.</span>
-          <button onClick={() => navigate('/appointments')} style={{ background: '#15803d', color: 'white', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+          <button onClick={() => navigate('/appointments')} style={{ background:'var(--live)', color:'white', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
             View in Appointments →
           </button>
         </div>
@@ -219,7 +219,7 @@ export default function LeadDetail() {
       <button onClick={() => navigate('/leads')} style={btn.back}>← Back to Leads</button>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', margin: '6px 0 20px', gap: '12px', flexWrap: 'wrap' }}>
         <div>
-          <h1 style={{ fontSize: isMobile ? '1.25rem' : '1.5rem', fontWeight: 700, color: '#111827', margin: '0 0 6px' }}>
+          <h1 style={{ fontSize: isMobile ? '1.25rem' : '1.5rem', fontWeight: 700, color:'var(--ink)', margin: '0 0 6px' }}>
             Dr {baseLead.firstName} {baseLead.lastName}
           </h1>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
@@ -228,7 +228,7 @@ export default function LeadDetail() {
                 : currentStatus === 'AppointmentScheduled' ? 'Appt Scheduled'
                 : currentStatus}
             </span>
-            <span style={{ fontSize: '0.813rem', color: '#6b7280' }}>
+            <span style={{ fontSize: '0.813rem', color:'var(--mut)' }}>
               Added {baseLead.createdAt ? formatDistanceToNow(new Date(baseLead.createdAt), { addSuffix: true }) : '—'}
             </span>
           </div>
@@ -286,7 +286,7 @@ export default function LeadDetail() {
         {/* Call history */}
         <div style={cardStyle}>
           <div style={cardTitle}>Call History ({calls.length})</div>
-          {calls.length === 0 && <p style={{ color: '#9ca3af', fontSize: '0.875rem' }}>No call attempts yet.</p>}
+          {calls.length === 0 && <p style={{ color:'var(--mut)', fontSize: '0.875rem' }}>No call attempts yet.</p>}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
             {calls.map(call => {
               const oc = OUTCOME_COLOURS[call.outcome] ?? OUTCOME_COLOURS.NoAnswer;
@@ -299,11 +299,11 @@ export default function LeadDetail() {
                     <span style={{ ...badge(oc.bg, oc.text) }}>
                       {call.label ?? OUTCOME_LABELS[call.outcome] ?? call.outcome}
                     </span>
-                    <span style={{ fontSize: '0.75rem', color: '#9ca3af' }}>
+                    <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>
                       {format(new Date(call.attemptedAt), 'd MMM yyyy')}
                     </span>
                   </div>
-                  {call.notes && <p style={{ fontSize: '0.813rem', color: '#4b5563', marginTop: '4px' }}>{call.notes}</p>}
+                  {call.notes && <p style={{ fontSize: '0.813rem', color:'var(--mut)', marginTop: '4px' }}>{call.notes}</p>}
                   {call.callbackDateTime && (
                     <p style={{ fontSize: '0.75rem', color: '#d97706', marginTop: '2px' }}>
                       Callback: {format(new Date(call.callbackDateTime), 'd MMM yyyy HH:mm')}
@@ -319,20 +319,20 @@ export default function LeadDetail() {
       {/* ── Log Call Modal ── */}
       {showCallForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: isMobile ? '16px' : '0' }}>
-          <div style={{ background: 'white', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }}>
+          <div style={{ background:'var(--panel)', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '480px', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
               <h2 style={{ fontSize: '1.125rem', fontWeight: 600 }}>Log Call Attempt</h2>
-              <button onClick={() => setShowCallForm(false)} style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', color: '#6b7280' }}>✕</button>
+              <button onClick={() => setShowCallForm(false)} style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', color:'var(--mut)' }}>✕</button>
             </div>
 
             {/* Status transition preview */}
-            <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '6px', padding: '10px 12px', marginBottom: '14px', fontSize: '0.8125rem' }}>
-              <div style={{ color: '#6b7280', marginBottom: '4px' }}>Current status: <strong style={{ color: '#111827' }}>{currentStatus}</strong></div>
+            <div style={{ background:'var(--panel2)', border: '1px solid var(--line)', borderRadius: '6px', padding: '10px 12px', marginBottom: '14px', fontSize: '0.8125rem' }}>
+              <div style={{ color:'var(--mut)', marginBottom: '4px' }}>Current status: <strong style={{ color:'var(--ink)' }}>{currentStatus}</strong></div>
               {callForm.outcome && (() => {
                 const next = computeNewStatus(currentStatus, callForm.outcome);
                 return next !== currentStatus
                   ? <div style={{ color: '#d97706' }}>→ Will change to: <strong>{next}</strong></div>
-                  : <div style={{ color: '#6b7280' }}>→ Status will remain: <strong>{currentStatus}</strong></div>;
+                  : <div style={{ color:'var(--mut)' }}>→ Status will remain: <strong>{currentStatus}</strong></div>;
               })()}
             </div>
 
@@ -359,7 +359,7 @@ export default function LeadDetail() {
                   <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#15803d', marginBottom: '6px' }}>
                     🎉 Client contacted — would you like to book an appointment?
                   </div>
-                  <p style={{ fontSize: '0.8125rem', color: '#374151', margin: '0 0 10px' }}>
+                  <p style={{ fontSize: '0.8125rem', color:'var(--ink)', margin: '0 0 10px' }}>
                     Save this call and proceed to book an appointment with the prospect now.
                   </p>
                   <button
@@ -379,7 +379,7 @@ export default function LeadDetail() {
                       setCallForm({ outcome: '', notes: '', callbackDateTime: '' });
                       setShowBookForm(true);
                     }}
-                    style={{ background: '#15803d', color: 'white', border: 'none', borderRadius: '6px', padding: '8px 14px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' }}
+                    style={{ background:'var(--live)', color:'white', border: 'none', borderRadius: '6px', padding: '8px 14px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' }}
                   >
                     Save call &amp; Book Appointment →
                   </button>
@@ -398,12 +398,12 @@ export default function LeadDetail() {
       {/* ── Book Appointment Modal ── */}
       {showBookForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: isMobile ? '16px' : '0' }}>
-          <div style={{ background: 'white', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '520px', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }}>
+          <div style={{ background:'var(--panel)', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '520px', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
               <h2 style={{ fontSize: '1.125rem', fontWeight: 600 }}>Book Appointment</h2>
-              <button onClick={() => setShowBookForm(false)} style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', color: '#6b7280' }}>✕</button>
+              <button onClick={() => setShowBookForm(false)} style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', color:'var(--mut)' }}>✕</button>
             </div>
-            <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '14px' }}>
+            <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '14px' }}>
               Dr {baseLead.firstName} {baseLead.lastName} · {baseLead.occupation}
             </p>
             <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: '#1e40af' }}>
@@ -418,11 +418,11 @@ export default function LeadDetail() {
                 { name: 'Pieter Joubert',      slots: '3 appointments this week · Next slot: Tue, 14:00', best: false },
                 { name: 'Marelize Swart',      slots: '4 appointments this week · Next slot: Wed, 09:00', best: false },
               ].map((b, i) => (
-                <label key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', border: `1px solid ${i === 0 ? '#1d4ed8' : '#e5e7eb'}`, borderRadius: '6px', marginBottom: '6px', cursor: 'pointer', background: i === 0 ? '#eff6ff' : 'white' }}>
+                <label key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', border:`1px solid ${i === 0 ? 'var(--accent)' : 'var(--line)'}`, borderRadius: '6px', marginBottom: '6px', cursor: 'pointer', background:i === 0 ? 'color-mix(in srgb, var(--accent) 12%, var(--panel))' : 'var(--panel)' }}>
                   <input type="radio" name="book-broker" defaultChecked={i === 0} style={{ accentColor: '#1d4ed8' }} />
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{b.name}</div>
-                    <div style={{ fontSize: '0.75rem', color: '#6b7280' }}>{b.slots}</div>
+                    <div style={{ fontSize: '0.75rem', color:'var(--mut)' }}>{b.slots}</div>
                   </div>
                   {b.best && <span style={{ fontSize: '0.688rem', background: '#f0fdf4', color: '#15803d', borderRadius: '4px', padding: '2px 6px' }}>Most available</span>}
                 </label>
