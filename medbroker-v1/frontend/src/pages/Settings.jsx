@@ -29,6 +29,29 @@ export default function Settings() {
   const [displayName, setDisplayName] = useState(persona.displayName);
   const [avatar, setAvatar]           = useState(AVATAR_OPTIONS[0].value);
 
+  // Saved baseline — what was last committed
+  const [savedName,   setSavedName]   = useState(persona.displayName);
+  const [savedAvatar, setSavedAvatar] = useState(AVATAR_OPTIONS[0].value);
+  const [saveStatus,  setSaveStatus]  = useState(null); // null | 'saving' | 'saved'
+
+  const isDirty = displayName !== savedName || avatar !== savedAvatar;
+
+  function handleSave() {
+    if (!isDirty) return;
+    setSaveStatus('saving');
+    // Persist to sessionStorage for now; Users API will replace this
+    try {
+      sessionStorage.setItem('mb_displayName', displayName);
+      sessionStorage.setItem('mb_avatarColour', avatar);
+    } catch (_) {}
+    setTimeout(() => {
+      setSavedName(displayName);
+      setSavedAvatar(avatar);
+      setSaveStatus('saved');
+      setTimeout(() => setSaveStatus(null), 2500);
+    }, 400);
+  }
+
   return (
     <div style={{ padding: isMobile ? '12px' : '24px', maxWidth: '880px' }}>
       <div style={{ marginBottom: '18px' }}>
@@ -130,8 +153,37 @@ export default function Settings() {
               />
             ))}
           </div>
-          <button style={{ ...s.primaryBtn, marginTop: '16px' }}>Upload photo</button>
+          <button style={{ ...s.secondaryBtn, marginTop: '16px' }}>Upload photo</button>
         </div>
+      </div>
+
+      {/* ── Save row ─────────────────────────────────────────────────────── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '12px',
+        marginTop: '20px', paddingTop: '18px', borderTop: '1px solid var(--line)',
+      }}>
+        <button
+          onClick={handleSave}
+          disabled={!isDirty || saveStatus === 'saving'}
+          style={{
+            ...s.primaryBtn,
+            opacity: (!isDirty || saveStatus === 'saving') ? 0.45 : 1,
+            cursor:  (!isDirty || saveStatus === 'saving') ? 'default' : 'pointer',
+            transition: 'opacity 0.2s',
+          }}
+        >
+          {saveStatus === 'saving' ? 'Saving…' : 'Save changes'}
+        </button>
+        {saveStatus === 'saved' && (
+          <span style={{ fontSize: '0.8125rem', color: colors.success, fontWeight: 500 }}>
+            ✓ Changes saved
+          </span>
+        )}
+        {isDirty && saveStatus === null && (
+          <span style={{ fontSize: '0.8125rem', color: colors.ink500 }}>
+            You have unsaved changes
+          </span>
+        )}
       </div>
     </div>
   );
