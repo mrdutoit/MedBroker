@@ -478,7 +478,7 @@ export default function AppointmentDetail() {
         <span style={{
           display: 'inline-block', padding: '2px 9px', borderRadius: '20px',
           fontSize: '0.75rem', fontWeight: 500,
-          color: '#a78bfa', background: 'color-mix(in srgb, #7c3aed 14%, var(--panel))', border: '1px solid 'color-mix(in srgb, #7c3aed 30%, var(--panel))'',
+          color: '#a78bfa', background: 'color-mix(in srgb, #7c3aed 14%, var(--panel))', border: '1px solid color-mix(in srgb, #7c3aed 30%, var(--panel))'',
         }}>
           {appt.portfolio}
         </span>
