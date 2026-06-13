@@ -223,7 +223,7 @@ function FlagRow({ meta, rawValue, onSave }) {
           {meta.requiresRestart && (
             <span style={{
               fontSize: '0.625rem', fontWeight: 600, padding: '1px 6px', borderRadius: '10px',
-              background: 'color-mix(in srgb, #d97706 15%, var(--panel))', color: '#d97706', border: '1px solid color-mix(in srgb, #d97706 35%, var(--panel))'',
+              background: 'color-mix(in srgb, #d97706 15%, var(--panel))', color: '#d97706', border: '1px solid color-mix(in srgb, #d97706 35%, var(--panel))',
             }}>
               Restart required
             </span>

@@ -411,7 +411,7 @@ export default function AppointmentList() {
                       <button
                         onClick={() => { setAssignTarget(a); setIsAssignMode(true); }}
                         style={{
-                          background: 'color-mix(in srgb, #d97706 14%, var(--panel))', color: '#d97706', border: '1px solid color-mix(in srgb, #d97706 30%, var(--panel))'',
+                          background: 'color-mix(in srgb, #d97706 14%, var(--panel))', color: '#d97706', border: '1px solid color-mix(in srgb, #d97706 30%, var(--panel))',
                           borderRadius: '6px', padding: '3px 10px', cursor: 'pointer',
                           fontSize: '0.75rem', fontWeight: 500, fontFamily: 'inherit', marginLeft: '6px',
                         }}
