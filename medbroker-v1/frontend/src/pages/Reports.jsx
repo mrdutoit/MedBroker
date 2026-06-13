@@ -12,18 +12,33 @@
  *   Monthly   — current calendar month (May 2026)
  *   Quarterly — current quarter (Q2 2026: Apr–Jun)
  *   Yearly    — current calendar year (Jan–Dec 2026)
+ *
+ * Charts use Recharts (responsive, accessible, themed from styles/tokens.js).
+ * Role-based scoping and section visibility are unchanged from the prior build:
+ * management sees everything, supervisors see their direct reports, agents and
+ * brokers see only their own performance. Access control also lives in App.jsx.
  */
 
-import { useState }      from 'react';
-import { useNavigate }   from 'react-router-dom';
-import { useRole }        from '../context/RoleContext.jsx';
+import { useState }     from 'react';
+import { useNavigate }  from 'react-router-dom';
+import {
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
+  ResponsiveContainer, Cell, LabelList, Legend,
+} from 'recharts';
+import { useRole }       from '../context/RoleContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
-import { s }             from '../styles/tokens.js';
+import { s, colors, CHART_PALETTE } from '../styles/tokens.js';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 const fmt   = v => `R${(v / 1000000).toFixed(2)}m`;
 const fmtK  = v => v >= 1000 ? `R${(v / 1000).toFixed(0)}k` : `R${v}`;
 const pct   = (n, d) => d === 0 ? '0%' : `${Math.round(n / d * 100)}%`;
+
+const TOOLTIP_STYLE = {
+  background: 'var(--panel)', color: 'var(--ink)', border: `1px solid ${colors.line}`,
+  borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
+  fontSize: '0.75rem', padding: '8px 10px',
+};
 
 // ─── Period-aware mock data ────────────────────────────────────────────────────
 // Monthly   — ~1 month of activity (May 2026, partial — 20 days)
@@ -149,69 +164,56 @@ const TREND_LABELS = {
   Yearly:    'Monthly Lead Volume vs Closed Won',
 };
 
-// ─── Bar chart ──────────────────────────────────────────────────────────────────
+// ─── Trend chart (grouped bars: leads vs closed won) ────────────────────────────
 function TrendChart({ data }) {
-  const maxLeads = Math.max(...data.map(d => d.leads), 1);
   return (
-    <div>
-      <div style={{ display: 'flex', alignItems: 'flex-end', gap: '6px', height: '160px', paddingTop: '8px' }}>
-        {data.map((d, i) => {
-          const isFuture = d.leads === 0 && d.won === 0;
-          return (
-            <div key={i} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '3px', height: '100%', justifyContent: 'flex-end' }}>
-              {d.won > 0 && (
-                <span style={{ fontSize: '0.5625rem', color: '#10b981', fontWeight: 600 }}>{d.won}</span>
-              )}
-              <div style={{ width: '100%', display: 'flex', gap: '2px', alignItems: 'flex-end', height: '120px' }}>
-                <div style={{
-                  flex: 1, borderRadius: '3px 3px 0 0',
-                  background: isFuture ? '#f3f4f6' : '#bfdbfe',
-                  height: isFuture ? '4px' : `${Math.max(4, Math.round(d.leads / maxLeads * 100))}%`,
-                  transition: 'height 0.4s ease',
-                }} />
-                <div style={{
-                  flex: 1, borderRadius: '3px 3px 0 0',
-                  background: isFuture ? '#f3f4f6' : '#10b981',
-                  height: isFuture ? '4px' : `${Math.max(d.won > 0 ? 4 : 0, Math.round(d.won / maxLeads * 100))}%`,
-                  transition: 'height 0.4s ease',
-                }} />
-              </div>
-              <span style={{ fontSize: '0.625rem', color: isFuture ? '#d1d5db' : '#6b7280' }}>{d.label}</span>
-            </div>
-          );
-        })}
-      </div>
-      <div style={{ display: 'flex', gap: '14px', marginTop: '10px' }}>
-        <span style={{ fontSize: '0.6875rem', color: '#6b7280' }}><span style={{ color: '#60a5fa' }}>■</span> Leads</span>
-        <span style={{ fontSize: '0.6875rem', color: '#6b7280' }}><span style={{ color: '#10b981' }}>■</span> Closed Won</span>
-      </div>
+    <div style={{ width: '100%', height: '240px' }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={data} margin={{ top: 8, right: 4, left: -16, bottom: 0 }} barGap={3}>
+          <CartesianGrid vertical={false} stroke={CHART_PALETTE.grid} />
+          <XAxis dataKey="label" tick={{ fontSize: 11, fill: colors.ink500 }} axisLine={{ stroke: colors.line }} tickLine={false} />
+          <YAxis tick={{ fontSize: 11, fill: colors.ink400 }} axisLine={false} tickLine={false} width={34} />
+          <Tooltip
+            contentStyle={TOOLTIP_STYLE}
+            labelStyle={{ color: colors.ink, fontWeight: 600, marginBottom: 2 }}
+            cursor={{ fill: 'rgba(37,99,235,0.05)' }}
+          />
+          <Legend
+            iconType="circle" iconSize={8}
+            wrapperStyle={{ fontSize: '0.6875rem', color: colors.ink500, paddingTop: 6 }}
+          />
+          <Bar dataKey="leads" name="Leads"      fill={CHART_PALETTE.leads} radius={[4, 4, 0, 0]} maxBarSize={34} />
+          <Bar dataKey="won"   name="Closed Won" fill={CHART_PALETTE.won}   radius={[4, 4, 0, 0]} maxBarSize={34} />
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }
 
-// ─── Pipeline funnel ──────────────────────────────────────────────────────────
+// ─── Pipeline breakdown (horizontal bars, one colour per status) ────────────────
 function PipelineFunnel({ data }) {
   const total = data.reduce((a, b) => a + b.count, 0);
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-      {data.map(row => (
-        <div key={row.status}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-            <span style={{ fontSize: '0.8125rem', color: '#374151' }}>{row.status}</span>
-            <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: '#111827' }}>
-              {row.count.toLocaleString()}{' '}
-              <span style={{ fontWeight: 400, color: '#9ca3af' }}>({Math.round(row.count / total * 100)}%)</span>
-            </span>
-          </div>
-          <div style={{ background: '#f3f4f6', borderRadius: '4px', height: '8px' }}>
-            <div style={{
-              background: row.colour,
-              width: `${Math.max(2, Math.round(row.count / total * 100))}%`,
-              height: '100%', borderRadius: '4px', transition: 'width 0.5s',
-            }} />
-          </div>
-        </div>
-      ))}
+    <div style={{ width: '100%', height: '240px' }}>
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart layout="vertical" data={data} margin={{ top: 0, right: 28, left: 8, bottom: 0 }}>
+          <CartesianGrid horizontal={false} stroke={CHART_PALETTE.grid} />
+          <XAxis type="number" hide />
+          <YAxis
+            type="category" dataKey="status" width={118}
+            tick={{ fontSize: 11, fill: colors.ink700 }} axisLine={false} tickLine={false}
+          />
+          <Tooltip
+            contentStyle={TOOLTIP_STYLE}
+            cursor={{ fill: 'rgba(37,99,235,0.05)' }}
+            formatter={(value) => [`${value.toLocaleString()} (${Math.round(value / total * 100)}%)`, 'Leads']}
+          />
+          <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={22}>
+            {data.map((row, i) => <Cell key={i} fill={row.colour} />)}
+            <LabelList dataKey="count" position="right" style={{ fontSize: 11, fill: colors.ink500, fontWeight: 600 }} />
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }
@@ -295,23 +297,20 @@ export default function Reports() {
       {/* ── Header + period selector ─────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color: '#111827' }}>Reports</h1>
-          <p style={{ margin: '3px 0 0', fontSize: '0.8125rem', color: '#6b7280' }}>
+          <h1 style={s.pageTitle}>Reports</h1>
+          <p style={s.pageSubtitle}>
             {selfView ? `Your performance · ${PERIOD_LABELS[period]}` : PERIOD_LABELS[period]}
           </p>
         </div>
-        <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
-          {['Monthly', 'Quarterly', 'Yearly'].map(p => (
+        <div style={s.segment}>
+          {['Monthly', 'Quarterly', 'Yearly'].map((p, i) => (
             <button
               key={p}
               onClick={() => setPeriod(p)}
               style={{
-                padding: '6px 14px', border: 'none', cursor: 'pointer',
-                fontSize: '0.8125rem', fontFamily: 'inherit', fontWeight: period === p ? 600 : 400,
-                background: period === p ? '#1d4ed8' : 'white',
-                color:      period === p ? 'white'   : '#6b7280',
-                borderRight: p !== 'Yearly' ? '1px solid #e5e7eb' : 'none',
-                transition: 'background 0.15s, color 0.15s',
+                ...s.segmentBtn,
+                ...(period === p ? s.segmentBtnActive : {}),
+                borderRight: i !== 2 ? `1px solid ${colors.line}` : 'none',
               }}
             >
               {p}
@@ -322,16 +321,16 @@ export default function Reports() {
 
       {/* ── KPI summary ─────────────────────────────────────────────────── */}
       {noSelfData ? (
-        <div style={{ ...s.card, marginBottom: '16px', color: '#6b7280', fontSize: '0.875rem' }}>
+        <div style={{ ...s.card, marginBottom: '16px', color: colors.ink500, fontSize: '0.875rem' }}>
           No reporting data for your account in this period.
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
           {kpis.map(c => (
             <div key={c.label} style={s.card}>
-              <div style={{ fontSize: '0.6875rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{c.label}</div>
-              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: '#111827', lineHeight: 1.1 }}>{c.value}</div>
-              <div style={{ fontSize: '0.75rem', color: '#9ca3af', marginTop: '3px' }}>{c.sub}</div>
+              <div style={s.kpiLabel}>{c.label}</div>
+              <div style={{ ...s.kpiValue, marginTop: '6px' }}>{c.value}</div>
+              <div style={s.kpiSub}>{c.sub}</div>
             </div>
           ))}
         </div>
@@ -354,8 +353,10 @@ export default function Reports() {
       {/* ── Broker performance ──────────────────────────────────────────── */}
       {showBrokerTable && (
       <div style={{ ...s.tableCard, overflowX: 'auto', marginBottom: '16px' }}>
-        <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid #f3f4f6' }}>
-          <h2 style={s.cardTitle}>{isBrokerView ? 'My Performance' : 'Broker Performance'}</h2>
+        <div style={{ padding: '14px 16px 12px', borderBottom: `1px solid ${colors.lineSoft}` }}>
+          <h2 style={{ ...s.cardTitle, marginBottom: 0, paddingBottom: 0, borderBottom: 'none' }}>
+            {isBrokerView ? 'My Performance' : 'Broker Performance'}
+          </h2>
         </div>
         <table style={{ ...s.table, minWidth: '600px' }}>
           <thead>
@@ -378,42 +379,39 @@ export default function Reports() {
                   <td style={s.td}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
                       {!selfView && i === 0 && <span title="Top performer">🏆</span>}
-                      <span style={{ fontWeight: 500, color: '#111827' }}>{b.name}</span>
+                      <span style={{ fontWeight: 600, color: colors.ink }}>{b.name}</span>
                     </div>
                   </td>
                   <td style={s.td}>
                     <span style={{
-                      fontSize: '0.75rem', padding: '2px 8px', borderRadius: '10px',
-                      background: b.portfolio === 'Discovery' ? '#eff6ff' : '#f5f3ff',
-                      color: b.portfolio === 'Discovery' ? '#1d4ed8' : '#7c3aed',
-                      fontWeight: 500,
+                      fontSize: '0.75rem', padding: '2px 10px', borderRadius: '999px',
+                      background: b.portfolio === 'Discovery' ? colors.primarySoft : 'color-mix(in srgb, var(--accent2) 16%, transparent)',
+                      color: b.portfolio === 'Discovery' ? colors.primary : 'var(--accent2)',
+                      fontWeight: 600,
                     }}>
                       {b.portfolio}
                     </span>
                   </td>
                   <td style={{ ...s.td, textAlign: 'right' }}>{b.appts}</td>
                   <td style={{ ...s.td, textAlign: 'right' }}>{b.signed}</td>
-                  <td style={{ ...s.td, textAlign: 'right', fontWeight: 600, color: '#15803d' }}>
+                  <td style={{ ...s.td, textAlign: 'right', fontWeight: 600, color: colors.success }}>
                     {fmt(b.policyValue)}
                   </td>
                   <td style={{ ...s.td, textAlign: 'right' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
-                      <div style={{ width: '50px', background: '#f3f4f6', borderRadius: '4px', height: '6px' }}>
+                      <div style={{ width: '50px', background: colors.surfaceSubtle, borderRadius: '999px', height: '6px', overflow: 'hidden' }}>
                         <div style={{
                           width: `${Math.round(b.signed / b.appts * 100)}%`,
-                          background: '#10b981', height: '100%', borderRadius: '4px',
+                          background: colors.success, height: '100%', borderRadius: '999px',
                         }} />
                       </div>
-                      <span style={{ fontSize: '0.8125rem', fontWeight: 500 }}>
+                      <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>
                         {pct(b.signed, b.appts)}
                       </span>
                     </div>
                   </td>
                   <td style={s.td}>
-                    <button
-                      style={{ background: 'none', border: 'none', color: '#1d4ed8', fontSize: '0.8125rem', cursor: 'pointer', fontFamily: 'inherit', padding: '2px 6px', borderRadius: '4px' }}
-                      onClick={() => navigate(`/reports/broker/${b.id}`)}
-                    >
+                    <button style={s.viewBtn} onClick={() => navigate(`/reports/broker/${b.id}`)}>
                       View →
                     </button>
                   </td>
@@ -427,8 +425,10 @@ export default function Reports() {
       {/* ── Agent activity ──────────────────────────────────────────────── */}
       {showAgentTable && (
       <div style={{ ...s.tableCard, overflowX: 'auto' }}>
-        <div style={{ padding: '14px 16px 10px', borderBottom: '1px solid #f3f4f6' }}>
-          <h2 style={s.cardTitle}>{isAgentView ? 'My Activity' : 'Agent Activity'}</h2>
+        <div style={{ padding: '14px 16px 12px', borderBottom: `1px solid ${colors.lineSoft}` }}>
+          <h2 style={{ ...s.cardTitle, marginBottom: 0, paddingBottom: 0, borderBottom: 'none' }}>
+            {isAgentView ? 'My Activity' : 'Agent Activity'}
+          </h2>
         </div>
         <table style={{ ...s.table, minWidth: '560px' }}>
           <thead>
@@ -445,21 +445,18 @@ export default function Reports() {
           <tbody>
             {agents.map(a => (
               <tr key={a.id} style={s.tr}>
-                <td style={{ ...s.td, fontWeight: 500, color: '#111827' }}>{a.name}</td>
+                <td style={{ ...s.td, fontWeight: 600, color: colors.ink }}>{a.name}</td>
                 <td style={{ ...s.td, textAlign: 'right' }}>{a.leads.toLocaleString()}</td>
                 <td style={{ ...s.td, textAlign: 'right' }}>{a.calls.toLocaleString()}</td>
                 <td style={{ ...s.td, textAlign: 'right' }}>{a.appts}</td>
                 <td style={{ ...s.td, textAlign: 'right' }}>
                   {a.callbacks > 3
-                    ? <span style={{ color: '#d97706', fontWeight: 500 }}>{a.callbacks}</span>
+                    ? <span style={{ color: colors.warn, fontWeight: 600 }}>{a.callbacks}</span>
                     : a.callbacks}
                 </td>
-                <td style={{ ...s.td, textAlign: 'right', fontWeight: 500 }}>{a.conversion}</td>
+                <td style={{ ...s.td, textAlign: 'right', fontWeight: 600 }}>{a.conversion}</td>
                 <td style={s.td}>
-                  <button
-                    style={{ background: 'none', border: 'none', color: '#1d4ed8', fontSize: '0.8125rem', cursor: 'pointer', fontFamily: 'inherit', padding: '2px 6px', borderRadius: '4px' }}
-                    onClick={() => navigate(`/reports/agent/${a.id}`)}
-                  >
+                  <button style={s.viewBtn} onClick={() => navigate(`/reports/agent/${a.id}`)}>
                     View →
                   </button>
                 </td>
