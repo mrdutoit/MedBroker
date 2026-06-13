@@ -151,7 +151,7 @@ function Toggle({ value, onChange, disabled }) {
       onClick={() => !disabled && onChange(!on)}
       style={{
         width: '42px', height: '24px', borderRadius: '12px', flexShrink: 0,
-        background: on ? '#1d4ed8' : '#e5e7eb',
+        background: on ? 'var(--accent)' : 'color-mix(in srgb, var(--mut) 30%, var(--panel))',
         position: 'relative', cursor: disabled ? 'not-allowed' : 'pointer',
         transition: 'background 0.2s', opacity: disabled ? 0.4 : 1,
       }}
@@ -222,7 +222,7 @@ function FlagRow({ meta, rawValue, onSave }) {
           {meta.requiresRestart && (
             <span style={{
               fontSize: '0.625rem', fontWeight: 600, padding: '1px 6px', borderRadius: '10px',
-              background: '#fef3c7', color: '#92400e', border: '1px solid #fde68a',
+              background: 'color-mix(in srgb, #d97706 15%, var(--panel))', color: '#d97706', border: '1px solid color-mix(in srgb, #d97706 35%, var(--panel))',
             }}>
               Restart required
             </span>
@@ -296,16 +296,16 @@ export default function FeatureFlags() {
                 padding: '9px 18px', border: 'none', background: 'none', cursor: 'pointer',
                 fontSize: '0.875rem', fontFamily: 'inherit',
                 fontWeight: activeTier === key ? 600 : 400,
-                color: activeTier === key ? '#1d4ed8' : '#6b7280',
-                borderBottom: activeTier === key ? '2px solid #1d4ed8' : '2px solid transparent',
+                color: activeTier === key ? 'var(--accent)' : 'var(--mut)',
+                borderBottom: activeTier === key ? '2px solid var(--accent)' : '2px solid transparent',
                 marginBottom: '-1px', display: 'flex', alignItems: 'center', gap: '7px',
               }}
             >
               {meta.label}
               <span style={{
                 fontSize: '0.6875rem',
-                background: activeTier === key ? '#eff6ff' : '#f3f4f6',
-                color: activeTier === key ? '#1d4ed8' : '#9ca3af',
+                background: activeTier === key ? 'color-mix(in srgb, var(--accent) 15%, var(--panel))' : 'var(--panel2)',
+                color: activeTier === key ? 'var(--accent)' : 'var(--mut)',
                 borderRadius: '10px', padding: '1px 6px',
               }}>
                 {count}
