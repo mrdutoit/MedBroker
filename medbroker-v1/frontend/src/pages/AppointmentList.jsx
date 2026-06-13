@@ -373,8 +373,8 @@ export default function AppointmentList() {
               const isUnassigned = a.status === 'Unassigned';
               return (
                 <tr key={a.id} style={s.tr}
-                  onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'white'}>
+                  onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
+                  onMouseLeave={e => e.currentTarget.style.background = ''}>
                   <td style={s.td}>
                     <div style={{ fontWeight: 500, display: 'flex', alignItems: 'center', gap: '5px' }}>
                       {a.isToday && <span style={{ width: '7px', height: '7px', background: '#d97706', borderRadius: '50%', flexShrink: 0 }} />}
@@ -654,8 +654,8 @@ export default function AppointmentList() {
                   <tbody>
                     {AVAILABLE_TO_CLAIM.filter(a => !claimedIds.has(a.id)).map(a => (
                       <tr key={a.id} style={s.tr}
-                        onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
-                        onMouseLeave={e => e.currentTarget.style.background = 'white'}>
+                        onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
+                        onMouseLeave={e => e.currentTarget.style.background = ''}>
                         <td style={{ ...s.td, fontWeight: 500 }}>{a.leadName}</td>
                         <td style={{ ...s.td, fontSize: '0.8125rem' }}>{a.occupation}</td>
                         <td style={s.td}><PortfolioBadge portfolio={a.portfolio} /></td>

@@ -153,7 +153,7 @@ export default function EventDetail() {
           <tbody>
             {filtered.map(a => (
               <tr key={a.id} style={s.tr}
-                onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
+                onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
                 onMouseLeave={e => e.currentTarget.style.background = ''}
               >
                 <td style={{ ...s.td, fontWeight: 500 }}>{a.name}</td>

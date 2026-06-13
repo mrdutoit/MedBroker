@@ -352,8 +352,8 @@ export default function UserAdmin() {
                 <tr
                   key={user.id}
                   style={s.tr}
-                  onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'white'}
+                  onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
+                  onMouseLeave={e => e.currentTarget.style.background = ''}
                 >
                   <td style={s.td}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

@@ -358,8 +358,8 @@ export default function LeadList() {
                   const sm = STATUS_META[lead.pipelineStatus] ?? STATUS_META.Unassigned;
                   return (
                     <tr key={lead.id} style={s.tr}
-                      onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
-                      onMouseLeave={e => e.currentTarget.style.background = 'white'}>
+                      onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
+                      onMouseLeave={e => e.currentTarget.style.background = ''}>
                       <td style={s.td}>
                         <div style={{ fontWeight: 500 }}>{lead.firstName} {lead.lastName}</div>
                         <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '1px' }}>{lead.email}</div>

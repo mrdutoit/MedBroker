@@ -231,7 +231,7 @@ export default function AgentDetail() {
               const oc = OUTCOME_COLOUR[lead.outcome] ?? { bg: '#f3f4f6', colour: '#6b7280' };
               return (
                 <tr key={lead.name} style={s.tr}
-                  onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
+                  onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
                   onMouseLeave={e => e.currentTarget.style.background = ''}
                 >
                   <td style={{ ...s.td, fontWeight: 500 }}>{lead.name}</td>

@@ -225,7 +225,7 @@ export default function BrokerDetail() {
                 : { bg: '#f5f3ff', colour: '#7c3aed' };
               return (
                 <tr key={a.name} style={s.tr}
-                  onMouseEnter={e => e.currentTarget.style.background = '#f9fafb'}
+                  onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
                   onMouseLeave={e => e.currentTarget.style.background = ''}
                 >
                   <td style={{ ...s.td, fontWeight: 500 }}>{a.name}</td>
