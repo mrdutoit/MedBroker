@@ -103,7 +103,7 @@ function ReassignLeadModal({ lead, onClose, isAssign = false }) {
           <h2 style={s.modalTitle}>{isAssign ? 'Assign Lead' : 'Reassign Lead'}</h2>
           <button style={s.closeBtn} onClick={onClose}>✕</button>
         </div>
-        <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '16px' }}>
+        <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '16px' }}>
           {lead.firstName} {lead.lastName}
           {isAssign
             ? ' · This lead is currently unassigned'
@@ -235,8 +235,8 @@ export default function LeadList() {
       {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '18px' }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color: '#111827' }}>Leads</h1>
-          <p style={{ margin: '3px 0 0', fontSize: '0.813rem', color: '#6b7280' }}>{subtitle}</p>
+          <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)' }}>Leads</h1>
+          <p style={{ margin: '3px 0 0', fontSize: '0.813rem', color:'var(--mut)' }}>{subtitle}</p>
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button onClick={refetch} style={s.secondaryBtn}>Refresh</button>
@@ -320,12 +320,12 @@ export default function LeadList() {
         )}
       </div>
 
-      {loading && <p style={{ color: '#6b7280', fontSize: '0.875rem' }}>Loading leads…</p>}
+      {loading && <p style={{ color:'var(--mut)', fontSize: '0.875rem' }}>Loading leads…</p>}
       {error && <div style={s.errorBox}>Could not load leads: {error.message}</div>}
 
       {!loading && !error && data && (
         <>
-          <div style={{ marginBottom: '8px', fontSize: '0.813rem', color: '#6b7280' }}>
+          <div style={{ marginBottom: '8px', fontSize: '0.813rem', color:'var(--mut)' }}>
             {data.total} lead{data.total !== 1 ? 's' : ''}
             {activeStatus !== 'All' ? ` · ${STATUS_META[activeStatus]?.label ?? activeStatus}` : ''}
             {occFilter   ? ` · ${occFilter}`      : ''}
@@ -349,7 +349,7 @@ export default function LeadList() {
               <tbody>
                 {data.leads.length === 0 && (
                   <tr>
-                    <td colSpan={isAgent ? 6 : 7} style={{ textAlign: 'center', padding: '40px', color: '#9ca3af' }}>
+                    <td colSpan={isAgent ? 6 : 7} style={{ textAlign: 'center', padding: '40px', color:'var(--mut)' }}>
                       No leads match your current filters.
                     </td>
                   </tr>
@@ -362,21 +362,21 @@ export default function LeadList() {
                       onMouseLeave={e => e.currentTarget.style.background = ''}>
                       <td style={s.td}>
                         <div style={{ fontWeight: 500 }}>{lead.firstName} {lead.lastName}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#6b7280', marginTop: '1px' }}>{lead.email}</div>
+                        <div style={{ fontSize: '0.75rem', color:'var(--mut)', marginTop: '1px' }}>{lead.email}</div>
                       </td>
                       <td style={{ ...s.td, fontSize: '0.8125rem' }}>{lead.occupation ?? '—'}</td>
-                      <td style={{ ...s.td, fontSize: '0.75rem', color: '#6b7280' }}>{lead.sourceLabel ?? '—'}</td>
+                      <td style={{ ...s.td, fontSize: '0.75rem', color:'var(--mut)' }}>{lead.sourceLabel ?? '—'}</td>
                       <td style={s.td}>
                         <span style={{ ...s.badge, background: sm.bg, color: sm.colour, border: `1px solid ${sm.border}` }}>
                           {sm.label}
                         </span>
                       </td>
                       {!isAgent && (
-                        <td style={{ ...s.td, color: '#6b7280', fontSize: '0.813rem' }}>
+                        <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.813rem' }}>
                           {lead.agentName ?? '—'}
                         </td>
                       )}
-                      <td style={{ ...s.td, color: '#9ca3af', fontSize: '0.75rem' }}>
+                      <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.75rem' }}>
                         {lead.createdAt ? formatDistanceToNow(new Date(lead.createdAt), { addSuffix: true }) : '—'}
                       </td>
                       <td style={{ ...s.td, whiteSpace: 'nowrap' }}>
@@ -398,7 +398,7 @@ export default function LeadList() {
                         {canReassign && lead.pipelineStatus !== 'Unassigned' && (
                           <button
                             onClick={() => { setReassignTarget(lead); setIsAssignMode(false); }}
-                            style={{ ...s.linkBtn, color: '#6b7280', marginLeft: '4px' }}
+                            style={{ ...s.linkBtn, color:'var(--mut)', marginLeft: '4px' }}
                           >
                             Reassign
                           </button>
@@ -414,7 +414,7 @@ export default function LeadList() {
           {totalPages > 1 && (
             <div style={{ display: 'flex', gap: '8px', marginTop: '14px', alignItems: 'center' }}>
               <button onClick={() => setPage(p => p - 1)} disabled={page <= 1} style={s.secondaryBtn}>Previous</button>
-              <span style={{ fontSize: '0.875rem', color: '#6b7280' }}>Page {page} of {totalPages}</span>
+              <span style={{ fontSize: '0.875rem', color:'var(--mut)' }}>Page {page} of {totalPages}</span>
               <button onClick={() => setPage(p => p + 1)} disabled={page >= totalPages} style={s.secondaryBtn}>Next</button>
             </div>
           )}

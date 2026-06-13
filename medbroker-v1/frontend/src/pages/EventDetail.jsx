@@ -75,8 +75,8 @@ export default function EventDetail() {
       <button onClick={() => navigate('/events')} style={s.backBtn}>← Back to Events</button>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', margin: '8px 0 20px', flexWrap: 'wrap', gap: '10px' }}>
         <div>
-          <h1 style={{ fontSize: '1.375rem', fontWeight: 700, color: '#111827', margin: '0 0 4px' }}>{event.name}</h1>
-          <p style={{ color: '#6b7280', fontSize: '0.875rem', margin: 0 }}>
+          <h1 style={{ fontSize: '1.375rem', fontWeight: 700, color:'var(--ink)', margin: '0 0 4px' }}>{event.name}</h1>
+          <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
             {event.university} · {format(new Date(event.eventDate), 'd MMMM yyyy')} · {event.venue}
           </p>
         </div>
@@ -98,7 +98,7 @@ export default function EventDetail() {
           { label: 'Attendance rate', value: `${attendancePct}%`,                                    colour: '#0891b2' },
         ].map(c => (
           <div key={c.label} style={s.metricCard}>
-            <div style={{ fontSize: '0.6875rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>{c.label}</div>
+            <div style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>{c.label}</div>
             <div style={{ fontSize: '1.5rem', fontWeight: 700, color: c.colour }}>{c.value}</div>
           </div>
         ))}
@@ -107,7 +107,7 @@ export default function EventDetail() {
       {/* Attendance rate bar */}
       <div style={{ ...s.card, marginBottom: '16px' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '6px' }}>
-          <span style={{ fontSize: '0.875rem', color: '#374151', fontWeight: 500 }}>Overall attendance</span>
+          <span style={{ fontSize: '0.875rem', color:'var(--ink)', fontWeight: 500 }}>Overall attendance</span>
           <span style={{ fontSize: '0.875rem', fontWeight: 600, color: '#15803d' }}>
             {event.attendedCount + event.walkinCount} of {event.rsvpCount} RSVPs ({attendancePct}%)
           </span>
@@ -119,14 +119,14 @@ export default function EventDetail() {
           </div>
         </div>
         <div style={{ display: 'flex', gap: '16px', marginTop: '6px' }}>
-          <span style={{ fontSize: '0.75rem', color: '#6b7280' }}><span style={{ color: '#10b981' }}>■</span> RSVP attended</span>
-          <span style={{ fontSize: '0.75rem', color: '#6b7280' }}><span style={{ color: '#8b5cf6' }}>■</span> Walk-ins</span>
+          <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}><span style={{ color: '#10b981' }}>■</span> RSVP attended</span>
+          <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}><span style={{ color: '#8b5cf6' }}>■</span> Walk-ins</span>
         </div>
       </div>
 
       {/* Attendee list */}
       <div style={{ ...s.tableCard, overflowX: 'auto' }}>
-        <div style={{ padding: '14px 18px', borderBottom: '1px solid #e5e7eb', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
           <h2 style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>Attendees</h2>
           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
             {[['all','All'],['attended','Attended'],['rsvp','RSVP'],['walkin','Walk-in'],['noshow','No-show']].map(([key, label]) => (
@@ -157,17 +157,17 @@ export default function EventDetail() {
                 onMouseLeave={e => e.currentTarget.style.background = ''}
               >
                 <td style={{ ...s.td, fontWeight: 500 }}>{a.name}</td>
-                <td style={{ ...s.td, color: '#6b7280' }}>{a.email}</td>
+                <td style={{ ...s.td, color:'var(--mut)' }}>{a.email}</td>
                 <td style={s.td}>{a.occupation}</td>
                 <td style={s.td}><YesNo value={a.rsvp} /></td>
                 <td style={s.td}><YesNo value={a.attended} /></td>
-                <td style={{ ...s.td, color: '#9ca3af', fontSize: '0.8125rem' }}>
+                <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>
                   {format(new Date(a.registeredAt), 'd MMM HH:mm')}
                 </td>
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: '#9ca3af' }}>
+              <tr><td colSpan={6} style={{ textAlign: 'center', padding: '24px', color:'var(--mut)' }}>
                 No attendees match this filter.
               </td></tr>
             )}
@@ -188,7 +188,7 @@ export default function EventDetail() {
               </button>
             </div>
             {/* SVG QR placeholder — in production generate from qrToken */}
-            <div style={{ background: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: '8px', padding: '24px', marginBottom: '14px', display: 'inline-block' }}>
+            <div style={{ background:'var(--panel2)', border: '1px solid var(--line)', borderRadius: '8px', padding: '24px', marginBottom: '14px', display: 'inline-block' }}>
               <svg width="160" height="160" viewBox="0 0 160 160" fill="none">
                 <rect x="10" y="10" width="60" height="60" rx="4" fill="#111827"/>
                 <rect x="90" y="10" width="60" height="60" rx="4" fill="#111827"/>
@@ -208,8 +208,8 @@ export default function EventDetail() {
                 <rect x="110" y="130" width="14" height="14" fill="#111827"/>
               </svg>
             </div>
-            <p style={{ fontSize: '0.8125rem', color: '#6b7280', marginBottom: '4px' }}>Students scan this code to register</p>
-            <p style={{ fontSize: '0.75rem', color: '#9ca3af', wordBreak: 'break-all', marginBottom: '16px' }}>{regUrl}</p>
+            <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '4px' }}>Students scan this code to register</p>
+            <p style={{ fontSize: '0.75rem', color:'var(--mut)', wordBreak: 'break-all', marginBottom: '16px' }}>{regUrl}</p>
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'center' }}>
               <button style={s.primaryBtn}>Download PNG</button>
               <button onClick={() => setShowQr(false)} style={s.secondaryBtn}>Close</button>

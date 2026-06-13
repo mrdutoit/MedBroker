@@ -160,7 +160,7 @@ function Toggle({ value, onChange, disabled }) {
         position: 'absolute', top: '3px',
         left: on ? '21px' : '3px',
         width: '18px', height: '18px', borderRadius: '50%',
-        background: 'white', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
+        background:'var(--panel)', boxShadow: '0 1px 3px rgba(0,0,0,0.2)',
         transition: 'left 0.2s',
       }} />
     </div>
@@ -190,7 +190,7 @@ function FlagRow({ meta, rawValue, onSave }) {
   return (
     <div style={{
       display: 'flex', alignItems: 'flex-start', gap: '14px',
-      padding: '14px 0', borderBottom: '1px solid #f3f4f6',
+      padding: '14px 0', borderBottom:'1px solid var(--line)',
       opacity: isLocked ? 0.5 : 1,
     }}>
       {/* Control */}
@@ -204,8 +204,8 @@ function FlagRow({ meta, rawValue, onSave }) {
             onChange={e => setLocalValue(e.target.value)}
             disabled={isLocked}
             style={{
-              border: '1px solid #e5e7eb', borderRadius: '6px', padding: '4px 8px',
-              fontSize: '0.8125rem', background: 'white', cursor: isLocked ? 'not-allowed' : 'pointer',
+              border: '1px solid var(--line)', borderRadius: '6px', padding: '4px 8px',
+              fontSize: '0.8125rem', background:'var(--panel)', cursor: isLocked ? 'not-allowed' : 'pointer',
               fontFamily: 'inherit', minWidth: '110px',
             }}
           >
@@ -217,8 +217,8 @@ function FlagRow({ meta, rawValue, onSave }) {
       {/* Label and description */}
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '3px', flexWrap: 'wrap' }}>
-          <span style={{ fontSize: '0.875rem', fontWeight: 500, color: '#111827' }}>{meta.label}</span>
-          <span style={{ fontSize: '0.6875rem', color: '#9ca3af', fontFamily: 'monospace' }}>{meta.key}</span>
+          <span style={{ fontSize: '0.875rem', fontWeight: 500, color:'var(--ink)' }}>{meta.label}</span>
+          <span style={{ fontSize: '0.6875rem', color:'var(--mut)', fontFamily: 'monospace' }}>{meta.key}</span>
           {meta.requiresRestart && (
             <span style={{
               fontSize: '0.625rem', fontWeight: 600, padding: '1px 6px', borderRadius: '10px',
@@ -230,13 +230,13 @@ function FlagRow({ meta, rawValue, onSave }) {
           {isLocked && (
             <span style={{
               fontSize: '0.625rem', fontWeight: 600, padding: '1px 6px', borderRadius: '10px',
-              background: '#f3f4f6', color: '#9ca3af',
+              background:'var(--panel2)', color:'var(--mut)',
             }}>
               Phase 2 — not yet available
             </span>
           )}
         </div>
-        <p style={{ margin: 0, fontSize: '0.8125rem', color: '#6b7280', lineHeight: 1.5 }}>{meta.description}</p>
+        <p style={{ margin: 0, fontSize: '0.8125rem', color:'var(--mut)', lineHeight: 1.5 }}>{meta.description}</p>
       </div>
 
       {/* Save action */}
@@ -250,7 +250,7 @@ function FlagRow({ meta, rawValue, onSave }) {
               disabled={saving}
               style={{
                 padding: '4px 12px', borderRadius: '6px', border: 'none',
-                background: '#1d4ed8', color: 'white', fontSize: '0.8125rem',
+                background:'var(--accent)', color:'white', fontSize:'0.8125rem',
                 cursor: saving ? 'wait' : 'pointer', fontFamily: 'inherit', fontWeight: 500,
               }}
             >
@@ -273,8 +273,8 @@ export default function FeatureFlags() {
   return (
     <div style={s.page}>
       <div style={{ marginBottom: '20px' }}>
-        <h1 style={{ margin: '0 0 4px', fontSize: '1.375rem', fontWeight: 600, color: '#111827' }}>Feature Flags</h1>
-        <p style={{ margin: 0, fontSize: '0.875rem', color: '#6b7280' }}>
+        <h1 style={{ margin: '0 0 4px', fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)' }}>Feature Flags</h1>
+        <p style={{ margin: 0, fontSize: '0.875rem', color:'var(--mut)' }}>
           Control which features are active for this deployment. Changes take effect immediately unless marked "Restart required".
         </p>
       </div>
@@ -285,7 +285,7 @@ export default function FeatureFlags() {
       </div>
 
       {/* Tier tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '20px' }}>
         {Object.entries(TIER_META).map(([key, meta]) => {
           const count = FLAG_META.filter(f => f.tier === key).length;
           return (

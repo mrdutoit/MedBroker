@@ -80,7 +80,7 @@ const PERIOD_LABELS = {
 const fmt = n => `R${(n / 1000000).toFixed(2)}m`;
 
 function MeetingBadge({ status }) {
-  if (!status) return <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>—</span>;
+  if (!status) return <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>—</span>;
   const meta = {
     Seen:        { bg: '#f0fdf4', colour: '#15803d' },
     Rescheduled: { bg: '#fffbeb', colour: '#d97706' },
@@ -91,7 +91,7 @@ function MeetingBadge({ status }) {
 }
 
 function SignedBadge({ signed }) {
-  if (!signed) return <span style={{ color: '#9ca3af', fontSize: '0.75rem' }}>—</span>;
+  if (!signed) return <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>—</span>;
   return (
     <span style={{
       ...s.badge, fontSize: '0.6875rem',
@@ -130,23 +130,23 @@ export default function BrokerDetail() {
       )}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', margin: '6px 0 18px', flexWrap: 'wrap', gap: '10px' }}>
         <div>
-          <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color: '#111827' }}>
+          <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)' }}>
             Broker Detail — {meta.name}
           </h1>
-          <p style={{ margin: '3px 0 0', fontSize: '0.8125rem', color: '#6b7280' }}>
+          <p style={{ margin: '3px 0 0', fontSize: '0.8125rem', color:'var(--mut)' }}>
             Performance report · {PERIOD_LABELS[period]} · {meta.region} · {meta.portfolio}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
           {/* Period selector */}
-          <div style={{ display: 'flex', border: '1px solid #e5e7eb', borderRadius: '8px', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', border: '1px solid var(--line)', borderRadius: '8px', overflow: 'hidden' }}>
             {['Monthly','Quarterly','Yearly'].map(p => (
               <button key={p} onClick={() => setPeriod(p)} style={{
                 padding: '5px 12px', border: 'none', cursor: 'pointer',
                 fontSize: '0.8125rem', fontFamily: 'inherit', fontWeight: period === p ? 600 : 400,
                 background: period === p ? '#1d4ed8' : 'white',
                 color:      period === p ? 'white'   : '#6b7280',
-                borderRight: p !== 'Yearly' ? '1px solid #e5e7eb' : 'none',
+                borderRight: p !== 'Yearly' ? '1px solid var(--line)' : 'none',
                 transition: 'background 0.15s',
               }}>
                 {p}
@@ -167,7 +167,7 @@ export default function BrokerDetail() {
           { label: 'Broker switches', value: kpi.switches.toString(),      colour: '#111827' },
         ].map(m => (
           <div key={m.label} style={s.metricCard}>
-            <div style={{ fontSize: '0.6875rem', color: '#6b7280', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{m.label}</div>
+            <div style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{m.label}</div>
             <div style={{ fontSize: '1.5rem', fontWeight: 700, color: m.colour, lineHeight: 1 }}>{m.value}</div>
           </div>
         ))}
@@ -181,7 +181,7 @@ export default function BrokerDetail() {
           {PRODUCTS_SOLD.map(p => (
             <div key={p.name} style={{ marginBottom: '9px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-                <span style={{ fontSize: '0.8125rem', color: '#374151' }}>{p.name}</span>
+                <span style={{ fontSize: '0.8125rem', color:'var(--ink)' }}>{p.name}</span>
                 <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>{p.count}</span>
               </div>
               <div style={s.barTrack}>
@@ -197,7 +197,7 @@ export default function BrokerDetail() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>
             {MEETING_SUMMARY.map(row => (
               <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}>
-                <span style={{ color: '#6b7280' }}>{row.label}</span>
+                <span style={{ color:'var(--mut)' }}>{row.label}</span>
                 <span style={{ fontWeight: row.bold ? 700 : 500, color: row.colour }}>{row.value}</span>
               </div>
             ))}
@@ -207,7 +207,7 @@ export default function BrokerDetail() {
 
       {/* Recent appointments */}
       <div style={{ ...s.tableCard, overflowX: 'auto' }}>
-        <div style={{ padding: '12px 16px', borderBottom: '1px solid #f3f4f6' }}>
+        <div style={{ padding: '12px 16px', borderBottom:'1px solid var(--line)' }}>
           <div style={s.cardTitle}>Recent Appointments</div>
         </div>
         <table style={{ ...s.table, minWidth: '600px' }}>
@@ -235,7 +235,7 @@ export default function BrokerDetail() {
                   <td style={s.td}><MeetingBadge status={a.m1} /></td>
                   <td style={s.td}><MeetingBadge status={a.m2} /></td>
                   <td style={s.td}><SignedBadge  signed={a.signed} /></td>
-                  <td style={{ ...s.td, fontSize: '0.8125rem', color: '#6b7280' }}>
+                  <td style={{ ...s.td, fontSize: '0.8125rem', color:'var(--mut)' }}>
                     {a.signed === 'Yes' ? 'Life Insurance, Income Protection' : '—'}
                   </td>
                 </tr>

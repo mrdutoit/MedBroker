@@ -50,9 +50,9 @@ export default function AppAdmin() {
 
   return (
     <div style={s.page}>
-      <h1 style={{ margin: '0 0 18px', fontSize: '1.375rem', fontWeight: 600, color: '#111827' }}>App Administration</h1>
+      <h1 style={{ margin: '0 0 18px', fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)' }}>App Administration</h1>
 
-      <div style={{ display: 'flex', borderBottom: '1px solid #e5e7eb', marginBottom: '20px' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '20px' }}>
         {[['portfolios', 'Portfolios'], ['products', 'Products'], ['subscriptions', 'Medical Subscriptions'], ['settings', 'System Settings'], ['audit', 'Audit Log']].map(([key, label]) => (
           <button
             key={key}
@@ -75,7 +75,7 @@ export default function AppAdmin() {
       {tab === 'portfolios' && (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <p style={{ color: '#6b7280', fontSize: '0.875rem', margin: 0 }}>
+            <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
               Portfolios define the business unit a broker or agent operates under.
             </p>
             <button style={s.primaryBtn}>+ Add Portfolio</button>
@@ -94,14 +94,14 @@ export default function AppAdmin() {
                 <tr style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
                   <td style={{ ...s.td, fontWeight: 500 }}>Discovery</td>
                   <td style={s.td}>3</td><td style={s.td}>3</td>
-                  <td style={{ ...s.td, color: '#1d4ed8', fontWeight: 600 }}>487</td>
+                  <td style={{ ...s.td, color:'var(--accent)', fontWeight: 600 }}>487</td>
                   <td style={s.td}><span style={{ ...s.badge, background: '#f0fdf4', color: '#15803d' }}>Active</span></td>
                   <td style={s.td}><button style={s.linkBtn}>Edit</button></td>
                 </tr>
                 <tr style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
                   <td style={{ ...s.td, fontWeight: 500 }}>Money and Medicine</td>
                   <td style={s.td}>2</td><td style={s.td}>2</td>
-                  <td style={{ ...s.td, color: '#1d4ed8', fontWeight: 600 }}>214</td>
+                  <td style={{ ...s.td, color:'var(--accent)', fontWeight: 600 }}>214</td>
                   <td style={s.td}><span style={{ ...s.badge, background: '#f0fdf4', color: '#15803d' }}>Active</span></td>
                   <td style={s.td}><button style={s.linkBtn}>Edit</button></td>
                 </tr>
@@ -115,7 +115,7 @@ export default function AppAdmin() {
       {tab === 'products' && (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <p style={{ color: '#6b7280', fontSize: '0.875rem', margin: 0 }}>
+            <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
               Products belong to a portfolio and are selectable as products sold on an appointment.
             </p>
             <button style={s.primaryBtn}>+ Add Product</button>
@@ -156,7 +156,7 @@ export default function AppAdmin() {
       {tab === 'subscriptions' && (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <p style={{ color: '#6b7280', fontSize: '0.875rem', margin: 0 }}>
+            <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
               Medical lead subscriptions. When importing, select a subscription and the name is used as the lead source.
             </p>
             <button style={s.primaryBtn}>+ Add Subscription</button>
@@ -175,9 +175,9 @@ export default function AppAdmin() {
                 {MOCK_SUBSCRIPTIONS.map(sub => (
                   <tr key={sub.name} style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
                     <td style={{ ...s.td, fontWeight: 500 }}>{sub.name}</td>
-                    <td style={{ ...s.td, color: '#6b7280', fontSize: '0.8125rem' }}>{sub.provider}</td>
+                    <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>{sub.provider}</td>
                     <td style={s.td}>{sub.imported}</td>
-                    <td style={{ ...s.td, color: '#6b7280', fontSize: '0.8125rem' }}>{sub.lastImport}</td>
+                    <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>{sub.lastImport}</td>
                     <td style={s.td}>
                       <span style={{ ...s.badge,
                         background: sub.status === 'Active' ? '#f0fdf4' : '#fffbeb',
@@ -198,7 +198,7 @@ export default function AppAdmin() {
       {/* System Settings */}
       {tab === 'settings' && (
         <div style={{ maxWidth: '600px' }}>
-          <p style={{ color: '#6b7280', fontSize: '0.875rem', marginBottom: '20px' }}>
+          <p style={{ color:'var(--mut)', fontSize: '0.875rem', marginBottom: '20px' }}>
             System-wide configuration values. Changes take effect immediately without a deployment.
           </p>
 
@@ -218,7 +218,7 @@ export default function AppAdmin() {
             <div style={s.formGroup}>
               <label style={s.formLabel}>
                 Free appointments per broker per month *
-                <span style={{ marginLeft: '8px', fontSize: '0.75rem', color: '#9ca3af', fontWeight: 400 }}>
+                <span style={{ marginLeft: '8px', fontSize: '0.75rem', color:'var(--mut)', fontWeight: 400 }}>
                   (stored in SystemConfig.brokerFreeAppointmentsPerMonth)
                 </span>
               </label>
@@ -229,7 +229,7 @@ export default function AppAdmin() {
                   onChange={e => setMonthlyTokens(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
                   style={{ ...s.formInput, width: '100px' }}
                 />
-                <span style={{ fontSize: '0.875rem', color: '#6b7280' }}>per month</span>
+                <span style={{ fontSize: '0.875rem', color:'var(--mut)' }}>per month</span>
               </div>
               <div style={s.formHint}>
                 Recommended: 10. Applies to all brokers. Individual overrides are not currently supported.
@@ -247,7 +247,7 @@ export default function AppAdmin() {
             <div style={s.formGroup}>
               <label style={s.formLabel}>
                 Return to queue after *
-                <span style={{ marginLeft: '8px', fontSize: '0.75rem', color: '#9ca3af', fontWeight: 400 }}>
+                <span style={{ marginLeft: '8px', fontSize: '0.75rem', color:'var(--mut)', fontWeight: 400 }}>
                   (stored in SystemConfig.leadAutoUnassignMonths)
                 </span>
               </label>
@@ -258,7 +258,7 @@ export default function AppAdmin() {
                   onChange={e => setAutoReturnMonths(Math.max(1, Math.min(24, parseInt(e.target.value) || 6)))}
                   style={{ ...s.formInput, width: '100px' }}
                 />
-                <span style={{ fontSize: '0.875rem', color: '#6b7280' }}>months without closure</span>
+                <span style={{ fontSize: '0.875rem', color:'var(--mut)' }}>months without closure</span>
               </div>
               <div style={s.formHint}>
                 Default: 6 months. The auto-return job runs daily at 07:00.
@@ -272,7 +272,7 @@ export default function AppAdmin() {
             <div style={s.formGroup}>
               <label style={s.formLabel}>
                 Maximum call attempts before lead is marked Uncontactable *
-                <span style={{ marginLeft: '8px', fontSize: '0.75rem', color: '#9ca3af', fontWeight: 400 }}>
+                <span style={{ marginLeft: '8px', fontSize: '0.75rem', color:'var(--mut)', fontWeight: 400 }}>
                   (stored in SystemConfig.maxCallAttempts)
                 </span>
               </label>
@@ -283,7 +283,7 @@ export default function AppAdmin() {
                   onChange={e => setMaxCallAttempts(Math.max(1, Math.min(20, parseInt(e.target.value) || 3)))}
                   style={{ ...s.formInput, width: '100px' }}
                 />
-                <span style={{ fontSize: '0.875rem', color: '#6b7280' }}>attempts</span>
+                <span style={{ fontSize: '0.875rem', color:'var(--mut)' }}>attempts</span>
               </div>
               <div style={s.formHint}>Default: 3 attempts.</div>
             </div>
@@ -298,7 +298,7 @@ export default function AppAdmin() {
       {tab === 'audit' && (
         <>
           <div style={{ marginBottom: '12px' }}>
-            <p style={{ color: '#6b7280', fontSize: '0.875rem', margin: '0 0 6px' }}>
+            <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: '0 0 6px' }}>
               Immutable record of significant system actions for FAIS Act and POPIA compliance.
               Entries are written by the system and cannot be edited or deleted.
             </p>
@@ -323,19 +323,19 @@ export default function AppAdmin() {
                     onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
                     onMouseLeave={e => e.currentTarget.style.background = ''}
                   >
-                    <td style={{ ...s.td, color: '#6b7280', fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
+                    <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
                       {entry.timestamp}
                     </td>
                     <td style={{ ...s.td, fontWeight: 500, fontSize: '0.8125rem' }}>{entry.action}</td>
                     <td style={s.td}>
                       <span style={{
                         ...s.badge, fontSize: '0.688rem',
-                        background: '#f3f4f6', color: '#374151',
+                        background:'var(--panel2)', color:'var(--ink)',
                       }}>
                         {entry.entity}
                       </span>
                     </td>
-                    <td style={{ ...s.td, color: '#6b7280', fontSize: '0.8125rem', maxWidth: '260px' }}>
+                    <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem', maxWidth: '260px' }}>
                       {entry.entityRef}
                     </td>
                     <td style={{ ...s.td, fontSize: '0.8125rem' }}>{entry.performedBy}</td>
