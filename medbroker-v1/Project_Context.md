@@ -136,13 +136,21 @@ Frontend: FlagContext.jsx — fetches from GET /api/flags on startup,
 
 Tier: Core (vary per customer — review at onboarding)
   auth.sso.enabled                boolean  false
-  auth.sso.provider               enum     none | microsoft | google
+  auth.sso.provider               enum     none | microsoft | google   [sub: auth.sso.enabled = true]
   appointments.claimModel         enum     assign | claim
-  appointments.tokens.enabled     boolean  false
-  appointments.tokens.paymentProvider enum none | stripe
+  appointments.tokens.paymentProvider enum none | stripe               [sub: claimModel = 'claim']
   events.enabled                  boolean  true
   leads.autoUnassign.enabled      boolean  true
   tasks.enabled                   boolean  false   ← Core (page is built, off by default)
+
+  NOTE (18 Jun): appointments.tokens.enabled has been removed as a flag. The
+  token economy is a feature of claim mode, not a separately configurable toggle.
+  FlagContext.jsx DEFAULT_FLAGS and FeatureFlags.jsx FLAG_META no longer carry
+  it. AppointmentList.jsx derives tokensEnabled = (claimModel === 'claim') directly.
+  feature-flags.sql updated to remove the seed row and add a DELETE for re-run
+  safety. tasks.enabled also corrected in the SQL from Phase2 to Core.
+  The [sub: …] annotations above indicate dependsOn relationships enforced in the
+  FeatureFlags.jsx UI — sub-settings are hidden unless their parent condition is met.
 
 Tier: Operational (can be changed at any time)
   leads.importCsv.enabled         boolean  true
@@ -169,11 +177,15 @@ CLAIM MODEL flag (appointments.claimModel):
   To test: switch to GlobalAdmin → Feature Flags → change to 'claim' → Save
            → switch to Broker → Appointments page shows two tabs.
 
-TOKEN MODEL:
-  Monthly allocation set in AppAdmin → System Settings.
+TOKEN MODEL (active when claimModel = 'claim'):
+  Monthly allocation set in AppAdmin → System Settings → Broker Token Allocation
+  (this card only appears when claimModel = 'claim').
   Brokers receive brokerFreeAppointmentsPerMonth free claims per month.
   Additional claims cost tokens; buy via BuyTokensModal.
-  Stripe integration gated behind appointments.tokens.paymentProvider = 'stripe'.
+  Stripe integration gated behind appointments.tokens.paymentProvider = 'stripe'
+  (this sub-setting appears only in claim mode).
+  appointments.tokens.enabled no longer exists as a flag — claim mode implies
+  the token economy. AppointmentList.jsx derives tokensEnabled from claimModel.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -541,6 +553,22 @@ BrokerDetail / AgentDetail layouts (13 Jun 2026):
     silently. Save Outcome now persists via the API and shows error/saving states.
   - Backend is partially built (Leads domain, auth, db, broker matching), not
     absent as an earlier Status.md claimed — see Status.md §4.
+
+Feature flag dependsOn visibility and token flag removal (18 Jun 2026):
+  FeatureFlags.jsx now enforces dependsOn metadata — sub-settings are hidden
+  when their parent flag condition isn't met. This was always the design intent
+  (metadata already existed); it just wasn't wired into the render.
+  - auth.sso.provider: hidden unless auth.sso.enabled = true
+  - appointments.tokens.paymentProvider: hidden unless claimModel = 'claim'
+    (was previously gated on appointments.tokens.enabled, which is now removed)
+  - appointments.tokens.enabled removed entirely: claim mode and the token
+    economy are the same feature in the MedBroker business model — a separate
+    toggle for "claim mode on, but no token economy" serves no real use case.
+    AppointmentList.jsx derives tokensEnabled = (claimModel === 'claim') directly.
+    feature-flags.sql updated in the same pass: seed row removed from MERGE
+    VALUES, explicit DELETE added for re-run safety, and tasks.enabled corrected
+    from Phase2/isPhase2=1 to Core/isPhase2=0 (pre-existing inconsistency
+    between SQL and frontend — the Tasks page is built and functional).
 
 Frontend UI/UX fixes (18 Jun 2026):
   - LeadDetail / AppointmentDetail joined BrokerDetail/AgentDetail/Reports in

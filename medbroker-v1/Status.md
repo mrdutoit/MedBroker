@@ -171,6 +171,36 @@ before handover. Build passes: 1294 modules, zero errors.
      the chosen theme rather than the OS. This corrects (not reverts) the
      13 Jun colorScheme rule — see §6.
 
+  ✅ FeatureFlags.jsx — Token payment provider had no visibility logic despite
+     its dependsOn: { key: 'appointments.tokens.enabled', value: true }
+     metadata already being correctly defined. The dependsOn field existed on
+     two flags but was never consumed in the render. Fixed by adding a second
+     .filter() to visibleFlags that evaluates dependsOn against the live
+     flags state (with the same boolean coercion the FlagContext flag()
+     helper uses). Result: Token payment provider is hidden until Broker
+     token economy is on; Broker token economy is hidden until Appointment
+     workflow is set to Claim — both from pre-existing metadata, now active.
+
+  ✅ appointments.tokens.enabled removed as a flag. The token economy is a
+     claim-mode feature, not a separately configurable toggle. Three changes:
+     (1) FeatureFlags.jsx FLAG_META — Broker token economy row removed;
+         appointments.claimModel description updated to note it activates the
+         token economy; appointments.tokens.paymentProvider.dependsOn updated
+         to point at claimModel === 'claim' directly (removing the intermediate
+         hop through the now-deleted flag).
+     (2) FlagContext.jsx DEFAULT_FLAGS — appointments.tokens.enabled removed.
+     (3) AppointmentList.jsx — tokensEnabled now derived as
+         claimModel === 'claim' rather than read from the flags map.
+     (4) infra/feature-flags.sql — seed row removed from MERGE VALUES;
+         DELETE statement added to clean up any already-seeded DB; also
+         corrected tasks.enabled from Phase2/isPhase2=1 to Core/isPhase2=0
+         (pre-existing inconsistency — the Tasks page is built and functional)
+         with a matching UPDATE correction for already-seeded DBs.
+
+  ✅ auth.sso.provider — dependsOn: { key: 'auth.sso.enabled', value: true }
+     added to FLAG_META. Provider sub-setting is now hidden unless SSO is
+     enabled, consistent with the same pattern applied to the token flags.
+
 ── 18 June 2026 session (security hardening — encryption & access control review, A1-A4) ──
 Requested as a follow-up Security Architect pass focused specifically on
 encryption and access control, beyond the 10 Jun C1-C9/eight-area checklist.
@@ -635,15 +665,18 @@ SKILLS INSTALLATION
   ⬜ app-builder.skill — needs update with 13 June learnings (see §0).
   ⬜ code-nodejs skill — needs update with JSX quoting rule (see §0).
 
-GITHUB — files changed 18 June 2026 (frontend UI/UX — flag-gating, full-width, meeting flow, portfolio pills, theme-aware date picker):
+GITHUB — files changed 18 June 2026 (frontend UI/UX — flag-gating, full-width, meeting flow, portfolio pills, theme-aware date picker, dependsOn visibility, token flag removal):
   All files verified with a full Vite production build before handover
   (1294 modules, zero errors).
   ✅ frontend/src/pages/AppAdmin.jsx            (flag-gated Broker Token Allocation + Lead Auto-Return cards)
   ✅ frontend/src/pages/AppointmentDetail.jsx   (maxWidth removed; meeting create-flow; portfolio pill; status bar removed)
+  ✅ frontend/src/pages/AppointmentList.jsx     (tokensEnabled derived from claimModel directly)
   ✅ frontend/src/pages/LeadDetail.jsx          (maxWidth removed; new Lead Detail card with pills; header decluttered)
-  ✅ frontend/src/pages/FeatureFlags.jsx        (inline select: removed colorScheme override)
+  ✅ frontend/src/pages/FeatureFlags.jsx        (colorScheme removed; dependsOn filter; tokens.enabled row removed; sso.provider sub-setting)
   ✅ frontend/src/styles/tokens.js              (s.select/s.formInput: removed colorScheme override)
   ✅ frontend/src/themes.css                    (color-scheme: light/dark added per [data-theme] block)
+  ✅ frontend/src/context/FlagContext.jsx       (appointments.tokens.enabled removed from DEFAULT_FLAGS)
+  ✅ infra/feature-flags.sql                   (tokens.enabled seed row removed; DELETE + UPDATE corrections added; tasks.enabled corrected to Core)
 
 GITHUB — files changed 18 June 2026 (security hardening — A1-A4):
   All files syntax-verified (node --check + ESM import smoke test); the 28
