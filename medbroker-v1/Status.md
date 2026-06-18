@@ -29,6 +29,9 @@ FRONTEND — ALL PAGES BUILT AND VERIFIED BUILDING ON VERCEL
   ✅ AppointmentList    Assign model: metrics, status chips, source/portfolio/broker
                         filters, Assign/Reassign (agent read-only in both modals),
                         Claim model: My Appointments tab + Available to Claim tab,
+                        Claim action immediately moves the appointment into My
+                          Appointments as Assigned (Option A — no admin confirmation
+                          step; claim = assigned, consistent with the data model),
                         Token balance card with progress bar and Buy tokens modal,
                         Claim model indicator for Admin/Supervisor
   ✅ AppointmentDetail  Lead details panel (read-only), appointment logistics,
@@ -180,6 +183,18 @@ before handover. Build passes: 1294 modules, zero errors.
      helper uses). Result: Token payment provider is hidden until Broker
      token economy is on; Broker token economy is hidden until Appointment
      workflow is set to Claim — both from pre-existing metadata, now active.
+
+  ✅ AppointmentList.jsx — claim flow corrected. Previously claiming added an
+     appointment ID to a local Set, removed it from Available to Claim, and
+     showed a "pending confirmation" notice — but the claimed appointment never
+     appeared as a row in My Appointments. The "pending confirmation" wording
+     implied an admin step that doesn't exist and isn't appropriate (claim model
+     is broker self-service by design). Fixed: claimedIds Set replaced with
+     claimedAppointments array tracking full row objects; claimed items render
+     immediately in My Appointments as Assigned; notice text changed to
+     "Claimed successfully". In production the Claim action will be a
+     PUT /api/appointments/:id/claim → sets assignedBrokerId + status = Assigned,
+     then re-fetches — no confirmation queue, no intermediate status.
 
   ✅ appointments.tokens.enabled removed as a flag. The token economy is a
      claim-mode feature, not a separately configurable toggle. Three changes:
@@ -670,7 +685,7 @@ GITHUB — files changed 18 June 2026 (frontend UI/UX — flag-gating, full-widt
   (1294 modules, zero errors).
   ✅ frontend/src/pages/AppAdmin.jsx            (flag-gated Broker Token Allocation + Lead Auto-Return cards)
   ✅ frontend/src/pages/AppointmentDetail.jsx   (maxWidth removed; meeting create-flow; portfolio pill; status bar removed)
-  ✅ frontend/src/pages/AppointmentList.jsx     (tokensEnabled derived from claimModel directly)
+  ✅ frontend/src/pages/AppointmentList.jsx     (tokensEnabled derived from claimModel; claim flow: direct assign, no confirmation step)
   ✅ frontend/src/pages/LeadDetail.jsx          (maxWidth removed; new Lead Detail card with pills; header decluttered)
   ✅ frontend/src/pages/FeatureFlags.jsx        (colorScheme removed; dependsOn filter; tokens.enabled row removed; sso.provider sub-setting)
   ✅ frontend/src/styles/tokens.js              (s.select/s.formInput: removed colorScheme override)

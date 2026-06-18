@@ -174,6 +174,12 @@ CLAIM MODEL flag (appointments.claimModel):
   'claim'  — Brokers self-select from Available to Claim queue.
              Assign and Reassign buttons hidden.
              Broker sees two tabs: My Appointments | Available to Claim.
+             Claiming is immediate (Option A — no admin confirmation step):
+             clicking Claim sets the appointment to Assigned and moves it
+             directly into My Appointments. The Appointment Detail page is
+             where all substantive workflow happens from that point.
+             In production: PUT /api/appointments/:id/claim sets
+             assignedBrokerId + status = Assigned; no intermediate status.
   To test: switch to GlobalAdmin → Feature Flags → change to 'claim' → Save
            → switch to Broker → Appointments page shows two tabs.
 
@@ -553,6 +559,14 @@ BrokerDetail / AgentDetail layouts (13 Jun 2026):
     silently. Save Outcome now persists via the API and shows error/saving states.
   - Backend is partially built (Leads domain, auth, db, broker matching), not
     absent as an earlier Status.md claimed — see Status.md §4.
+
+Claim model — no admin confirmation step (18 Jun 2026):
+  Option A chosen: claiming is immediate. Broker clicks Claim → appointment
+  status = Assigned → appears in My Appointments. No ClaimPending status,
+  no admin confirmation queue. This is consistent with the existing five-status
+  data model and the purpose of the claim model (broker self-service). The
+  Appointment Detail page provides the meaningful workflow confirmation (meeting
+  tracking, outcome recording). In production: PUT /api/appointments/:id/claim.
 
 Feature flag dependsOn visibility and token flag removal (18 Jun 2026):
   FeatureFlags.jsx now enforces dependsOn metadata — sub-settings are hidden
