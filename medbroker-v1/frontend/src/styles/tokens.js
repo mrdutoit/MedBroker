@@ -160,7 +160,7 @@ export const s = {
   select: {
     border: `1px solid ${colors.inputBorder}`, borderRadius: radius.sm,
     padding: '8px 12px', fontSize: '0.875rem', background: colors.surface, color: colors.ink,
-    cursor: 'pointer', fontFamily: 'inherit', outline: 'none', colorScheme: 'light dark',
+    cursor: 'pointer', fontFamily: 'inherit', outline: 'none',
   },
 
   tableCard: {
@@ -227,7 +227,7 @@ export const s = {
   formInput: {
     width: '100%', border: `1px solid ${colors.inputBorder}`, borderRadius: radius.sm,
     padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit',
-    background: colors.surface, color: colors.ink, colorScheme: 'light dark',
+    background: colors.surface, color: colors.ink,
     boxSizing: 'border-box', outline: 'none', transition: 'border-color 0.15s, box-shadow 0.15s',
   },
   formHint: { fontSize: '0.75rem', color: colors.ink400, marginTop: '3px' },

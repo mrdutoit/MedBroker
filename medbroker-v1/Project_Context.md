@@ -275,7 +275,8 @@ medbroker-v1/
 ├── api/
 │   └── src/
 │       ├── functions/                  Azure Functions v4 HTTP/timer triggers
-│       │   ├── leads.js                6 routes: list/get/create/assign/calls/delete
+│       │   ├── leads.js                6 routes: list/get/create/assign/calls/delete.
+│       │   │                           Supervisor team-scoped + AuditLog writes (18 Jun)
 │       │   ├── eventRegistration.js    event registration endpoint
 │       │   └── autoReturnLeads.js      daily timer — getDbClient() is a STUB
 │       ├── context/
@@ -283,13 +284,16 @@ medbroker-v1/
 │       │                                chokepoint (returns config.organisationId)
 │       ├── services/
 │       │   ├── leadStatusService.js    computeLeadStatus + computeAppointmentStatus
-│       │   ├── leadService.js          Leads data access (org-scoped reads/writes)
+│       │   ├── leadService.js          Leads data access (org-scoped reads/writes).
+│       │   │                           isDirectReport() + getActiveUserById() (18 Jun)
 │       │   ├── brokerMatchingService.js  broker ranking
 │       │   ├── db.js                    Azure SQL pool (Managed Identity)
 │       │   ├── encryption.js            field-level encryption helper
+│       │   ├── auditService.js          NEW (18 Jun) — writeAuditLog() + clientIp()
 │       │   └── zohoService.js           Zoho integration
 │       ├── middleware/
-│       │   └── auth.js                  Entra ID JWT validation (JWKS)
+│       │   └── auth.js                  Entra ID JWT validation (JWKS).
+│       │                               Cross-checks User.isActive (18 Jun)
 │       ├── models/
 │       │   └── lead.js
 │       └── config.js                    config.organisationId (ORG_ID env)
@@ -303,6 +307,11 @@ medbroker-v1/
 │   ├── parameters/                     dev.json, prod.json
 │   ├── schema.sql                      v2.4
 │   └── feature-flags.sql              17 seeded flags
+├── docs/
+│   └── security/
+│       └── MedBroker_Security_Code_Review_Findings.docx  NEW (18 Jun) — was
+│           project-knowledge content only, not an actual repo file, until
+│           this session; commit it to make the repo canonical for this record
 ├── mobile/                             RegisterScreen.jsx (event registration)
 └── DEPLOYMENT.md
 
@@ -362,20 +371,30 @@ COLOR-MIX() IN JSX STYLE OBJECTS — must always be a quoted string:
   The third form (nested quotes) is a syntax error esbuild catches at build time.
   Always run npm run build in the sandbox before handing over any modified file.
 
-SELECT ELEMENTS — color and colorScheme required:
+SELECT ELEMENTS — color required; colorScheme is theme-driven, not inline:
   Browser OS defaults (black text on white) override theme colours on <select>
-  without explicit CSS. Every select must have color: 'var(--ink)' and
-  colorScheme: 'light dark'. Both are now in s.select and s.formInput in tokens.js.
-  Any inline-styled select must set them explicitly (see FeatureFlags.jsx).
+  without explicit CSS. Every select must have color: 'var(--ink)' — set in
+  s.select and s.formInput in tokens.js.
+  UPDATED 18 Jun: do not also set colorScheme inline. The original 13 Jun fix
+  (colorScheme: 'light dark') let the OS's own light/dark preference choose
+  native control rendering instead of MedBroker's selected theme — this is
+  what caused the Event Date picker to be invisible on a light theme when the
+  OS preference was dark. Corrected fix: color-scheme: light/dark is set per
+  [data-theme] block in themes.css instead (an inherited CSS property, so it
+  cascades to every native control without per-element styling). Any
+  inline-styled select should set color explicitly but must NOT set
+  colorScheme (see FeatureFlags.jsx).
 
 QR CODE CONTAINERS — always white background:
   Never let a QR code container inherit the page theme background.
   ISO 18004 requires a white quiet zone. Use background: '#ffffff' hardcoded.
   Example: EventDetail.jsx QR modal.
 
-DETAIL PAGE LAYOUTS — no maxWidth on BrokerDetail / AgentDetail:
+DETAIL PAGE LAYOUTS — no maxWidth on BrokerDetail / AgentDetail / LeadDetail / AppointmentDetail:
   These pages must expand to full available width, the same as Reports.jsx.
-  Never add maxWidth to their outer wrapper divs.
+  Never add maxWidth to their outer wrapper divs. (LeadDetail and
+  AppointmentDetail fixed 18 Jun — the 13 Jun sweep only covered
+  Broker/AgentDetail.)
 
 
   tokens.js uses NAMED exports only. There is no default export.
@@ -523,6 +542,40 @@ BrokerDetail / AgentDetail layouts (13 Jun 2026):
   - Backend is partially built (Leads domain, auth, db, broker matching), not
     absent as an earlier Status.md claimed — see Status.md §4.
 
+Frontend UI/UX fixes (18 Jun 2026):
+  - LeadDetail / AppointmentDetail joined BrokerDetail/AgentDetail/Reports in
+    dropping maxWidth on the outer wrapper — missed in the 13 Jun sweep.
+  - Meeting creation flow (AppointmentDetail): Second and Third meetings used
+    to render unconditionally (Third just dimmed/disabled when the third-
+    meeting flag was off). Redesigned so Second/Third only exist once
+    explicitly created via an "+ Add Meeting" button, unlocked once the prior
+    meeting's status has been recorded. First is unaffected — it's set at
+    booking time and was never the issue. Third's button is gated the same
+    way as before on appointments.thirdMeeting.enabled, but now the gate
+    hides the feature entirely rather than rendering it disabled.
+  - Portfolio pills + duplicate removal: AppointmentDetail's top "status bar"
+    (Status + Portfolio + first-appointment summary) was a straight duplicate
+    of the Lead Details/Appointment Details cards below it and is gone;
+    Portfolio now renders as a pill in Appointment Details only. LeadDetail
+    gained an equivalent "Lead Detail" card (Status/Portfolio pills + lead
+    source + agent + date created), replacing a smaller status badge that
+    used to sit under the lead's name.
+  - AppAdmin System Settings: Broker Token Allocation and Lead Auto-Return
+    had no flag check at all — both rendered unconditionally regardless of
+    the Appointment Workflow setting or whether auto-return was toggled on.
+    Now flag-gated on appointments.claimModel === 'claim' and
+    leads.autoUnassign.enabled respectively.
+  - Theme-aware native controls (root-cause fix, not a per-page patch): the
+    13 Jun colorScheme: 'light dark' fix made native control rendering (date
+    pickers, <select> chrome) follow the OS's light/dark preference instead
+    of MedBroker's selected theme — invisible on a light theme with a dark OS
+    preference is exactly that mismatch, first noticed on the Event Date
+    field. Corrected by moving color-scheme to themes.css, one declaration
+    per [data-theme] block, and removing the inline override from
+    tokens.js (s.select, s.formInput) and FeatureFlags.jsx's inline select.
+    color-scheme is an inherited CSS property, so this fixes every native
+    control across the app from one place rather than per-field.
+
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 11. SECURITY POSTURE & MANDATORY CONTROLS
@@ -559,11 +612,15 @@ deployed and no client data flows; but each must be closed before it does):
   LOGGING / AUDIT (POPIA/FAIS accountability)
     ⬜ Special PI never written to logs (App Insights scrubbing) — encryption is
        moot if ID/medical data lands in plaintext telemetry
-    ⬜ Tamper-evident audit trail of who VIEWED and CHANGED special PI
+    🟢 Tamper-evident audit trail of who VIEWED and CHANGED special PI — Lead
+       create/assign/reassign/delete now write AuditLog (18 Jun); extend to
+       Appointments when that API is built
 
   APPLICATION
-    🟡 IDOR swept systematically on every object id (agent/broker scoping done;
-       not yet audited exhaustively)
+    🟢 IDOR swept on Leads — Supervisor team-scoping closed 18 Jun (was the
+       most material gap: Supervisor previously had unrestricted org-wide
+       access, identical to Admin); re-audit when Appointments/broker access
+       is built
     ⬜ Token lifecycle: expiry, refresh, logout/revocation
     ⬜ CSV import hardening: formula injection (= + - @), row/size caps
     ⬜ Bulk-export / report exfiltration limits
@@ -597,6 +654,25 @@ dependency that would have crashed encryption at runtime; C3 — SQL admin passw
 moved to a @secure() Bicep parameter; C9 — CORS prod-excludes localhost, Zoho
 calls time-bounded. autoReturnLeads kept as an inert stub with an injection-trap
 banner. All larger controls above remain parked for the deployment phase.
+
+UPDATE (18 June): a follow-up Security Architect pass specifically targeting
+encryption and access control (requested in response to a general breach/data-
+theft concern), reading the actual code in api/src rather than the control
+checklist alone. Findings logged as A1-A6 (access control) and E1-E5
+(encryption) in docs/security/MedBroker_Security_Code_Review_Findings.docx §5.
+A1-A4 fixed in code this session: Supervisor was not scoped to direct reports
+on any Lead route (the role's stated security boundary was unenforced — the
+most material finding), User.isActive was never checked at the auth layer
+(deactivated users kept full access until their Entra token expired), and
+nothing wrote to AuditLog despite the table already existing with an
+INSERT-only grant. A5/A6/E1/E2/E3/E5 are parked (severity-tagged in Status.md
+§4); E4 is a POPIA-sign-off decision, not a code change. Cryptographic design
+(AES-256-GCM envelope, Key Vault wrap/unwrap, TLS everywhere) and the DB
+least-privilege grant design were both found sound on review — A5 is that the
+grants are dormant pending a manual activation step, not that the design itself
+is wrong. This document also did not previously exist as a real .docx in the
+repo (only as project-knowledge content) — the version now in docs/security/
+is a properly packaged file; commit it to close that gap.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 12. TENANCY & DELIVERY MODEL
@@ -639,11 +715,16 @@ FOUR THEMES — ported from html-design-studio skill token contract:
   midnight Dark · technical · premium
   ember    Dark · warm · confident
 
-Each theme defines the same CSS variable contract in themes.css:
+Each theme defines the same CSS variable contract in themes.css, plus a
+native color-scheme declaration (added 18 Jun — see §8 SELECT ELEMENTS):
   --bg --bg2 --panel --panel2 --ink --mut --line --glass
   --accent --accent2 --live --limited --na --danger --glow
   --disp (display font) --mesh (background gradient)
   --grain (noise texture opacity) --gridop --gridline (grid overlay)
+  color-scheme: light (linen, terra) or dark (midnight, ember) — drives
+    native control rendering (date pickers, <select> chrome); inherited,
+    so it must not be overridden by an inline colorScheme on individual
+    elements or the theme-correct value is lost.
 
 Theme atmosphere: body::before (grain texture) + body::after (masked grid).
 These only render when themes.css is loaded via main.jsx.

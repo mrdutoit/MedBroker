@@ -207,7 +207,7 @@ function FlagRow({ meta, rawValue, onSave }) {
               border: '1px solid var(--line)', borderRadius: '6px', padding: '4px 8px',
               fontSize: '0.8125rem', background: 'var(--panel)', color: 'var(--ink)',
               cursor: isLocked ? 'not-allowed' : 'pointer',
-              fontFamily: 'inherit', minWidth: '110px', colorScheme: 'light dark',
+              fontFamily: 'inherit', minWidth: '110px',
             }}
           >
             {(meta.allowedValues ?? []).map(v => <option key={v} value={v}>{v}</option>)}
