@@ -10,8 +10,7 @@
  *   Broker (claim)    — two tabs: My Appointments | Available to Claim
  *
  * Feature flags:
- *   appointments.claimModel       'assign' | 'claim'
- *   appointments.tokens.enabled   token balance card
+ *   appointments.claimModel           'assign' | 'claim'
  *   appointments.tokens.paymentProvider 'none' | 'stripe'
  *
  * WORKFLOW RULES:
@@ -303,7 +302,11 @@ export default function AppointmentList() {
   const [sourceFilter,   setSourceFilter]   = useState('');
   const [portfolioFilter,setPortfolioFilter]= useState('');
   const [brokerFilter,   setBrokerFilter]   = useState('');
-  const [claimedIds,     setClaimedIds]     = useState(new Set());
+  // Tracks appointments claimed this session as full row objects so they
+  // render in the My Appointments table immediately, without a round trip.
+  // In production, claiming triggers PUT /api/appointments/:id/claim which
+  // sets assignedBrokerId and status = Assigned; the table is then re-fetched.
+  const [claimedAppointments, setClaimedAppointments] = useState([]);
   const [assignTarget,   setAssignTarget]   = useState(null);
   const [isAssignMode,   setIsAssignMode]   = useState(false);
   const [showBuyTokens,  setShowBuyTokens]  = useState(false);
@@ -330,6 +333,7 @@ export default function AppointmentList() {
   const inProgress  = myAppts.filter(a => a.status === 'InProgress').length;
   const todayCount  = myAppts.filter(a => a.isToday).length;
   const closedWon   = myAppts.filter(a => a.status === 'ClosedWon').length;
+  const claimedIds  = new Set(claimedAppointments.map(a => a.id));
   const availCount  = AVAILABLE_TO_CLAIM.filter(a => !claimedIds.has(a.id)).length;
   const hasFilter  = statusFilter !== 'All' || search || sourceFilter || portfolioFilter || brokerFilter;
 
@@ -578,7 +582,7 @@ export default function AppointmentList() {
         <>
           <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '18px' }}>
             {[
-              { key: 'mine',      label: 'My Appointments',    badge: MY_APPOINTMENTS.length + claimedIds.size },
+              { key: 'mine',      label: 'My Appointments',    badge: MY_APPOINTMENTS.length + claimedAppointments.length },
               { key: 'available', label: 'Available to Claim', badge: availCount },
             ].map(tab => (
               <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
@@ -604,7 +608,7 @@ export default function AppointmentList() {
               <TokenCard />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px', marginBottom: '16px' }}>
                 {[
-                  { label: 'Total assigned',    value: MY_APPOINTMENTS.length + claimedIds.size, colour: 'var(--accent)' },
+                  { label: 'Total assigned',    value: MY_APPOINTMENTS.length + claimedAppointments.length, colour: 'var(--accent)' },
                   { label: 'Today',             value: MY_APPOINTMENTS.filter(a => a.isToday).length, colour: '#d97706' },
                   { label: 'Closed Won',        value: MY_APPOINTMENTS.filter(a => a.status === 'ClosedWon').length, colour: '#15803d' },
                 ].map(m => (
@@ -614,10 +618,10 @@ export default function AppointmentList() {
                   </div>
                 ))}
               </div>
-              <AppointmentsTable rows={MY_APPOINTMENTS} showBroker={false} />
-              {claimedIds.size > 0 && (
+              <AppointmentsTable rows={[...MY_APPOINTMENTS, ...claimedAppointments]} showBroker={false} />
+              {claimedAppointments.length > 0 && (
                 <div style={{ ...s.noticeSuccess, marginTop: '10px' }}>
-                  {claimedIds.size} appointment{claimedIds.size !== 1 ? 's' : ''} just claimed — pending confirmation.
+                  ✓ {claimedAppointments.length} appointment{claimedAppointments.length !== 1 ? 's' : ''} claimed successfully.
                 </div>
               )}
             </>
@@ -668,7 +672,31 @@ export default function AppointmentList() {
                           </span>
                         </td>
                         <td style={s.td}>
-                          <button style={s.primaryBtn} onClick={() => { setClaimedIds(prev => new Set([...prev, a.id])); setActiveTab('mine'); }}>
+                          <button style={s.primaryBtn} onClick={() => {
+                            // Map the Available-to-Claim shape into a full appointment row.
+                            // In production this is a PUT /api/appointments/:id/claim that
+                            // sets assignedBrokerId and status = Assigned server-side;
+                            // the list is then re-fetched. In preview we derive it locally.
+                            const claimed = {
+                              id:         a.id,
+                              leadName:   a.leadName,
+                              leadEmail:  '',
+                              occupation: a.occupation,
+                              portfolio:  a.portfolio,
+                              source:     a.source,
+                              status:     'Assigned',
+                              brokerCode: 'SB',
+                              brokerName: 'Sandra van der Berg',
+                              agentName:  '—',
+                              firstDate:  a.date,
+                              isToday:    false,
+                              m1:         'Pending',
+                              m2:         null,
+                              signed:     null,
+                            };
+                            setClaimedAppointments(prev => [...prev, claimed]);
+                            setActiveTab('mine');
+                          }}>
                             Claim
                           </button>
                         </td>
