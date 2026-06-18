@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 13 June 2026
+Last updated: 18 June 2026
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -17,6 +17,9 @@ FRONTEND — ALL PAGES BUILT AND VERIFIED BUILDING ON VERCEL
                         Assign (unassigned) / Reassign (assigned) buttons,
                         Import Leads button (flag-gated)
   ✅ LeadDetail         Contact/education/insurance detail panels,
+                        Lead Detail card (Status + Portfolio pills, lead
+                          source, agent, date created) — full-width layout
+                          (no maxWidth constraint),
                         Log Call modal with status transition preview,
                         Call history with outcome badges,
                         Book Appointment modal (M365 broker ranking),
@@ -29,7 +32,12 @@ FRONTEND — ALL PAGES BUILT AND VERIFIED BUILDING ON VERCEL
                         Token balance card with progress bar and Buy tokens modal,
                         Claim model indicator for Admin/Supervisor
   ✅ AppointmentDetail  Lead details panel (read-only), appointment logistics,
-                        Meeting tracking (1st required, 2nd required, 3rd optional),
+                        Status + Portfolio pills under Appointment Details —
+                          full-width layout (no maxWidth constraint),
+                        Meeting tracking: First always present; Second and
+                          Third created on demand via "+ Add Meeting" (each
+                          unlocks once the prior meeting's status is logged;
+                          Third only ever appears if the third-meeting flag is on),
                         Appointment outcome (customerSigned, broker switch, products sold),
                         Reassign Broker button (Admin/Supervisor only — broker editable,
                           agent read-only with lock icon and clarifying note),
@@ -45,12 +53,15 @@ FRONTEND — ALL PAGES BUILT AND VERIFIED BUILDING ON VERCEL
   ✅ UserAdmin          Role filter, supervisor assignment, portfolio checkboxes,
                         product checkboxes per portfolio, SSO invite notice
   ✅ AppAdmin           4 tabs: Portfolios / Products / Subscriptions / System Settings
-                        System Settings: monthly tokens, auto-return months, max calls
+                        System Settings: monthly tokens, auto-return months, max calls.
+                        Broker Token Allocation card only shows when
+                          appointments.claimModel = 'claim'; Lead Auto-Return
+                          card only shows when leads.autoUnassign.enabled is on.
   ✅ FeatureFlags       3 tiers: Core / Operational / Phase2
                         Toggle (boolean) and select (enum) controls per flag
                         Save per row with confirmation
                         tasks.enabled is in Core tier (editable)
-                        select elements: color + colorScheme set for dark theme
+                        select elements: color set; colour-scheme is theme-driven (themes.css)
   ✅ SingleSignOn       M365 (Entra ID) config + 4-step flow / Google Workspace tab
   ✅ Notifications      Tabbed inbox — All / Unread / Assignments / Reminders
   ✅ Tasks              Interactive placeholder — tabs (All/Appointments/Rescheduling/
@@ -67,9 +78,13 @@ DESIGN SYSTEM
   ✅ 4 themes: Linen (default/light), Terra (light/earthy), Midnight (dark),
                 Ember (dark/warm). Switcher in sidebar and Settings page.
   ✅ ThemeContext.jsx — exports ThemeProvider and useTheme() hook
-  ✅ themes.css — [data-theme] variable blocks for all four themes
-  ✅ tokens.js — s.select and s.formInput include colorScheme: 'light dark'
-                 so native <select> chrome renders correctly on dark themes
+  ✅ themes.css — [data-theme] variable blocks for all four themes, each
+                 also setting color-scheme: light (Linen/Terra) or dark
+                 (Midnight/Ember) — inherited CSS property, so every native
+                 control (date/time inputs, <select>) follows the chosen
+                 theme rather than the OS preference (fixed 18 Jun)
+  ✅ tokens.js — s.select and s.formInput set color explicitly; colorScheme
+                 is intentionally NOT set inline (see themes.css above)
   ✅ Full colour sweep completed — all 15 pages use CSS variables and
      color-mix() tints; no hardcoded light-mode hex remaining
 
@@ -94,6 +109,132 @@ RESPONSIVENESS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 2. BUGS FIXED
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+── 18 June 2026 session (frontend UI/UX — flag-gating, full-width detail pages, meeting creation flow, portfolio pills, theme-aware date picker) ──
+All changed files verified with a full Vite production build in the sandbox
+before handover. Build passes: 1294 modules, zero errors.
+
+  ✅ AppAdmin.jsx — System Settings showed Broker Token Allocation and Lead
+     Auto-Return unconditionally, with no flag check at all. Now gated:
+     Broker Token Allocation requires flag('appointments.claimModel', 'claim');
+     Lead Auto-Return requires flag('leads.autoUnassign.enabled').
+
+  ✅ AppointmentDetail.jsx / LeadDetail.jsx — both had maxWidth: '960px' (or
+     equivalent) on the outer wrapper, scrunching the page to the left on
+     wide screens. Removed on both, matching the AgentDetail/BrokerDetail
+     full-width pattern from 13 Jun.
+
+  ✅ AppointmentDetail.jsx — Second and Third meetings no longer render
+     automatically. First Meeting is unchanged (always present — it's set at
+     booking time). Second now appears behind an "+ Add Second Meeting"
+     button, disabled until the First Meeting's status has been recorded
+     (new AddMeetingPrompt component). Third behaves the same relative to
+     Second, and — per existing design intent — only appears at all when
+     appointments.thirdMeeting.enabled is on; previously it always rendered,
+     just dimmed/disabled when the flag was off. MeetingSection simplified
+     accordingly (the old isLocked/opacity logic is gone — if it's rendered,
+     it's active). New secondMeetingCreated/thirdMeetingCreated state
+     initialises from existing data so an appointment that already has a
+     Second/Third meeting filled in still renders immediately.
+
+  ✅ AppointmentDetail.jsx — Portfolio now shown as a pill (new PortfolioPill
+     component, same colour convention as the existing portfolio badges in
+     AppAdmin.jsx) inside the Appointment Details card, next to Status. The
+     old top "status bar" (StatusChip + portfolio pill + first-appointment
+     date/time/address) is removed — all of it duplicated the Lead Details /
+     Appointment Details cards immediately below. Portfolio also removed
+     from the Lead Details card (now lives only in Appointment Details).
+
+  ✅ LeadDetail.jsx — new "Lead Detail" card (Status and Portfolio as pills —
+     new StatusPill/PortfolioPill components mirroring AppointmentDetail's
+     design — plus Lead source, Agent, Date created). The status badge +
+     "Added X ago" line previously under the lead's name is removed (now
+     redundant). "Education & Pipeline" renamed to "Education" and trimmed
+     to University/Year/Degree now that source/agent moved to Lead Detail.
+     MOCK_LEAD gained a portfolio field ('Discovery') — it had none before,
+     so the new pill had nothing to render without this.
+
+  ✅ Event Date picker invisible on light themes (EventList.jsx Create Event
+     modal) — root cause was NOT in EventList.jsx. tokens.js's s.formInput
+     and s.select set colorScheme: 'light dark' inline, which hands control
+     to the OS/browser's own light-or-dark preference rather than to
+     MedBroker's selected theme. If the OS preference and the in-app theme
+     disagree (e.g. OS set to dark, app theme set to Linen), the native
+     calendar icon renders in the wrong tone for its actual background and
+     disappears. Fixed at the root: removed the inline colorScheme from
+     s.select and s.formInput (tokens.js) and from FeatureFlags.jsx's one
+     inline-styled select, and instead set color-scheme: light / dark
+     directly on each [data-theme="…"] block in themes.css (Linen/Terra =
+     light, Midnight/Ember = dark). color-scheme is an inherited CSS
+     property, so every native control — every date/time input and every
+     <select> across the whole app, not just this one field — now follows
+     the chosen theme rather than the OS. This corrects (not reverts) the
+     13 Jun colorScheme rule — see §6.
+
+── 18 June 2026 session (security hardening — encryption & access control review, A1-A4) ──
+Requested as a follow-up Security Architect pass focused specifically on
+encryption and access control, beyond the 10 Jun C1-C9/eight-area checklist.
+Full findings (A1-A6 access control, E1-E5 encryption) logged in
+docs/security/MedBroker_Security_Code_Review_Findings.docx §5. All changed
+files syntax-verified (node --check + ESM import smoke test) and the 28
+existing Vitest tests still pass; new scoping logic is DB-dependent and not
+yet covered by an automated test (see TESTING below).
+
+  ✅ middleware/auth.js (A3) — validateToken now cross-checks User.isActive
+     (entraObjectId match, organisationId-scoped, 5-minute in-memory cache)
+     and rejects deactivated users with 403. A DB-unreachable failure during
+     the check returns 503, kept distinct from an intentional deactivation.
+     Previously a user deactivated in MedBroker kept full API access for as
+     long as their Entra token remained valid — nothing re-checked the DB.
+
+  ✅ services/leadService.js (A1/A2) — listLeads accepts a new
+     supervisorScopeId filter (unassigned leads, or leads assigned to a
+     direct report); new exported isDirectReport(agentId, supervisorId) and
+     getActiveUserById(userId) helpers.
+
+  ✅ functions/leads.js (A1/A2/A4) — Supervisor (without Admin) is now scoped
+     on listLeads, getLeadById, assignLead, and logCallAttempt to leads that
+     are unassigned or belong to a direct report — previously Supervisor had
+     the same unrestricted access as Admin on all four routes, despite
+     User.supervisorId existing in schema.sql specifically for this. assignLead
+     now also validates the target agentId references a real, active,
+     org-scoped Agent (and, for a Supervisor, one of their own direct reports)
+     rather than accepting any UUID. createLead/assignLead/deleteLead now
+     write to AuditLog (LeadCreated / LeadAssigned-or-LeadReassigned /
+     LeadDeleted) — previously nothing in the built code wrote to AuditLog at
+     all, despite the table and its INSERT-only grant already existing.
+
+  ✅ services/auditService.js (NEW, A4) — writeAuditLog() (append-only,
+     matches the existing AuditLog DB grant) and a clientIp() helper.
+
+  Known limitation carried forward: the audit write is a separate DB
+  statement from the state-changing write, not in the same transaction —
+  db.js does not yet support transactions. A process failure between the two
+  statements could in rare cases skip the audit row. Closing this needs
+  transaction support added to db.js — tracked as a follow-up, not done here.
+
+  PARKED this session (logged in the docx addendum, not yet implemented):
+     A5  Least-privilege DB grants (infra/schema.sql §17) exist only as a
+         commented-out manual SQL block — no IaC automation, no CI check
+         against sys.database_permissions. Infrastructure/deployment change.
+     A6  eventRegistration.js: RSVP matching by self-reported email alone
+         lets an unauthenticated caller discover (isRsvp) and overwrite
+         (firstName/lastName) another attendee's record. Not yet implemented.
+     E1  ID_NUMBER_INDEX_KEY is a single global HMAC key, not per-organisation
+         — fine while every customer has a separate DB, becomes a cross-tenant
+         correlation risk if ever consolidated to a shared multi-tenant DB.
+     E2  AES-GCM envelope has no AAD binding ciphertext to its owning record
+         (leadId/organisationId) — a DB-write-access actor could relocate one
+         record's encrypted blob onto another row undetected.
+     E3  Key Vault CryptographyClient cached for process lifetime; a key
+         rotation needs a cold start to take effect, and old key versions
+         aren't documented as retained.
+     E5  auth.js hardcodes RS256 verification rather than asserting
+         header.alg explicitly first. Not currently exploitable; cheap
+         defence-in-depth hardening.
+     E4  Informational — confirm with whoever owns POPIA sign-off whether
+         medicalAid/medicalAidProvider warrant field-level encryption like
+         idNumber, rather than TDE + access control alone.
 
 ── 13 June 2026 session (dark theme sweep + UX fixes) ──
 All changed files verified with a full Vite production build in the sandbox
@@ -385,17 +526,24 @@ MULTI-TENANCY READINESS (12 Jun 2026)
   broker lives on Appointment). App-vs-schema drift to fix when the lead read
   path is next worked — NOT touched by this tenancy change.
 
-SECURITY & CODE REVIEW REMEDIATION (10 Jun 2026)
+SECURITY & CODE REVIEW REMEDIATION (10 Jun 2026; addendum 18 Jun 2026)
   Full report: docs/security/MedBroker_Security_Code_Review_Findings.docx
+  (§5 = the 18 Jun encryption & access control addendum, A1-A6/E1-E5).
   Control posture & detail: Project_Context.md §11.
   Nothing below is live exposure yet (DB not deployed); all are go-live gates.
 
-  ✅ FIXED this session (safe, no demo impact):
+  ✅ FIXED 10 Jun (safe, no demo impact):
      C1  @azure/keyvault-keys dependency corrected (encrypt/decrypt would have
          crashed at runtime); unused @azure/keyvault-secrets + node-fetch removed
      C3  SQL admin password placeholder → @secure() Bicep parameter
      C9  CORS localhost excluded in prod; 8s timeout on Zoho calls
      C2  autoReturnLeads safety banner added (kept as stub; injection trap flagged)
+
+  ✅ FIXED 18 Jun (see §2 above for detail):
+     A1/A2  Supervisor team-scoping on listLeads/getLeadById/assignLead/
+            logCallAttempt; assignLead validates the target agent
+     A3     Deactivated users (User.isActive) now rejected at the auth layer
+     A4     AuditLog now written on Lead create/assign/reassign/delete
 
   ⬜ PARKED for the deployment / implementation phase:
      [High]   C2  Rewrite autoReturnLeads parameterised against db.js (or leave
@@ -407,6 +555,18 @@ SECURITY & CODE REVIEW REMEDIATION (10 Jun 2026)
      [Med]    C6  Identity-based AzureWebJobsStorage (drop storage account key)
      [Med]    C7  Wire pino structured logging + add /health endpoint
      [Med]    C8  Geo-redundant backups + a tested restore
+     [High]   A5  Least-privilege DB grants are a commented-out manual SQL
+                  block (infra/schema.sql §17) — automate via the Bicep
+                  pipeline + add a CI permissions-drift check
+     [Med]    A6  eventRegistration.js RSVP-by-email enumeration/overwrite —
+                  needs a per-attendee token, not email-only matching
+     [Low→Med at multi-tenant] E1  Per-organisation blind-index key (currently
+                  one global ID_NUMBER_INDEX_KEY)
+     [Med]    E2  AAD binding (leadId/organisationId) on the AES-GCM envelope
+     [Low]    E3  Key Vault key-rotation/version-handling procedure
+     [Low]    E5  Explicit header.alg assertion in auth.js (defence-in-depth)
+     [Info]   E4  Confirm with POPIA sign-off owner whether medicalAid fields
+                  need field-level encryption like idNumber
      EDGE / TRANSPORT
      [High]   WAF across all public surfaces — adopt Cloudflare Pro in front of
               the Azure origin (~R400/mo) vs Front Door Premium (~R6,000/mo);
@@ -417,10 +577,12 @@ SECURITY & CODE REVIEW REMEDIATION (10 Jun 2026)
      ABUSE / LOGGING
      [Med]    Rate limiting on authenticated endpoints (not just public)
      [High]   Special PI never written to logs — App Insights/console scrubbing
-     [High]   Audit trail of who viewed/changed special PI (write to AuditLog)
      [Med]    Bulk-export / report exfiltration limits (when reports API built)
      ASSURANCE
-     [Med]    Dependency + secret scanning in CI; SAST/DAST
+     [Med]    Dependency + secret scanning in CI; SAST/DAST. Confirmed 18 Jun:
+              vitest/vite/esbuild dev-toolchain carries known moderate/high
+              CVEs — devDependency only, not shipped, but worth wiring
+              npm audit/Dependabot into CI regardless.
      [High]   Penetration test before go-live
      POPIA
      [High]   Operator agreements: Microsoft, Calendly, Zoho, Cloudflare (§20-21)
@@ -456,6 +618,12 @@ TESTING
   ✅ Both test files are in api/src/services/ (correct location for discovery).
   ⬜ Add tests for the Appointments, Flags, and Reports endpoints as they are
      built (validation + role authorisation per route).
+  ⬜ 18 Jun: the new Supervisor-scoping logic (isDirectReport,
+     getActiveUserById, the supervisorScopeId filter on listLeads) is
+     DB-dependent and untested in the sandbox — add DB-gated cases to
+     leadService.tenant.integration.test.js (same RUN_DB_TESTS pattern)
+     once a test database exists. Reuse this same scoping pattern for the
+     Appointments API rather than re-deriving it.
 
 SKILLS INSTALLATION
   ✅ app-builder.skill — INSTALLED (09 Jun 2026). Now includes the commercial/
@@ -466,6 +634,28 @@ SKILLS INSTALLATION
   ✅ code-nodejs — INSTALLED (Vitest, pino logging, standalone auth, migrations)
   ⬜ app-builder.skill — needs update with 13 June learnings (see §0).
   ⬜ code-nodejs skill — needs update with JSX quoting rule (see §0).
+
+GITHUB — files changed 18 June 2026 (frontend UI/UX — flag-gating, full-width, meeting flow, portfolio pills, theme-aware date picker):
+  All files verified with a full Vite production build before handover
+  (1294 modules, zero errors).
+  ✅ frontend/src/pages/AppAdmin.jsx            (flag-gated Broker Token Allocation + Lead Auto-Return cards)
+  ✅ frontend/src/pages/AppointmentDetail.jsx   (maxWidth removed; meeting create-flow; portfolio pill; status bar removed)
+  ✅ frontend/src/pages/LeadDetail.jsx          (maxWidth removed; new Lead Detail card with pills; header decluttered)
+  ✅ frontend/src/pages/FeatureFlags.jsx        (inline select: removed colorScheme override)
+  ✅ frontend/src/styles/tokens.js              (s.select/s.formInput: removed colorScheme override)
+  ✅ frontend/src/themes.css                    (color-scheme: light/dark added per [data-theme] block)
+
+GITHUB — files changed 18 June 2026 (security hardening — A1-A4):
+  All files syntax-verified (node --check + ESM import smoke test); the 28
+  existing Vitest tests still pass. New scoping logic is DB-dependent and not
+  yet integration-tested (see TESTING above).
+  ✅ api/src/middleware/auth.js          (A3 — isActive check on every request)
+  ✅ api/src/services/leadService.js     (A1/A2 — supervisor scoping + agent validation)
+  ✅ api/src/functions/leads.js          (A1/A2/A4 — scoping wired in + AuditLog writes)
+  ✅ api/src/services/auditService.js    (NEW — writeAuditLog + clientIp)
+  ✅ docs/security/MedBroker_Security_Code_Review_Findings.docx  (NEW — §5 addendum;
+     this file did not previously exist as a real .docx in the repo, only as
+     project-knowledge content — see Project_Context.md §11)
 
 GITHUB — files changed 13 June 2026 (dark theme sweep + UX fixes):
   All files verified with full Vite production build before handover.
@@ -585,16 +775,39 @@ These decisions caused rework when changed — preserve them in every session:
                         Wrong:     border: '1px solid 'color-mix(in srgb, #15803d 30%, var(--panel))''
                         Always run npm run build in the sandbox before handing over any file.
 
-  <select> elements     Always set color: 'var(--ink)' and colorScheme: 'light dark'
-                        explicitly on every <select>. Browser OS defaults override
-                        theme colours without these. Both are now in s.select and
-                        s.formInput in tokens.js. Any inline-styled select must
-                        include them too (see FeatureFlags.jsx as the reference).
+  <select> elements     Always set color: 'var(--ink)' explicitly on every
+                        <select> and form input (in s.select / s.formInput /
+                        any inline-styled control) — browser OS defaults
+                        override theme colours without it.
+                        UPDATED 18 Jun: do NOT also set colorScheme inline.
+                        That was the 13 Jun fix, but 'light dark' hands native
+                        control rendering (e.g. the date-picker calendar icon)
+                        to the OS's own preference, not MedBroker's selected
+                        theme — invisible-on-light-theme was exactly this
+                        mismatch. Correct fix: color-scheme: light/dark is set
+                        per [data-theme] in themes.css instead (it's an
+                        inherited CSS property, so it cascades to every native
+                        control automatically). Do not re-add an inline
+                        colorScheme value to s.select/s.formInput or any
+                        inline-styled select — it will override the
+                        inherited, theme-correct value with an OS-dependent one.
 
-  Detail page layouts   BrokerDetail and AgentDetail must not have maxWidth on
-                        their outer wrapper. They use full available width, the
-                        same as Reports.jsx. Never reintroduce a maxWidth constraint
-                        on these pages.
+  Meeting creation flow Second and Third meetings on AppointmentDetail are
+                        created via an explicit "+ Add Meeting" button
+                        (AddMeetingPrompt), not rendered automatically. Second
+                        unlocks once the First meeting's status is recorded;
+                        Third unlocks once Second's is, AND only ever appears
+                        at all when appointments.thirdMeeting.enabled is on.
+                        Do not revert to mapping over appt.meetings and
+                        rendering all three unconditionally.
+
+  Detail page layouts   BrokerDetail, AgentDetail, LeadDetail, and
+                        AppointmentDetail must not have maxWidth on their
+                        outer wrapper. They use full available width, the
+                        same as Reports.jsx. Never reintroduce a maxWidth
+                        constraint on these pages. (LeadDetail and
+                        AppointmentDetail fixed 18 Jun — missed in the 13 Jun
+                        sweep, which only covered Broker/AgentDetail.)
 
   QR code containers    Always background: '#ffffff' — hardcoded, never themed.
                         ISO 18004 requires a white quiet zone. The theme
@@ -605,6 +818,26 @@ These decisions caused rework when changed — preserve them in every session:
                         and confirm it passes. Do not hand over files that have
                         not been build-verified in the current session.
 
+  Supervisor scoping    Supervisor (without Admin) must never get unrestricted
+                        org-wide access. Every Lead/Appointment route must
+                        scope Supervisor to leads/appointments that are
+                        unassigned or belong to a direct report
+                        (User.supervisorId), the same way Agent is scoped to
+                        claims.oid. Added 18 Jun to functions/leads.js — do
+                        not regress when building the Appointments API.
+
+  isActive enforcement  middleware/auth.js validateToken() checks User.isActive
+                        (entraObjectId match) after JWT signature verification
+                        and rejects deactivated users with 403. Do not remove
+                        this check or bypass it for new routes — a valid Entra
+                        token alone is not sufficient proof of current access.
+
+  AuditLog writes       create/assign/reassign/delete actions on Lead (and,
+                        going forward, Appointment) must write to AuditLog via
+                        services/auditService.js's writeAuditLog(). Do not add
+                        a new state-changing route without an audit write —
+                        this was the A4 finding and is now a go-live gate.
+
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0. NEXT ACTION  (update this block at the end of every session)
@@ -612,10 +845,30 @@ These decisions caused rework when changed — preserve them in every session:
 
 Priority: Appointments API build (see §4 + §5).
 
+FRONTEND UI/UX FIXES — COMPLETE AS OF 18 JUNE 2026
+  AppAdmin flag-gating, LeadDetail/AppointmentDetail full-width layout, the
+  Second/Third meeting create-flow, Portfolio pills, and the theme-aware
+  date-picker fix are all in and Vite-build-verified. Does not change the
+  Appointments API priority above — this was a parallel UI fix pass, not a
+  replacement for it. Full detail in §2 (18 Jun frontend session).
+
+SECURITY HARDENING — A1-A4 FIXED AS OF 18 JUNE 2026
+  Supervisor team-scoping, deactivated-user enforcement, and AuditLog writes
+  are now live on the Leads domain (functions/leads.js, services/leadService.js,
+  middleware/auth.js, services/auditService.js). When building the Appointments
+  API, reuse this exact pattern from day one rather than re-deriving it:
+    - Supervisor (without Admin) scoped via isDirectReport() / a
+      supervisorScopeId-style filter — never org-wide by default.
+    - Target user validation via getActiveUserById() before assigning broker/agent.
+    - writeAuditLog() on every create/assign/reassign/return/outcome action.
+  Full findings (including what's still parked — A5/A6/E1-E5) are in
+  docs/security/MedBroker_Security_Code_Review_Findings.docx §5.
+
 DARK THEME SWEEP — COMPLETE AS OF 13 JUNE 2026
   All 15 pages pass a full Vite production build (1294 modules, zero errors).
   No hardcoded light-mode hex remains. All colour-mix() values are correctly
-  quoted. All <select> elements have color + colorScheme set.
+  quoted. All <select> elements have color set (colorScheme corrected 18 Jun —
+  see §6; no longer set inline, now theme-driven via themes.css).
 
 SKILLS TO UPDATE (prompts ready — paste into "Creating personalised AI skills"):
   ⬜ app-builder.skill — add: color-mix() quoting rule; <select> colorScheme
@@ -626,7 +879,10 @@ SKILLS TO UPDATE (prompts ready — paste into "Creating personalised AI skills"
 
 KNOWN HOUSEKEEPING (non-blocking, no build impact):
   - Stray files in repo: frontend/src/pages/Status.md and frontend/main.jsx
-  - docs/ folder referenced in context files does not exist in repo
+  - docs/ folder referenced in context files did not exist in repo — partially
+    resolved 18 Jun: a real .docx now exists for docs/security/
+    MedBroker_Security_Code_Review_Findings.docx (commit it on next push);
+    docs/delivery/MedBroker_Delivery_MultiTenancy_Playbook.docx still unconfirmed
   - User avatar and theme preference persist in sessionStorage only until
     Users API is built
 

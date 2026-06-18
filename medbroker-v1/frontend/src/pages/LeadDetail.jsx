@@ -101,6 +101,7 @@ const MOCK_LEAD = {
   sourceLabel: 'Wits Career Fair 2026',
   pipelineStatus: 'Assigned',
   agentName: 'Thabo Molefe',
+  portfolio: 'Discovery',
   createdAt: new Date(Date.now() - 86400000 * 14).toISOString(),
 };
 
@@ -117,6 +118,38 @@ function Field({ label, value, children }) {
       <span style={{ color:'var(--mut)', flexShrink: 0 }}>{label}</span>
       <span style={{ color:'var(--ink)', fontWeight: 500, textAlign: 'right' }}>{children ?? value ?? '—'}</span>
     </div>
+  );
+}
+
+// Mirrors AppointmentDetail.jsx's StatusChip — same pill treatment, reusing
+// this file's own STATUS_COLOURS (Lead and Appointment have separate status sets).
+function StatusPill({ status }) {
+  const sc = STATUS_COLOURS[status] ?? STATUS_COLOURS.Unassigned;
+  const label = status === 'InProgress' ? 'In Progress' : status === 'AppointmentScheduled' ? 'Appt Scheduled' : status;
+  return (
+    <span style={{
+      display: 'inline-block', padding: '2px 9px', borderRadius: '20px',
+      fontSize: '0.75rem', fontWeight: 500,
+      background: sc.bg, color: sc.text, border: `1px solid ${sc.border}`,
+    }}>
+      {label}
+    </span>
+  );
+}
+
+// Mirrors AppointmentDetail.jsx's PortfolioPill — same colour convention.
+function PortfolioPill({ portfolio }) {
+  const isMM = portfolio === 'Money and Medicine' || portfolio === 'M&M';
+  return (
+    <span style={{
+      display: 'inline-block', padding: '2px 9px', borderRadius: '20px',
+      fontSize: '0.75rem', fontWeight: 500,
+      color: isMM ? '#a78bfa' : 'var(--accent)',
+      background: isMM ? 'color-mix(in srgb, #7c3aed 14%, var(--panel))' : 'color-mix(in srgb, #1d4ed8 14%, var(--panel))',
+      border: `1px solid ${isMM ? 'color-mix(in srgb, #7c3aed 30%, var(--panel))' : 'color-mix(in srgb, #1d4ed8 30%, var(--panel))'}`,
+    }}>
+      {isMM ? 'M&M' : (portfolio ?? '—')}
+    </span>
   );
 }
 
@@ -144,7 +177,6 @@ export default function LeadDetail() {
     ? 'AppointmentScheduled'
     : (statusOverride ?? baseLead.pipelineStatus ?? 'Unassigned');
 
-  const sc          = STATUS_COLOURS[currentStatus] ?? STATUS_COLOURS.Unassigned;
   const isConverted = currentStatus === 'AppointmentScheduled';
   const isClosed    = currentStatus === 'Closed';
   // Book Appointment only available for active, assigned/in-progress leads
@@ -203,7 +235,7 @@ export default function LeadDetail() {
   const badge = (bg, text) => ({ display: 'inline-block', padding: '2px 9px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 500, background: bg, color: text });
 
   return (
-    <div style={{ padding: isMobile ? '16px' : '24px', maxWidth: '960px' }}>
+    <div style={{ padding: isMobile ? '16px' : '24px' }}>
 
       {/* Conversion notice */}
       {isConverted && (
@@ -218,21 +250,9 @@ export default function LeadDetail() {
       {/* Header */}
       <button onClick={() => navigate('/leads')} style={btn.back}>← Back to Leads</button>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', margin: '6px 0 20px', gap: '12px', flexWrap: 'wrap' }}>
-        <div>
-          <h1 style={{ fontSize: isMobile ? '1.25rem' : '1.5rem', fontWeight: 700, color:'var(--ink)', margin: '0 0 6px' }}>
-            Dr {baseLead.firstName} {baseLead.lastName}
-          </h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-            <span style={{ ...badge(sc.bg, sc.text), border: `1px solid ${sc.border}` }}>
-              {currentStatus === 'InProgress' ? 'In Progress'
-                : currentStatus === 'AppointmentScheduled' ? 'Appt Scheduled'
-                : currentStatus}
-            </span>
-            <span style={{ fontSize: '0.813rem', color:'var(--mut)' }}>
-              Added {baseLead.createdAt ? formatDistanceToNow(new Date(baseLead.createdAt), { addSuffix: true }) : '—'}
-            </span>
-          </div>
-        </div>
+        <h1 style={{ fontSize: isMobile ? '1.25rem' : '1.5rem', fontWeight: 700, color:'var(--ink)', margin: 0 }}>
+          Dr {baseLead.firstName} {baseLead.lastName}
+        </h1>
         {!isConverted && !isClosed && (
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             <button onClick={() => setShowCallForm(true)} style={btn.primary}>Log Call</button>
@@ -254,6 +274,20 @@ export default function LeadDetail() {
       {/* Two-column layout */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px' }}>
 
+        {/* Lead detail overview */}
+        <div style={cardStyle}>
+          <div style={cardTitle}>Lead Detail</div>
+          <Field label="Status"><StatusPill status={currentStatus} /></Field>
+          <Field label="Portfolio"><PortfolioPill portfolio={baseLead.portfolio} /></Field>
+          <Field label="Lead source" value={baseLead.sourceLabel} />
+          <Field label="Agent"       value={baseLead.agentName} />
+          <Field label="Date created">
+            {baseLead.createdAt
+              ? `${format(new Date(baseLead.createdAt), 'd MMM yyyy')} (${formatDistanceToNow(new Date(baseLead.createdAt), { addSuffix: true })})`
+              : '—'}
+          </Field>
+        </div>
+
         {/* Personal details */}
         <div style={cardStyle}>
           <div style={cardTitle}>Contact Details</div>
@@ -266,12 +300,10 @@ export default function LeadDetail() {
 
         {/* Education */}
         <div style={cardStyle}>
-          <div style={cardTitle}>Education &amp; Pipeline</div>
+          <div style={cardTitle}>Education</div>
           <Field label="University"  value={baseLead.universityAttended} />
           <Field label="Year"        value={baseLead.yearOfAttendance} />
           <Field label="Degree"      value={baseLead.degreeAttained} />
-          <Field label="Lead source" value={baseLead.sourceLabel} />
-          <Field label="Agent"       value={baseLead.agentName} />
         </div>
 
         {/* Insurance */}

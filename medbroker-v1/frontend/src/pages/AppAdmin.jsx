@@ -7,6 +7,7 @@
 import { useState } from 'react';
 import { s } from '../styles/tokens.js';
 import { PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
+import { useFlags } from '../context/FlagContext.jsx';
 
 const MOCK_AUDIT_LOG = [
   { id: 1, action: 'Lead assigned',             entity: 'Lead',        entityRef: 'Dr Priya Naidoo',     performedBy: 'Admin User',   role: 'Admin',       timestamp: '2026-05-20 14:32' },
@@ -34,6 +35,7 @@ const ALL_PRODUCTS = [
 
 export default function AppAdmin() {
   const [tab, setTab] = useState('portfolios');
+  const { flag } = useFlags();
 
   // System Settings state — in production, fetched from GET /api/config
   // and saved via PUT /api/config (Admin/GlobalAdmin only)
@@ -208,64 +210,68 @@ export default function AppAdmin() {
             </div>
           )}
 
-          <div style={s.card}>
-            <div style={s.cardTitle}>Broker Token Allocation</div>
-            <div style={{ ...s.noticeInfo, marginBottom: '14px', fontSize: '0.8125rem' }}>
-              Controls how many free appointment claims each broker receives per calendar month.
-              Once exhausted, additional claims require tokens. Tokens can be purchased by
-              the broker or topped up manually by an administrator.
-            </div>
-            <div style={s.formGroup}>
-              <label style={s.formLabel}>
-                Free appointments per broker per month *
-                <span style={{ marginLeft: '8px', fontSize: '0.75rem', color:'var(--mut)', fontWeight: 400 }}>
-                  (stored in SystemConfig.brokerFreeAppointmentsPerMonth)
-                </span>
-              </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <input
-                  type="number" min={1} max={100}
-                  value={monthlyTokens}
-                  onChange={e => setMonthlyTokens(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
-                  style={{ ...s.formInput, width: '100px' }}
-                />
-                <span style={{ fontSize: '0.875rem', color:'var(--mut)' }}>per month</span>
+          {flag('appointments.claimModel', 'claim') && (
+            <div style={s.card}>
+              <div style={s.cardTitle}>Broker Token Allocation</div>
+              <div style={{ ...s.noticeInfo, marginBottom: '14px', fontSize: '0.8125rem' }}>
+                Controls how many free appointment claims each broker receives per calendar month.
+                Once exhausted, additional claims require tokens. Tokens can be purchased by
+                the broker or topped up manually by an administrator.
               </div>
-              <div style={s.formHint}>
-                Recommended: 10. Applies to all brokers. Individual overrides are not currently supported.
+              <div style={s.formGroup}>
+                <label style={s.formLabel}>
+                  Free appointments per broker per month *
+                  <span style={{ marginLeft: '8px', fontSize: '0.75rem', color:'var(--mut)', fontWeight: 400 }}>
+                    (stored in SystemConfig.brokerFreeAppointmentsPerMonth)
+                  </span>
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input
+                    type="number" min={1} max={100}
+                    value={monthlyTokens}
+                    onChange={e => setMonthlyTokens(Math.max(1, Math.min(100, parseInt(e.target.value) || 1)))}
+                    style={{ ...s.formInput, width: '100px' }}
+                  />
+                  <span style={{ fontSize: '0.875rem', color:'var(--mut)' }}>per month</span>
+                </div>
+                <div style={s.formHint}>
+                  Recommended: 10. Applies to all brokers. Individual overrides are not currently supported.
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
-          <div style={s.card}>
-            <div style={s.cardTitle}>Lead Auto-Return</div>
-            <div style={{ ...s.noticeInfo, marginBottom: '14px', fontSize: '0.8125rem' }}>
-              Appointments that have not been closed (no signed outcome) after this period
-              are automatically returned to the Unassigned leads queue by a scheduled daily job.
-              The lead can then be worked by an agent and a new appointment booked with the prospect.
-            </div>
-            <div style={s.formGroup}>
-              <label style={s.formLabel}>
-                Return to queue after *
-                <span style={{ marginLeft: '8px', fontSize: '0.75rem', color:'var(--mut)', fontWeight: 400 }}>
-                  (stored in SystemConfig.leadAutoUnassignMonths)
-                </span>
-              </label>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <input
-                  type="number" min={1} max={24}
-                  value={autoReturnMonths}
-                  onChange={e => setAutoReturnMonths(Math.max(1, Math.min(24, parseInt(e.target.value) || 6)))}
-                  style={{ ...s.formInput, width: '100px' }}
-                />
-                <span style={{ fontSize: '0.875rem', color:'var(--mut)' }}>months without closure</span>
+          {flag('leads.autoUnassign.enabled') && (
+            <div style={s.card}>
+              <div style={s.cardTitle}>Lead Auto-Return</div>
+              <div style={{ ...s.noticeInfo, marginBottom: '14px', fontSize: '0.8125rem' }}>
+                Appointments that have not been closed (no signed outcome) after this period
+                are automatically returned to the Unassigned leads queue by a scheduled daily job.
+                The lead can then be worked by an agent and a new appointment booked with the prospect.
               </div>
-              <div style={s.formHint}>
-                Default: 6 months. The auto-return job runs daily at 07:00.
-                Manually returning an appointment to the queue is also available from the Appointment Detail page.
+              <div style={s.formGroup}>
+                <label style={s.formLabel}>
+                  Return to queue after *
+                  <span style={{ marginLeft: '8px', fontSize: '0.75rem', color:'var(--mut)', fontWeight: 400 }}>
+                    (stored in SystemConfig.leadAutoUnassignMonths)
+                  </span>
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input
+                    type="number" min={1} max={24}
+                    value={autoReturnMonths}
+                    onChange={e => setAutoReturnMonths(Math.max(1, Math.min(24, parseInt(e.target.value) || 6)))}
+                    style={{ ...s.formInput, width: '100px' }}
+                  />
+                  <span style={{ fontSize: '0.875rem', color:'var(--mut)' }}>months without closure</span>
+                </div>
+                <div style={s.formHint}>
+                  Default: 6 months. The auto-return job runs daily at 07:00.
+                  Manually returning an appointment to the queue is also available from the Appointment Detail page.
+                </div>
               </div>
             </div>
-          </div>
+          )}
 
           <div style={s.card}>
             <div style={s.cardTitle}>Agent Call Settings</div>

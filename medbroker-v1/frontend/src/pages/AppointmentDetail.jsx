@@ -81,6 +81,14 @@ const BROKERS = [
 
 const MEETING_STATUSES = ['Seen', 'Rescheduled', 'Cancelled'];
 
+// A meeting is "complete" once its outcome status has been recorded — that's
+// what unlocks the button to create the next meeting in the sequence.
+const isMeetingComplete = (meeting) => !!meeting.status;
+// A meeting already "exists" if any of its fields already carry data — handles
+// loading an appointment that already has a Second/Third meeting filled in,
+// so it renders immediately rather than behind the Add-meeting button again.
+const meetingHasData = (meeting) => !!(meeting.date || meeting.status || meeting.notes);
+
 // ─── Status chip ───────────────────────────────────────────────────────────────
 function StatusChip({ status }) {
   const meta = APPT_STATUS_META[status] ?? { colour: 'var(--mut)', bg: 'var(--panel2)', border: 'var(--line)', label: status };
@@ -106,19 +114,15 @@ function FieldRow({ label, children }) {
 }
 
 // ─── Meeting section ───────────────────────────────────────────────────────────
-function MeetingSection({ meeting, onChange, thirdMeetingEnabled, isMobile }) {
+// Rendered only once a meeting has actually been created — see AddMeetingPrompt
+// below and the secondMeetingCreated/thirdMeetingCreated state in the main
+// component. No per-field disabling needed any more: if it's rendered, it's active.
+function MeetingSection({ meeting, onChange, isMobile }) {
   const isOptional = meeting.number === 3;
-  const isLocked   = isOptional && !thirdMeetingEnabled;
-
-  const titles = ['', 'First Meeting', 'Second Meeting', 'Third Meeting (optional)'];
+  const titles = ['', 'First Meeting', 'Second Meeting', 'Third Meeting'];
 
   return (
-    <div style={{
-      ...s.card,
-      borderStyle: isOptional ? 'dashed' : 'solid',
-      opacity: isLocked ? 0.6 : 1,
-      marginBottom: '12px',
-    }}>
+    <div style={{ ...s.card, borderStyle: isOptional ? 'dashed' : 'solid', marginBottom: '12px' }}>
       <div style={s.cardTitle}>{titles[meeting.number]}</div>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
         <div>
@@ -127,7 +131,6 @@ function MeetingSection({ meeting, onChange, thirdMeetingEnabled, isMobile }) {
             type="date"
             style={s.formInput}
             value={meeting.date}
-            disabled={isLocked}
             onChange={e => onChange(meeting.number, 'date', e.target.value)}
           />
         </div>
@@ -136,7 +139,6 @@ function MeetingSection({ meeting, onChange, thirdMeetingEnabled, isMobile }) {
           <select
             style={s.formInput}
             value={meeting.status}
-            disabled={isLocked}
             onChange={e => onChange(meeting.number, 'status', e.target.value)}
           >
             <option value="">Please select</option>
@@ -148,13 +150,49 @@ function MeetingSection({ meeting, onChange, thirdMeetingEnabled, isMobile }) {
         <label style={s.formLabel}>Meeting Feedback</label>
         <textarea
           style={{ ...s.formInput, height: '60px', resize: 'vertical' }}
-          placeholder={isOptional ? '' : 'Notes from the meeting…'}
+          placeholder="Notes from the meeting…"
           value={meeting.notes}
-          disabled={isLocked}
           onChange={e => onChange(meeting.number, 'notes', e.target.value)}
         />
       </div>
     </div>
+  );
+}
+
+// ─── Add-meeting prompt ─────────────────────────────────────────────────────────
+// Second and Third meetings don't exist until explicitly created here. The
+// button stays disabled until the prior meeting's status has been recorded.
+function AddMeetingPrompt({ label, unlocked, unlockHint, onClick }) {
+  return (
+    <div style={{ ...s.card, borderStyle: 'dashed', marginBottom: '12px', textAlign: 'center', padding: '20px' }}>
+      <button
+        style={{ ...s.secondaryBtn, opacity: unlocked ? 1 : 0.5, cursor: unlocked ? 'pointer' : 'not-allowed' }}
+        disabled={!unlocked}
+        onClick={onClick}
+      >
+        + {label}
+      </button>
+      {!unlocked && (
+        <div style={{ ...s.formHint, marginTop: '8px' }}>{unlockHint}</div>
+      )}
+    </div>
+  );
+}
+
+// ─── Portfolio pill ─────────────────────────────────────────────────────────────
+// Same colour convention already used for portfolio badges in AppAdmin.jsx.
+function PortfolioPill({ portfolio }) {
+  const isMM = portfolio === 'Money and Medicine' || portfolio === 'M&M';
+  return (
+    <span style={{
+      display: 'inline-block', padding: '2px 9px', borderRadius: '20px',
+      fontSize: '0.75rem', fontWeight: 500,
+      color: isMM ? '#a78bfa' : 'var(--accent)',
+      background: isMM ? 'color-mix(in srgb, #7c3aed 14%, var(--panel))' : 'color-mix(in srgb, #1d4ed8 14%, var(--panel))',
+      border: `1px solid ${isMM ? 'color-mix(in srgb, #7c3aed 30%, var(--panel))' : 'color-mix(in srgb, #1d4ed8 30%, var(--panel))'}`,
+    }}>
+      {isMM ? 'M&M' : portfolio}
+    </span>
   );
 }
 
@@ -383,11 +421,15 @@ export default function AppointmentDetail() {
   const [outcomeSaved,      setOutcomeSaved]      = useState(false);
   const [savingOutcome,     setSavingOutcome]     = useState(false);
   const [outcomeError,      setOutcomeError]      = useState(null);
+  const [secondMeetingCreated, setSecondMeetingCreated] = useState(() => meetingHasData(appt.meetings[1]));
+  const [thirdMeetingCreated,  setThirdMeetingCreated]  = useState(() => meetingHasData(appt.meetings[2]));
 
   // Derived
   const isClosed    = appt.status === 'ClosedWon' || appt.status === 'ClosedLost';
   const canReturn   = canManage && !isClosed && appt.customerSigned !== true;
   const canReassign = canManage && !isClosed;
+  const firstMeetingComplete  = isMeetingComplete(appt.meetings[0]);
+  const secondMeetingComplete = isMeetingComplete(appt.meetings[1]);
 
   const productsForPortfolio = PRODUCTS_BY_PORTFOLIO[appt.portfolio] ?? [];
 
@@ -436,7 +478,7 @@ export default function AppointmentDetail() {
   }
 
   return (
-    <div style={{ padding: isMobile ? '12px' : '24px', maxWidth: '960px' }}>
+    <div style={{ padding: isMobile ? '12px' : '24px' }}>
 
       {/* ── Topbar ──────────────────────────────────────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: '16px', gap: '12px', flexWrap: 'wrap' }}>
@@ -472,23 +514,6 @@ export default function AppointmentDetail() {
         )}
       </div>
 
-      {/* ── Status bar ──────────────────────────────────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px', flexWrap: 'wrap' }}>
-        <StatusChip status={appt.status} />
-        <span style={{
-          display: 'inline-block', padding: '2px 9px', borderRadius: '20px',
-          fontSize: '0.75rem', fontWeight: 500,
-          color: '#a78bfa', background: 'color-mix(in srgb, #7c3aed 14%, var(--panel))', border: '1px solid color-mix(in srgb, #7c3aed 30%, var(--panel))',
-        }}>
-          {appt.portfolio}
-        </span>
-        {appt.firstDate && (
-          <span style={{ fontSize: '0.8125rem', color:'var(--mut)' }}>
-            First appointment: {appt.firstDate} {appt.firstTime} · {appt.address}
-          </span>
-        )}
-      </div>
-
       {/* ── Detail cards ────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
         <div style={s.card}>
@@ -497,12 +522,12 @@ export default function AppointmentDetail() {
           <FieldRow label="Occupation">{appt.occupation}</FieldRow>
           <FieldRow label="Mobile">{appt.mobile}</FieldRow>
           <FieldRow label="Current insurer">{appt.currentInsurer}</FieldRow>
-          <FieldRow label="Portfolio">{appt.portfolio}</FieldRow>
           <FieldRow label="Products interested">{appt.productsInterested.join(', ')}</FieldRow>
         </div>
         <div style={s.card}>
           <div style={s.cardTitle}>Appointment Details</div>
           <FieldRow label="Status"><StatusChip status={appt.status} /></FieldRow>
+          <FieldRow label="Portfolio"><PortfolioPill portfolio={appt.portfolio} /></FieldRow>
           <FieldRow label="First appt date">{appt.firstDate}  {appt.firstTime}</FieldRow>
           <FieldRow label="Address">{appt.address}</FieldRow>
           <FieldRow label="Broker">{appt.brokerName}</FieldRow>
@@ -512,15 +537,31 @@ export default function AppointmentDetail() {
       </div>
 
       {/* ── Meeting tracking ────────────────────────────────────────────────── */}
-      {appt.meetings.map(meeting => (
-        <MeetingSection
-          key={meeting.number}
-          meeting={meeting}
-          onChange={handleMeetingChange}
-          thirdMeetingEnabled={thirdMeetingEnabled}
-          isMobile={isMobile}
+      <MeetingSection meeting={appt.meetings[0]} onChange={handleMeetingChange} isMobile={isMobile} />
+
+      {secondMeetingCreated ? (
+        <MeetingSection meeting={appt.meetings[1]} onChange={handleMeetingChange} isMobile={isMobile} />
+      ) : (
+        <AddMeetingPrompt
+          label="Add Second Meeting"
+          unlocked={firstMeetingComplete}
+          unlockHint="Record the First Meeting's status before adding a Second Meeting."
+          onClick={() => setSecondMeetingCreated(true)}
         />
-      ))}
+      )}
+
+      {thirdMeetingEnabled && secondMeetingCreated && (
+        thirdMeetingCreated ? (
+          <MeetingSection meeting={appt.meetings[2]} onChange={handleMeetingChange} isMobile={isMobile} />
+        ) : (
+          <AddMeetingPrompt
+            label="Add Third Meeting"
+            unlocked={secondMeetingComplete}
+            unlockHint="Record the Second Meeting's status before adding a Third Meeting."
+            onClick={() => setThirdMeetingCreated(true)}
+          />
+        )
+      )}
 
       {/* ── Appointment outcome ─────────────────────────────────────────────── */}
       <div style={s.card}>
