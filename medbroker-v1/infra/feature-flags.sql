@@ -72,19 +72,17 @@ USING (VALUES
      'enum', 'none', 'none,microsoft,google', 'Core', 1, 0),
 
     -- Appointment workflow model
+    -- Selecting 'claim' also activates the token economy — that is a feature of
+    -- claim mode, not a separately configurable toggle. appointments.tokens.enabled
+    -- has been removed; see DELETE statement below.
     ('appointments.claimModel',
      'Appointment workflow',
-     'Assign: admin or supervisor assigns appointments to brokers. Claim: brokers self-select available appointments from a queue.',
+     'Assign: admin or supervisor assigns appointments to brokers. Claim: brokers self-select available appointments from a queue. Selecting Claim also activates the token economy (monthly free allocation + token top-ups).',
      'enum', 'assign', 'assign,claim', 'Core', 0, 0),
-
-    ('appointments.tokens.enabled',
-     'Broker token economy',
-     'Enable the token system for claim-model appointments. Brokers receive 10 free appointments per month; additional appointments cost tokens. Requires appointments.claimModel = claim.',
-     'boolean', '0', NULL, 'Core', 0, 0),
 
     ('appointments.tokens.paymentProvider',
      'Token payment provider',
-     'Payment gateway for broker token top-ups. none = manual top-up by admin only. stripe = brokers can self-purchase tokens via Stripe Checkout.',
+     'Payment gateway for broker token top-ups. none = manual top-up by admin only. stripe = brokers can self-purchase tokens via Stripe Checkout. Only relevant when appointments.claimModel = claim.',
      'enum', 'none', 'none,stripe', 'Core', 0, 0),
 
     ('events.enabled',
@@ -134,10 +132,13 @@ USING (VALUES
      'boolean', '0', NULL, 'Operational', 0, 0),
 
     -- ── PHASE 2 flags ──────────────────────────────────────────────────────────
+    -- tasks.enabled is intentionally NOT Phase2 — the Tasks page is fully built
+    -- and functional. It is off by default but works immediately when enabled.
+    -- Phase2 tier is reserved for features that do not yet exist in code.
     ('tasks.enabled',
      'Task management',
      'Enable the Tasks page and automatic task generation from appointment events, callbacks, and rescheduling actions.',
-     'boolean', '0', NULL, 'Phase2', 0, 1),
+     'boolean', '0', NULL, 'Core', 0, 0),
 
     ('broker.tokenIncentives.enabled',
      'Broker deal incentives',
@@ -161,6 +162,26 @@ WHEN NOT MATCHED THEN INSERT (
     source.flagKey, source.label, source.description, source.valueType, source.value,
     source.allowedValues, source.tier, source.requiresRestart, source.isPhase2
 );
+
+-- =============================================================================
+-- Post-merge corrections
+-- These handle re-runs against a DB that was seeded before this migration was
+-- updated. The MERGE above is WHEN NOT MATCHED only (idempotent insert), so it
+-- cannot update or delete rows that already exist.
+-- =============================================================================
+
+-- Remove appointments.tokens.enabled — the token economy is now implied by
+-- claimModel = 'claim' and is no longer a separately configurable flag.
+-- Safe to run whether or not the row exists.
+DELETE FROM FeatureFlag WHERE flagKey = 'appointments.tokens.enabled';
+
+-- Correct tasks.enabled if it was previously seeded as Phase2.
+-- The Tasks page is fully built; it is off by default but operational.
+UPDATE FeatureFlag
+SET    tier      = 'Core',
+       isPhase2  = 0
+WHERE  flagKey   = 'tasks.enabled'
+  AND  (tier != 'Core' OR isPhase2 != 0);
 
 -- Grant to app user
 -- GRANT SELECT, UPDATE ON FeatureFlag TO [medbroker-api-prod];
