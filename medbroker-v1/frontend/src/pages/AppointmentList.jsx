@@ -285,7 +285,7 @@ export default function AppointmentList() {
   const canManage    = isAdmin || isSupervisor;
 
   const claimModel     = flags['appointments.claimModel'] ?? 'assign';
-  const tokensEnabled  = flag('appointments.tokens.enabled');
+  const tokensEnabled  = claimModel === 'claim';   // token economy is a claim-model feature, not a separate flag
   const paymentProvider= flags['appointments.tokens.paymentProvider'] ?? 'none';
   const showClaimTabs  = isBroker && claimModel === 'claim';
   // In claim model, admin/supervisor do NOT assign brokers — brokers self-serve.

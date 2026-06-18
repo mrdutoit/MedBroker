@@ -35,20 +35,14 @@ const FLAG_META = [
     description: 'Which identity provider to use. Only applies when SSO is enabled.',
     valueType: 'enum', allowedValues: ['none', 'microsoft', 'google'],
     requiresRestart: true, isPhase2: false,
+    dependsOn: { key: 'auth.sso.enabled', value: true },
   },
   {
     key: 'appointments.claimModel', tier: 'Core',
     label: 'Appointment workflow',
-    description: 'Assign: admin assigns appointments to brokers. Claim: brokers self-select from an available queue.',
+    description: 'Assign: admin assigns appointments to brokers. Claim: brokers self-select from an available queue. Selecting Claim also activates the token economy.',
     valueType: 'enum', allowedValues: ['assign', 'claim'],
     requiresRestart: false, isPhase2: false,
-  },
-  {
-    key: 'appointments.tokens.enabled', tier: 'Core',
-    label: 'Broker token economy',
-    description: 'Brokers receive a monthly free appointment allocation. Additional appointments cost tokens. Requires claim model.',
-    valueType: 'boolean', requiresRestart: false, isPhase2: false,
-    dependsOn: { key: 'appointments.claimModel', value: 'claim' },
   },
   {
     key: 'appointments.tokens.paymentProvider', tier: 'Core',
@@ -56,7 +50,7 @@ const FLAG_META = [
     description: 'Payment gateway for broker token top-ups. "none" = admin top-up only. "stripe" = self-service via Stripe Checkout.',
     valueType: 'enum', allowedValues: ['none', 'stripe'],
     requiresRestart: false, isPhase2: false,
-    dependsOn: { key: 'appointments.tokens.enabled', value: true },
+    dependsOn: { key: 'appointments.claimModel', value: 'claim' },
   },
   {
     key: 'events.enabled', tier: 'Core',
@@ -269,7 +263,17 @@ export default function FeatureFlags() {
   const { flags, setFlag } = useFlags();
   const [activeTier, setActiveTier] = useState('Core');
 
-  const visibleFlags = FLAG_META.filter(m => m.tier === activeTier);
+  const visibleFlags = FLAG_META
+    .filter(m => m.tier === activeTier)
+    .filter(m => {
+      if (!m.dependsOn) return true;
+      // Coerce stored boolean strings — mirrors the flag() helper in FlagContext
+      const raw = flags[m.dependsOn.key];
+      let val = raw;
+      if (raw === '0' || raw === 'false' || raw === false) val = false;
+      else if (raw === '1' || raw === 'true' || raw === true) val = true;
+      return val === m.dependsOn.value || String(raw) === String(m.dependsOn.value);
+    });
 
   return (
     <div style={s.page}>
