@@ -22,7 +22,6 @@ export const DEFAULT_FLAGS = {
   'auth.sso.enabled':                      false,
   'auth.sso.provider':                     'none',
   'appointments.claimModel':               'assign',
-  'appointments.tokens.enabled':           false,
   'appointments.tokens.paymentProvider':   'none',
   'events.enabled':                        true,
   'leads.autoUnassign.enabled':            true,
