@@ -286,3 +286,50 @@ password-reset/unlock endpoints, and the Users API generally. Needed next
 for "create a user under User Management, assign a role, log in" to be
 fully demoable — right now you can bootstrap yourself in and log in, but
 there's no way to create a *second* user without inserting a row directly.
+
+---
+
+## 10. CORS bug found and fixed (22 July 2026, deploying Mark bootstrapped in)
+
+`src/http/helpers.js`'s `applyCors()` originally hardcoded
+`Access-Control-Allow-Origin` to `FRONTEND_ORIGIN` (default
+`http://localhost:5173`). This silently breaks any caller whose origin
+doesn't match that exact value — including `bootstrap-admin.html` (§11)
+opened as a local `file://` page, whose origin is the literal string
+`"null"`. Caught by testing the actual page against a real Chromium browser
+via Playwright, not by code review — the failure mode is a clean-looking
+`Failed to fetch` in the browser with no indication it's a CORS problem
+specifically unless you check the console.
+
+Fixed: `applyCors()` now reflects whatever `Origin` header the request
+actually sent, rather than checking it against one hardcoded value. Also
+added `Authorization` to the allowed-headers list, which was missing
+entirely — every JWT-bearing request (real login, not just this bootstrap
+page) would have hit the same preflight failure the first time anything
+called it from a browser rather than a mock/test harness, since a
+`Bearer` token can't be sent without it. Neither of these routes use
+cookies, so reflecting the origin isn't a loosened security boundary —
+every route here is authorized by an explicit bearer token or a request-
+body secret, neither of which a browser attaches automatically the way it
+would a cookie, so there's no cross-site-cookie risk this was protecting
+against in the first place.
+
+**If you deployed api-demo before this fix**: replace
+`src/http/helpers.js` with the current version and redeploy. Nothing else
+changed.
+
+## 11. bootstrap-admin.html — browser-based bootstrap utility
+
+A standalone, no-build-step HTML page (open directly via `file://`, no
+server needed to run it) for calling `POST /api/auth/bootstrap-admin`
+without curl or Postman. Lives outside the repo — it's a one-off utility
+for Mark, not part of the deployed application. Form fields: backend URL
+(pre-filled to the Vercel deployment), bootstrap secret, display name,
+email, password. Shows the raw response either way, success or error, so
+failures are diagnosable rather than a silent dead end.
+
+Verified end-to-end with a real Chromium browser via Playwright — not just
+reviewed — against a mock server replicating the actual deployed CORS and
+validation behaviour: successful creation renders correctly, and a wrong
+bootstrap secret renders the 403 cleanly rather than an unhandled error.
+This exercise is what surfaced the CORS bug in §10.
