@@ -16,7 +16,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch.js';
-import { leadsApi, usersApi } from '../services/api.js';
+import { leadsApi, usersApi, apiMode } from '../services/api.js';
 import { formatDistanceToNow } from 'date-fns';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
@@ -181,8 +181,18 @@ export default function LeadList() {
     [activeStatus, search, agentFilter, occFilter, page]
   );
 
-  // Preview fallback — filter mock data client-side
-  const data = apiData ?? (() => {
+  // PREVIEW_MODE (no backend at all): apiData is always null, forever —
+  // the mock filtering below is correct and permanent here.
+  // DEMO_MODE: apiData is null only briefly, while the fetch is in
+  // flight. Falling back to mock data during that window (as this used
+  // to) meant real users would briefly see fake leads flash on screen
+  // before the real list replaced them — same latent bug as
+  // UserAdmin.jsx and AppointmentList.jsx had, just not visibly
+  // triggered here since real lead data is non-empty, so the flash
+  // wasn't jarring enough to notice. Gate on PREVIEW_MODE directly
+  // instead of apiData's truthiness so DEMO_MODE always shows real data,
+  // even while that real data is still "empty because loading".
+  const data = apiMode.PREVIEW_MODE ? (() => {
     // Supervisor sees only direct reports — in preview, scoped to Thabo Molefe and Naledi van Wyk
     const supervisorAgents = ['Thabo Molefe', 'Naledi van Wyk'];
     let leads = MOCK_LEADS.leads.filter(l => {
@@ -200,7 +210,7 @@ export default function LeadList() {
       return true;
     });
     return { total: leads.length, leads };
-  })();
+  })() : (apiData ?? { total: 0, leads: [] });
 
   // Source filter — fetches from API in production, falls back to LEAD_SOURCES in preview
   const { data: sourcesData } = useFetch(

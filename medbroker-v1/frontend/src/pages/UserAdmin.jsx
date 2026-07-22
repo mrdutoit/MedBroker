@@ -382,14 +382,20 @@ export default function UserAdmin() {
   );
   const { data: supervisorsData } = useFetch(() => usersApi.listSupervisors(), []);
 
-  // Preview mode (usersData === null): fall back to MOCK_USERS, same as
-  // every other page in the app. Demo mode: real data, already filtered
-  // server-side by role but re-filtered here too for the "All" case since
-  // the list is fetched once per roleFilter change anyway.
-  const allUsers = usersData?.users
-    ? usersData.users.map(u => ({ ...u, supervisor: u.supervisorName ?? '—' }))
-    : MOCK_USERS;
-  const supervisors = supervisorsData?.supervisors ?? MOCK_SUPERVISORS;
+  // PREVIEW_MODE (no backend configured at all): usersData is always null,
+  // forever — MOCK_USERS is correct and permanent here.
+  // DEMO_MODE (a real backend, real data): usersData is null only briefly,
+  // while the fetch is in flight — falling back to MOCK_USERS during that
+  // window (as this used to) meant every real user briefly saw fake
+  // people's names flash on screen before the real (possibly genuinely
+  // empty) list replaced them, which reads as data having been wiped
+  // rather than a page still loading. Checking PREVIEW_MODE directly
+  // instead of usersData's truthiness fixes this: real mode always shows
+  // real data, even while that real data is still "empty because loading".
+  const allUsers = apiMode.PREVIEW_MODE
+    ? MOCK_USERS
+    : (usersData?.users ?? []).map(u => ({ ...u, supervisor: u.supervisorName ?? '—' }));
+  const supervisors = apiMode.PREVIEW_MODE ? MOCK_SUPERVISORS : (supervisorsData?.supervisors ?? []);
 
   const filtered = allUsers.filter(u => roleFilter === 'All' || u.role === roleFilter);
   const counts   = ROLES.reduce((acc, r) => { acc[r] = allUsers.filter(u => u.role === r).length; return acc; }, {});

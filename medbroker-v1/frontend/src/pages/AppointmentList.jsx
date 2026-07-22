@@ -26,7 +26,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
-import { appointmentsApi, usersApi } from '../services/api.js';
+import { appointmentsApi, usersApi, apiMode } from '../services/api.js';
 import { useFetch } from '../hooks/useFetch.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s, APPT_STATUS_META, MEETING_STATUS_META, PORTFOLIO_META } from '../styles/tokens.js';
@@ -347,13 +347,19 @@ export default function AppointmentList() {
     agentId:     a.agentId,
   }));
 
-  // Preview mode: apptData stays null forever (api.js PREVIEW_MODE), so this
-  // falls through to the existing mock arrays exactly as before — same
-  // fallback pattern as every other wired page.
-  const sourceData = apptData?.appointments ? realAppointments : ALL_APPOINTMENTS;
-  const brokerOptions = realBrokers.length > 0
-    ? realBrokers.map(b => ({ id: b.id, displayName: b.displayName }))
-    : BROKERS.map(name => ({ id: name, displayName: name })); // preview fallback, matches mock's name-as-identifier
+  // PREVIEW_MODE (no backend at all): apptData/brokersData are always
+  // null, forever — the mock arrays below are correct and permanent here.
+  // DEMO_MODE: both are null only briefly, while their fetches are in
+  // flight (or, for brokers, genuinely empty if none have been created
+  // yet) — falling back to mock in either case (as this used to) meant
+  // real users would briefly see fake appointments and fake broker names
+  // on screen before the real, possibly-empty data replaced them. Gate on
+  // PREVIEW_MODE directly instead of data truthiness/length so DEMO_MODE
+  // always shows real data, even while genuinely empty.
+  const sourceData = apiMode.PREVIEW_MODE ? ALL_APPOINTMENTS : realAppointments;
+  const brokerOptions = apiMode.PREVIEW_MODE
+    ? BROKERS.map(name => ({ id: name, displayName: name })) // preview fallback, matches mock's name-as-identifier
+    : realBrokers.map(b => ({ id: b.id, displayName: b.displayName }));
 
   const filtered = sourceData.filter(a => {
     // brokerCode holds the real brokerId in the real-data path (see mapping
@@ -606,6 +612,10 @@ export default function AppointmentList() {
               : '— use the Assign button to allocate brokers to unassigned appointments'}
           </span>
         </div>
+      )}
+
+      {apiMode.DEMO_MODE && apptLoading && (
+        <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading appointments…</div>
       )}
 
       {isBroker && claimModel === 'assign' && (
