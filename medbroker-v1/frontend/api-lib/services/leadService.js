@@ -55,12 +55,17 @@ const SOURCE_JOINS = `
 /**
  * List leads with optional filters and pagination.
  * @param {Object} filters - from LeadListQuerySchema, plus:
+ * @param {string} [filters.excludeStatuses] - comma-separated pipelineStatus
+ *   values to exclude (LeadList hides AppointmentScheduled leads, which
+ *   belong in Appointments instead — not yet built, but the filter is
+ *   ready for when it is).
+ * @param {string} [filters.occupation]
  * @param {string[]} [filters.supervisorAgentIds] - when set, restricts results
  *   to leads assigned to one of these agent ids, OR unassigned. Set by the
  *   route handler for a Supervisor-without-Admin caller (A1).
  * @returns {Promise<{ leads: Array, total: number, page: number, pageSize: number }>}
  */
-export async function listLeads({ status, agentId, brokerId, eventId, source, search, page, pageSize, supervisorAgentIds }) {
+export async function listLeads({ status, excludeStatuses, agentId, brokerId, eventId, source, occupation, search, page, pageSize, supervisorAgentIds }) {
   const offset = (page - 1) * pageSize;
 
   let whereClause = 'WHERE l.deletedAt IS NULL AND l.organisationId = @organisationId';
@@ -70,6 +75,18 @@ export async function listLeads({ status, agentId, brokerId, eventId, source, se
     whereClause += ' AND l.pipelineStatus = @status';
     params.status = { type: sql.NVarChar(50), value: status };
   }
+  // excludeStatuses — comma-separated list from the client (e.g. LeadList
+  // hides AppointmentScheduled leads, which belong in Appointments instead).
+  if (excludeStatuses) {
+    const statuses = String(excludeStatuses).split(',').map((s) => s.trim()).filter(Boolean);
+    if (statuses.length > 0) {
+      const placeholders = statuses.map((_, i) => `@exclStatus${i}`).join(', ');
+      whereClause += ` AND l.pipelineStatus NOT IN (${placeholders})`;
+      statuses.forEach((st, i) => {
+        params[`exclStatus${i}`] = { type: sql.NVarChar(50), value: st };
+      });
+    }
+  }
   if (agentId) {
     whereClause += ' AND l.assignedAgentId = @agentId';
     params.agentId = { type: sql.UniqueIdentifier, value: agentId };
@@ -77,6 +94,10 @@ export async function listLeads({ status, agentId, brokerId, eventId, source, se
   if (eventId) {
     whereClause += ' AND l.linkedEventId = @eventId';
     params.eventId = { type: sql.UniqueIdentifier, value: eventId };
+  }
+  if (occupation) {
+    whereClause += ' AND l.occupation = @occupation';
+    params.occupation = { type: sql.NVarChar(200), value: occupation };
   }
   if (search) {
     whereClause += ' AND (l.firstName ILIKE @search OR l.lastName ILIKE @search OR l.email ILIKE @search)';
@@ -366,4 +387,49 @@ export async function findDuplicate(email, idNumber) {
   );
 
   return existing?.id ?? null;
+}
+
+/**
+ * Distinct source labels currently in use across all leads — backs the
+ * Source filter dropdown on LeadList.jsx. leadsApi.sources() on the
+ * frontend already expected this endpoint; it just didn't exist yet.
+ * @returns {Promise<string[]>}
+ */
+export async function listSources() {
+  const rows = await executeQuery(
+    `SELECT DISTINCT ${SOURCE_LABEL_SELECT} AS "sourceLabel"
+     FROM Lead l
+     ${SOURCE_JOINS}
+     WHERE l.deletedAt IS NULL AND l.organisationId = @organisationId
+       AND ${SOURCE_LABEL_SELECT} IS NOT NULL
+     ORDER BY ${SOURCE_LABEL_SELECT}`,
+    { organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } }
+  );
+  return rows.map((r) => r.sourceLabel);
+}
+
+/**
+ * Call history for a lead, most recent first — backs LeadDetail.jsx's
+ * "Recent Calls" section, which previously only reflected calls logged in
+ * the current browser session (lost on refresh) since logCallAttempt()
+ * writes to CallAttempt but nothing ever read it back.
+ * @param {string} leadId
+ * @returns {Promise<Array>}
+ */
+export async function listCallAttempts(leadId) {
+  return executeQuery(
+    `SELECT
+       ca.id, ca.outcome, ca.notes,
+       ca.followUpDateTime AS "callbackDateTime",
+       ca.callTime AS "attemptedAt",
+       a.displayName AS "agentName"
+     FROM CallAttempt ca
+     LEFT JOIN "User" a ON ca.agentId = a.id
+     WHERE ca.leadId = @leadId AND ca.organisationId = @organisationId
+     ORDER BY ca.callTime DESC`,
+    {
+      leadId: { type: sql.UniqueIdentifier, value: leadId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
 }
