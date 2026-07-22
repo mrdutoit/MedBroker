@@ -14,8 +14,11 @@ import { lazy, Suspense, useState } from 'react';
 import { RoleProvider, useRole, PERSONAS } from './context/RoleContext.jsx';
 import { FlagProvider, useFlags }           from './context/FlagContext.jsx';
 import { ThemeProvider, useTheme }          from './context/ThemeContext.jsx';
+import { AuthProvider, useAuth }            from './context/AuthContext.jsx';
+import { apiMode }                          from './services/api.js';
 import { useWindowSize }                     from './hooks/useWindowSize.js';
 import { Logo }                              from './components/Logo.jsx';
+import Login                                 from './pages/Login.jsx';
 
 import LeadList        from './pages/LeadList.jsx';
 import AppointmentList from './pages/AppointmentList.jsx';
@@ -87,6 +90,7 @@ function AppLayout({ children }) {
   const { role, setRole, persona } = useRole();
   const { flag }                   = useFlags();
   const { theme, setTheme, themes } = useTheme();
+  const { demoMode, logout }        = useAuth();
   const navigate                   = useNavigate();
   const { isMobile, isTablet }     = useWindowSize();
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -208,36 +212,59 @@ function AppLayout({ children }) {
             ))}
           </div>
 
-          <div style={{
-            background: 'color-mix(in srgb, var(--limited) 14%, transparent)',
-            border: '1px solid color-mix(in srgb, var(--limited) 34%, transparent)',
-            borderRadius: '10px', padding: '7px 10px', marginBottom: '8px',
-          }}>
-            <div style={{ fontSize: '0.6875rem', fontWeight: 600, color: 'var(--limited)', marginBottom: '5px' }}>
-              ⚠ Preview mode
+          {demoMode ? (
+            <div style={{
+              background: 'color-mix(in srgb, var(--live) 14%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--live) 34%, transparent)',
+              borderRadius: '10px', padding: '7px 10px', marginBottom: '8px',
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
+            }}>
+              <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: 'var(--live)' }}>
+                ● Signed in
+              </span>
+              <button
+                onClick={() => { logout(); closeNav(); }}
+                style={{
+                  background: 'none', border: '1px solid var(--line)', borderRadius: '7px',
+                  padding: '3px 9px', fontSize: '0.6875rem', color: 'var(--ink)',
+                  cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                Log out
+              </button>
             </div>
-            <select
-              value={role}
-              onChange={e => {
-                const next = e.target.value;
-                setRole(next);
-                navigate(next === 'Broker' ? '/appointments' : '/leads');
-                closeNav();
-              }}
-              style={{
-                width: '100%', border: '1px solid var(--line)', borderRadius: '7px',
-                padding: '4px 7px', fontSize: '0.75rem',
-                background: 'var(--glass)', color: 'var(--ink)',
-                cursor: 'pointer', fontFamily: 'inherit',
-              }}
-            >
-              <option value="GlobalAdmin">Global Administrator</option>
-              <option value="Admin">Admin</option>
-              <option value="Supervisor">Supervisor</option>
-              <option value="Agent">Agent (T. Molefe)</option>
-              <option value="Broker">Broker (S. van der Berg)</option>
-            </select>
-          </div>
+          ) : (
+            <div style={{
+              background: 'color-mix(in srgb, var(--limited) 14%, transparent)',
+              border: '1px solid color-mix(in srgb, var(--limited) 34%, transparent)',
+              borderRadius: '10px', padding: '7px 10px', marginBottom: '8px',
+            }}>
+              <div style={{ fontSize: '0.6875rem', fontWeight: 600, color: 'var(--limited)', marginBottom: '5px' }}>
+                ⚠ Preview mode
+              </div>
+              <select
+                value={role}
+                onChange={e => {
+                  const next = e.target.value;
+                  setRole(next);
+                  navigate(next === 'Broker' ? '/appointments' : '/leads');
+                  closeNav();
+                }}
+                style={{
+                  width: '100%', border: '1px solid var(--line)', borderRadius: '7px',
+                  padding: '4px 7px', fontSize: '0.75rem',
+                  background: 'var(--glass)', color: 'var(--ink)',
+                  cursor: 'pointer', fontFamily: 'inherit',
+                }}
+              >
+                <option value="GlobalAdmin">Global Administrator</option>
+                <option value="Admin">Admin</option>
+                <option value="Supervisor">Supervisor</option>
+                <option value="Agent">Agent (T. Molefe)</option>
+                <option value="Broker">Broker (S. van der Berg)</option>
+              </select>
+            </div>
+          )}
 
           {/* Current user display */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '4px 6px' }}>
@@ -368,17 +395,32 @@ function AppLayoutWrapper() {
   );
 }
 
+// ─── Auth gate — only meaningful in demo-backend mode ──────────────────────────
+function AuthGate() {
+  const { isAuthenticated } = useAuth();
+
+  if (apiMode.DEMO_MODE && !isAuthenticated) {
+    return <Login />;
+  }
+
+  return (
+    <BrowserRouter>
+      <AppLayoutWrapper />
+    </BrowserRouter>
+  );
+}
+
 // ─── Root ──────────────────────────────────────────────────────────────────────
 export default function App() {
   return (
     <ThemeProvider>
-      <RoleProvider>
-        <FlagProvider>
-          <BrowserRouter>
-            <AppLayoutWrapper />
-          </BrowserRouter>
-        </FlagProvider>
-      </RoleProvider>
+      <AuthProvider>
+        <RoleProvider>
+          <FlagProvider>
+            <AuthGate />
+          </FlagProvider>
+        </RoleProvider>
+      </AuthProvider>
     </ThemeProvider>
   );
 }
