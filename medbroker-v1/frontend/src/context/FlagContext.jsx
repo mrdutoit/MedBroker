@@ -4,8 +4,16 @@
  * provides a flag() helper to all pages.
  *
  * In preview mode (no API) the DEFAULT_FLAGS object is used directly.
- * When the API is connected, flags are fetched from GET /api/flags and
- * cached with a 5-minute TTL.
+ * When the API is connected, flags are fetched from GET /api/flags via
+ * flagsApi (services/api.js) — this used to be a raw `fetch('/api/flags')`
+ * that bypassed api.js entirely, which meant it never actually reached the
+ * demo backend in demo mode (it hit the frontend's own origin, not
+ * VITE_API_BASE_URL) — same class of bug as the earlier CORS issue.
+ * Routing through flagsApi fixes that and means demo-mode calls carry the
+ * right base URL automatically. flagsApi.list() already returns null in
+ * preview mode (api.js's PREVIEW_MODE short-circuit), so the existing
+ * DEFAULT_FLAGS fallback below needed no change in behaviour, just a
+ * different call underneath it.
  *
  * Usage:
  *   const { flag, flags, loading } = useFlags();
@@ -15,6 +23,7 @@
  */
 
 import { createContext, useContext, useState, useEffect } from 'react';
+import { flagsApi } from '../services/api.js';
 
 // ─── Default flag values (preview mode / API fallback) ────────────────────────
 // These must match the seed values in feature-flags.sql.
@@ -49,16 +58,16 @@ export function FlagProvider({ children }) {
     async function loadFlags() {
       setLoading(true);
       try {
-        // Attempt to fetch from the API. Falls back to DEFAULT_FLAGS on any error.
-        const res = await fetch('/api/flags');
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
-        // API returns { flags: { key: value, ... } }
-        if (!cancelled && data.flags) {
+        // Returns null in preview mode (api.js PREVIEW_MODE short-circuit) —
+        // falls through to the catch-less null check below, same fallback
+        // behaviour as before.
+        const data = await flagsApi.list();
+        if (!cancelled && data?.flags) {
           setFlags({ ...DEFAULT_FLAGS, ...data.flags });
         }
       } catch (err) {
-        // In preview mode (no API) this is expected — use defaults silently.
+        // Demo/production mode with a real but failing/unreachable API —
+        // use defaults silently, same as before.
         if (!cancelled) setError(err.message);
       } finally {
         if (!cancelled) setLoading(false);

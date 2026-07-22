@@ -1,13 +1,14 @@
 {
-  "name": "medbroker-frontend",
+  "name": "medbroker-app",
   "version": "1.0.0",
-  "description": "MedBroker Lead Management System — React frontend",
+  "description": "MedBroker Lead Management System — React frontend + Vercel Functions backend (Postgres/Neon), one combined project. NOT the Azure production target — see VERCEL_NOTES.md at the project root for the lift-and-shift boundary.",
   "type": "module",
   "scripts": {
     "dev":     "vite",
     "build":   "vite build",
     "preview": "vite preview",
-    "lint":    "eslint src/"
+    "lint":    "eslint src/ api/ api-lib/",
+    "test":    "vitest run"
   },
   "dependencies": {
     "react":             "^18.3.1",
@@ -16,11 +17,19 @@
     "@azure/msal-browser":  "^3.24.0",
     "@azure/msal-react":    "^2.0.22",
     "date-fns":          "^3.6.0",
-    "recharts":          "^2.12.7"
+    "recharts":          "^2.12.7",
+    "pg":                "^8.13.0",
+    "zod":               "^3.23.8",
+    "pino":              "^9.4.0",
+    "bcryptjs":          "^2.4.3"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
     "vite":                 "^5.4.0",
-    "eslint":               "^9.0.0"
+    "eslint":               "^9.0.0",
+    "vitest":               "^2.0.0"
+  },
+  "engines": {
+    "node": ">=20"
   }
 }

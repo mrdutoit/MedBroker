@@ -1,15 +1,31 @@
 /**
  * pages/UserAdmin.jsx
  * User management — create, edit, activate/deactivate.
- * New in this version:
- *   - Supervisor assignment for Agent and Broker roles
- *   - Portfolio selection via checkboxes (not dropdown)
- *   - Products shown per selected portfolio, drawn from PRODUCTS_BY_PORTFOLIO
- *   - SSO invitation notice — no password created
+ *
+ * Wired to the real Users API (usersApi.list/create/update/listSupervisors)
+ * — added 22 July 2026. In preview mode (api.js PREVIEW_MODE) this behaves
+ * exactly as before: MOCK_USERS, no network calls, buttons are cosmetic.
+ * In demo-backend mode, the list is real, creation/edits persist, and
+ * deactivation actually deactivates the user server-side.
+ *
+ * SSO vs local-auth creation — driven by the auth.sso.enabled flag, which
+ * already existed and already defaults to false (see feature-flags.sql):
+ *   - flag ON:  original behaviour — SSO-invite notice, no password field.
+ *   - flag OFF: a password field replaces the SSO notice, since that's the
+ *     active auth path this demo actually uses (see api-demo's
+ *     services/authService.js). Editing an existing user never shows a
+ *     password field either way — password changes are a separate,
+ *     not-yet-built flow (self-service change-password / admin reset).
+ *
+ * Everything else — layout, portfolio/product checkboxes, supervisor
+ * assignment, region logic — is unchanged from the original.
  */
 
 import { useState } from 'react';
 import { useRole, PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
+import { useFlags } from '../context/FlagContext.jsx';
+import { useFetch } from '../hooks/useFetch.js';
+import { usersApi, apiMode, ApiError } from '../services/api.js';
 import { s } from '../styles/tokens.js';
 
 const ROLES = ['Admin', 'Supervisor', 'Agent', 'Broker'];
@@ -31,7 +47,7 @@ const MOCK_USERS = [
   { id:'10', displayName:'Admin User',           email:'admin@medbroker.co.za',             role:'Admin',      region:'—',                supervisor:'—',             portfolios:[],                              products:[],                            isActive:true },
 ];
 
-const SUPERVISORS = MOCK_USERS.filter(u => u.role === 'Supervisor').map(u => u.displayName);
+const MOCK_SUPERVISORS = MOCK_USERS.filter(u => u.role === 'Supervisor').map(u => ({ id: u.id, displayName: u.displayName }));
 
 const ROLE_STYLE = {
   GlobalAdmin: { bg: '#fdf2ff', colour: '#7e22ce' },
@@ -43,7 +59,7 @@ const ROLE_STYLE = {
 
 const BLANK_FORM = {
   displayName: '', email: '', role: 'Agent', region: '',
-  supervisor: '', portfolios: [], products: [],
+  supervisorId: '', portfolios: [], products: [], password: '',
 };
 
 // ─── Portfolio + product selector (reused in both modals) ────────────────────
@@ -121,25 +137,27 @@ function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onP
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
-function UserModal({ mode, user, onClose }) {
+function UserModal({ mode, user, supervisors, ssoEnabled, demoMode, onClose, onSave }) {
   const isEdit = mode === 'edit';
   const [form, setForm] = useState(
     isEdit
       ? {
           ...user,
-          // Guarantee these are always arrays regardless of what the mock data provides
-          portfolios: Array.isArray(user.portfolios) ? user.portfolios : [],
-          products:   Array.isArray(user.products)   ? user.products   : [],
+          portfolios:   Array.isArray(user.portfolios) ? user.portfolios : [],
+          products:     Array.isArray(user.products)   ? user.products   : [],
+          supervisorId: user.supervisorId ?? '',
+          password:     '',
         }
       : { ...BLANK_FORM }
   );
+  const [saving, setSaving] = useState(false);
+  const [error, setError]   = useState(null);
 
   function togglePortfolio(name) {
     setForm(f => {
       const next = f.portfolios.includes(name)
         ? f.portfolios.filter(p => p !== name)
         : [...f.portfolios, name];
-      // Remove products that belong to deselected portfolio
       const validPortIds = next.map(p => p === 'Discovery' ? 'disc' : 'mm');
       const validProds   = validPortIds.flatMap(id => PRODUCTS_BY_PORTFOLIO[id] || []);
       return { ...f, portfolios: next, products: f.products.filter(pr => validProds.includes(pr)) };
@@ -154,6 +172,58 @@ function UserModal({ mode, user, onClose }) {
   }
 
   const needsSupervisor = ['Agent', 'Broker'].includes(form.role);
+  const needsPassword   = !isEdit && demoMode && !ssoEnabled;
+
+  async function handleSave() {
+    setError(null);
+
+    if (needsPassword && form.password && form.password.length < 12) {
+      setError('Password must be at least 12 characters.');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      if (isEdit) {
+        await onSave({
+          displayName:  form.displayName,
+          role:         form.role,
+          region:       form.region || undefined,
+          supervisorId: form.supervisorId || undefined,
+          portfolios:   form.portfolios,
+          products:     form.products,
+          isActive:     form.isActive,
+        });
+      } else {
+        await onSave({
+          displayName:  form.displayName,
+          email:        form.email,
+          role:         form.role,
+          region:       form.region || undefined,
+          supervisorId: form.supervisorId || undefined,
+          portfolios:   form.portfolios,
+          products:     form.products,
+          ...(needsPassword && form.password ? { password: form.password } : {}),
+        });
+      }
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Something went wrong saving this user.');
+      setSaving(false);
+      return;
+    }
+    setSaving(false);
+  }
+
+  async function handleDeactivate() {
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave({ isActive: false });
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not deactivate this user.');
+      setSaving(false);
+    }
+  }
 
   return (
     <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
@@ -163,13 +233,17 @@ function UserModal({ mode, user, onClose }) {
           <button style={s.closeBtn} onClick={onClose}>✕</button>
         </div>
 
-        {/* SSO notice */}
-        <div style={{ ...s.noticeInfo, marginBottom: '16px', fontSize: '0.8125rem' }}>
-          {isEdit
-            ? `This user signs in via SSO using their existing Microsoft 365 or Google account.`
-            : `The user will be invited via SSO using their Microsoft 365 or Google Workspace account. No separate password is created.`
-          }
-        </div>
+        {error && <div style={{ ...s.errorBox, marginBottom: '14px' }}>{error}</div>}
+
+        {/* SSO notice — only when SSO is actually the active auth path */}
+        {ssoEnabled && (
+          <div style={{ ...s.noticeInfo, marginBottom: '16px', fontSize: '0.8125rem' }}>
+            {isEdit
+              ? `This user signs in via SSO using their existing Microsoft 365 or Google account.`
+              : `The user will be invited via SSO using their Microsoft 365 or Google Workspace account. No separate password is created.`
+            }
+          </div>
+        )}
 
         {/* Identity card for edit */}
         {isEdit && (
@@ -185,7 +259,7 @@ function UserModal({ mode, user, onClose }) {
             </div>
             <div>
               <div style={{ fontWeight: 500 }}>{form.displayName}</div>
-              <div style={{ fontSize: '0.75rem', color:'var(--mut)' }}>{form.email} · SSO</div>
+              <div style={{ fontSize: '0.75rem', color:'var(--mut)' }}>{form.email}{ssoEnabled ? ' · SSO' : ''}</div>
             </div>
           </div>
         )}
@@ -197,9 +271,25 @@ function UserModal({ mode, user, onClose }) {
               <input style={s.formInput} value={form.displayName} onChange={e => setForm(f => ({ ...f, displayName: e.target.value }))} placeholder="Dr Jane Smith" />
             </div>
             <div style={s.formGroup}>
-              <label style={s.formLabel}>Email address * <span style={{ fontSize: '0.688rem', color:'var(--mut)' }}>(Microsoft 365 or Google Workspace)</span></label>
+              <label style={s.formLabel}>
+                Email address * {ssoEnabled && <span style={{ fontSize: '0.688rem', color:'var(--mut)' }}>(Microsoft 365 or Google Workspace)</span>}
+              </label>
               <input type="email" style={s.formInput} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane.smith@medbroker.co.za" />
             </div>
+
+            {needsPassword && (
+              <div style={s.formGroup}>
+                <label style={s.formLabel}>Password <span style={{ fontSize: '0.688rem', color:'var(--mut)' }}>(optional — leave blank for an SSO-style invite with no local password)</span></label>
+                <input
+                  type="password"
+                  style={s.formInput}
+                  value={form.password}
+                  onChange={e => setForm(f => ({ ...f, password: e.target.value }))}
+                  placeholder="At least 12 characters"
+                  autoComplete="new-password"
+                />
+              </div>
+            )}
           </>
         )}
 
@@ -212,7 +302,6 @@ function UserModal({ mode, user, onClose }) {
               value={form.role}
               onChange={e => {
                 const newRole = e.target.value;
-                // Clear portfolios and products when switching away from roles that use them
                 const keepPortfolios = ['Agent', 'Supervisor', 'Broker'].includes(newRole);
                 setForm(f => ({
                   ...f,
@@ -248,9 +337,9 @@ function UserModal({ mode, user, onClose }) {
         {needsSupervisor && (
           <div style={s.formGroup}>
             <label style={s.formLabel}>Supervisor *</label>
-            <select style={s.formInput} value={form.supervisor} onChange={e => setForm(f => ({ ...f, supervisor: e.target.value }))}>
+            <select style={s.formInput} value={form.supervisorId} onChange={e => setForm(f => ({ ...f, supervisorId: e.target.value }))}>
               <option value="">Select supervisor…</option>
-              {SUPERVISORS.map(sv => <option key={sv} value={sv}>{sv}</option>)}
+              {supervisors.map(sv => <option key={sv.id} value={sv.id}>{sv.displayName}</option>)}
             </select>
             <div style={s.formHint}>The supervisor can view all leads and appointments assigned to this user.</div>
           </div>
@@ -267,12 +356,14 @@ function UserModal({ mode, user, onClose }) {
 
         <div style={{ ...s.modalFooter, justifyContent: isEdit ? 'space-between' : 'flex-end' }}>
           {isEdit && (
-            <button style={s.dangerBtn} onClick={onClose}>Deactivate</button>
+            <button style={s.dangerBtn} onClick={handleDeactivate} disabled={saving}>
+              {saving ? 'Working…' : 'Deactivate'}
+            </button>
           )}
           <div style={{ display: 'flex', gap: '8px' }}>
-            <button style={s.ghostBtn} onClick={onClose}>Cancel</button>
-            <button style={s.primaryBtn} onClick={onClose}>
-              {isEdit ? 'Save Changes' : 'Send Invitation'}
+            <button style={s.ghostBtn} onClick={onClose} disabled={saving}>Cancel</button>
+            <button style={s.primaryBtn} onClick={handleSave} disabled={saving}>
+              {saving ? 'Saving…' : isEdit ? 'Save Changes' : ssoEnabled ? 'Send Invitation' : 'Create User'}
             </button>
           </div>
         </div>
@@ -285,9 +376,37 @@ function UserModal({ mode, user, onClose }) {
 export default function UserAdmin() {
   const [roleFilter, setRoleFilter] = useState('All');
   const [modal,      setModal]      = useState(null);   // { mode: 'create'|'edit', user? }
+  const { flag } = useFlags();
+  const demoMode = apiMode.DEMO_MODE;
+  const ssoEnabled = flag('auth.sso.enabled');
 
-  const filtered = MOCK_USERS.filter(u => roleFilter === 'All' || u.role === roleFilter);
-  const counts   = ROLES.reduce((acc, r) => { acc[r] = MOCK_USERS.filter(u => u.role === r).length; return acc; }, {});
+  const { data: usersData, loading: usersLoading, refetch: refetchUsers } = useFetch(
+    () => usersApi.list({ role: roleFilter !== 'All' ? roleFilter : undefined }),
+    [roleFilter]
+  );
+  const { data: supervisorsData } = useFetch(() => usersApi.listSupervisors(), []);
+
+  // Preview mode (usersData === null): fall back to MOCK_USERS, same as
+  // every other page in the app. Demo mode: real data, already filtered
+  // server-side by role but re-filtered here too for the "All" case since
+  // the list is fetched once per roleFilter change anyway.
+  const allUsers = usersData?.users
+    ? usersData.users.map(u => ({ ...u, supervisor: u.supervisorName ?? '—' }))
+    : MOCK_USERS;
+  const supervisors = supervisorsData?.supervisors ?? MOCK_SUPERVISORS;
+
+  const filtered = allUsers.filter(u => roleFilter === 'All' || u.role === roleFilter);
+  const counts   = ROLES.reduce((acc, r) => { acc[r] = allUsers.filter(u => u.role === r).length; return acc; }, {});
+
+  async function handleModalSave(payload) {
+    if (modal.mode === 'edit') {
+      await usersApi.update(modal.user.id, payload);
+    } else {
+      await usersApi.create(payload);
+    }
+    await refetchUsers();
+    setModal(null);
+  }
 
   return (
     <div style={s.page}>
@@ -295,6 +414,10 @@ export default function UserAdmin() {
         <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)' }}>User Administration</h1>
         <button style={s.primaryBtn} onClick={() => setModal({ mode: 'create' })}>+ Add User</button>
       </div>
+
+      {demoMode && usersLoading && (
+        <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading users…</div>
+      )}
 
       {/* Metrics */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '18px' }}>
@@ -414,7 +537,11 @@ export default function UserAdmin() {
         <UserModal
           mode={modal.mode}
           user={modal.user}
+          supervisors={supervisors}
+          ssoEnabled={ssoEnabled}
+          demoMode={demoMode}
           onClose={() => setModal(null)}
+          onSave={handleModalSave}
         />
       )}
     </div>

@@ -3,9 +3,18 @@
  * SSO configuration and documentation page.
  * Shows the active provider (Microsoft 365 / Entra ID) and documents both
  * the Azure and GCP authentication flows.
+ *
+ * The active/inactive banner now reflects the real auth.sso.enabled flag
+ * (added 22 July 2026) rather than always claiming SSO is active — this
+ * page previously said so unconditionally regardless of the flag's actual
+ * value, which was misleading once local auth became a real, switchable
+ * alternative. The step-by-step provider documentation below is unchanged —
+ * it's reference material for whichever architecture profile a real
+ * customer deployment uses, not a live config form.
  */
 
 import { useState } from 'react';
+import { useFlags } from '../context/FlagContext.jsx';
 import { s } from '../styles/tokens.js';
 
 function Step({ num, colour, children }) {
@@ -27,20 +36,34 @@ function Step({ num, colour, children }) {
 
 export default function SingleSignOn() {
   const [tab, setTab] = useState('m365');
+  const { flag } = useFlags();
+  const ssoEnabled = flag('auth.sso.enabled');
 
   return (
     <div style={{ ...s.page, maxWidth: '800px' }}>
       <h1 style={{ margin: '0 0 6px', fontSize: '1.375rem', fontWeight: 600, color: 'var(--ink)' }}>Single Sign-On</h1>
       <p style={{ color: 'var(--mut)', fontSize: '0.875rem', margin: '0 0 18px' }}>Configure how users authenticate into MedBroker</p>
 
-      <div style={{ ...s.noticeSuccess, marginBottom: '18px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
-        <span style={{ fontSize: '1rem' }}>✅</span>
-        <div>
-          <strong>SSO is active.</strong> Users sign in with their existing Microsoft 365 or Google Workspace accounts.
-          No separate MedBroker password is required. New users receive an email invitation and are provisioned
-          automatically on first sign-in.
+      {ssoEnabled ? (
+        <div style={{ ...s.noticeSuccess, marginBottom: '18px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+          <span style={{ fontSize: '1rem' }}>✅</span>
+          <div>
+            <strong>SSO is active.</strong> Users sign in with their existing Microsoft 365 or Google Workspace accounts.
+            No separate MedBroker password is required. New users receive an email invitation and are provisioned
+            automatically on first sign-in.
+          </div>
         </div>
-      </div>
+      ) : (
+        <div style={{ ...s.noticeWarn, marginBottom: '18px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+          <span style={{ fontSize: '1rem' }}>ⓘ</span>
+          <div>
+            <strong>SSO is not currently enabled.</strong> Users sign in with a standalone email and password
+            managed within MedBroker (see User Admin). Turn on <strong>Single Sign-On</strong> in Feature Flags
+            to switch new users over to the flow documented below — existing users keep signing in with their
+            password either way; nothing about their account breaks when this changes.
+          </div>
+        </div>
+      )}
 
       <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '20px' }}>
         {[['m365', 'Microsoft 365 (Entra ID)'], ['google', 'Google Workspace']].map(([key, label]) => (

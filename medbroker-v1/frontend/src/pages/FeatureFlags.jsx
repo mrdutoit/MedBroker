@@ -17,6 +17,7 @@
 
 import { useState } from 'react';
 import { useFlags } from '../context/FlagContext.jsx';
+import { flagsApi, apiMode } from '../services/api.js';
 import { s }        from '../styles/tokens.js';
 
 // ─── Flag metadata ─────────────────────────────────────────────────────────────
@@ -166,17 +167,24 @@ function FlagRow({ meta, rawValue, onSave }) {
   const [localValue, setLocalValue] = useState(rawValue);
   const [saving,     setSaving]     = useState(false);
   const [saved,      setSaved]      = useState(false);
+  const [error,      setError]      = useState(null);
 
   const isDirty   = String(localValue) !== String(rawValue);
   const isLocked  = meta.isPhase2;
 
   async function handleSave() {
     setSaving(true);
-    await new Promise(r => setTimeout(r, 400)); // simulate API call
-    onSave(meta.key, localValue);
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    setError(null);
+    try {
+      await onSave(meta.key, localValue); // real PATCH /api/flags/:key now, not a fake delay
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    } catch (err) {
+      setError(err?.body?.error ?? err?.message ?? 'Could not save this flag.');
+      setLocalValue(rawValue); // revert the control to the last known-good value
+    } finally {
+      setSaving(false);
+    }
   }
 
   const boolValue = localValue === true || localValue === '1' || localValue === 'true';
@@ -236,7 +244,7 @@ function FlagRow({ meta, rawValue, onSave }) {
 
       {/* Save action */}
       {!isLocked && (
-        <div style={{ flexShrink: 0, paddingTop: '2px' }}>
+        <div style={{ flexShrink: 0, paddingTop: '2px', textAlign: 'right' }}>
           {saved ? (
             <span style={{ fontSize: '0.8125rem', color: '#15803d', fontWeight: 500 }}>✓ Saved</span>
           ) : isDirty ? (
@@ -252,6 +260,9 @@ function FlagRow({ meta, rawValue, onSave }) {
               {saving ? '…' : 'Save'}
             </button>
           ) : null}
+          {error && (
+            <div style={{ fontSize: '0.6875rem', color: 'var(--danger)', marginTop: '4px', maxWidth: '160px' }}>{error}</div>
+          )}
         </div>
       )}
     </div>
@@ -262,6 +273,17 @@ function FlagRow({ meta, rawValue, onSave }) {
 export default function FeatureFlags() {
   const { flags, setFlag } = useFlags();
   const [activeTier, setActiveTier] = useState('Core');
+
+  // Demo mode: real PATCH /api/flags/:key, then reflect it in context on
+  // success. Preview mode: flagsApi.update() would just be a no-op (api.js
+  // PREVIEW_MODE), so this stays local-only there — same behaviour as
+  // before, nothing regresses.
+  async function handleSaveFlag(key, value) {
+    if (apiMode.DEMO_MODE) {
+      await flagsApi.update(key, value); // throws ApiError on failure — caller (FlagRow) catches it
+    }
+    setFlag(key, value);
+  }
 
   const visibleFlags = FLAG_META
     .filter(m => m.tier === activeTier)
@@ -332,7 +354,7 @@ export default function FeatureFlags() {
             key={meta.key}
             meta={meta}
             rawValue={flags[meta.key] ?? false}
-            onSave={(key, value) => setFlag(key, value)}
+            onSave={handleSaveFlag}
           />
         ))}
       </div>

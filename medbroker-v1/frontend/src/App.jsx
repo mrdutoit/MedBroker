@@ -104,7 +104,7 @@ function AppLayout({ children }) {
   // ── Flag-controlled visibility ──────────────────────────────────────────────
   const showEvents = flag('events.enabled');
   const showTasks  = flag('tasks.enabled');
-  const showSso    = flag('auth.sso.enabled') && isAdminOrAbove;
+  const showSso    = isAdminOrAbove; // reachable regardless of current flag state — you need to get here to turn it on
 
   // Section labels only rendered when at least one item beneath them is visible
   const showAdminSection = isAdminOrAbove;
@@ -386,7 +386,7 @@ function AppLayoutWrapper() {
         {/* Admin — gated by role */}
         <Route path="/admin/users" element={isAdminOrAbove ? <UserAdmin />  : <Navigate to={defaultPath} replace />} />
         <Route path="/admin/app"   element={isAdminOrAbove ? <AppAdmin />   : <Navigate to={defaultPath} replace />} />
-        <Route path="/admin/sso"   element={isAdminOrAbove && flag('auth.sso.enabled') ? <SingleSignOn /> : <Navigate to={defaultPath} replace />} />
+        <Route path="/admin/sso"   element={isAdminOrAbove ? <SingleSignOn /> : <Navigate to={defaultPath} replace />} />
 
         {/* Feature Flags — GlobalAdmin only */}
         <Route path="/admin/flags" element={isGlobalAdmin ? <FeatureFlags /> : <Navigate to={defaultPath} replace />} />
