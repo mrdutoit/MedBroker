@@ -22,15 +22,10 @@ import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s, STATUS_META } from '../styles/tokens.js';
+import { JOB_TITLES } from '../constants/leadOptions.js';
 const STATUS_CHIPS      = ['All', ...Object.keys(STATUS_META)];
 // Leads with AppointmentScheduled are shown in Appointments, not here
 const EXCLUDED_STATUSES = ['AppointmentScheduled'];
-
-const OCCUPATIONS = [
-  'Anaesthesiologist', 'Cardiologist', 'Dermatologist', 'General Practitioner',
-  'Gynaecologist', 'Neurologist', 'Orthopaedic Surgeon', 'Paediatrician',
-  'Psychiatrist', 'Radiologist',
-];
 
 const AGENTS = [
   'Thabo Molefe', 'Naledi van Wyk', 'Kabelo Petersen', 'Bongani Ntuli', 'Siphiwe Mahlangu',
@@ -297,8 +292,8 @@ export default function LeadList() {
         </select>
         {showOccupationFilter && (
           <select value={occFilter} onChange={e => setOccFilter(e.target.value)} style={s.select}>
-            <option value="">All occupations</option>
-            {OCCUPATIONS.map(o => <option key={o} value={o}>{o}</option>)}
+            <option value="">All job titles</option>
+            {JOB_TITLES.map(o => <option key={o} value={o}>{o}</option>)}
           </select>
         )}
         {isAdmin && (
@@ -338,7 +333,7 @@ export default function LeadList() {
               <thead>
                 <tr>
                   <th style={s.th}>Name</th>
-                  <th style={s.th}>Occupation</th>
+                  <th style={s.th}>Job Title</th>
                   <th style={s.th}>Source</th>
                   <th style={s.th}>Status</th>
                   {!isAgent && <th style={s.th}>Agent</th>}

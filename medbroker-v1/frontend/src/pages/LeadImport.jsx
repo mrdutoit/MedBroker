@@ -10,6 +10,7 @@ import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { leadsApi } from '../services/api.js';
 import { s } from '../styles/tokens.js';
+import { TITLES, JOB_TITLES } from '../constants/leadOptions.js';
 
 const SUBSCRIPTIONS = [
   'MedLeads SA — Monthly Bundle',
@@ -17,8 +18,11 @@ const SUBSCRIPTIONS = [
   'SA Medical Register — Q2 2026',
 ];
 
+// title, firstName, lastName, dateOfBirth, occupation (Job Title),
+// mobileNumber, and email are the client's real required intake fields —
+// added 22 July 2026 to match their Appointment Tracking sheet.
 const BLANK_FORM = {
-  source: '', firstName: '', lastName: '', email: '',
+  title: '', source: '', firstName: '', lastName: '', dateOfBirth: '', email: '',
   mobileNumber: '', occupation: '', hospitalOrPractice: '',
   universityAttended: '', yearOfAttendance: '', degreeAttained: '',
 };
@@ -63,7 +67,7 @@ export default function LeadImport() {
     const lines = text.trim().split('\n');
     if (lines.length < 2) return { rows: [], errors: ['CSV has no data rows'] };
     const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-    const required = ['firstName', 'lastName', 'email'];
+    const required = ['title', 'firstName', 'lastName', 'dateOfBirth', 'occupation', 'mobileNumber', 'email'];
     const missing  = required.filter(r => !headers.includes(r));
     if (missing.length > 0) return { rows: [], errors: [`Missing required columns: ${missing.join(', ')}`] };
     const rows = [];
@@ -111,10 +115,14 @@ export default function LeadImport() {
   async function handleManualSubmit(e) {
     e.preventDefault();
     const errors = {};
-    if (!form.source.trim()) errors.source = 'Required';
-    if (!form.firstName)     errors.firstName = 'Required';
-    if (!form.lastName)      errors.lastName  = 'Required';
-    if (!form.email)         errors.email     = 'Required';
+    if (!form.title)          errors.title       = 'Required';
+    if (!form.source.trim())  errors.source      = 'Required';
+    if (!form.firstName)      errors.firstName   = 'Required';
+    if (!form.lastName)       errors.lastName    = 'Required';
+    if (!form.dateOfBirth)    errors.dateOfBirth = 'Required';
+    if (!form.occupation)     errors.occupation  = 'Required';
+    if (!form.mobileNumber)   errors.mobileNumber = 'Required';
+    if (!form.email)          errors.email       = 'Required';
     if (Object.keys(errors).length) { setFormErrors(errors); return; }
     setFormSubmitting(true);
     try {
@@ -159,9 +167,9 @@ export default function LeadImport() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
             <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
-              Required columns: <strong>firstName</strong>, <strong>lastName</strong>, <strong>email</strong>
+              Required columns: <strong>title</strong>, <strong>firstName</strong>, <strong>lastName</strong>, <strong>dateOfBirth</strong> (YYYY-MM-DD), <strong>occupation</strong>, <strong>mobileNumber</strong>, <strong>email</strong>
             </p>
-            <button onClick={() => { const c = 'firstName,lastName,email,mobileNumber,occupation\n'; const b = new Blob([c], {type:'text/csv'}); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href=u; a.download='template.csv'; a.click(); }} style={s.secondaryBtn}>
+            <button onClick={() => { const c = 'title,firstName,lastName,dateOfBirth,occupation,mobileNumber,email\n'; const b = new Blob([c], {type:'text/csv'}); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href=u; a.download='template.csv'; a.click(); }} style={s.secondaryBtn}>
               Download template
             </button>
           </div>
@@ -220,14 +228,14 @@ export default function LeadImport() {
               <div style={s.tableCard}>
                 <table style={s.table}>
                   <thead><tr>
-                    {['firstName', 'lastName', 'email', 'mobileNumber', 'occupation'].map(h => (
+                    {['title', 'firstName', 'lastName', 'dateOfBirth', 'occupation', 'mobileNumber', 'email'].map(h => (
                       <th key={h} style={s.th}>{h}</th>
                     ))}
                   </tr></thead>
                   <tbody>
                     {csvRows.slice(0, 3).map((row, i) => (
                       <tr key={i}>
-                        {['firstName', 'lastName', 'email', 'mobileNumber', 'occupation'].map(h => (
+                        {['title', 'firstName', 'lastName', 'dateOfBirth', 'occupation', 'mobileNumber', 'email'].map(h => (
                           <td key={h} style={s.td}>{row[h] || '—'}</td>
                         ))}
                       </tr>
@@ -314,7 +322,15 @@ export default function LeadImport() {
             {formErrors.source && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.source}</div>}
           </div>
 
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '0.6fr 1fr 1fr', gap: '12px' }}>
+            <div style={s.formGroup}>
+              <label style={s.formLabel}>Title *</label>
+              <select style={s.formInput} value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}>
+                <option value="">Select…</option>
+                {TITLES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+              {formErrors.title && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.title}</div>}
+            </div>
             {[
               ['firstName', 'First Name *', formErrors.firstName],
               ['lastName',  'Last Name *',  formErrors.lastName],
@@ -327,15 +343,36 @@ export default function LeadImport() {
             ))}
           </div>
 
-          <div style={s.formGroup}>
-            <label style={s.formLabel}>Email Address *</label>
-            <input type="email" style={s.formInput} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane.smith@hospital.co.za" />
-            {formErrors.email && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.email}</div>}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+            <div style={s.formGroup}>
+              <label style={s.formLabel}>Date of Birth *</label>
+              <input type="date" style={s.formInput} value={form.dateOfBirth} onChange={e => setForm(f => ({ ...f, dateOfBirth: e.target.value }))} />
+              {formErrors.dateOfBirth && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.dateOfBirth}</div>}
+            </div>
+            <div style={s.formGroup}>
+              <label style={s.formLabel}>Job Title *</label>
+              <select style={s.formInput} value={form.occupation} onChange={e => setForm(f => ({ ...f, occupation: e.target.value }))}>
+                <option value="">Select…</option>
+                {JOB_TITLES.map(j => <option key={j} value={j}>{j}</option>)}
+              </select>
+              {formErrors.occupation && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.occupation}</div>}
+            </div>
           </div>
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
-            <div style={s.formGroup}><label style={s.formLabel}>Mobile</label><input style={s.formInput} value={form.mobileNumber} onChange={e => setForm(f => ({ ...f, mobileNumber: e.target.value }))} placeholder="082 XXX XXXX" /></div>
-            <div style={s.formGroup}><label style={s.formLabel}>Occupation</label><input style={s.formInput} value={form.occupation} onChange={e => setForm(f => ({ ...f, occupation: e.target.value }))} /></div>
+            <div style={s.formGroup}>
+              <label style={s.formLabel}>Contact Number *</label>
+              <input style={s.formInput} value={form.mobileNumber} onChange={e => setForm(f => ({ ...f, mobileNumber: e.target.value }))} placeholder="082 XXX XXXX" />
+              {formErrors.mobileNumber && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.mobileNumber}</div>}
+            </div>
+            <div style={s.formGroup}>
+              <label style={s.formLabel}>Email Address *</label>
+              <input type="email" style={s.formInput} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane.smith@hospital.co.za" />
+              {formErrors.email && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.email}</div>}
+            </div>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div style={s.formGroup}><label style={s.formLabel}>Hospital / Practice</label><input style={s.formInput} value={form.hospitalOrPractice} onChange={e => setForm(f => ({ ...f, hospitalOrPractice: e.target.value }))} /></div>
             <div style={s.formGroup}><label style={s.formLabel}>University Attended</label><input style={s.formInput} value={form.universityAttended} onChange={e => setForm(f => ({ ...f, universityAttended: e.target.value }))} /></div>
           </div>

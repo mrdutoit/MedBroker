@@ -90,7 +90,7 @@ const OUTCOME_LABELS = {
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 const MOCK_LEAD = {
   id: '1',
-  firstName: 'Priya', lastName: 'Naidoo',
+  title: 'Dr', firstName: 'Priya', lastName: 'Naidoo', dateOfBirth: '1985-03-22',
   email: 'p.naidoo@netcare.co.za', mobileNumber: '082 456 7890',
   whatsappNumber: '082 456 7890', occupation: 'Anaesthesiologist',
   hospitalOrPractice: 'Netcare Sunninghill Hospital',
@@ -272,7 +272,7 @@ export default function LeadDetail() {
       <button onClick={() => navigate('/leads')} style={btn.back}>← Back to Leads</button>
       <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', margin: '6px 0 20px', gap: '12px', flexWrap: 'wrap' }}>
         <h1 style={{ fontSize: isMobile ? '1.25rem' : '1.5rem', fontWeight: 700, color:'var(--ink)', margin: 0 }}>
-          Dr {baseLead.firstName} {baseLead.lastName}
+          {baseLead.title} {baseLead.firstName} {baseLead.lastName}
         </h1>
         {!isConverted && !isClosed && (
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
@@ -312,10 +312,13 @@ export default function LeadDetail() {
         {/* Personal details */}
         <div style={cardStyle}>
           <div style={cardTitle}>Contact Details</div>
-          <Field label="Email"      value={baseLead.email} />
-          <Field label="Mobile"     value={baseLead.mobileNumber} />
-          <Field label="WhatsApp"   value={baseLead.whatsappNumber} />
-          <Field label="Occupation" value={baseLead.occupation} />
+          <Field label="Date of Birth">
+            {baseLead.dateOfBirth ? format(new Date(baseLead.dateOfBirth), 'd MMM yyyy') : '—'}
+          </Field>
+          <Field label="Email"           value={baseLead.email} />
+          <Field label="Contact Number"  value={baseLead.mobileNumber} />
+          <Field label="WhatsApp"        value={baseLead.whatsappNumber} />
+          <Field label="Job Title"       value={baseLead.occupation} />
           <Field label="Hospital / Practice" value={baseLead.hospitalOrPractice} />
         </div>
 
@@ -457,7 +460,7 @@ export default function LeadDetail() {
               <button onClick={() => setShowBookForm(false)} style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', color:'var(--mut)' }}>✕</button>
             </div>
             <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '14px' }}>
-              Dr {baseLead.firstName} {baseLead.lastName} · {baseLead.occupation}
+              {baseLead.title} {baseLead.firstName} {baseLead.lastName} · {baseLead.occupation}
             </p>
             <div style={{ background: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))', border: '1px solid color-mix(in srgb, #1d4ed8 30%, var(--panel))', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: 'var(--accent)' }}>
               Confirming this booking will move the lead to <strong>Appointment Scheduled</strong> status and it will appear in the Appointments list.
