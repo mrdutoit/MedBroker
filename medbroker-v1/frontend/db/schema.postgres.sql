@@ -142,6 +142,7 @@ CREATE TABLE IF NOT EXISTS "User" (
     portfolioId             UUID            NULL,
     supervisorId            UUID            NULL,
     m365UserPrincipalName   VARCHAR(255)    NULL,
+    calendlyEventTypeUri    VARCHAR(500)    NULL,
     -- v2.5 (21 July 2026, demo schema only — not yet ported to Azure infra/schema.sql):
     -- standalone local authentication, completing the auth.sso.enabled=false
     -- path FeatureFlag already describes but nothing ever implemented.
