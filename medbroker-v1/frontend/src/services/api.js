@@ -2,18 +2,25 @@
  * services/api.js
  * Authenticated API client for MedBroker.
  *
- * Preview mode (no VITE_ENTRA_CLIENT_ID set):
- *   - All API calls resolve to empty mock data so the UI renders without errors.
- *   - The application uses its own inline mock data defined in each page component.
- *   - No MSAL import occurs — the build succeeds without Azure credentials.
- *
- * Production mode (VITE_ENTRA_CLIENT_ID set):
- *   - Acquires an Entra ID Bearer token silently before each request.
- *   - Falls back to interactive redirect if the token cannot be refreshed.
+ * Three modes, checked in this order:
+ *   1. Entra production (VITE_ENTRA_CLIENT_ID set):
+ *      Acquires an Entra ID Bearer token silently before each request.
+ *      Falls back to interactive redirect if the token cannot be refreshed.
+ *   2. Demo backend (VITE_API_BASE_URL set, no Entra client id):
+ *      Real fetch calls to the api-demo Vercel backend, authenticated via
+ *      the local-auth JWT from authStore.js (set by POST /api/auth/login).
+ *   3. Preview / mock (neither set — the original default):
+ *      All API calls resolve to null so the UI renders from each page's
+ *      own inline mock data. No MSAL import occurs — the build succeeds
+ *      without Azure credentials.
  */
 
-const API_BASE     = import.meta.env.VITE_API_BASE_URL ?? '/api';
-const PREVIEW_MODE = !import.meta.env.VITE_ENTRA_CLIENT_ID;
+import { getToken, notifyUnauthorized } from './authStore.js';
+
+const API_BASE       = import.meta.env.VITE_API_BASE_URL ?? '/api';
+const ENTRA_MODE      = !!import.meta.env.VITE_ENTRA_CLIENT_ID;
+const DEMO_MODE       = !!import.meta.env.VITE_API_BASE_URL && !ENTRA_MODE;
+const PREVIEW_MODE    = !ENTRA_MODE && !DEMO_MODE;
 
 // ─── Token acquisition (production only) ─────────────────────────────────────
 
@@ -67,18 +74,35 @@ async function request(path, options = {}) {
     return null;
   }
 
-  const token = await getAccessToken();
+  let authHeader;
+  if (options.skipAuth) {
+    // Login itself — there's no token yet to attach.
+    authHeader = undefined;
+  } else if (DEMO_MODE) {
+    const token = getToken();
+    authHeader = token ? `Bearer ${token}` : undefined;
+  } else {
+    const token = await getAccessToken();
+    authHeader = `Bearer ${token}`;
+  }
 
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
     headers: {
       'Content-Type':  'application/json',
-      'Authorization': `Bearer ${token}`,
+      ...(authHeader ? { 'Authorization': authHeader } : {}),
       ...(options.headers ?? {}),
     },
   });
 
   if (response.status === 204) return null;
+
+  // Demo mode: a 401 on an authenticated call means the token is gone/expired —
+  // clear the session and let AuthContext's subscribers (App.jsx) redirect to
+  // Login, rather than every page having to special-case this itself.
+  if (DEMO_MODE && response.status === 401 && !options.skipAuth) {
+    notifyUnauthorized();
+  }
 
   let body;
   try {
@@ -93,6 +117,15 @@ async function request(path, options = {}) {
 
   return body;
 }
+
+export const apiMode = { DEMO_MODE, PREVIEW_MODE, ENTRA_MODE };
+
+// ─── Auth (demo backend local login) ──────────────────────────────────────────
+
+export const authApi = {
+  login: (email, password) =>
+    request('/auth/login', { method: 'POST', skipAuth: true, body: JSON.stringify({ email, password }) }),
+};
 
 // ─── Leads ────────────────────────────────────────────────────────────────────
 
