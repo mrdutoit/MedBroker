@@ -23,6 +23,17 @@ const BLANK_FORM = {
   universityAttended: '', yearOfAttendance: '', degreeAttained: '',
 };
 
+// Strips empty-string fields before sending. Left-blank optional fields
+// need to be OMITTED, not sent as '' — zod's .optional() only skips
+// validation for a genuinely absent (undefined) key, not an empty string
+// that then fails type/regex checks (yearOfAttendance is a number field;
+// mobileNumber is regex-validated). Found by testing an actual submission
+// with only the required fields filled in — the normal case — not by
+// inspection; every optional field left blank was being rejected.
+function stripEmpty(obj) {
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== ''));
+}
+
 export default function LeadImport() {
   const navigate  = useNavigate();
   const fileRef   = useRef();
@@ -88,7 +99,7 @@ export default function LeadImport() {
     let ok = 0, fail = 0;
     for (const row of csvRows) {
       try {
-        await leadsApi.create({ ...row, leadSource: 'CSVImport', manualSourceName: csvSource });
+        await leadsApi.create(stripEmpty({ ...row, leadSource: 'CSVImport', manualSourceName: csvSource }));
         ok++;
       } catch { fail++; }
     }
@@ -107,7 +118,7 @@ export default function LeadImport() {
     if (Object.keys(errors).length) { setFormErrors(errors); return; }
     setFormSubmitting(true);
     try {
-      await leadsApi.create({ ...form, leadSource: 'ManualEntry', manualSourceName: form.source });
+      await leadsApi.create(stripEmpty({ ...form, leadSource: 'ManualEntry', manualSourceName: form.source }));
       setFormSuccess(true);
       setForm(BLANK_FORM);
       setTimeout(() => navigate('/leads'), 1500);

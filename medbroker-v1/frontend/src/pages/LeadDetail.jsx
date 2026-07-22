@@ -27,7 +27,7 @@
  * reflects the result returned by the API.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch.js';
 import { leadsApi } from '../services/api.js';
@@ -162,6 +162,13 @@ export default function LeadDetail() {
   const { data: lead } = useFetch(() => leadsApi.get(id), [id]);
   const baseLead = lead ?? MOCK_LEAD;
 
+  // Real call history — GET /api/leads/:id/calls, added alongside this
+  // wiring pass; previously nothing ever fetched it back, so "Recent
+  // Calls" only ever reflected whatever was logged in the current browser
+  // session. In preview mode this stays null forever and `calls` below
+  // keeps its MOCK_CALLS seed, unchanged from before.
+  const { data: callsData } = useFetch(() => leadsApi.listCalls(id), [id]);
+
   // Local status override — reflects transitions after actions in preview mode.
   // In production: re-fetch the lead after each API call to get server state.
   const [statusOverride,   setStatusOverride]   = useState(null);
@@ -172,6 +179,12 @@ export default function LeadDetail() {
   const [calls,            setCalls]             = useState(MOCK_CALLS);
   const [submitting,       setSubmitting]        = useState(false);
   const [submitError,      setSubmitError]       = useState('');
+
+  useEffect(() => {
+    if (callsData?.calls) {
+      setCalls(callsData.calls.map(c => ({ ...c, label: OUTCOME_LABELS[c.outcome] ?? c.outcome })));
+    }
+  }, [callsData]);
 
   const currentStatus = bookingConfirmed
     ? 'AppointmentScheduled'
@@ -188,7 +201,15 @@ export default function LeadDetail() {
     setSubmitting(true);
     setSubmitError('');
     try {
-      await leadsApi.logCall(id, callForm);
+      // callbackDateTime is only meaningfully filled for CallbackRequested —
+      // otherwise it's '' from callForm's initial state, and an empty
+      // string fails CallAttemptSchema's datetime validation differently
+      // than an omitted field would. Same class of bug as LeadImport.jsx's
+      // stripEmpty() fix, found the same way — by submitting the actual
+      // form with a plain outcome and watching it 400.
+      const payload = { outcome: callForm.outcome, notes: callForm.notes || undefined };
+      if (callForm.callbackDateTime) payload.callbackDateTime = callForm.callbackDateTime;
+      await leadsApi.logCall(id, payload);
       // Compute new status from transition machine and apply locally
       const newStatus = computeNewStatus(currentStatus, callForm.outcome);
       if (newStatus !== currentStatus) setStatusOverride(newStatus);
