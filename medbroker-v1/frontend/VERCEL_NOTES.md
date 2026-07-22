@@ -963,3 +963,139 @@ Files changed: `vercel.json` (5 new rewrite rules added, existing SPA
 rewrite untouched), `api-lib/http/helpers.js` (added `parseSlug()`), 5
 new router files replacing the 5 bracket-named ones from §19 (which
 must be deleted — see delivery notes).
+
+---
+
+## 21. Mock-data flash on real pages, plus unreadable validation errors (22 July 2026)
+
+Two separate, real bugs found after the routing fix landed and Mark
+started testing against his live, genuinely-empty database — both
+pre-existing, both just newly visible now that real data (or its
+absence) actually reaches the UI.
+
+**Mock data flashing then vanishing on Appointments and Users** (and,
+latently, Leads — just not visibly, since Mark already had real lead
+data): every wired page's fallback logic checked whether the fetched
+data was *truthy* to decide between real and mock — `apiData?.appointments
+? real : MOCK`. That condition is true for "still loading" and "genuinely
+no data" alike, not just "preview mode with no backend at all". Since
+`useFetch` starts with `data: null` until the fetch resolves, every page
+briefly rendered mock data on first paint, then swapped to real data
+(here, correctly empty) once the fetch completed — reading as data having
+been wiped rather than a page still loading. Fixed by checking
+`apiMode.PREVIEW_MODE` directly instead of data truthiness in
+LeadList.jsx, UserAdmin.jsx, and AppointmentList.jsx (both the
+appointments list and the broker-options list). UserAdmin.jsx and
+LeadList.jsx already had a proper "Loading…" notice gated on the fetch's
+own `loading` flag; AppointmentList.jsx didn't, so one was added matching
+the same pattern. Verified against a real, empty Postgres database and a
+real browser polling page content every 100ms for the first second after
+navigation — no mock name ever appeared, on either page.
+
+**Validation errors displayed as literal `[object Object]`**: found via
+Mark's own lead-creation attempt. The backend sends validation failures
+as `{ error: <Zod .flatten() output> }` — an object (`{ fieldErrors: {...},
+formErrors: [...] }`), not a string — and `ApiError`'s constructor was
+storing that object directly as `.message`. Every form that displays
+`err.message` after a failed submission was affected by this, not just
+Lead Import — it just hadn't been hit yet elsewhere. Root actual cause of
+Mark's specific test: the phone number he entered ("234234344") doesn't
+match the required South African format (`saMobile` regex requires a
+leading `0` or `+27`) — correct, intentional validation, just impossible
+to see because of the display bug. Fixed once, at the source, in
+api.js's `request()`: a new `formatErrorBody()` helper extracts a
+readable message from Zod's flatten shape (`"mobileNumber: Mobile number
+must be a valid South African number"`), falling back to the plain string
+or a generic message for every other error shape. Fixing it here means
+every existing and future form benefits, not just the one that surfaced
+it. Verified both as a direct unit-style test of the formatting logic
+against Mark's exact error shape, and end-to-end through a real browser
+submitting the same invalid number and then a corrected one.
+
+Files changed: `src/services/api.js` (new `formatErrorBody()`, used at
+the `ApiError` throw site), `src/pages/LeadList.jsx`,
+`src/pages/UserAdmin.jsx`, `src/pages/AppointmentList.jsx`.
+
+---
+
+## 22. Assign Lead modal completely unwired, plus Lead Detail flash (22 July 2026)
+
+Found via Mark's own testing, explicitly flagged as pre-fix — testing
+the earlier mock-flash fix surfaced a different, more serious bug in an
+adjacent component: the "Assign Lead" / "Reassign Lead" modal on the
+Leads page (and the agent filter dropdown beside it) had never been
+wired to real data at all, at any point before this session — not a
+timing/loading issue like the others, a complete absence of wiring. The
+dropdown always listed a hardcoded array of five mock agent names
+(`AGENTS = ['Thabo Molefe', 'Naledi van Wyk', ...]`), and selecting one
+and saving would have sent that NAME STRING to `leadsApi.assign()` /
+`leadsApi.reassign()`, which the backend expects to receive as a real
+agent UUID (`assignLead(leadId, agentId)` validates it via
+`getActiveUserById`). Would have either silently failed or, worse,
+written a non-existent placeholder value into `assignedAgentId`.
+
+Root cause once found: the page already had a correctly-fetched real
+`agents` list at the top of the file (feeding the page's own agent
+filter — wait, no: the FILTER also used the same broken mock fallback,
+just gated on `agents.length > 0` rather than being fully unwired like
+the modal — see below), but the modal itself was a separate component
+that never received it as a prop and used the module-level `AGENTS`
+mock constant directly instead.
+
+FIX: `ReassignLeadModal` now takes `agents` as a prop (the same
+correctly-fetched real list already used elsewhere on the page),
+selects/submits real agent ids instead of name strings, and calls
+`onSaved` (the list's own `refetch`) after a successful save so the row
+updates without a manual page reload. Display text for "currently
+assigned to X" now reads `lead.agentName` (a real joined display field)
+separately from the value used for the select itself
+(`lead.assignedAgentId` — confirmed this is the actual field name
+returned by the backend by checking leadService.js directly, not
+assumed from the frontend's own prior naming).
+
+Two more findings from the same investigation, fixed alongside:
+- The agent FILTER dropdown (separate from the modal) had the same
+  "fall back to mock when real data happens to be empty" bug as the
+  earlier session's fix — `agents.length > 0 ? real : MOCK` instead of
+  gating on `apiMode.PREVIEW_MODE`. Fixed the same way as everywhere
+  else this pattern was found.
+- The real `agents` fetch itself was gated `isAdmin ? ... : null` —
+  meaning a Supervisor, who this same file's own role-behaviour comment
+  says should also get Reassign access, would always see an empty list
+  regardless of any of the above fixes. Widened to `isAdmin ||
+  isSupervisor`.
+- LeadDetail.jsx had the identical "flash of mock data while loading"
+  bug as the pages fixed in the previous session, just not yet
+  encountered — both the main lead record (`baseLead`) and the call
+  history (`calls`) fall back to mock data whenever real data isn't
+  present yet, not just in true preview mode. Rather than touch every
+  individual field-fallback (this page uses `baseLead` extensively
+  throughout a long render, and swapping its mock fallback for an empty
+  object risked scattering `undefined` through the page), added a
+  page-level loading gate instead: while a real fetch is in flight in
+  DEMO_MODE, the page shows a plain "Loading…" state and returns early,
+  never rendering the MOCK_LEAD-seeded content at all. Once loading
+  finishes, real data is guaranteed to be in place before anything
+  renders.
+
+Deliberately NOT fixed here, flagged as a separate, larger piece of
+work: the "Medical Subscription" import tab's dropdown
+(`SUBSCRIPTIONS` in LeadImport.jsx) is also a hardcoded list, but no
+backend endpoint for listing real MedicalSubscription records exists
+yet — confirmed by searching the whole codebase, not assumed. Fixing
+this needs a new endpoint, not just frontend rewiring; better scoped as
+its own task.
+
+VERIFIED against real Postgres and a real browser, replicating Mark's
+exact scenario end to end: create a Supervisor, create an Agent under
+that Supervisor, create a Lead, open Assign Lead — dropdown correctly
+shows the real agent and correctly does NOT show any of the five old
+mock names — select and save — confirmed via a direct database check
+(not just the UI) that the lead's `assignedAgentId` matches the real
+agent's actual id, not a name string. LeadDetail.jsx's fix verified by
+polling page content every 100ms for a full second after navigation —
+no mock name ever appears; real data renders once ready.
+
+Files changed: `src/pages/LeadList.jsx` (ReassignLeadModal wiring,
+agent filter dropdown, agents fetch scope), `src/pages/LeadDetail.jsx`
+(loading gate).
