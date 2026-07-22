@@ -529,3 +529,167 @@ demo` Vercel project gets retired entirely once the merged one is verified
 working — that's what actually removes "demo" from Mark's Vercel
 dashboard for good, rather than renaming a project that's about to stop
 being used.
+
+---
+
+## 16. Leads pages wired to real data (22 July 2026)
+
+The Leads pages (`LeadList.jsx`, `LeadDetail.jsx`, `LeadImport.jsx`) were
+already written *speculatively* against a `leadsApi` client that assumed
+backend capabilities that didn't fully exist — built during the original
+"all pages built" phase, before any backend existed at all. Reading them
+first (not guessing) surfaced exactly what was missing:
+
+**Backend additions**: `GET /api/leads/sources` (didn't exist —
+`leadsApi.sources()` was already calling it), `excludeStatuses` and
+`occupation` filters on `listLeads()` (frontend already sent both,
+backend ignored them), `GET /api/leads/:id/calls` (call history could be
+written but never read back — `logCallAttempt()` persisted correctly,
+nothing ever fetched it, so "Recent Calls" only reflected whatever was
+logged in the current browser tab).
+
+**`leadsApi.reassign()` fix**: pointed at a `/leads/:id/reassign` URL that
+never existed. Now calls the same `/assign` endpoint `assign()` uses — the
+backend already distinguishes first-assignment from reassignment
+internally (checks for a previous agent) and logs the right audit action
+either way, so there's no need for a second nearly-duplicate route.
+
+**Real bug #1, found by testing, not guessed**: `GlobalAdmin` was missing
+from the allowed roles on three Lead routes — create, delete, assign. The
+one account you can actually log in with (the bootstrapped GlobalAdmin)
+couldn't create or manage a single lead. All three fixed
+(`api/leads/index.js`, `api/leads/[id]/index.js`, `api/leads/[id]/assign.js`).
+Worth checking for this same gap in any future domain — the pattern was
+`requireRole(claims, ['Admin', ...])` without `GlobalAdmin` alongside it.
+
+**Real bug #2, found by testing the actual form, not guessed**: submitting
+the Manual Entry lead form with only the required fields filled in — the
+completely normal case — failed with a 400. Two optional fields
+(`yearOfAttendance`, `mobileNumber`) were sent as empty strings rather than
+omitted, and Zod's `.optional()` only skips validation for a genuinely
+absent key, not an empty string that then fails the underlying type/regex
+check. Fixed with a general `stripEmpty()` helper in `LeadImport.jsx`,
+applied before every lead-creation call (both CSV and Manual), which
+protects every optional field going forward, not just the two that broke
+first.
+
+**Real bug #3, same class, different file**: logging a call with a plain
+outcome (anything except "Callback requested") failed with a 400 for the
+identical reason — `callbackDateTime` defaults to `''` in `callForm`'s
+initial state and only gets a real value when the callback fields are
+shown. Fixed in `LeadDetail.jsx`'s `handleLogCall` the same way.
+
+**Real bug #4, found by testing the callback path specifically once the
+pattern was established**: even *with* a real value, `callbackDateTime`
+failed validation — HTML `<input type="datetime-local">` produces
+`"2026-08-01T14:30"` with no timezone offset, and Zod's default
+`z.string().datetime()` requires one. Confirmed by testing the actual
+value the input produces against the schema directly before shipping a
+fix, not assumed. Fixed with `z.string().datetime({ local: true })` in
+`models/lead.js`.
+
+**Testing note for future sessions**: an ambiguous Playwright locator
+(`button:has-text('Save Call')`) matched both the real form-submit button
+and a *different*, intentionally-still-mocked "Save call & Book
+Appointment →" button that only appears for the "Client contacted"
+outcome (Book Appointment depends on the Appointments API, which doesn't
+exist yet — correctly out of scope, not a bug). The ambiguous locator
+silently clicked the wrong one and made a real failure look like a pass.
+Scope Playwright locators to `button[type=submit]` or similar when a
+page has multiple buttons with overlapping text.
+
+**Verified against real Postgres and a real Chromium browser**, full
+chain, not in isolation: create a lead with only required fields filled →
+appears in the list → source filter dropdown populated from real backend
+data → open the lead → log a plain call → status updates → log a second,
+callback-dated call → **hard reload the page** → both calls and the
+updated status are still there, fetched fresh from the server, not an
+optimistic local echo that would have disappeared. Also re-ran the full
+cross-domain regression (auth, leads, users, flags) as GlobalAdmin
+specifically after the role fixes, to confirm nothing else had the same
+gap.
+
+**Still not built**: `LeadImport.jsx`'s Subscription tab remains fully
+simulated (`setTimeout`, no real API call) — it was never functional even
+as a mockup beyond the UI, and building real subscription-linked bulk
+import is a separate, larger piece of work, not part of this pass.
+`LeadDetail.jsx`'s "Book Appointment" flow is correctly still local-only —
+it depends on the Appointments API, which is next per the agreed
+sequence.
+
+---
+
+## 17. Lead intake fields matched to the client's real form (22 July 2026)
+
+Mark's ask: the client's actual Appointment Tracking sheet has Title,
+First Name, Last Name, Date of Birth, Job Title (was "Occupation"),
+Contact Number, and Email as its intake fields — these needed to exist on
+lead creation. Since these represent the client's real required intake
+fields, all seven — including `mobileNumber` and `occupation`, previously
+optional — became REQUIRED on create. Stated as an explicit assumption at
+the time, not silently decided.
+
+**Schema**: `title VARCHAR(10)` and `dateOfBirth DATE` added to `Lead`,
+both nullable at the column level (schema stays permissive) with the
+required-on-create rule enforced at the validation layer instead — same
+pattern as every other required field in this schema. A `CK_Lead_Title`
+check constraint restricts stored values to Dr/Mr/Mrs/Ms even if something
+ever bypasses application-level validation.
+
+**Since Mark's Neon database already exists live**, `schema.postgres.sql`
+alone doesn't reach it — `CREATE TABLE IF NOT EXISTS` does nothing to a
+table that's already there. New: `db/migrations/002_add_lead_title_dob.sql`,
+using `ADD COLUMN IF NOT EXISTS` (native, safe-to-rerun Postgres syntax)
+plus a guarded `DO` block for the check constraint. Verified against a
+database deliberately built from the *old* schema (title/dateOfBirth
+columns stripped out first) to confirm the migration actually does what
+it claims against a genuinely pre-migration table, not just a fresh one
+that already has the columns.
+
+**Job Title is a fixed list, not free text** — `JOB_TITLES` in the new
+`src/constants/leadOptions.js` is the single shared source both
+`LeadImport.jsx`'s create form and `LeadList.jsx`'s filter dropdown import
+from, and `api-lib/models/lead.js`'s `JobTitle` enum enforces the same
+list server-side. Previously `LeadList.jsx` had its own separately
+hardcoded copy of this list — real, if minor, drift risk between the
+filter and the (until now, free-text) create field. Fixed by having one
+list feed both places instead of two copies staying in sync by hand.
+
+**Real bug caught mid-edit, not shipped**: an early pass at wiring
+`title`/`dateOfBirth` into `listLeads()`'s SELECT accidentally deleted the
+entire rest of the column list in the process (mobileNumber, occupation,
+sourceLabel, status, everything) and left a dangling comma before `FROM`
+— a straightforward copy-paste mistake, caught immediately by the next
+syntax check and Postgres test run before it went anywhere near a
+delivered file. Restored properly, re-verified end to end afterward.
+
+**Verified against real Postgres and a real Chromium browser**, full
+chain: missing any of the new required fields → clean 400 naming exactly
+which fields; an invalid Title or Job Title value → 400; a fully valid
+submission → 201, persists correctly, reads back correctly. Migration
+script tested against a genuinely old-shaped table, not just a fresh one.
+Browser: all four new/relabelled form elements present with correct
+labels (Title, Date of Birth, Job Title, Contact Number — not
+"Occupation" or "Mobile"), submitting with fields missing shows inline
+validation without crashing, a full valid submission creates the lead and
+redirects, the Leads list shows the new "Job Title" column header, and
+the Lead Detail page shows the real `title` value in the header (Dr Priya
+Naidoo) instead of the old hardcoded "Dr" — a genuine, if small,
+correctness improvement the new field enabled — plus Date of Birth,
+relabelled Job Title, and relabelled Contact Number all displaying
+correctly. Also re-ran the full cross-domain regression (health, auth,
+leads, users, flags) to confirm nothing else regressed.
+
+**Kept unchanged, per Mark's explicit instruction**: every field not on
+his list — WhatsApp, University Attended, Year of Attendance, Degree
+Attained, Hospital/Practice, existing cover, policies, medical aid,
+medical aid provider, ID number, all of it. Only Title, Date of Birth
+were added; only Job Title and Contact Number were relabelled (the
+underlying `occupation`/`mobileNumber` field names in the schema/API were
+deliberately NOT renamed, to avoid unnecessary churn — only the
+user-facing label text changed to match the client's terminology).
+
+**CSV import**: template download and the required-columns check both
+updated to match (`title,firstName,lastName,dateOfBirth,occupation,
+mobileNumber,email`). The Subscription tab remains unaffected —
+still fully simulated, as noted previously.
