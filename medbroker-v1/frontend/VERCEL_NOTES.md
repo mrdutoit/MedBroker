@@ -912,3 +912,54 @@ same path. See Status.md for the exact file list Mark needs to delete.
 Frontend needs zero changes — every URL path the frontend calls
 (`/api/leads`, `/api/leads/:id`, etc.) is identical; only which backend
 file answers that URL changed.
+
+---
+
+## 20. Consolidation fix — bracket catch-all files don't work here, switched to vercel.json rewrites (22 July 2026)
+
+The consolidation in §19 broke login and everything else in production
+immediately after deploy. Diagnosed by testing the live deployment
+directly rather than guessing: `/api/health` (a plain file) returned 200;
+`/api/flags` (the simplest possible case of the new pattern — zero
+segments) and `/api/auth/login` both returned 404. Confirmed conclusively:
+Vercel does not recognize the `[...slug].js` / `[[...slug]].js`
+catch-all file-naming convention as a route on this (non-Next.js) Vercel
+Functions project — exactly the one risk flagged, in writing, at the time
+§19 was delivered, now confirmed rather than theoretical.
+
+FIX: replaced the 5 bracket-named dispatcher files with 5 plain files
+(`api/auth-router.js`, `api/leads-router.js`, `api/users-router.js`,
+`api/flags-router.js`, `api/appointments-router.js`) and added matching
+`rewrites` entries to `vercel.json`:
+```
+{ "source": "/api/auth/:slug*", "destination": "/api/auth-router?slug=:slug*" }
+```
+(and one per domain). This uses the SAME mechanism already proven working
+on this exact live deployment — the existing SPA-fallback rewrite — so
+confidence here is much higher than the bracket-file approach was.
+Function count is unchanged at 8; only the routing mechanism changed, not
+the count or the handler logic.
+
+One detail genuinely couldn't be confirmed either way even with this
+fix: the exact format Vercel serializes a multi-segment wildcard capture
+into when substituted into a destination query string (a single
+slash-joined string? comma-joined? something else?). Rather than guess
+once and risk being wrong twice, `parseSlug()` (new, in
+api-lib/http/helpers.js) parses the `slug` query param defensively —
+handles array, slash-separated string, comma-separated string, single
+segment, and the empty/bare-path case, so the exact serialization detail
+doesn't matter as long as it's some recognizable delimited form.
+
+Verified: extended the local test server to actually simulate the
+vercel.json rewrite step (not just file resolution, which is all it did
+before) — 17 real-HTTP checks covering bare paths, single segments,
+two-segment sub-routes, and literal-vs-dynamic disambiguation, all
+passing, run twice (once before and once after a further hardening tweak
+to parseSlug). The rewrite mechanism itself is proven on the real
+deployment already (it's what serves the SPA); this closes the loop on
+everything downstream of it.
+
+Files changed: `vercel.json` (5 new rewrite rules added, existing SPA
+rewrite untouched), `api-lib/http/helpers.js` (added `parseSlug()`), 5
+new router files replacing the 5 bracket-named ones from §19 (which
+must be deleted — see delivery notes).
