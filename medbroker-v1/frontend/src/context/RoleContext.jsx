@@ -1,12 +1,23 @@
 /**
  * context/RoleContext.jsx
  * Provides the current user role to all pages via React context.
- * In preview mode, the role is controlled by a switcher in the sidebar.
- * When real auth is connected, replace MOCK_CURRENT_USER with the decoded
- * JWT claims from MSAL (role from claims.roles[0]).
+ *
+ * In preview mode (no backend at all) and Entra production mode, behaviour
+ * is unchanged from before: the role is controlled by the sidebar switcher
+ * (preview) or will come from decoded MSAL claims (production, not yet
+ * wired — see the original comment below, still accurate for that mode).
+ *
+ * NEW — in demo-backend mode (api.js apiMode.DEMO_MODE), role and persona
+ * are derived from the real authenticated user (AuthContext) instead of the
+ * switcher, and setRole becomes a no-op — there's a real logged-in user now,
+ * switching roles arbitrarily wouldn't make sense (and isn't authorised
+ * server-side regardless). AuthProvider must be an ancestor of RoleProvider
+ * for this — see App.jsx.
  */
 
 import { createContext, useContext, useState, useEffect } from 'react';
+import { apiMode } from '../services/api.js';
+import { useAuth } from './AuthContext.jsx';
 
 export const ROLES = ['GlobalAdmin', 'Admin', 'Supervisor', 'Agent', 'Broker'];
 
@@ -51,17 +62,46 @@ function getInitialRole() {
   return 'Admin';
 }
 
+function initialsFrom(displayName) {
+  if (!displayName) return '?';
+  const parts = displayName.trim().split(/\s+/);
+  return ((parts[0]?.[0] ?? '') + (parts[1]?.[0] ?? '')).toUpperCase() || '?';
+}
+
 export function RoleProvider({ children }) {
-  const [role, setRole] = useState(getInitialRole);
-  const persona = PERSONAS[role];
+  const [previewRole, setPreviewRole] = useState(getInitialRole);
+  const demoMode = apiMode.DEMO_MODE;
+
+  // AuthContext only exists meaningfully in demo mode, but AuthProvider wraps
+  // this in both preview and Entra modes too (see App.jsx) so this hook call
+  // is always safe — it just won't affect anything outside demo mode.
+  const { user } = useAuth();
 
   useEffect(() => {
+    if (demoMode) return; // real auth drives role in this mode — nothing to persist
     try {
-      sessionStorage.setItem(ROLE_STORAGE_KEY, role);
+      sessionStorage.setItem(ROLE_STORAGE_KEY, previewRole);
     } catch {
       // ignore — persistence is a convenience, not a requirement
     }
-  }, [role]);
+  }, [previewRole, demoMode]);
+
+  let role, persona, setRole;
+
+  if (demoMode && user) {
+    role = user.role;
+    persona = {
+      id: user.id,
+      displayName: user.displayName,
+      initials: initialsFrom(user.displayName),
+      role: user.role,
+    };
+    setRole = () => {}; // no-op — role comes from the real logged-in user
+  } else {
+    role = previewRole;
+    persona = PERSONAS[previewRole];
+    setRole = setPreviewRole;
+  }
 
   return (
     <RoleContext.Provider value={{ role, setRole, persona }}>
