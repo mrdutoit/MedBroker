@@ -43,7 +43,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'POST') {
-      requireRole(claims, ['Admin', 'Supervisor']);
+      requireRole(claims, ['Admin', 'Supervisor', 'GlobalAdmin']);
 
       const parsed = CreateLeadSchema.safeParse(req.body);
       if (!parsed.success) {
