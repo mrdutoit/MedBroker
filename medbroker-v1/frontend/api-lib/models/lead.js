@@ -19,17 +19,34 @@
  * filter, matched against the computed sourceLabel — see leadService.js).
  * `leadSource` is kept as an optional input for the caller's own bookkeeping
  * but is not written to a column that doesn't exist.
+ *
+ * 22 July 2026 — title, dateOfBirth, and a fixed Job Title (occupation)
+ * list added to match the fields on the client's real Appointment
+ * Tracking intake sheet (Mark's request). Since these — along with
+ * Contact Number, already a field — represent the client's actual required
+ * intake fields, title/dateOfBirth/occupation/mobileNumber move from
+ * optional to required here. Nothing else in this file changed.
  */
 
 import { z } from 'zod';
+
+const saMobile = z.string()
+  .regex(/^(\+27|0)[6-8]\d{8}$/, 'Mobile number must be a valid South African number');
 
 const saIdNumber = z.string()
   .regex(/^\d{13}$/, 'South African ID number must be exactly 13 digits')
   .optional();
 
-const saMobile = z.string()
-  .regex(/^(\+27|0)[6-8]\d{8}$/, 'Mobile number must be a valid South African number')
-  .optional();
+export const Title = z.enum(['Dr', 'Mr', 'Mrs', 'Ms']);
+
+// Matches the fixed list already used for the Job Title filter dropdown —
+// see src/constants/leadOptions.js on the frontend, which is the single
+// source of truth both sides are meant to stay in sync with.
+export const JobTitle = z.enum([
+  'Anaesthesiologist', 'Cardiologist', 'Dermatologist', 'General Practitioner',
+  'Gynaecologist', 'Neurologist', 'Orthopaedic Surgeon', 'Paediatrician',
+  'Psychiatrist', 'Radiologist',
+]);
 
 export const PipelineStatus = z.enum([
   'Unassigned',
@@ -48,16 +65,18 @@ export const LeadSource = z.enum([
 ]);
 
 export const CreateLeadSchema = z.object({
+  title:                Title,
   firstName:            z.string().min(1, 'First name is required').max(100),
   lastName:             z.string().min(1, 'Last name is required').max(100),
+  dateOfBirth:          z.string().date('Must be a valid date (YYYY-MM-DD)'),
   idNumber:             saIdNumber,
   email:                z.string().email('Must be a valid email address').max(255),
   mobileNumber:         saMobile,
-  whatsappNumber:       saMobile,
+  whatsappNumber:       saMobile.optional(),
   universityAttended:   z.string().max(200).optional(),
   yearOfAttendance:     z.number().int().min(1980).max(new Date().getFullYear()).optional(),
   degreeAttained:       z.string().max(200).optional(),
-  occupation:           z.string().max(200).optional(),
+  occupation:           JobTitle,
   hospitalOrPractice:   z.string().max(300).optional(),
   existingCover:        z.boolean().optional(),
   policies:             z.string().max(500).optional(),
