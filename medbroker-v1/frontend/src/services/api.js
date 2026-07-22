@@ -138,22 +138,31 @@ export const leadsApi = {
   },
   get:     (id)   => request(`/leads/${id}`),
   create:  (data) => request('/leads', { method: 'POST', body: JSON.stringify(data) }),
-  // assign — first-time assignment of an unassigned lead to an agent.
-  //   Server-side: sets assignedAgentId, transitions pipelineStatus Unassigned → Assigned,
-  //   writes AuditLog entry with action='LeadAssigned'.
+  // assign — first-time assignment of an unassigned lead to an agent, OR
+  //   changing the agent on an already-assigned lead. Same endpoint either
+  //   way — the backend distinguishes them itself (checks whether there
+  //   was a previous agent) and logs the right AuditLog action
+  //   (LeadAssigned vs LeadReassigned) accordingly; there's no separate
+  //   /reassign route to duplicate that logic in two places.
+  //   Server-side: sets assignedAgentId, transitions pipelineStatus Unassigned → Assigned
+  //   (or keeps existing status if it was already assigned).
   assign:  (id, agentId) =>
     request(`/leads/${id}/assign`,   { method: 'PUT', body: JSON.stringify({ agentId }) }),
-  // reassign — changes the agent on an already-assigned lead.
-  //   Server-side: updates assignedAgentId, keeps existing pipelineStatus,
-  //   writes AuditLog entry with action='LeadReassigned' including previous agent.
+  // reassign — same endpoint as assign(); kept as a distinctly-named method
+  // since LeadList.jsx calls it from a semantically different action
+  // ("Reassign" button vs "Assign" button).
   reassign: (id, agentId) =>
-    request(`/leads/${id}/reassign`, { method: 'PUT', body: JSON.stringify({ agentId }) }),
+    request(`/leads/${id}/assign`, { method: 'PUT', body: JSON.stringify({ agentId }) }),
   // sources — distinct source labels across CSV batches, subscriptions, and events.
   //   Used to populate the Source filter dropdown in LeadList.
   //   Falls back to LEAD_SOURCES constant in preview mode.
   sources: () => request('/leads/sources'),
   logCall: (id, attemptData) =>
     request(`/leads/${id}/calls`, { method: 'POST', body: JSON.stringify(attemptData) }),
+  // listCalls — call history for a lead, most recent first. Used by
+  // LeadDetail.jsx's "Recent Calls" section so it survives a page refresh
+  // instead of only reflecting calls logged in the current browser session.
+  listCalls: (id) => request(`/leads/${id}/calls`),
   delete:  (id)   => request(`/leads/${id}`, { method: 'DELETE' }),
 };
 
