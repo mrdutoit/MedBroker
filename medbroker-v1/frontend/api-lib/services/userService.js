@@ -146,6 +146,34 @@ async function syncUserProducts(userId, productIds) {
 }
 
 /**
+ * Keeps BrokerRegion (a multi-region-capable junction table) in sync with
+ * User.region (today's single-region UI field) for Broker-role users only.
+ * Added alongside the Appointments build — brokerMatchingService.js's
+ * region filter reads BrokerRegion, which nothing previously populated, so
+ * no broker created via User Admin could ever actually match a lead. The
+ * junction table itself is left multi-region-capable in the schema in case
+ * a future UI wants to assign a broker to more than one region; this just
+ * keeps it correctly mirroring the one region the current UI collects.
+ * A no-op for any role other than Broker, or when region isn't set.
+ */
+async function syncBrokerRegion(userId, role, region) {
+  if (role !== 'Broker') return;
+  await executeQuery(`DELETE FROM BrokerRegion WHERE brokerId = @userId`, {
+    userId: { type: sql.UniqueIdentifier, value: userId },
+  });
+  if (region) {
+    await executeQuery(
+      `INSERT INTO BrokerRegion (id, brokerId, region) VALUES (@id, @userId, @region)`,
+      {
+        id:     { type: sql.UniqueIdentifier, value: crypto.randomUUID() },
+        userId: { type: sql.UniqueIdentifier, value: userId },
+        region: { type: sql.NVarChar(50),     value: region },
+      }
+    );
+  }
+}
+
+/**
  * Create a user via User Admin — the full flow (region, supervisor,
  * portfolios, products, optional password), as opposed to createLocalUser()
  * above which is the minimal bootstrap-admin path.
@@ -183,6 +211,7 @@ export async function createUserFull(data) {
   ]);
   await syncUserPortfolios(newId, portfolioIds);
   await syncUserProducts(newId, productIds);
+  await syncBrokerRegion(newId, data.role, data.region);
 
   return newId;
 }
@@ -228,6 +257,17 @@ export async function updateUserFull(id, data) {
   if (data.products !== undefined) {
     const productIds = await resolveProductIds(data.products);
     await syncUserProducts(id, productIds);
+  }
+  // Only re-check BrokerRegion if this update actually touched role or
+  // region — fetch the definitive post-update values rather than assuming,
+  // since a partial update (e.g. region only) needs the CURRENT role to
+  // decide whether syncing applies at all.
+  if (data.region !== undefined || data.role !== undefined) {
+    const current = await executeQueryOne(
+      `SELECT role, region FROM "User" WHERE id = @id AND organisationId = @organisationId`,
+      { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+    );
+    if (current) await syncBrokerRegion(id, current.role, current.region);
   }
 }
 
