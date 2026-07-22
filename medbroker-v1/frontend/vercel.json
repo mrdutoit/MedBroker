@@ -4,6 +4,11 @@
   "installCommand": "npm install",
   "framework": "vite",
   "rewrites": [
+    { "source": "/api/auth/:slug*",         "destination": "/api/auth-router?slug=:slug*" },
+    { "source": "/api/leads/:slug*",        "destination": "/api/leads-router?slug=:slug*" },
+    { "source": "/api/users/:slug*",        "destination": "/api/users-router?slug=:slug*" },
+    { "source": "/api/flags/:slug*",        "destination": "/api/flags-router?slug=:slug*" },
+    { "source": "/api/appointments/:slug*", "destination": "/api/appointments-router?slug=:slug*" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "headers": [
