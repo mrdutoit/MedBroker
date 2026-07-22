@@ -130,7 +130,8 @@ export async function listLeads({ status, excludeStatuses, agentId, brokerId, ev
 
   const leads = await executeQuery(
     `SELECT
-       l.id, l.firstName AS "firstName", l.lastName AS "lastName", l.email,
+       l.id, l.title, l.firstName AS "firstName", l.lastName AS "lastName",
+       l.dateOfBirth AS "dateOfBirth", l.email,
        l.mobileNumber AS "mobileNumber", l.whatsappNumber AS "whatsappNumber",
        l.universityAttended AS "universityAttended", l.yearOfAttendance AS "yearOfAttendance",
        l.degreeAttained AS "degreeAttained", l.occupation, l.hospitalOrPractice AS "hospitalOrPractice",
@@ -166,7 +167,8 @@ export async function listLeads({ status, excludeStatuses, agentId, brokerId, ev
 export async function getLeadById(id) {
   return executeQueryOne(
     `SELECT
-       l.id, l.firstName AS "firstName", l.lastName AS "lastName", l.email,
+       l.id, l.title, l.firstName AS "firstName", l.lastName AS "lastName",
+       l.dateOfBirth AS "dateOfBirth", l.email,
        l.mobileNumber AS "mobileNumber", l.whatsappNumber AS "whatsappNumber",
        l.universityAttended AS "universityAttended", l.yearOfAttendance AS "yearOfAttendance",
        l.degreeAttained AS "degreeAttained", l.occupation, l.hospitalOrPractice AS "hospitalOrPractice",
@@ -198,14 +200,14 @@ export async function createLead(data, createdById) {
 
   await executeQuery(
     `INSERT INTO Lead (
-       id, organisationId, firstName, lastName, idNumberEncrypted, idNumberHash, email,
+       id, organisationId, title, firstName, lastName, dateOfBirth, idNumberEncrypted, idNumberHash, email,
        mobileNumber, whatsappNumber, universityAttended, yearOfAttendance,
        degreeAttained, occupation, hospitalOrPractice, existingCover, policies,
        medicalAid, medicalAidProvider, linkedEventId, linkedSubscriptionId,
        csvImportBatchId, manualSourceName, pipelineStatus,
        createdById, createdAt, updatedAt
      ) VALUES (
-       @id, @organisationId, @firstName, @lastName, @idNumberEncrypted, @idNumberHash, @email,
+       @id, @organisationId, @title, @firstName, @lastName, @dateOfBirth, @idNumberEncrypted, @idNumberHash, @email,
        @mobileNumber, @whatsappNumber, @universityAttended, @yearOfAttendance,
        @degreeAttained, @occupation, @hospitalOrPractice, @existingCover, @policies,
        @medicalAid, @medicalAidProvider, @linkedEventId, @linkedSubscriptionId,
@@ -215,8 +217,10 @@ export async function createLead(data, createdById) {
     {
       id:                   { type: sql.UniqueIdentifier,   value: newId },
       organisationId:       { type: sql.UniqueIdentifier,   value: resolveOrganisationId() },
+      title:                { type: sql.NVarChar(10),       value: data.title },
       firstName:            { type: sql.NVarChar(100),      value: data.firstName },
       lastName:             { type: sql.NVarChar(100),      value: data.lastName },
+      dateOfBirth:          { type: sql.Date,                value: data.dateOfBirth },
       idNumberEncrypted:    { type: sql.NVarChar(sql.MAX),  value: encryptedIdNumber },
       idNumberHash:         { type: sql.NVarChar(64),       value: idNumberHash },
       email:                { type: sql.NVarChar(255),      value: data.email },
