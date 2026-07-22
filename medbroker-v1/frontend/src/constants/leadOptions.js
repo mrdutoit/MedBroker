@@ -15,3 +15,14 @@ export const JOB_TITLES = [
   'Gynaecologist', 'Neurologist', 'Orthopaedic Surgeon', 'Paediatrician',
   'Psychiatrist', 'Radiologist',
 ];
+
+// Added 22 July 2026 alongside the Appointments build — LeadDetail.jsx's
+// Book Appointment modal needs a region to query broker matching against
+// (brokers are matched to where the CLIENT is, not the agent's own
+// region). Already existed as a local, unexported const in UserAdmin.jsx;
+// moved here to avoid a second copy drifting out of sync, same reasoning
+// as JOB_TITLES.
+export const REGIONS = [
+  'Gauteng', 'Western Cape', 'KwaZulu-Natal', 'Eastern Cape',
+  'Limpopo', 'Mpumalanga', 'North West', 'Northern Cape', 'Free State',
+];
