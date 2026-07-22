@@ -67,6 +67,39 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * formatErrorBody — added 22 July 2026.
+ * Backend validation failures come back as `{ error: <Zod .flatten() output> }`
+ * — an object, not a string: `{ fieldErrors: { mobileNumber: [...] }, formErrors: [...] }`.
+ * Every route on the backend does this the same way, so this bug was
+ * previously present everywhere a form displayed `err.message` after a
+ * validation failure, not just lead creation — found via LeadImport.jsx
+ * showing literally "[object Object]" instead of a real error, because
+ * the object was being passed straight through as the Error's message
+ * and then coerced to a string somewhere in the UI. Fixed once, here, so
+ * every caller of request() benefits rather than patching each form.
+ * @param {unknown} error - the `error` field from a JSON error response body
+ * @returns {string} a readable message
+ */
+function formatErrorBody(error) {
+  if (typeof error === 'string') return error;
+  if (error && typeof error === 'object') {
+    const parts = [];
+    if (error.fieldErrors && typeof error.fieldErrors === 'object') {
+      for (const [field, messages] of Object.entries(error.fieldErrors)) {
+        if (Array.isArray(messages) && messages.length > 0) {
+          parts.push(`${field}: ${messages[0]}`);
+        }
+      }
+    }
+    if (Array.isArray(error.formErrors)) {
+      parts.push(...error.formErrors);
+    }
+    if (parts.length > 0) return parts.join('; ');
+  }
+  return 'API request failed';
+}
+
 async function request(path, options = {}) {
   // In preview mode return a resolved promise with null so useFetch
   // sets data=null without error — each page falls back to its own mock data.
@@ -112,7 +145,7 @@ async function request(path, options = {}) {
   }
 
   if (!response.ok) {
-    throw new ApiError(response.status, body?.error ?? 'API request failed', body);
+    throw new ApiError(response.status, formatErrorBody(body?.error), body);
   }
 
   return body;
