@@ -39,6 +39,15 @@ export const config = {
     bootstrapSecret:  optional('BOOTSTRAP_SECRET'),
   },
 
+  // Optional — broker matching (services/brokerMatchingService.js) runs
+  // correctly in degraded mode (ranks by fewest upcoming appointments,
+  // no live slot confirmation) with this entirely unset. Only needed if a
+  // real Calendly account is connected for live availability checking.
+  calendly: {
+    apiToken: optional('CALENDLY_API_TOKEN'),
+    baseUrl:  optional('CALENDLY_BASE_URL', 'https://api.calendly.com'),
+  },
+
   app: {
     nodeEnv:         optional('NODE_ENV', 'development'),
     maxCallAttempts: parseInt(optional('MAX_CALL_ATTEMPTS', '3'), 10),
