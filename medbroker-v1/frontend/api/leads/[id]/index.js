@@ -44,7 +44,7 @@ export default async function handler(req, res) {
     }
 
     if (req.method === 'DELETE') {
-      requireRole(claims, ['Admin']);
+      requireRole(claims, ['Admin', 'GlobalAdmin']);
 
       const lead = await getLeadById(id);
       if (!lead) return res.status(404).json({ error: 'Lead not found' });

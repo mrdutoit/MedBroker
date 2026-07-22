@@ -21,7 +21,7 @@ export default async function handler(req, res) {
 
   try {
     const claims = await validateToken(req);
-    requireRole(claims, ['Admin', 'Supervisor']);
+    requireRole(claims, ['Admin', 'Supervisor', 'GlobalAdmin']);
 
     const { id } = req.query;
     if (!isUuid(id)) {
