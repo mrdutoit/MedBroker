@@ -693,3 +693,222 @@ user-facing label text changed to match the client's terminology).
 updated to match (`title,firstName,lastName,dateOfBirth,occupation,
 mobileNumber,email`). The Subscription tab remains unaffected —
 still fully simulated, as noted previously.
+
+---
+
+## 18. Appointments built — assign model (22 July 2026)
+
+Scope: the ASSIGN model only (`appointments.claimModel = 'assign'`, the
+flag's current default). The CLAIM model — brokers self-serving from an
+available-appointments pool, plus the token economy (`TokenLedger`,
+`TokenTransaction`, Stripe payment via `BuyTokensModal`) — is a separate,
+larger feature with a real external payment dependency, and stays fully
+mocked in `AppointmentList.jsx`, same boundary reasoning as the SSO/OAuth
+work earlier: not something to half-build.
+
+**New backend**: `models/appointment.js`, `services/appointmentService.js`
+(list/get/create/assignBroker/reassign/returnToLeads/saveOutcome),
+`services/appointmentStatusService.js` — a pure-logic status machine
+mirroring `leadStatusService.js`'s pattern exactly, with its own 17-test
+suite testing the rules directly, not through the API — plus
+`services/brokerMatchingService.js`, ported from the Azure reference
+implementation (`api/src/services/brokerMatchingService.js`) with only
+dialect changes, same three-step algorithm: region + product filtering,
+Calendly availability with a circuit breaker, ranked by fewest upcoming
+appointments. Routes: `api/appointments/{index,[id]/index,[id]/assign,
+[id]/reassign,[id]/return,[id]/outcome}.js`, `api/broker-matching/index.js`.
+
+**Calendly**: this demo has no real Calendly account connected, so broker
+matching runs in degraded mode by default (ranked by workload only, no
+live slot confirmation) — the *original* Azure design already treats
+degraded mode as a first-class, correct outcome for exactly this
+situation, not an error state standing in for something broken. Added
+`config.calendly` (both vars optional, `CALENDLY_API_TOKEN` /
+`CALENDLY_BASE_URL`) and `User.calendlyEventTypeUri` (nullable) so the
+live path is ready if Mark ever connects a real account — nothing here
+claims to have built working Calendly integration.
+
+**Real bug found before any UI work, via testing**: `User.region` (the
+single-value field the Users API already sets) was never synced to
+`BrokerRegion` (the multi-region-capable junction table
+`brokerMatchingService.js` actually reads) — meaning no broker created
+through the existing Users API could ever have matched a single lead.
+Fixed with a new `syncBrokerRegion()` helper in `userService.js`, called
+from both `createUserFull()` and `updateUserFull()` for Broker-role users
+only. The junction table itself is left multi-region-capable in case a
+future UI wants to assign a broker to more than one region.
+
+**Serious finding, not a build issue — a delivery/deployment one**: at
+the start of this session, re-hydrating fresh from GitHub showed that
+several fixes from the *earlier* Leads-wiring session had reverted:
+`GlobalAdmin` missing again from three Lead routes (create/delete/assign),
+`api/leads/sources.js` missing entirely, and `api/leads/[id]/calls.js`
+reverted to its pre-session, POST-only state (also missing `GlobalAdmin`).
+Everything under `api-lib/` and `src/` from that same session was
+correctly present — only the actual Vercel Function files under
+`api/leads/` were affected. All re-applied and re-verified here, but the
+underlying cause is unknown from this side — worth Mark checking what
+happened with that specific delivery on his end, since this could recur
+with future deliveries touching the same files if the cause isn't found.
+
+**Frontend — `LeadDetail.jsx`'s Book Appointment modal**, previously
+entirely static (no `value`/`onChange` on any field, "Confirm Booking"
+read nothing and did nothing but flip local flags), fully rewritten:
+portfolio -> products-interested checkboxes -> region -> live broker
+search (calling the real matching endpoint) -> broker selection -> date/
+time/address/insurer -> real `POST /api/appointments`. Region is
+collected at booking time (matches the client, not the agent — a
+broker should be found near where the *client* is) and used only to
+query broker matching; it isn't persisted anywhere, since neither Lead
+nor Appointment has a region column.
+
+**`AppointmentList.jsx`**: real data fetching added, `AssignBrokerModal`
+fixed to use real broker ids instead of hardcoded name strings (same
+class of fix as the Users/Leads work), and a latent bug in the row-level
+Broker filter — `if (isBroker && a.brokerCode !== 'SB')`, comparing
+against a fixed mock string that could never match a real user — fixed
+to compare against the logged-in user's actual id. Source and broker
+filter dropdowns now reflect real data.
+
+**`AppointmentDetail.jsx`**: added the `GET /api/appointments/:id` fetch
+that was missing entirely (the file called `reassign`/`returnToLeads`/
+`saveOutcome` already, but never actually loaded the appointment for real
+— always started from `MOCK_APPOINTMENT` and never fetched). Backend
+returns meetings as flat fields (`meeting1Date`, `meeting1Status`, ...);
+transformed into the `{ meetings: [...] }` array shape the rest of this
+650-line file already expects, so nothing else needed touching. Also
+fixed `ReassignBrokerModal` the same way as the list page's modal.
+
+**Real pre-existing bug found and fixed, unrelated to this session's
+wiring**: `PRODUCTS_BY_PORTFOLIO[appt.portfolio]` was looking up
+`'Discovery'` directly, but that object's actual keys are `'disc'`/`'mm'`
+— meaning the "products sold" checkboxes have silently rendered empty
+since this page was first built, even in the original mock-only version.
+Fixed the mapping. Also fixed the Return to Leads confirmation copy,
+which said the appointment "will be archived" — the schema has no
+archive/soft-delete column for Appointment, and the `UNIQUE leadId`
+constraint means a lead can't get a new appointment while an old row
+exists, so this has always been a genuine delete; the copy was wrong,
+not the implementation. Also wired `onReturned` to navigate away after a
+successful return, since the appointment row (and thus this very page)
+no longer exists afterward — closing the modal and leaving the user on a
+now-deleted appointment's page would have been a real, if minor, bug.
+
+**Verified against real Postgres and a real Chromium browser, full
+chain**: broker creation with region -> broker matching finds them
+correctly, excludes non-matching regions -> agent books an appointment
+via the real Book Appointment modal (portfolio, products, region, live
+broker search, date/time/address) -> appears correctly in
+`AppointmentList.jsx` with a resolved source label -> Assign flow on an
+unassigned appointment, persists across reload -> Reassign flow on the
+detail page, persists across reload -> first meeting marked Seen ->
+status becomes In Progress, persists -> customer signed Yes with
+products sold -> status becomes Closed Won, persists, Return to Leads
+button correctly disappears -> Return to Leads on a separate, unsigned
+appointment -> navigates away correctly, lead is confirmed back in the
+unassigned queue via a direct API check. Row-level access control
+verified — a non-owning agent gets a 403 trying to view someone else's
+appointment. Re-ran the full 23-check backend regression on a completely
+fresh database as the final step.
+
+**Testing note for future sessions, cost real time working out**: several
+Playwright locator ambiguities specific to this build — `text=Assign`
+matches both the "Assign" button and the word "Unassigned" (substring
+match); a bare `select` locator can match the page's own background
+filter dropdown instead of a modal's field if both happen to list the
+same option text (e.g. a broker's name appearing in both the row filter
+and the Assign modal) — none were app bugs, all were locator scoping
+issues in the test itself. Scope to `get_by_role(..., exact=True)` or the
+last-added element in DOM order (`.last`) rather than a bare text or
+tag-name locator when a page has more than one plausible match.
+
+Files changed this session — backend: `db/schema.postgres.sql`,
+`db/migrations/003_add_calendly_uri.sql` (new),
+`api-lib/models/appointment.js` (new),
+`api-lib/services/appointmentService.js` (new),
+`api-lib/services/appointmentStatusService.js` (new, + test),
+`api-lib/services/brokerMatchingService.js` (new),
+`api-lib/services/userService.js`, `api-lib/config.js`,
+`api/appointments/*` (new, 6 files), `api/broker-matching/index.js` (new),
+`api/leads/index.js`, `api/leads/[id]/index.js`, `api/leads/[id]/assign.js`
+(all three: re-applied reverted fixes), `api/leads/[id]/calls.js`
+(restored), `api/leads/sources.js` (restored, was missing). Frontend:
+`src/constants/leadOptions.js`, `src/pages/UserAdmin.jsx` (import shared
+REGIONS), `src/pages/LeadDetail.jsx`, `src/pages/AppointmentList.jsx`,
+`src/pages/AppointmentDetail.jsx`.
+
+---
+
+## 19. Consolidated to 8 Vercel Functions (22 July 2026)
+
+Mark hit Vercel Hobby's 12-Serverless-Functions-per-deployment limit — the
+build had grown to ~20 separate route files, each one its own deployed
+function on a plain (non-Next.js) Vercel Functions project, where Vercel's
+automatic multi-file bundling is currently Next.js-only (confirmed against
+Vercel's own current docs, not assumed).
+
+Fix: collapsed each domain's separate route files into one dispatcher
+file per domain, using Vercel's catch-all file-naming convention
+(`[...slug].js` for domains with no bare-path route, `[[...slug]].js`
+where the bare path — e.g. `GET /api/flags` — also needs to match).
+20 files -> 8:
+
+| Domain | Before | After |
+|---|---|---|
+| auth | 2 | 1 (`api/auth/[...slug].js`) |
+| leads | 5 | 1 (`api/leads/[[...slug]].js`) |
+| users | 2 | 1 (`api/users/[[...slug]].js`) |
+| flags | 2 | 1 (`api/flags/[[...slug]].js`) |
+| appointments | 6 | 1 (`api/appointments/[[...slug]].js`) |
+| broker-matching, health, system-config | 3 | 3 (unchanged) |
+
+**Lowest-risk approach, deliberately**: every handler's actual business
+logic is byte-for-byte unchanged from its original file — only the export
+style (named, not default) and location changed. Each original file's
+logic moved to `api-lib/handlers/<domain>Handlers.js` (outside `api/`, so
+never separately deployed as a function); the new `api/<domain>/
+[[...slug]].js` files are thin dispatchers that inspect `req.query.slug`
+(the array of path segments Vercel's catch-all convention provides) and
+`req.method`, then call the appropriate already-tested handler function.
+Nothing about the actual request handling, validation, or business rules
+changed — only how a request finds its way to that code.
+
+**One thing worth being honest about — the single piece of this whole
+build I could not fully verify from this sandbox**: Vercel's catch-all
+file-naming convention (`[...slug].js`, `[[...slug]].js`) is thoroughly
+documented for Next.js; confirmation it works identically for a *plain*
+(non-Next.js) Vercel Functions project — which is what this is — is
+thinner. Strong supporting evidence: this project has already used
+Vercel's single-dynamic-segment convention (`[id].js`) successfully and
+verifiably throughout this entire build, and catch-all is a direct
+extension of the same underlying file-system routing primitive, not a
+Next.js-specific feature bolted on separately. But it's real infrastructure
+behavior only an actual Vercel deployment can fully confirm — everything
+else in this refactor was verified in this sandbox; this one piece
+couldn't be.
+
+**Verified, everything that could be**: built a from-scratch local server
+specifically extended to replicate Vercel's exact file-resolution rules
+for catch-all patterns (required vs. optional, array of segments, literal
+paths like `/api/leads/sources` correctly NOT being swallowed by the `:id`
+dynamic pattern) — not reused from an earlier session, built fresh for
+this. Two full passes: first, every consolidated handler function called
+directly with a manually-constructed `req.query.slug` array (26 checks,
+covering every domain and every route shape) to confirm the business
+logic and dispatch logic are correct in isolation. Second, real HTTP
+requests against the actual running server for every routing pattern —
+bare paths, one-segment, two-segment, and the literal-vs-dynamic
+disambiguation specifically (16 checks) — to confirm the full chain
+resolves correctly end to end, not just the logic sitting behind it.
+
+**Migration is a DELETE-and-ADD this time, not the usual overwrite-only.**
+The old individual route files must actually be removed from GitHub, not
+just left alongside the new ones — leaving both would mean Vercel deploys
+BOTH old and new files as separate functions, making the count worse, not
+better, and could create routing ambiguity between an old
+`api/leads/index.js` and the new `api/leads/[[...slug]].js` covering the
+same path. See Status.md for the exact file list Mark needs to delete.
+
+Frontend needs zero changes — every URL path the frontend calls
+(`/api/leads`, `/api/leads/:id`, etc.) is identical; only which backend
+file answers that URL changed.
