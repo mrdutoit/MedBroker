@@ -90,16 +90,22 @@ export const CallAttemptSchema = z.object({
     'AppointmentScheduled',
   ]),
   notes:            z.string().max(2000).optional(),
-  callbackDateTime: z.string().datetime().optional(),
+  // { local: true } — HTML <input type="datetime-local"> (LeadDetail.jsx's
+  // callback field) produces "YYYY-MM-DDTHH:mm", no timezone offset. The
+  // default z.string().datetime() requires one and rejects that format;
+  // confirmed by testing the actual value the input produces, not assumed.
+  callbackDateTime: z.string().datetime({ local: true }).optional(),
 });
 
 export const LeadListQuerySchema = z.object({
-  status:    PipelineStatus.optional(),
-  agentId:   z.string().uuid().optional(),
-  brokerId:  z.string().uuid().optional(),
-  eventId:   z.string().uuid().optional(),
-  source:    z.string().max(300).optional(),
-  search:    z.string().max(100).optional(),
-  page:      z.coerce.number().int().min(1).default(1),
-  pageSize:  z.coerce.number().int().min(1).max(100).default(25),
+  status:          PipelineStatus.optional(),
+  excludeStatuses: z.string().max(200).optional(), // comma-separated, e.g. "AppointmentScheduled"
+  agentId:         z.string().uuid().optional(),
+  brokerId:        z.string().uuid().optional(),
+  eventId:         z.string().uuid().optional(),
+  source:          z.string().max(300).optional(),
+  occupation:      z.string().max(200).optional(),
+  search:          z.string().max(100).optional(),
+  page:            z.coerce.number().int().min(1).default(1),
+  pageSize:        z.coerce.number().int().min(1).max(100).default(25),
 });
