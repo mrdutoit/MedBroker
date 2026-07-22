@@ -42,3 +42,33 @@ export function applyCors(req, res) {
   }
   return false;
 }
+
+/**
+ * parseSlug — added 22 July 2026, replacing the bracket catch-all file
+ * convention ([...slug].js / [[...slug]].js), which turned out not to be
+ * recognized as a route by Vercel outside a Next.js project — confirmed
+ * by direct testing against the live deployment (every route depending on
+ * it 404'd; a plain file like health.js worked fine). Routing now goes
+ * through vercel.json rewrites instead (the same mechanism already
+ * proven working here for the SPA fallback), with the remaining path
+ * passed through as a `slug` query parameter.
+ *
+ * Deliberately defensive about the exact shape that parameter arrives in
+ * — Vercel's docs are not fully explicit about whether a wildcard rewrite
+ * capture serializes as a single slash-joined string, a repeated query
+ * param (arriving as an array), or something else, and this was already
+ * wrong once. Handles all three shapes so the routers don't care which
+ * one actually shows up:
+ *   - array                      -> used as-is
+ *   - string containing "/"      -> split into segments
+ *   - plain string, no slash     -> single-element array
+ *   - undefined / empty string   -> empty array (the bare-path case)
+ * @param {unknown} slug - req.query.slug
+ * @returns {string[]}
+ */
+export function parseSlug(slug) {
+  if (slug === undefined || slug === null || slug === '') return [];
+  if (Array.isArray(slug)) return slug.flatMap((s) => String(s).split(/[/,]/)).filter(Boolean);
+  return String(slug).split(/[/,]/).filter(Boolean);
+}
+
