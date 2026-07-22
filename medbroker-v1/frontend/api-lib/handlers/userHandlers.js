@@ -1,0 +1,122 @@
+/**
+ * api-lib/handlers/userHandlers.js
+ * Consolidated 22 July 2026 — see authHandlers.js header for why. Logic
+ * unchanged from api/users/index.js and api/users/[id]/index.js.
+ */
+
+import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
+import { listUsers, createUserFull, listSupervisors, getUserForAdmin, updateUserFull } from '../services/userService.js';
+import { writeAuditLog, clientIp } from '../services/auditService.js';
+import { CreateUserSchema, UserListQuerySchema, UpdateUserSchema } from '../models/user.js';
+import { isUuid } from '../http/helpers.js';
+
+/** GET (list) + POST (create) /api/users */
+export async function handleUsersCollection(req, res) {
+  try {
+    const claims = await validateToken(req);
+
+    if (req.method === 'GET') {
+      requireRole(claims, ['Admin', 'Supervisor', 'GlobalAdmin']);
+
+      const parsed = UserListQuerySchema.safeParse(req.query);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+      if (req.query.supervisors === 'true') {
+        return res.status(200).json({ supervisors: await listSupervisors() });
+      }
+
+      const users = await listUsers(parsed.data);
+      return res.status(200).json({ users });
+    }
+
+    if (req.method === 'POST') {
+      requireRole(claims, ['Admin', 'GlobalAdmin']);
+
+      const parsed = CreateUserSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+      let newId;
+      try {
+        newId = await createUserFull(parsed.data);
+      } catch (err) {
+        if (err.code === '23505') {
+          return res.status(409).json({ error: 'A user with this email address already exists' });
+        }
+        throw err;
+      }
+
+      await writeAuditLog({
+        entityType: 'User',
+        entityId: newId,
+        action: 'UserCreated',
+        performedById: claims.oid,
+        changeDetail: { role: parsed.data.role, email: parsed.data.email },
+        ipAddress: clientIp(req),
+      });
+
+      return res.status(201).json({ id: newId });
+    }
+
+    res.setHeader('Allow', 'GET, POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('users/index error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** GET + PUT /api/users/:id */
+export async function handleUserById(req, res, id) {
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Admin', 'GlobalAdmin']);
+
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid user ID format' });
+
+    if (req.method === 'GET') {
+      const user = await getUserForAdmin(id);
+      if (!user) return res.status(404).json({ error: 'User not found' });
+      return res.status(200).json(user);
+    }
+
+    if (req.method === 'PUT') {
+      const parsed = UpdateUserSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+      const existing = await getUserForAdmin(id);
+      if (!existing) return res.status(404).json({ error: 'User not found' });
+
+      await updateUserFull(id, parsed.data);
+
+      await writeAuditLog({
+        entityType: 'User',
+        entityId: id,
+        action: parsed.data.isActive === false ? 'UserDeactivated'
+              : parsed.data.isActive === true  ? 'UserReactivated'
+              : 'UserUpdated',
+        performedById: claims.oid,
+        changeDetail: parsed.data,
+        ipAddress: clientIp(req),
+      });
+
+      const updated = await getUserForAdmin(id);
+      return res.status(200).json(updated);
+    }
+
+    res.setHeader('Allow', 'GET, PUT, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('users/[id] error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
