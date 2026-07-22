@@ -30,9 +30,11 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch.js';
-import { leadsApi } from '../services/api.js';
+import { leadsApi, appointmentsApi, brokerMatchingApi, ApiError } from '../services/api.js';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useWindowSize } from '../hooks/useWindowSize.js';
+import { useRole, PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
+import { REGIONS } from '../constants/leadOptions.js';
 
 // ─── Status transition machine (mirrors server-side leadStatusService.js) ─────
 function computeNewStatus(currentStatus, outcome) {
@@ -453,67 +455,230 @@ export default function LeadDetail() {
 
       {/* ── Book Appointment Modal ── */}
       {showBookForm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: isMobile ? '16px' : '0' }}>
-          <div style={{ background:'var(--panel)', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '520px', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '1.125rem', fontWeight: 600 }}>Book Appointment</h2>
-              <button onClick={() => setShowBookForm(false)} style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', color:'var(--mut)' }}>✕</button>
-            </div>
-            <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '14px' }}>
-              {baseLead.title} {baseLead.firstName} {baseLead.lastName} · {baseLead.occupation}
-            </p>
-            <div style={{ background: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))', border: '1px solid color-mix(in srgb, #1d4ed8 30%, var(--panel))', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: 'var(--accent)' }}>
-              Confirming this booking will move the lead to <strong>Appointment Scheduled</strong> status and it will appear in the Appointments list.
-            </div>
+        <BookAppointmentModal
+          lead={baseLead}
+          isMobile={isMobile}
+          onClose={() => setShowBookForm(false)}
+          onBooked={() => { setBookingConfirmed(true); setShowBookForm(false); }}
+        />
+      )}
+    </div>
+  );
+}
 
-            {/* Broker selection */}
-            <div style={{ marginBottom: '14px' }}>
-              <label style={labelStyle}>Select broker *</label>
-              {[
-                { name: 'Sandra van der Berg', slots: '1 appointment this week · Next slot: Mon, 10:00', best: true },
-                { name: 'Pieter Joubert',      slots: '3 appointments this week · Next slot: Tue, 14:00', best: false },
-                { name: 'Marelize Swart',      slots: '4 appointments this week · Next slot: Wed, 09:00', best: false },
-              ].map((b, i) => (
-                <label key={i} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', border:`1px solid ${i === 0 ? 'var(--accent)' : 'var(--line)'}`, borderRadius: '6px', marginBottom: '6px', cursor: 'pointer', background:i === 0 ? 'color-mix(in srgb, var(--accent) 12%, var(--panel))' : 'var(--panel)' }}>
-                  <input type="radio" name="book-broker" defaultChecked={i === 0} style={{ accentColor: 'var(--accent)' }} />
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{b.name}</div>
-                    <div style={{ fontSize: '0.75rem', color:'var(--mut)' }}>{b.slots}</div>
-                  </div>
-                  {b.best && <span style={{ fontSize: '0.688rem', background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d', borderRadius: '4px', padding: '2px 6px' }}>Most available</span>}
-                </label>
-              ))}
-            </div>
+// ─── Book Appointment modal — separate component, own state ──────────────────
+// Split out from the main render because it has enough independent state
+// (region/portfolio/products -> broker search -> selection -> booking
+// details) to be its own thing, not because of any technical requirement.
+function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
+  const labelStyle = { display: 'block', fontSize: '0.8125rem', fontWeight: 500, color:'var(--ink)', marginBottom: '5px' };
+  const inputStyle = { width: '100%', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box' };
+  const btn = {
+    primary: { background:'var(--accent)', color:'white', border:'none', borderRadius:'var(--r-sm,8px)', padding:'8px 14px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' },
+    ghost:   { background: 'none', color:'var(--mut)', border: '1px solid var(--line)', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
+  };
 
-            <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
-              <div><label style={labelStyle}>Date *</label><input type="date" style={inputStyle} /></div>
-              <div><label style={labelStyle}>Time *</label><input type="time" style={inputStyle} /></div>
-            </div>
-            <div style={{ marginBottom: '10px' }}><label style={labelStyle}>Address *</label><input style={inputStyle} placeholder="123 Rivonia Rd, Sandton" /></div>
-            <div style={{ marginBottom: '10px' }}>
-              <label style={labelStyle}>Portfolio *</label>
-              <select style={inputStyle}><option value="">Select…</option><option>Discovery</option><option>Money and Medicine</option></select>
-            </div>
-            <div style={{ marginBottom: '16px' }}><label style={labelStyle}>Current insurance company</label><input style={inputStyle} placeholder="e.g. Old Mutual, Momentum" /></div>
+  const [region,       setRegion]       = useState('');
+  const [portfolio,    setPortfolio]    = useState('');
+  const [products,     setProducts]     = useState([]);
+  const [searched,     setSearched]     = useState(false);
+  const [searching,    setSearching]    = useState(false);
+  const [searchError,  setSearchError]  = useState('');
+  const [brokers,      setBrokers]      = useState([]);
+  const [degradedMode, setDegradedMode] = useState(false);
+  const [brokerId,     setBrokerId]     = useState('');
 
-            <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowBookForm(false)} style={btn.ghost}>Cancel</button>
-              <button onClick={() => {
-                /**
-                 * Production: POST /api/appointments
-                 *   → Creates Appointment child record (leadId FK)
-                 *   → Sets Lead.pipelineStatus = 'AppointmentScheduled'
-                 *   → Returns new Appointment ID
-                 */
-                setBookingConfirmed(true);
-                setShowBookForm(false);
-              }} style={btn.primary}>
-                Confirm Booking
-              </button>
+  const [date,            setDate]            = useState('');
+  const [time,             setTime]            = useState('');
+  const [address,          setAddress]         = useState('');
+  const [currentInsurer,   setCurrentInsurer]  = useState('');
+  const [fieldErrors,      setFieldErrors]     = useState({});
+  const [submitting,       setSubmitting]      = useState(false);
+  const [submitError,      setSubmitError]     = useState('');
+
+  const portfolioId = portfolio === 'Discovery' ? 'disc' : portfolio === 'Money and Medicine' ? 'mm' : null;
+  const availableProducts = portfolioId ? (PRODUCTS_BY_PORTFOLIO[portfolioId] ?? []) : [];
+
+  function togglePortfolio(name) {
+    setPortfolio((p) => (p === name ? '' : name));
+    setProducts([]);
+    setSearched(false);
+    setBrokers([]);
+    setBrokerId('');
+  }
+  function toggleProduct(name) {
+    setProducts((prev) => (prev.includes(name) ? prev.filter((p) => p !== name) : [...prev, name]));
+    setSearched(false);
+  }
+
+  async function handleFindBrokers() {
+    setSearching(true);
+    setSearchError('');
+    setSearched(false);
+    try {
+      const result = await brokerMatchingApi.findBrokers({ region, products });
+      setBrokers(result?.brokers ?? []);
+      setDegradedMode(!!result?.degradedMode);
+      setSearched(true);
+      setBrokerId('');
+    } catch (err) {
+      setSearchError(err instanceof ApiError ? err.message : 'Could not search for brokers. Please try again.');
+    } finally {
+      setSearching(false);
+    }
+  }
+
+  async function handleConfirmBooking() {
+    const errors = {};
+    if (!brokerId)      errors.broker = 'Select a broker';
+    if (!date)           errors.date = 'Required';
+    if (!time)           errors.time = 'Required';
+    if (!portfolio)      errors.portfolio = 'Required';
+    if (Object.keys(errors).length) { setFieldErrors(errors); return; }
+
+    setSubmitting(true);
+    setSubmitError('');
+    try {
+      await appointmentsApi.create({
+        leadId: lead.id,
+        brokerId,
+        portfolio,
+        firstAppointmentDate: date,
+        firstAppointmentTime: time,
+        firstAppointmentAddress: address || undefined,
+        currentInsurer: currentInsurer || undefined,
+        productsInterestedIn: products,
+      });
+      onBooked();
+    } catch (err) {
+      setSubmitError(err instanceof ApiError ? err.message : 'Could not book the appointment. Please try again.');
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 50, padding: isMobile ? '16px' : '0' }}>
+      <div style={{ background:'var(--panel)', borderRadius: '10px', padding: '24px', width: '100%', maxWidth: '520px', maxHeight: '90vh', overflowY: 'auto', boxSizing: 'border-box' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '16px' }}>
+          <h2 style={{ fontSize: '1.125rem', fontWeight: 600 }}>Book Appointment</h2>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', fontSize: '1.25rem', cursor: 'pointer', color:'var(--mut)' }}>✕</button>
+        </div>
+        <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '14px' }}>
+          {lead.title} {lead.firstName} {lead.lastName} · {lead.occupation}
+        </p>
+        <div style={{ background: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))', border: '1px solid color-mix(in srgb, #1d4ed8 30%, var(--panel))', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: 'var(--accent)' }}>
+          Confirming this booking will move the lead to <strong>Appointment Scheduled</strong> status and it will appear in the Appointments list.
+        </div>
+
+        {/* Step 1: portfolio + products + region -> find brokers */}
+        <div style={{ marginBottom: '10px' }}>
+          <label style={labelStyle}>Portfolio *</label>
+          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {PORTFOLIOS.map((p) => (
+              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', padding: '6px 12px', border: `1px solid ${portfolio === p.name ? 'var(--accent)' : 'var(--line)'}`, borderRadius: '6px', fontSize: '0.8125rem', background: portfolio === p.name ? 'color-mix(in srgb, var(--accent) 10%, var(--panel))' : 'var(--panel)' }}>
+                <input type="radio" checked={portfolio === p.name} onChange={() => togglePortfolio(p.name)} style={{ accentColor: 'var(--accent)' }} />
+                {p.name}
+              </label>
+            ))}
+          </div>
+          {fieldErrors.portfolio && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.portfolio}</div>}
+        </div>
+
+        {portfolio && (
+          <div style={{ marginBottom: '10px' }}>
+            <label style={labelStyle}>Products the client is interested in</label>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+              {availableProducts.map((prod) => {
+                const checked = products.includes(prod);
+                return (
+                  <label key={prod} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', cursor: 'pointer', padding: '3px 8px', borderRadius: '20px', background: checked ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'var(--panel2)', color: checked ? '#15803d' : 'var(--ink)', border: `1px solid ${checked ? 'color-mix(in srgb, #15803d 30%, var(--panel))' : 'var(--line)'}` }}>
+                    <input type="checkbox" checked={checked} onChange={() => toggleProduct(prod)} style={{ accentColor: '#15803d' }} />
+                    {prod}
+                  </label>
+                );
+              })}
             </div>
           </div>
+        )}
+
+        <div style={{ marginBottom: '10px' }}>
+          <label style={labelStyle}>Client's region *</label>
+          <select style={inputStyle} value={region} onChange={(e) => { setRegion(e.target.value); setSearched(false); }}>
+            <option value="">Select…</option>
+            {REGIONS.map((r) => <option key={r} value={r}>{r}</option>)}
+          </select>
         </div>
-      )}
+
+        <button
+          type="button"
+          onClick={handleFindBrokers}
+          disabled={!region || products.length === 0 || searching}
+          style={{ ...btn.primary, opacity: (!region || products.length === 0 || searching) ? 0.5 : 1, marginBottom: '14px', width: '100%' }}
+        >
+          {searching ? 'Searching…' : 'Find available brokers'}
+        </button>
+
+        {searchError && <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.8125rem', marginBottom: '14px' }}>{searchError}</div>}
+
+        {/* Step 2: broker selection, once searched */}
+        {searched && (
+          <div style={{ marginBottom: '14px' }}>
+            <label style={labelStyle}>Select broker *</label>
+            {degradedMode && (
+              <div style={{ fontSize: '0.75rem', color: '#d97706', marginBottom: '8px' }}>
+                ⚠ Live calendar availability isn't connected — ranked by current workload only. Confirm the time works directly with the broker.
+              </div>
+            )}
+            {brokers.length === 0 && (
+              <div style={{ fontSize: '0.8125rem', color:'var(--mut)', padding: '10px 0' }}>
+                No brokers match this region and product combination yet.
+              </div>
+            )}
+            {brokers.map((b, i) => (
+              <label key={b.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', border: `1px solid ${brokerId === b.id ? 'var(--accent)' : 'var(--line)'}`, borderRadius: '6px', marginBottom: '6px', cursor: 'pointer', background: brokerId === b.id ? 'color-mix(in srgb, var(--accent) 12%, var(--panel))' : 'var(--panel)' }}>
+                <input type="radio" name="book-broker" checked={brokerId === b.id} onChange={() => setBrokerId(b.id)} style={{ accentColor: 'var(--accent)' }} />
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{b.displayName}</div>
+                  <div style={{ fontSize: '0.75rem', color:'var(--mut)' }}>{b.upcomingAppointments} upcoming appointment{b.upcomingAppointments !== 1 ? 's' : ''}</div>
+                </div>
+                {i === 0 && <span style={{ fontSize: '0.688rem', background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d', borderRadius: '4px', padding: '2px 6px' }}>Most available</span>}
+              </label>
+            ))}
+            {fieldErrors.broker && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.broker}</div>}
+          </div>
+        )}
+
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+          <div>
+            <label style={labelStyle}>Date *</label>
+            <input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} />
+            {fieldErrors.date && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.date}</div>}
+          </div>
+          <div>
+            <label style={labelStyle}>Time *</label>
+            <input type="time" style={inputStyle} value={time} onChange={(e) => setTime(e.target.value)} />
+            {fieldErrors.time && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.time}</div>}
+          </div>
+        </div>
+        <div style={{ marginBottom: '10px' }}>
+          <label style={labelStyle}>Address</label>
+          <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="123 Rivonia Rd, Sandton" />
+        </div>
+        <div style={{ marginBottom: '16px' }}>
+          <label style={labelStyle}>Current insurance company</label>
+          <input style={inputStyle} value={currentInsurer} onChange={(e) => setCurrentInsurer(e.target.value)} placeholder="e.g. Old Mutual, Momentum" />
+        </div>
+
+        {submitError && <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.875rem', marginBottom: '12px' }}>{submitError}</div>}
+
+        <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
+          <button onClick={onClose} style={btn.ghost} disabled={submitting}>Cancel</button>
+          <button onClick={handleConfirmBooking} style={{ ...btn.primary, opacity: submitting ? 0.6 : 1 }} disabled={submitting}>
+            {submitting ? 'Booking…' : 'Confirm Booking'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

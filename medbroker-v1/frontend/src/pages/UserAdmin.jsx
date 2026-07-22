@@ -26,14 +26,10 @@ import { useRole, PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleConte
 import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
 import { usersApi, apiMode, ApiError } from '../services/api.js';
+import { REGIONS } from '../constants/leadOptions.js';
 import { s } from '../styles/tokens.js';
 
 const ROLES = ['Admin', 'Supervisor', 'Agent', 'Broker'];
-const REGIONS = [
-  'Gauteng', 'Western Cape', 'KwaZulu-Natal', 'Eastern Cape',
-  'Limpopo', 'Mpumalanga', 'North West', 'Northern Cape', 'Free State',
-];
-
 const MOCK_USERS = [
   { id:'1',  displayName:'Thabo Molefe',        email:'thabo.molefe@medbroker.co.za',      role:'Agent',      region:'Gauteng',          supervisor:'Supervisor One', portfolios:['Discovery'],                   products:[],                            isActive:true },
   { id:'2',  displayName:'Naledi van Wyk',       email:'naledi.vanwyk@medbroker.co.za',     role:'Agent',      region:'Western Cape',      supervisor:'Supervisor One', portfolios:['Discovery'],                   products:[],                            isActive:true },

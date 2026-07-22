@@ -33,12 +33,13 @@
  *   Broker (claim model): same as above + Available to Claim pool
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useRole, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext';
 import { useFlags }                           from '../context/FlagContext';
 import { useWindowSize }                      from '../hooks/useWindowSize';
-import { appointmentsApi }                    from '../services/api';
+import { useFetch }                           from '../hooks/useFetch.js';
+import { appointmentsApi, usersApi }          from '../services/api';
 import { s, APPT_STATUS_META }                from '../styles/tokens.js';
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
@@ -209,13 +210,13 @@ function PortfolioPill({ portfolio }) {
 // Production: calls PUT /api/appointments/:id/reassign → { brokerId }
 // The endpoint updates the broker, keeps the current status, and writes an audit
 // log entry. It does NOT accept an agentId — agent is immutable at the API level.
-function ReassignBrokerModal({ appointment, onClose }) {
-  const [broker, setBroker] = useState(appointment.brokerName ?? '');
+function ReassignBrokerModal({ appointment, brokers, onSaved, onClose }) {
+  const [broker, setBroker] = useState(appointment.brokerId ?? '');
   const [saving, setSaving] = useState(false);
   const [saved,  setSaved]  = useState(false);
   const [error,  setError]  = useState('');
 
-  const brokerChanged = broker !== appointment.brokerName;
+  const brokerChanged = broker !== (appointment.brokerId ?? '');
 
   async function handleSave() {
     if (!broker || !brokerChanged) return;
@@ -224,6 +225,7 @@ function ReassignBrokerModal({ appointment, onClose }) {
     try {
       await appointmentsApi.reassign(appointment.id, broker);
       setSaved(true);
+      await onSaved?.();
       setTimeout(onClose, 900);
     } catch (err) {
       setError(err?.message ?? 'Save failed. Please try again.');
@@ -302,11 +304,11 @@ function ReassignBrokerModal({ appointment, onClose }) {
             disabled={saved}
           >
             <option value="">Select broker…</option>
-            {BROKERS.map(b => (
-              <option key={b.id} value={b.name}>{b.name}</option>
+            {brokers.map((b) => (
+              <option key={b.id} value={b.id}>{b.displayName}</option>
             ))}
           </select>
-          {broker && broker === appointment.brokerName && (
+          {broker && broker === (appointment.brokerId ?? '') && (
             <p style={{ fontSize: '0.6875rem', color:'var(--mut)', marginTop: '4px' }}>
               Select a different broker to reassign.
             </p>
@@ -339,7 +341,7 @@ function ReassignBrokerModal({ appointment, onClose }) {
 // Destructive action — red confirm button, plain-language consequences.
 // Hidden when appointment is already ClosedWon (customerSigned = true).
 // Production: PUT /api/appointments/:id/return validates customerSigned IS NOT TRUE.
-function ReturnToLeadsModal({ appointment, onClose }) {
+function ReturnToLeadsModal({ appointment, onClose, onReturned }) {
   const [returning, setReturning] = useState(false);
   const [done,      setDone]      = useState(false);
   const [error,     setError]     = useState(null);
@@ -350,7 +352,7 @@ function ReturnToLeadsModal({ appointment, onClose }) {
     try {
       await appointmentsApi.returnToLeads(appointment.id);
       setDone(true);
-      setTimeout(onClose, 900);
+      setTimeout(onReturned, 900);
     } catch {
       setError('Could not return this appointment. Please try again.');
       setReturning(false);
@@ -372,7 +374,7 @@ function ReturnToLeadsModal({ appointment, onClose }) {
           This appointment will be returned to the unassigned leads queue.
         </p>
         <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '20px', lineHeight: 1.5 }}>
-          The appointment record will be archived. The lead will be available to assign to the next available agent.
+          This appointment record will be removed. The lead will be available to assign to the next available agent.
         </p>
         {error && (
           <div style={{ ...s.noticeWarn, marginBottom: '12px' }}>{error}</div>
@@ -414,6 +416,16 @@ export default function AppointmentDetail() {
   const canManage           = ['GlobalAdmin', 'Admin', 'Supervisor'].includes(role);
   const thirdMeetingEnabled = !!flag('appointments.thirdMeeting.enabled');
 
+  // Real data — GET /api/appointments/:id. Transformed into the same
+  // { meetings: [{number,date,status,notes,required}, ...] } shape the
+  // rest of this file already expects, so nothing below needs touching —
+  // only this mapping and the sync effect are new. Preview mode:
+  // apptData stays null forever, appt keeps its MOCK_APPOINTMENT seed
+  // exactly as before.
+  const { data: apptData, refetch: refetchAppt } = useFetch(() => appointmentsApi.get(id), [id]);
+  const { data: brokersData } = useFetch(() => usersApi.list({ role: 'Broker' }), []);
+  const realBrokers = brokersData?.users ?? [];
+
   // Initialise from mock data (production: fetch from GET /api/appointments/:id)
   const [appt,              setAppt]              = useState({ ...MOCK_APPOINTMENT, id: id ?? MOCK_APPOINTMENT.id });
   const [showReassign,      setShowReassign]      = useState(false);
@@ -424,6 +436,39 @@ export default function AppointmentDetail() {
   const [secondMeetingCreated, setSecondMeetingCreated] = useState(() => meetingHasData(appt.meetings[1]));
   const [thirdMeetingCreated,  setThirdMeetingCreated]  = useState(() => meetingHasData(appt.meetings[2]));
 
+  useEffect(() => {
+    if (!apptData) return;
+    setAppt({
+      id:             apptData.id,
+      leadId:         apptData.leadId,
+      leadName:       `${apptData.title ?? ''} ${apptData.firstName} ${apptData.lastName}`.trim(),
+      occupation:     apptData.occupation,
+      mobile:         apptData.leadMobile,
+      currentInsurer: apptData.currentInsurer,
+      portfolio:      apptData.portfolio,
+      source:         apptData.sourceLabel ?? '—',
+      productsInterested: apptData.productsInterestedIn ?? [],
+      status:         apptData.status,
+      firstDate:      apptData.firstAppointmentDate,
+      firstTime:      (apptData.firstAppointmentTime ?? '').slice(0, 5),
+      address:        apptData.firstAppointmentAddress,
+      brokerId:       apptData.brokerId,
+      brokerName:     apptData.brokerName,
+      agentId:        apptData.agentId,
+      agentName:      apptData.agentName,
+      brokerSwitch:   apptData.isBrokerSwitch ?? false,
+      customerSigned: apptData.customerSigned,
+      productsSold:   apptData.productsSold ?? [],
+      meetings: [1, 2, 3].map((n) => ({
+        number:   n,
+        date:     apptData[`meeting${n}Date`] ?? '',
+        status:   apptData[`meeting${n}Status`] ?? '',
+        notes:    apptData[`meeting${n}Feedback`] ?? '',
+        required: n < 3,
+      })),
+    });
+  }, [apptData]);
+
   // Derived
   const isClosed    = appt.status === 'ClosedWon' || appt.status === 'ClosedLost';
   const canReturn   = canManage && !isClosed && appt.customerSigned !== true;
@@ -431,7 +476,7 @@ export default function AppointmentDetail() {
   const firstMeetingComplete  = isMeetingComplete(appt.meetings[0]);
   const secondMeetingComplete = isMeetingComplete(appt.meetings[1]);
 
-  const productsForPortfolio = PRODUCTS_BY_PORTFOLIO[appt.portfolio] ?? [];
+  const productsForPortfolio = PRODUCTS_BY_PORTFOLIO[appt.portfolio === 'Discovery' ? 'disc' : 'mm'] ?? [];
 
   function handleMeetingChange(meetingNumber, field, value) {
     setAppt(prev => ({
@@ -634,6 +679,8 @@ export default function AppointmentDetail() {
       {showReassign && (
         <ReassignBrokerModal
           appointment={appt}
+          brokers={realBrokers}
+          onSaved={refetchAppt}
           onClose={() => setShowReassign(false)}
         />
       )}
@@ -643,6 +690,7 @@ export default function AppointmentDetail() {
         <ReturnToLeadsModal
           appointment={appt}
           onClose={() => setShowReturnConfirm(false)}
+          onReturned={() => navigate('/appointments')}
         />
       )}
     </div>

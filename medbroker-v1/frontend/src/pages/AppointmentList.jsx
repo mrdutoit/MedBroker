@@ -26,7 +26,8 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
-import { appointmentsApi } from '../services/api.js';
+import { appointmentsApi, usersApi } from '../services/api.js';
+import { useFetch } from '../hooks/useFetch.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s, APPT_STATUS_META, MEETING_STATUS_META, PORTFOLIO_META } from '../styles/tokens.js';
 
@@ -182,8 +183,8 @@ function BuyTokensModal({ onClose, paymentProvider }) {
 // Only the Broker field is editable.
 // isAssign=true  → Unassigned appointment → calls appointmentsApi.assignBroker()
 // isAssign=false → Already assigned → calls appointmentsApi.reassign()
-function AssignBrokerModal({ appointment, onClose, isAssign = false }) {
-  const [broker,  setBroker]  = useState(appointment.brokerName === '—' ? '' : appointment.brokerName);
+function AssignBrokerModal({ appointment, onClose, isAssign = false, brokers, onSaved }) {
+  const [broker,  setBroker]  = useState(appointment.brokerId ?? '');
   const [saving,  setSaving]  = useState(false);
   const [saved,   setSaved]   = useState(false);
   const [error,   setError]   = useState('');
@@ -196,11 +197,12 @@ function AssignBrokerModal({ appointment, onClose, isAssign = false }) {
       if (isAssign) {
         // agentId is NOT passed — the API derives it from the Appointment record.
         // Agent is set at booking time and never changed through this modal.
-        await appointmentsApi.assignBroker(appointment.id, broker, appointment.agentName);
+        await appointmentsApi.assignBroker(appointment.id, broker);
       } else {
-        await appointmentsApi.reassign(appointment.id, broker, appointment.agentName);
+        await appointmentsApi.reassign(appointment.id, broker);
       }
       setSaved(true);
+      await onSaved?.();
       setTimeout(onClose, 900);
     } catch (err) {
       setError(err.message ?? 'Save failed. Please try again.');
@@ -249,7 +251,7 @@ function AssignBrokerModal({ appointment, onClose, isAssign = false }) {
           )}
           <select style={s.formInput} value={broker} onChange={e => setBroker(e.target.value)}>
             <option value="">— Select broker —</option>
-            {BROKERS.map(b => <option key={b}>{b}</option>)}
+            {brokers.map(b => <option key={b.id} value={b.id}>{b.displayName}</option>)}
           </select>
         </div>
 
@@ -274,7 +276,7 @@ function AssignBrokerModal({ appointment, onClose, isAssign = false }) {
 // ─── Main component ────────────────────────────────────────────────────────────
 export default function AppointmentList() {
   const navigate = useNavigate();
-  const { role } = useRole();
+  const { role, persona } = useRole();
   const { flag, flags } = useFlags();
   const { isMobile } = useWindowSize();
 
@@ -311,8 +313,52 @@ export default function AppointmentList() {
   const [isAssignMode,   setIsAssignMode]   = useState(false);
   const [showBuyTokens,  setShowBuyTokens]  = useState(false);
 
-  const filtered = ALL_APPOINTMENTS.filter(a => {
-    if (isBroker && a.brokerCode !== 'SB') return false;
+  // Real data — assign model only (claim-mode's AVAILABLE_TO_CLAIM stays
+  // mock; wiring that is a separate, larger piece of work, see
+  // models/appointment.js header). Row-level scoping (own bookings for
+  // Agent, own assignments for Broker, direct reports for Supervisor) is
+  // already applied server-side — nothing extra needed client-side for that.
+  const { data: apptData, loading: apptLoading, refetch: refetchAppts } = useFetch(
+    () => appointmentsApi.list({}), []
+  );
+  const { data: brokersData } = useFetch(() => usersApi.list({ role: 'Broker' }), []);
+  const realBrokers = brokersData?.users ?? [];
+
+  const today = new Date().toDateString();
+  const realAppointments = (apptData?.appointments ?? []).map(a => ({
+    id:          a.id,
+    leadName:    `${a.title ?? ''} ${a.firstName} ${a.lastName}`.trim(),
+    leadEmail:   a.leadEmail,
+    occupation:  a.occupation,
+    portfolio:   a.portfolio === 'Money and Medicine' ? 'M&M' : a.portfolio,
+    source:      a.sourceLabel ?? '—',
+    status:      a.status,
+    brokerCode:  a.brokerId ?? '',   // repurposed to hold the real id — see note below
+    brokerName:  a.brokerName ?? '—',
+    agentName:   a.agentName ?? '—',
+    firstDate:   a.firstAppointmentDate
+                   ? `${new Date(a.firstAppointmentDate).toDateString() === today ? 'Today' : new Date(a.firstAppointmentDate).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })} · ${(a.firstAppointmentTime ?? '').slice(0, 5)}`
+                   : '—',
+    isToday:     a.firstAppointmentDate ? new Date(a.firstAppointmentDate).toDateString() === today : false,
+    m1:          a.meeting1Status || null,
+    m2:          a.meeting2Status || null,
+    signed:      a.customerSigned === true ? 'Yes' : a.customerSigned === false ? 'No' : null,
+    brokerId:    a.brokerId ?? null, // real id, used directly by the Assign/Reassign modal
+    agentId:     a.agentId,
+  }));
+
+  // Preview mode: apptData stays null forever (api.js PREVIEW_MODE), so this
+  // falls through to the existing mock arrays exactly as before — same
+  // fallback pattern as every other wired page.
+  const sourceData = apptData?.appointments ? realAppointments : ALL_APPOINTMENTS;
+  const brokerOptions = realBrokers.length > 0
+    ? realBrokers.map(b => ({ id: b.id, displayName: b.displayName }))
+    : BROKERS.map(name => ({ id: name, displayName: name })); // preview fallback, matches mock's name-as-identifier
+
+  const filtered = sourceData.filter(a => {
+    // brokerCode holds the real brokerId in the real-data path (see mapping
+    // above) — compare against the current user's own id, not a mock code.
+    if (isBroker && a.brokerCode !== persona.id) return false;
     // Status chips — 'Today' is date-derived, others are status values
     if (statusFilter === 'Today'      && !a.isToday)                              return false;
     if (statusFilter !== 'All' && statusFilter !== 'Today'
@@ -327,7 +373,7 @@ export default function AppointmentList() {
     return true;
   });
 
-  const myAppts     = isBroker ? MY_APPOINTMENTS : ALL_APPOINTMENTS;
+  const myAppts     = isBroker ? sourceData.filter(a => a.brokerCode === persona.id) : sourceData;
   const unassigned  = myAppts.filter(a => a.status === 'Unassigned').length;
   const assigned    = myAppts.filter(a => a.status === 'Assigned').length;
   const inProgress  = myAppts.filter(a => a.status === 'InProgress').length;
@@ -476,7 +522,7 @@ export default function AppointmentList() {
             value={search} onChange={e => setSearch(e.target.value)} style={s.searchInput} />
           <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} style={s.select}>
             <option value="">All sources</option>
-            {SOURCES.map(src => <option key={src} value={src}>{src}</option>)}
+            {[...new Set(sourceData.map(a => a.source))].sort().map(src => <option key={src} value={src}>{src}</option>)}
           </select>
           <select value={portfolioFilter} onChange={e => setPortfolioFilter(e.target.value)} style={s.select}>
             <option value="">All portfolios</option>
@@ -485,10 +531,7 @@ export default function AppointmentList() {
           {(isAdmin || isSupervisor) && (
             <select value={brokerFilter} onChange={e => setBrokerFilter(e.target.value)} style={s.select}>
               <option value="">All brokers</option>
-              <option value="SB">Sandra van der Berg</option>
-              <option value="PJ">Pieter Joubert</option>
-              <option value="RB">Riaan Botha</option>
-              <option value="MS">Marelize Swart</option>
+              {brokerOptions.map(b => <option key={b.id} value={b.id}>{b.displayName}</option>)}
             </select>
           )}
           {hasFilter && (
@@ -742,6 +785,8 @@ export default function AppointmentList() {
         <AssignBrokerModal
           appointment={assignTarget}
           isAssign={isAssignMode}
+          brokers={brokerOptions}
+          onSaved={refetchAppts}
           onClose={() => { setAssignTarget(null); setIsAssignMode(false); }}
         />
       )}
