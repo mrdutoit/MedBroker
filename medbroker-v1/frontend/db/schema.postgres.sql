@@ -277,8 +277,10 @@ CREATE TABLE IF NOT EXISTS Lead (
     id                      UUID            NOT NULL DEFAULT gen_random_uuid(),
     organisationId          UUID            NOT NULL DEFAULT 'D0000000-0000-0000-0000-000000000001',
 
+    title                   VARCHAR(10)     NULL,
     firstName               VARCHAR(100)    NOT NULL,
     lastName                VARCHAR(100)    NOT NULL,
+    dateOfBirth             DATE            NULL,
     idNumberEncrypted       TEXT            NULL,
     idNumberHash            VARCHAR(64)     NULL,
     email                   VARCHAR(255)    NOT NULL,
@@ -321,6 +323,7 @@ CREATE TABLE IF NOT EXISTS Lead (
     CONSTRAINT CK_Lead_Status       CHECK (pipelineStatus IN (
         'Unassigned', 'Assigned', 'InProgress', 'AppointmentScheduled', 'Closed'
     )),
+    CONSTRAINT CK_Lead_Title        CHECK (title IS NULL OR title IN ('Dr', 'Mr', 'Mrs', 'Ms')),
     CONSTRAINT CK_Lead_Year         CHECK (
         yearOfAttendance IS NULL
         OR (yearOfAttendance >= 1960 AND yearOfAttendance <= 2100)
