@@ -30,7 +30,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch.js';
-import { leadsApi, appointmentsApi, brokerMatchingApi, ApiError } from '../services/api.js';
+import { leadsApi, appointmentsApi, brokerMatchingApi, apiMode, ApiError } from '../services/api.js';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useRole, PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
@@ -161,7 +161,7 @@ export default function LeadDetail() {
   const navigate = useNavigate();
   const { isMobile } = useWindowSize();
 
-  const { data: lead } = useFetch(() => leadsApi.get(id), [id]);
+  const { data: lead, loading: leadLoading } = useFetch(() => leadsApi.get(id), [id]);
   const baseLead = lead ?? MOCK_LEAD;
 
   // Real call history — GET /api/leads/:id/calls, added alongside this
@@ -256,6 +256,21 @@ export default function LeadDetail() {
   const inputStyle = { width: '100%', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box' };
   const labelStyle = { display: 'block', fontSize: '0.8125rem', fontWeight: 500, color:'var(--ink)', marginBottom: '5px' };
   const badge = (bg, text) => ({ display: 'inline-block', padding: '2px 9px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 500, background: bg, color: text });
+
+  // DEMO_MODE, still loading: show a simple loading state rather than the
+  // MOCK_LEAD-seeded page — otherwise every real lead detail page would
+  // briefly show a fake person's name and details before the real fetch
+  // resolves, exactly the "flash of demo data" bug already fixed on the
+  // list pages. PREVIEW_MODE is unaffected — lead there is never fetched
+  // at all, so leadLoading resolves to false immediately and this never
+  // triggers.
+  if (apiMode.DEMO_MODE && leadLoading) {
+    return (
+      <div style={{ padding: isMobile ? '16px' : '24px' }}>
+        <p style={{ color: 'var(--mut)', fontSize: '0.875rem' }}>Loading…</p>
+      </div>
+    );
+  }
 
   return (
     <div style={{ padding: isMobile ? '16px' : '24px' }}>

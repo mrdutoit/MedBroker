@@ -64,8 +64,8 @@ const MOCK_LEADS = {
 // In preview mode both calls return null (PREVIEW_MODE=true in api.js) so
 // the modal just shows success feedback. In production these hit distinct
 // endpoints with different server-side behaviour and audit log entries.
-function ReassignLeadModal({ lead, onClose, isAssign = false }) {
-  const currentAgent = lead.agentName && lead.agentName !== '—' ? lead.agentName : '';
+function ReassignLeadModal({ lead, agents, onClose, onSaved, isAssign = false }) {
+  const currentAgent = lead.assignedAgentId ?? '';
   const [agent, setAgent] = useState(currentAgent);
   const [saving, setSaving] = useState(false);
   const [saved,  setSaved]  = useState(false);
@@ -76,13 +76,13 @@ function ReassignLeadModal({ lead, onClose, isAssign = false }) {
     setSaving(true);
     setError('');
     try {
-      // In preview mode these return null silently — no error thrown
       if (isAssign) {
         await leadsApi.assign(lead.id, agent);
       } else {
         await leadsApi.reassign(lead.id, agent);
       }
       setSaved(true);
+      await onSaved?.();
       setTimeout(onClose, 900);
     } catch (err) {
       setError(err.message ?? 'Save failed. Please try again.');
@@ -102,16 +102,14 @@ function ReassignLeadModal({ lead, onClose, isAssign = false }) {
           {lead.firstName} {lead.lastName}
           {isAssign
             ? ' · This lead is currently unassigned'
-            : currentAgent
-              ? <> · Currently assigned to <strong>{currentAgent}</strong></>
+            : lead.agentName && lead.agentName !== '—'
+              ? <> · Currently assigned to <strong>{lead.agentName}</strong></>
               : ' · Currently unassigned'
           }
         </p>
         {saved && (
           <div style={{ ...s.noticeSuccess, marginBottom: '12px' }}>
             ✓ Lead {isAssign ? 'assigned' : 'reassigned'} successfully.
-            {/* Note: the row status in the list will update on next page refresh.
-                In production this is handled by refetch() after modal close. */}
           </div>
         )}
         {error && <div style={{ ...s.errorBox, marginBottom: '12px' }}>{error}</div>}
@@ -119,7 +117,7 @@ function ReassignLeadModal({ lead, onClose, isAssign = false }) {
           <label style={s.formLabel}>Assign to agent *</label>
           <select style={s.formInput} value={agent} onChange={e => setAgent(e.target.value)}>
             <option value="">— Select agent —</option>
-            {AGENTS.map(a => <option key={a} value={a}>{a}</option>)}
+            {agents.map(a => <option key={a.id} value={a.id}>{a.displayName}</option>)}
           </select>
         </div>
         <div style={s.modalFooter}>
@@ -220,8 +218,8 @@ export default function LeadList() {
   const sourceOptions = sourcesData?.sources ?? LEAD_SOURCES;
 
   const { data: agentsData } = useFetch(
-    () => isAdmin ? usersApi.list() : Promise.resolve(null),
-    [isAdmin]
+    () => (isAdmin || isSupervisor) ? usersApi.list() : Promise.resolve(null),
+    [isAdmin, isSupervisor]
   );
   const agents = agentsData
     ? (agentsData.users ?? agentsData).filter(u => u.role === 'Agent')
@@ -309,9 +307,9 @@ export default function LeadList() {
         {isAdmin && (
           <select value={agentFilter} onChange={e => setAgentFilter(e.target.value)} style={s.select}>
             <option value="">All agents</option>
-            {agents.length > 0
-              ? agents.map(a => <option key={a.id} value={a.id}>{a.displayName}</option>)
-              : AGENTS.map(a => <option key={a} value={a}>{a}</option>)
+            {apiMode.PREVIEW_MODE
+              ? AGENTS.map(a => <option key={a} value={a}>{a}</option>)
+              : agents.map(a => <option key={a.id} value={a.id}>{a.displayName}</option>)
             }
           </select>
         )}
@@ -430,7 +428,9 @@ export default function LeadList() {
       {reassignTarget && (
         <ReassignLeadModal
           lead={reassignTarget}
+          agents={agents}
           isAssign={isAssignMode}
+          onSaved={refetch}
           onClose={() => { setReassignTarget(null); setIsAssignMode(false); }}
         />
       )}
