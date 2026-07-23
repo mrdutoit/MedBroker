@@ -3,17 +3,13 @@
  * Feature flag context. Fetches the flag set from the API on mount and
  * provides a flag() helper to all pages.
  *
- * In preview mode (no API) the DEFAULT_FLAGS object is used directly.
- * When the API is connected, flags are fetched from GET /api/flags via
- * flagsApi (services/api.js) — this used to be a raw `fetch('/api/flags')`
- * that bypassed api.js entirely, which meant it never actually reached the
- * demo backend in demo mode (it hit the frontend's own origin, not
- * VITE_API_BASE_URL) — same class of bug as the earlier CORS issue.
- * Routing through flagsApi fixes that and means demo-mode calls carry the
- * right base URL automatically. flagsApi.list() already returns null in
- * preview mode (api.js's PREVIEW_MODE short-circuit), so the existing
- * DEFAULT_FLAGS fallback below needed no change in behaviour, just a
- * different call underneath it.
+ * DEFAULT_FLAGS is the initial state before the real fetch resolves, and
+ * the fallback if the real flags API is unreachable or errors — not a
+ * preview/mock mode (that concept was removed 22 July 2026, see
+ * VERCEL_NOTES.md). Keeping a sensible default here is still good
+ * practice on its own merits: flags gate UI behaviour throughout the
+ * app, so a transient API failure shouldn't leave every page with no
+ * flag values at all.
  *
  * Usage:
  *   const { flag, flags, loading } = useFlags();
@@ -25,7 +21,7 @@
 import { createContext, useContext, useState, useEffect } from 'react';
 import { flagsApi } from '../services/api.js';
 
-// ─── Default flag values (preview mode / API fallback) ────────────────────────
+// ─── Default flag values (initial state / API-failure fallback) ───────────────
 // These must match the seed values in feature-flags.sql.
 export const DEFAULT_FLAGS = {
   'auth.sso.enabled':                      false,
@@ -58,9 +54,8 @@ export function FlagProvider({ children }) {
     async function loadFlags() {
       setLoading(true);
       try {
-        // Returns null in preview mode (api.js PREVIEW_MODE short-circuit) —
-        // falls through to the catch-less null check below, same fallback
-        // behaviour as before.
+        // A failed/unreachable API falls through to the catch below and
+        // keeps the DEFAULT_FLAGS the state was initialised with.
         const data = await flagsApi.list();
         if (!cancelled && data?.flags) {
           setFlags({ ...DEFAULT_FLAGS, ...data.flags });
