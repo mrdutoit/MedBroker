@@ -1099,3 +1099,90 @@ no mock name ever appears; real data renders once ready.
 Files changed: `src/pages/LeadList.jsx` (ReassignLeadModal wiring,
 agent filter dropdown, agents fetch scope), `src/pages/LeadDetail.jsx`
 (loading gate).
+
+---
+
+## 23. Preview mode removed from the 4 wired domains (22 July 2026)
+
+Mark confirmed the app always runs against a real backend now, so the
+original preview/mock mode — a leftover from before any backend
+existed, letting every page render from inline fake data with zero
+setup — was removed from Leads, Users, Flags, and Appointments (the 4
+domains with a real backend already built). Going forward, new pages
+get built without this pattern from the start rather than added and
+cleaned up later.
+
+**api.js**: `PREVIEW_MODE` removed entirely, including the `if
+(PREVIEW_MODE) return null` early-return in `request()` that used to
+make every call silently resolve to nothing. `DEMO_MODE`/`ENTRA_MODE`
+simplified from three possible states to two, mutually exclusive and
+exhaustive (`ENTRA_MODE` if Entra is configured, `DEMO_MODE` otherwise)
+— there's no longer a possible "neither" state to account for.
+
+**FlagContext.jsx / FeatureFlags.jsx**: comment-only changes.
+`DEFAULT_FLAGS` was never purely a preview-mode fallback — it's also a
+legitimate resilience fallback for when the real flags API is
+unreachable, which is good practice on its own merits regardless of
+preview mode's existence. Left the actual mechanism untouched; only
+cleaned up wording that referenced a concept that no longer exists.
+`FeatureFlags.jsx`'s `apiMode.DEMO_MODE` check in `handleSaveFlag`
+turned out not to be about preview mode at all — it's the separate
+Demo-vs-Entra-production distinction, correctly out of scope here.
+
+**LeadList.jsx**: `MOCK_LEADS`, `AGENTS`, `LEAD_SOURCES` removed. Every
+fallback (`data`, the agent filter dropdown, `sourceOptions`) simplified
+to real-data-only.
+
+**LeadDetail.jsx**: `MOCK_LEAD`, `MOCK_CALLS` removed. `baseLead`
+simplified now that the loading gate (already added in the previous
+session) fully protects against ever rendering with incomplete data.
+Found and fixed a real, separate bug while in here, unrelated to mock
+data removal directly but found via the same investigation: the
+call-logging error handler had a bare `catch {}` that silently applied
+the same optimistic "call logged successfully" update regardless of
+whether the real save actually succeeded — meaning a genuine backend
+failure (validation, auth, network) would show as a success with no
+indication anything was wrong. Now shows the real error via the
+already-existing `submitError` display instead of masking it.
+
+**UserAdmin.jsx**: `MOCK_USERS`, `MOCK_SUPERVISORS` removed.
+`allUsers`/`supervisors` simplified to real-data-only.
+
+**AppointmentList.jsx**: `SOURCES` (confirmed dead code — no longer
+referenced anywhere) and `BROKERS` (only used by the now-removed
+preview fallback) removed. `ALL_APPOINTMENTS`, `AVAILABLE_TO_CLAIM`, and
+`MY_APPOINTMENTS` were NOT removed — these are still genuinely needed
+for the claim-model tabs, a separate, deliberately-still-mocked feature
+(real token/payment economy, out of scope, documented since the
+Appointments build). Re-commented to make that narrower, ongoing purpose
+explicit rather than leave them looking like leftover preview-mode
+debris. `sourceData`/`brokerOptions` (the assign-model's own data)
+simplified to real-data-only.
+
+**AppointmentDetail.jsx**: `MOCK_APPOINTMENT` removed, along with a
+`BROKERS` constant confirmed dead since an earlier session's fix. This
+page had never gotten the loading-gate treatment the previous session
+gave LeadDetail.jsx — it would have flashed fake appointment data on
+every load exactly the same way, just not yet caught. Fixed the same
+way: real neutral placeholder shape (same fields, empty values, no fake
+names) for the brief window before data loads, with a loading gate that
+means that placeholder is never actually shown.
+
+VERIFIED against real Postgres and a real browser: created a real
+broker, agent, lead, and appointment, then visited all 6 affected pages
+(Leads, Lead Detail, User Admin, Feature Flags, Appointments, Appointment
+Detail) checking for the presence of any of the 13 known mock/demo names
+used throughout the app's history — none appeared on any page. Confirmed
+real data displays correctly on every page it should.
+
+Files changed: `src/services/api.js`, `src/context/FlagContext.jsx`,
+`src/pages/FeatureFlags.jsx`, `src/pages/LeadList.jsx`,
+`src/pages/LeadDetail.jsx`, `src/pages/UserAdmin.jsx`,
+`src/pages/AppointmentList.jsx`, `src/pages/AppointmentDetail.jsx`.
+
+NOT touched, deliberately out of scope: Events, Notifications, Tasks,
+App Admin's audit log and subscriptions list, and LeadImport.jsx's
+Medical Subscription tab — these have no real backend at all yet, so
+their mock data isn't "preview mode", it's simply unbuilt functionality.
+Removing it without building the real thing first would break those
+pages entirely. Flagged for whenever each is actually built.
