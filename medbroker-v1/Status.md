@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 23 July 2026 (session 2, revised)
+Last updated: 23 July 2026 (session 3)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -896,15 +896,19 @@ These decisions caused rework when changed — preserve them in every session:
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Mark needs to apply §36 (Return to Leads now preserves the
-Appointment as locked history instead of deleting it — see §36). Checked
-against a fresh GitHub hydration before finalising this delivery: §34 and
-§35 are ALREADY on GitHub (Mark applied them between deliveries) — only
-§36's actual diff is included this time: appointmentService.js,
-AppointmentDetail.jsx, AppointmentList.jsx, tokens.js, schema.postgres.sql,
-and the new migration. Don't apply a cumulative bundle; the earlier
-assumption in this block (written before re-checking GitHub) that nothing
-had landed yet was wrong — corrected here rather than left in place.
+Priority: Mark needs to apply §37 (Lead Detail page silently rendering
+blank on a fetch error — the real bug behind "Lead Detail isn't showing
+data" — plus a missing Agent-name JOIN, and click-anywhere-on-the-row
+navigation for Leads/Appointments — see §37). Confirmed via a genuinely
+fresh GitHub diff before packaging this: §34, §35, AND §36 are all already
+on GitHub. §37's actual delta is small: leadService.js, LeadDetail.jsx,
+LeadList.jsx, AppointmentList.jsx. IMPORTANT — §37 strongly suspects the
+root cause of the blank-page bug was an unmigrated database (portfolioId
+column missing, breaking getLeadById()'s query outright) — see §37's
+notes and MIGRATIONS PENDING below. Mark needs to actually confirm
+migrations 002 through 006 are run against the live Neon database; this
+has been carried forward unconfirmed for multiple sessions now and may be
+the actual root cause of user-facing bugs, not just a housekeeping item.
 
 THEN: Reports (backend + wiring) — still the only remaining page on mock
 data, deferred again this session. IMPORTANT, per Mark's explicit
@@ -929,8 +933,10 @@ copy) — confirm that's been corrected; if this document is showing 18 June
 again when you read this, the same thing happened twice and is worth
 investigating properly rather than just re-pushing again.
 
-MIGRATIONS PENDING ON MARK'S LIVE NEON DATABASE (check all are actually
-run before assuming anything Lead/Appointment-related works there):
+MIGRATIONS PENDING ON MARK'S LIVE NEON DATABASE — ⚠ NOW SUSPECTED AS THE
+ROOT CAUSE OF A REAL BUG (§37: Lead Detail rendering blank), not just
+housekeeping. Check all are actually run before assuming anything Lead/
+Appointment-related works there:
 db/migrations/002_add_lead_title_dob.sql and 003_add_calendly_uri.sql
 (status unconfirmed — see §34's note that no db/migrations/ directory
 existed in the repo at all before this session, so these may never have
@@ -938,6 +944,9 @@ been committed even if they were run by hand), plus two new ones from
 §35: 004_add_lead_portfolio.sql and 005_drop_appointment_lead_unique.sql,
 plus one new one from §36: 006_add_appointment_returned_status.sql.
 schema.postgres.sql alone does not reach an already-existing database.
+If 004 specifically hasn't run, Lead.portfolioId doesn't exist yet on the
+live table, and leadService.getLeadById()'s query referencing it would
+fail outright — see §37 for the full chain from there to a blank page.
 
 Before starting Appointments (now done — keeping this for the next
 similar build): read Status.md §25 in full — four real bugs were found
@@ -2470,6 +2479,84 @@ so this is just §36's own diff, not a cumulative bundle:
   src/styles/tokens.js
   db/schema.postgres.sql
   db/migrations/006_add_appointment_returned_status.sql (NEW)
+Plus this Status.md / Project_Context.md.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+37. LEAD DETAIL BLANK-PAGE BUG DIAGNOSED, AGENT NAME FIX, ROW-CLICK NAV — 23 July 2026 (session 3)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark tested §36 and reported (with a screenshot) that a Lead Detail page
+was showing every field blank — Status/Portfolio/Contact/Education/
+Insurance/Call History/Audit Log all empty. Plus a UX request: clicking
+anywhere on a row in Leads/Appointments should navigate to detail, not
+just the View button.
+
+THE BLANK-PAGE BUG — root cause chain, traced through the actual code
+rather than guessed at:
+  1. LeadDetail.jsx's useFetch call for the lead itself destructured
+     `{ data, loading, refetch }` — NOT `error`. It never existed in this
+     destructuring; not a regression from a recent session.
+  2. So when GET /api/leads/:id fails for any reason, useFetch correctly
+     sets its internal error state (confirmed in hooks/useFetch.js — it
+     does track this properly), but LeadDetail.jsx had nowhere to read it.
+  3. The page fell straight through to rendering the full layout against
+     baseLead = lead ?? {} — every field '—', EXCEPT Status, which showed
+     a plausible-looking "Unassigned". That's not a real value — it's
+     currentStatus's own `?? 'Unassigned'` fallback, which fires
+     regardless of whether the fetch actually succeeded. This is what
+     made a completely broken page look like a real (if sparse) lead
+     instead of an obvious error.
+  FIXED: LeadDetail.jsx now captures leadError from useFetch and renders
+  an explicit error card (message + Try again) instead of silently
+  falling through. Also added a `!lead` guard (genuinely not found, as
+  opposed to a fetch error) with its own message, previously also
+  unhandled — the code had assumed a successful fetch always returns a
+  lead.
+
+  WHAT ACTUALLY TRIGGERED THE 500 in Mark's case: not confirmed with
+  certainty (no direct access to his live Neon database from here), but
+  the leading suspect by far is migration 004_add_lead_portfolio.sql not
+  having been run — getLeadById()'s query references l.portfolioId
+  directly (added in §35), which would make the query fail outright on a
+  database that doesn't have that column yet. This has been an open,
+  unconfirmed item across §34, §35, and §36 without ever getting a
+  definitive answer — see the escalated MIGRATIONS PENDING note above.
+  Worth Mark actually confirming this one way or the other, since it may
+  be the source of other not-yet-reported issues too, not just this page.
+
+SEPARATE BUG FOUND WHILE IN THERE: getLeadById() never joined "User" for
+the assigned agent's display name at all — listLeads() already did
+(LEFT JOIN "User" a ON ...), but the single-lead query never had this,
+seemingly since the page was first built. The "Agent" field on Lead
+Detail has likely never shown a name for any lead, assigned or not,
+independent of the blank-page bug above. Fixed — same JOIN pattern as
+listLeads(), aliased consistently.
+
+ROW-CLICK NAVIGATION (Mark's UX request): LeadList.jsx and the main
+AppointmentsTable in AppointmentList.jsx — the whole row now navigates to
+detail on click, not just the View button. The actions cell (View/Assign/
+Reassign buttons) calls stopPropagation so those buttons keep their own
+distinct behaviour instead of also firing row navigation — matters most
+for Assign/Reassign, which open a modal rather than navigate; without
+stopPropagation, clicking them would have both opened the modal AND
+navigated away. NOT applied to AppointmentList.jsx's second table (the
+"Available to Claim" list under the claim-model tab) — that's still
+mock-data-driven preview content for the deferred claim model/token
+economy (see §28), has no View button to mirror, and clicking a row
+there doesn't have an obvious single destination the way it does for a
+real, booked appointment.
+
+BUILD VERIFICATION: full Vite build clean, Vitest suite unchanged and
+passing (45 tests) — nothing here touched status-transition logic.
+
+MIGRATION — straightforward overwrite, small delta (confirmed via a
+genuinely fresh GitHub diff — §34 through §36 are all already applied
+there):
+  api-lib/services/leadService.js
+  src/pages/LeadDetail.jsx
+  src/pages/LeadList.jsx
+  src/pages/AppointmentList.jsx
 Plus this Status.md / Project_Context.md.
 
 

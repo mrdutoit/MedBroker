@@ -324,7 +324,8 @@ export default function LeadList() {
                 {data.leads.map(lead => {
                   const sm = STATUS_META[lead.pipelineStatus] ?? STATUS_META.Unassigned;
                   return (
-                    <tr key={lead.id} style={s.tr}
+                    <tr key={lead.id} style={{ ...s.tr, cursor: 'pointer' }}
+                      onClick={() => navigate(`/leads/${lead.id}`)}
                       onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
                       onMouseLeave={e => e.currentTarget.style.background = ''}>
                       <td style={s.td}>
@@ -346,7 +347,13 @@ export default function LeadList() {
                       <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.75rem' }}>
                         {lead.createdAt ? formatDistanceToNow(new Date(lead.createdAt), { addSuffix: true }) : '—'}
                       </td>
-                      <td style={{ ...s.td, whiteSpace: 'nowrap' }}>
+                      {/* stopPropagation — this cell has its own buttons (View,
+                          Assign/Reassign); without this, clicking any of them
+                          would also fire the row's own onClick above. View
+                          navigates to the same place anyway, but Assign/
+                          Reassign opening a modal while also navigating away
+                          would be a real bug, not just a redundant no-op. */}
+                      <td style={{ ...s.td, whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
                         <button onClick={() => navigate(`/leads/${lead.id}`)} style={s.linkBtn}>
                           View →
                         </button>

@@ -181,7 +181,7 @@ export default function LeadDetail() {
   const { isMobile } = useWindowSize();
   const { role, persona } = useRole();
 
-  const { data: lead, loading: leadLoading, refetch: refetchLead } = useFetch(() => leadsApi.get(id), [id]);
+  const { data: lead, loading: leadLoading, error: leadError, refetch: refetchLead } = useFetch(() => leadsApi.get(id), [id]);
   const baseLead = lead ?? {};
 
   // Real call history — GET /api/leads/:id/calls, added alongside an
@@ -364,6 +364,36 @@ export default function LeadDetail() {
     return (
       <div style={{ padding: isMobile ? '16px' : '24px' }}>
         <p style={{ color: 'var(--mut)', fontSize: '0.875rem' }}>Loading…</p>
+      </div>
+    );
+  }
+
+  // Fetch failed outright — added 23 Jul 2026. Previously there was no
+  // check for this at all: leadError was never even destructured, so a
+  // failed fetch fell straight through to rendering the full page against
+  // baseLead = {} — every field showing '—', with the one exception of
+  // Status, which defaults to 'Unassigned' via its own `?? 'Unassigned'`
+  // fallback in currentStatus below, making a totally broken page look
+  // almost like a real (if empty) lead. Reported as "Lead Detail page
+  // isn't showing data" — this is what that actually was.
+  if (leadError) {
+    return (
+      <div style={{ padding: isMobile ? '16px' : '24px' }}>
+        <button onClick={() => navigate('/leads')} style={btn.back}>← Back to Leads</button>
+        <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '14px 16px', marginTop: '12px', color: '#dc2626', fontSize: '0.875rem' }}>
+          <strong>Could not load this lead.</strong>
+          <p style={{ margin: '6px 0 10px' }}>{leadError instanceof ApiError ? leadError.message : 'An unexpected error occurred.'}</p>
+          <button onClick={refetchLead} style={{ ...btn.secondary, background: 'white' }}>Try again</button>
+        </div>
+      </div>
+    );
+  }
+
+  if (!lead) {
+    return (
+      <div style={{ padding: isMobile ? '16px' : '24px' }}>
+        <button onClick={() => navigate('/leads')} style={btn.back}>← Back to Leads</button>
+        <p style={{ color: 'var(--mut)', fontSize: '0.875rem', marginTop: '12px' }}>Lead not found.</p>
       </div>
     );
   }

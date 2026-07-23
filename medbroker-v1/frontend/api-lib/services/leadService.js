@@ -177,10 +177,16 @@ export async function getLeadById(id) {
        l.medicalAidProvider AS "medicalAidProvider",
        ${SOURCE_LABEL_SELECT} AS "sourceLabel",
        l.linkedEventId AS "linkedEventId", l.pipelineStatus AS "pipelineStatus",
-       l.assignedAgentId AS "assignedAgentId", l.createdAt AS "createdAt", l.updatedAt AS "updatedAt",
+       l.assignedAgentId AS "assignedAgentId", a.displayName AS "agentName",
+       l.createdAt AS "createdAt", l.updatedAt AS "updatedAt",
        ap.id AS "appointmentId", ap.status AS "appointmentStatus", pf.name AS "portfolio"
      FROM Lead l
      ${SOURCE_JOINS}
+     -- Added 23 Jul 2026 — missing entirely before. listLeads() already
+     -- joined "User" for agentName on the list view; this detail query
+     -- never did, so the Agent field on LeadDetail.jsx showed '—' for
+     -- every lead, assigned or not, since this page was first built.
+     LEFT JOIN "User" a ON l.assignedAgentId = a.id
      -- A Lead can now have several Appointments over its lifetime (see
      -- migration 005 — the old UNIQUE leadId constraint is gone). "The"
      -- appointment shown on Lead Detail / linked via View in Appointments

@@ -447,7 +447,8 @@ export default function AppointmentList() {
               const sm = APPT_STATUS_META[a.status] ?? APPT_STATUS_META.Unassigned;
               const isUnassigned = a.status === 'Unassigned';
               return (
-                <tr key={a.id} style={s.tr}
+                <tr key={a.id} style={{ ...s.tr, cursor: 'pointer' }}
+                  onClick={() => navigate(`/appointments/${a.id}`)}
                   onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
                   onMouseLeave={e => e.currentTarget.style.background = ''}>
                   <td style={s.td}>

@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Context
 ====================================================
-Last updated: 23 July 2026 (session 2, revised)
+Last updated: 23 July 2026 (session 3)
 Purpose: Continuity file — load in a new chat to restore full project context.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -268,6 +268,27 @@ LEAD → APPOINTMENT CONVERSION (Salesforce Lead→Opportunity pattern):
     fell through, keep the record, try again" (Lead goes to InProgress, same
     agent). Two different tools, deliberately not merged into one.
   - Auto-return: Azure Function (autoReturnLeads.js) runs daily at 05:00 UTC
+
+GET LEAD BY ID — fields worth knowing about (leadService.getLeadById(),
+last touched §37): joins "User" for agentName (added §37 — missing
+entirely before, unlike listLeads() which always had it), LEFT JOIN
+LATERAL for the most recent Appointment (appointmentId/appointmentStatus,
+§35 — see LEAD ↔ APPOINTMENT CARDINALITY above), LEFT JOIN Portfolio for
+portfolio (§35). Any page rendering a single Lead should read from this
+function, not assume listLeads()'s field set matches — they've drifted
+before (agentName) and could again.
+
+FETCH ERROR HANDLING PATTERN (established via a real bug, §37): every
+page using useFetch() for its primary data should destructure and handle
+`error`, not just `data`/`loading` — LeadDetail.jsx didn't for its main
+lead fetch, so a failing request rendered a silently blank page instead
+of any indication something had gone wrong. currentStatus-style `?? 'Unassigned'`
+fallbacks compound this failure mode: they exist for a reasonable reason
+(a sensible default while state is genuinely loading) but can make a
+totally broken page look like a real, if sparse, record if nothing is
+checking whether the fetch actually succeeded first. When adding a new
+page or a new primary fetch, check for this deliberately rather than
+assuming the loading-only pattern used elsewhere is sufficient.
 
 LEAD EDITING (added 23 Jul 2026, see §34):
   PUT /api/leads/:id — leadService.updateLead(), validated by
