@@ -455,7 +455,7 @@ CREATE TABLE IF NOT EXISTS Appointment (
     CONSTRAINT FK_Appointment_Broker    FOREIGN KEY (brokerId)          REFERENCES "User"(id),
     CONSTRAINT FK_Appointment_ClaimedBy FOREIGN KEY (claimedByBrokerId) REFERENCES "User"(id),
     CONSTRAINT FK_Appointment_Portfolio FOREIGN KEY (portfolioId)       REFERENCES Portfolio(id),
-    CONSTRAINT CK_Appointment_Status    CHECK (status IN ('Unassigned', 'Assigned', 'InProgress', 'ClosedWon', 'ClosedLost', 'Claimed')),
+    CONSTRAINT CK_Appointment_Status    CHECK (status IN ('Unassigned', 'Assigned', 'InProgress', 'ClosedWon', 'ClosedLost', 'Claimed', 'ReturnedToLeads')),
     CONSTRAINT CK_Appointment_M1Status  CHECK (meeting1Status IS NULL OR meeting1Status IN ('Seen', 'Rescheduled', 'Cancelled')),
     CONSTRAINT CK_Appointment_M2Status  CHECK (meeting2Status IS NULL OR meeting2Status IN ('Seen', 'Rescheduled', 'Cancelled')),
     CONSTRAINT CK_Appointment_M3Status  CHECK (meeting3Status IS NULL OR meeting3Status IN ('Seen', 'Rescheduled', 'Cancelled'))

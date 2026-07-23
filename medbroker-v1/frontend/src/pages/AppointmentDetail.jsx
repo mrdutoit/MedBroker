@@ -406,7 +406,9 @@ function ReturnToLeadsModal({ appointment, onClose, onReturned }) {
           This appointment will be returned to the unassigned leads queue.
         </p>
         <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '20px', lineHeight: 1.5 }}>
-          This appointment record will be removed. The lead will be available to assign to the next available agent.
+          This appointment record is kept, locked, as history — not deleted
+          — so it stays available for reporting and audit. The lead will be
+          available to assign to the next available agent.
         </p>
         {error && (
           <div style={{ ...s.noticeWarn, marginBottom: '12px' }}>{error}</div>
@@ -510,9 +512,18 @@ export default function AppointmentDetail() {
   }, [apptData]);
 
   // Derived
+  // isClosed = a genuine sales outcome was reached (won or lost) — used only
+  // for messaging that specifically talks about winning/losing the deal.
+  // isLocked = ANY terminal state, including ReturnedToLeads (23 Jul 2026,
+  // §36 — Return to Leads no longer deletes the appointment, it locks it as
+  // its own terminal status so the history and audit trail survive; see
+  // returnToLeads() in appointmentService.js). Everywhere that previously
+  // gated on isClosed for "should this be editable" now uses isLocked —
+  // isClosed stays narrower, for won/lost-specific copy only.
   const isClosed    = appt.status === 'ClosedWon' || appt.status === 'ClosedLost';
-  const canReturn   = canManage && !isClosed && appt.customerSigned !== true;
-  const canReassign = canManage && !isClosed;
+  const isLocked     = isClosed || appt.status === 'ReturnedToLeads';
+  const canReturn   = canManage && !isLocked && appt.customerSigned !== true;
+  const canReassign = canManage && !isLocked;
   const firstMeetingComplete  = isMeetingComplete(appt.meetings[0]);
   const secondMeetingComplete = isMeetingComplete(appt.meetings[1]);
 
@@ -696,7 +707,7 @@ export default function AppointmentDetail() {
         meeting={appt.meetings[0]} onChange={handleMeetingChange}
         onSave={handleSaveMeeting} saving={savingMeetingNum === 1} justSaved={savedMeetingNum === 1}
         onMarkHeld={handleMarkMeetingHeld} marking={markingHeld === 1}
-        isMobile={isMobile} disabled={isClosed}
+        isMobile={isMobile} disabled={isLocked}
       />
 
       {secondMeetingCreated ? (
@@ -704,12 +715,12 @@ export default function AppointmentDetail() {
           meeting={appt.meetings[1]} onChange={handleMeetingChange}
           onSave={handleSaveMeeting} saving={savingMeetingNum === 2} justSaved={savedMeetingNum === 2}
           onMarkHeld={handleMarkMeetingHeld} marking={markingHeld === 2}
-          isMobile={isMobile} disabled={isClosed}
+          isMobile={isMobile} disabled={isLocked}
         />
       ) : (
         <AddMeetingPrompt
           label="Add Second Meeting"
-          unlocked={firstMeetingComplete && !isClosed}
+          unlocked={firstMeetingComplete && !isLocked}
           unlockHint="Mark the First Meeting Held before adding a Second Meeting."
           onClick={() => setSecondMeetingCreated(true)}
         />
@@ -721,12 +732,12 @@ export default function AppointmentDetail() {
             meeting={appt.meetings[2]} onChange={handleMeetingChange}
             onSave={handleSaveMeeting} saving={savingMeetingNum === 3} justSaved={savedMeetingNum === 3}
             onMarkHeld={handleMarkMeetingHeld} marking={markingHeld === 3}
-            isMobile={isMobile} disabled={isClosed}
+            isMobile={isMobile} disabled={isLocked}
           />
         ) : (
           <AddMeetingPrompt
             label="Add Third Meeting"
-            unlocked={secondMeetingComplete && !isClosed}
+            unlocked={secondMeetingComplete && !isLocked}
             unlockHint="Mark the Second Meeting Held before adding a Third Meeting."
             onClick={() => setThirdMeetingCreated(true)}
           />
@@ -737,10 +748,10 @@ export default function AppointmentDetail() {
       {/* Only shown once the First Meeting actually has details — no meeting,
           nothing to report an outcome on yet (Mark's request). */}
       {meetingHasData(appt.meetings[0]) && (
-      <div style={{ ...s.card, opacity: isClosed ? 0.75 : 1 }}>
+      <div style={{ ...s.card, opacity: isLocked ? 0.75 : 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', ...s.cardTitle }}>
           <span>Appointment Outcome</span>
-          {isClosed && (
+          {isLocked && (
             <span style={{ ...s.badge, background: 'var(--panel2)', color: 'var(--mut)', fontWeight: 600 }}>
               🔒 Locked
             </span>
@@ -751,13 +762,18 @@ export default function AppointmentDetail() {
             This appointment is closed ({appt.status === 'ClosedWon' ? 'Closed Won' : 'Closed Lost'}) and can no longer be edited.
           </div>
         )}
+        {appt.status === 'ReturnedToLeads' && (
+          <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>
+            This appointment was returned to the leads queue and is locked — kept as history rather than deleted, so it stays visible for reporting and audit.
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
           <div>
             <label style={s.formLabel}>Customer Signed?</label>
             <select
-              style={{ ...s.formInput, opacity: isClosed ? 0.6 : 1 }}
+              style={{ ...s.formInput, opacity: isLocked ? 0.6 : 1 }}
               value={appt.customerSigned === null ? '' : appt.customerSigned ? 'Yes' : 'No'}
-              disabled={isClosed}
+              disabled={isLocked}
               onChange={e => handleOutcomeChange('customerSigned', e.target.value === '' ? null : e.target.value === 'Yes')}
             >
               <option value="">Please select</option>
@@ -768,9 +784,9 @@ export default function AppointmentDetail() {
           <div>
             <label style={s.formLabel}>Broker Switch?</label>
             <select
-              style={{ ...s.formInput, opacity: isClosed ? 0.6 : 1 }}
+              style={{ ...s.formInput, opacity: isLocked ? 0.6 : 1 }}
               value={appt.brokerSwitch === null ? '' : appt.brokerSwitch ? 'Yes' : 'No'}
-              disabled={isClosed}
+              disabled={isLocked}
               onChange={e => handleOutcomeChange('brokerSwitch', e.target.value === '' ? null : e.target.value === 'Yes')}
             >
               <option value="">Please select</option>
@@ -783,11 +799,11 @@ export default function AppointmentDetail() {
           <label style={s.formLabel}>Products Sold</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px' }}>
             {productsForPortfolio.map(product => (
-              <label key={product} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8125rem', cursor: isClosed ? 'default' : 'pointer' }}>
+              <label key={product} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8125rem', cursor: isLocked ? 'default' : 'pointer' }}>
                 <input
                   type="checkbox"
                   checked={appt.productsSold.includes(product)}
-                  disabled={isClosed}
+                  disabled={isLocked}
                   onChange={() => handleProductToggle(product)}
                 />
                 {product}
@@ -795,7 +811,7 @@ export default function AppointmentDetail() {
             ))}
           </div>
         </div>
-        {!isClosed && (
+        {!isLocked && (
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             <button style={s.primaryBtn} onClick={handleSaveOutcome} disabled={savingOutcome}>
               {savingOutcome ? 'Saving…' : 'Save Outcome'}
@@ -812,6 +828,7 @@ export default function AppointmentDetail() {
           <p style={{ fontSize: '0.8125rem', color: '#15803d', marginTop: '10px', fontWeight: 500 }}>
             ✓ This appointment is closed — ClosedWon
           </p>
+
         )}
         {appt.customerSigned === false && (
           <p style={{ fontSize: '0.8125rem', color: '#dc2626', marginTop: '10px', fontWeight: 500 }}>
@@ -843,7 +860,7 @@ export default function AppointmentDetail() {
         <ReturnToLeadsModal
           appointment={appt}
           onClose={() => setShowReturnConfirm(false)}
-          onReturned={() => navigate('/appointments')}
+          onReturned={() => { refetchAppt(); refetchAudit(); setShowReturnConfirm(false); }}
         />
       )}
     </div>

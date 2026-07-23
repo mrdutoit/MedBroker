@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 23 July 2026 (session 2)
+Last updated: 23 July 2026 (session 2, revised)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -896,14 +896,15 @@ These decisions caused rework when changed — preserve them in every session:
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Mark needs to apply §35 (meeting save fix, Lead edit Save button
-placement, Portfolio capture on Lead, and the Lead:Appointment one-to-many
-rework with manual Reopen — see §35 for the full design and file list).
-§35 supersedes §34's file list where they overlap (leadService.js,
-LeadDetail.jsx, AppointmentDetail.jsx, AuditLogList.jsx, schema.postgres.sql)
-— built on top of §34's complete state, not from a fresh hydration, so §35's
-file list is the current, complete one for those files. Don't apply §34's
-versions of them separately.
+Priority: Mark needs to apply §36 (Return to Leads now preserves the
+Appointment as locked history instead of deleting it — see §36). Checked
+against a fresh GitHub hydration before finalising this delivery: §34 and
+§35 are ALREADY on GitHub (Mark applied them between deliveries) — only
+§36's actual diff is included this time: appointmentService.js,
+AppointmentDetail.jsx, AppointmentList.jsx, tokens.js, schema.postgres.sql,
+and the new migration. Don't apply a cumulative bundle; the earlier
+assumption in this block (written before re-checking GitHub) that nothing
+had landed yet was wrong — corrected here rather than left in place.
 
 THEN: Reports (backend + wiring) — still the only remaining page on mock
 data, deferred again this session. IMPORTANT, per Mark's explicit
@@ -934,7 +935,8 @@ db/migrations/002_add_lead_title_dob.sql and 003_add_calendly_uri.sql
 (status unconfirmed — see §34's note that no db/migrations/ directory
 existed in the repo at all before this session, so these may never have
 been committed even if they were run by hand), plus two new ones from
-§35: 004_add_lead_portfolio.sql and 005_drop_appointment_lead_unique.sql.
+§35: 004_add_lead_portfolio.sql and 005_drop_appointment_lead_unique.sql,
+plus one new one from §36: 006_add_appointment_returned_status.sql.
 schema.postgres.sql alone does not reach an already-existing database.
 
 Before starting Appointments (now done — keeping this for the next
@@ -2399,6 +2401,76 @@ of an already-applied §34:
   db/migrations/004_add_lead_portfolio.sql          (NEW)
   db/migrations/005_drop_appointment_lead_unique.sql (NEW)
 Plus this Status.md and Project_Context.md.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+36. RETURN TO LEADS NOW PRESERVES THE APPOINTMENT — 23 July 2026 (revisited)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark read §35's delivery before importing it and pushed back on one
+specific design choice within it — the write-up of returnToLeads() had
+described its delete-on-return behaviour as deliberate, contrasting it
+with the new Reopen Lead action. Mark: "perhaps we should always keep
+appointments, even if they fall through... it gets locked and that shows
+in the audit log for the appointment, and that way, meaningful metrics can
+be derived, and auditing is much more robust." Right call — agreed and
+implemented before anything got imported, so this replaces §35's version
+of returnToLeads() rather than sitting alongside it.
+
+WHAT CHANGED: returnToLeads() no longer deletes the Appointment (or its
+AppointmentProduct rows). It now sets a new terminal status,
+'ReturnedToLeads', added to CK_Appointment_Status (migration
+006_add_appointment_returned_status.sql — CHECK constraints can't be
+altered in place in Postgres, drop and recreate). The Lead-side reset is
+unchanged: pipelineStatus back to Unassigned, assignedAgentId cleared.
+
+Worth noting explicitly: the audit write for AppointmentReturnedToLeads
+already existed (added under the earlier A4 security fix) — it just wrote
+to a row that then got deleted moments later, making the entry practically
+unreachable (no page to view it from once the appointment was gone, even
+though the AuditLog row itself technically survived). This fix makes that
+existing audit write actually mean something.
+
+'ReturnedToLeads' is deliberately its OWN status, not folded into
+ClosedWon/ClosedLost — it's not a sales outcome, so lumping it in would
+skew win/loss reporting. It IS included in the composite "Closed" quick-
+filter tab on AppointmentList.jsx (Closed = not currently being worked,
+broader than just won/lost) and has its own individual filter chip too.
+
+LOCK SEMANTICS on AppointmentDetail.jsx: introduced isLocked (ClosedWon,
+ClosedLost, or ReturnedToLeads) alongside the narrower isClosed (won/lost
+only, kept for outcome-specific messaging). Every place that used to gate
+on isClosed for "should this be editable" — meeting sections, the outcome
+card, Reassign, Return to Leads itself — now uses isLocked. Found and
+fixed a real server-side gap while doing this: saveOutcome()'s lock check
+only covered ClosedWon/ClosedLost, not the new status — a returned
+appointment could have been edited via a direct API call even though the
+UI would never expose that path. Fixed to cover all three.
+
+ReturnToLeadsModal's copy updated ("record is kept, locked, as history —
+not deleted"), and its post-return behaviour changed: previously navigated
+away to /appointments (because the appointment was about to vanish); now
+refetches and stays on the page, showing the locked state immediately —
+more useful now that there's something worth looking at.
+
+FLAGGED, NOT FIXED (pre-existing, not a regression from this change):
+assignBroker() and reassignAppointment() in appointmentService.js have NO
+server-side status guard at all — reassigning a closed/locked appointment
+today relies entirely on the frontend's canReassign check. This predates
+today's session. Worth a look, but out of scope for what Mark asked this
+time — flagged rather than silently fixed to avoid scope creep on an
+already-large delivery.
+
+MIGRATION — straightforward overwrite. Checked against a fresh GitHub
+hydration before finalising this: §34 and §35 are already applied there,
+so this is just §36's own diff, not a cumulative bundle:
+  api-lib/services/appointmentService.js
+  src/pages/AppointmentDetail.jsx
+  src/pages/AppointmentList.jsx
+  src/styles/tokens.js
+  db/schema.postgres.sql
+  db/migrations/006_add_appointment_returned_status.sql (NEW)
+Plus this Status.md / Project_Context.md.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

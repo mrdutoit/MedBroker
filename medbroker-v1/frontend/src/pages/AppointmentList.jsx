@@ -375,7 +375,7 @@ export default function AppointmentList() {
   const brokerOptions = realBrokers.map(b => ({ id: b.id, displayName: b.displayName }));
 
   const ACTIVE_APPT_STATUSES = ['Unassigned', 'Assigned', 'InProgress'];
-  const CLOSED_APPT_STATUSES = ['ClosedWon', 'ClosedLost'];
+  const CLOSED_APPT_STATUSES = ['ClosedWon', 'ClosedLost', 'ReturnedToLeads'];
 
   const filtered = sourceData.filter(a => {
     // brokerCode holds the real brokerId in the real-data path (see mapping
@@ -520,8 +520,8 @@ export default function AppointmentList() {
 
   function FiltersBar() {
     // Chips: composite Active/Closed groups (Mark's request, mirrors
-    // LeadList.jsx) + All + the 5 individual statuses + Today (date-derived).
-    const chips = ['Active', 'Closed', 'All', 'Unassigned', 'Assigned', 'InProgress', 'ClosedWon', 'ClosedLost', 'Today'];
+    // LeadList.jsx) + All + the 6 individual statuses + Today (date-derived).
+    const chips = ['Active', 'Closed', 'All', 'Unassigned', 'Assigned', 'InProgress', 'ClosedWon', 'ClosedLost', 'ReturnedToLeads', 'Today'];
     return (
       <>
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
@@ -534,10 +534,7 @@ export default function AppointmentList() {
                 ...(isActive && !meta ? s.chipActive : {}),
                 ...(isActive && meta ? { background: meta.bg, color: meta.colour, borderColor: meta.border, fontWeight: 500 } : {}),
               }}>
-                {chip === 'InProgress' ? 'In Progress'
-                  : chip === 'ClosedWon'  ? 'Closed Won'
-                  : chip === 'ClosedLost' ? 'Closed Lost'
-                  : chip}
+                {meta?.label ?? chip}
               </button>
             );
           })}

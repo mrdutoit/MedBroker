@@ -294,19 +294,23 @@ export async function reassignAppointment(id, data) {
 }
 
 /**
- * Admin/Supervisor returns an appointment to the unassigned leads queue —
- * refuses if the deal is already won (customerSigned = true), matching the
- * comment already in services/api.js. The schema has no archive/soft-delete
- * column for Appointment, so this is a genuine delete, not an "archive"
- * despite the frontend comment's wording. (Until 23 Jul 2026 this was also
- * forced by the UNIQUE leadId constraint — a Lead couldn't get a new
- * Appointment while an old row still existed. That constraint is gone now
- * (see migration 005), but the delete behaviour here is unchanged; nobody
- * asked for Return to Leads itself to start preserving history. Contrast
- * with the newer Reopen Lead action on Lead Detail, which exists precisely
- * to preserve history — different tool for a different situation: Return
- * to Leads says "this shouldn't have been booked", Reopen says "this
- * attempt legitimately fell through, keep the record, let's try again".)
+ * Admin/Supervisor returns an appointment to the unassigned leads queue.
+ * Refuses if the deal is already won (customerSigned = true), matching the
+ * comment already in services/api.js.
+ *
+ * CHANGED 23 Jul 2026 (Mark's request, §36) — previously deleted the
+ * Appointment row outright (justified at the time by there being no
+ * archive column, and by the now-removed UNIQUE leadId constraint meaning
+ * the Lead couldn't get a new Appointment while an old row existed). Mark's
+ * point: that loses history that matters for metrics — how many
+ * appointments get returned, by whom, why — and the audit log entry this
+ * function's caller writes became practically unreachable once the row it
+ * referenced was gone. Now: the Appointment is LOCKED via a new terminal
+ * status (ReturnedToLeads) instead of deleted. Same UI lock treatment as
+ * ClosedWon/ClosedLost on AppointmentDetail.jsx (see isLocked there), just
+ * not counted as a sales outcome — it's its own status, not lumped into
+ * Closed Won/Lost, so win/loss metrics aren't skewed by administrative
+ * returns.
  * @param {string} id
  */
 export async function returnToLeads(id) {
@@ -318,10 +322,11 @@ export async function returnToLeads(id) {
   if (!appt) throw { status: 404, message: 'Appointment not found' };
   if (appt.customerSigned === true) throw { status: 400, message: 'Cannot return a signed (ClosedWon) appointment to the leads queue' };
 
-  await executeQuery(`DELETE FROM AppointmentProduct WHERE appointmentId = @id`, { id: { type: sql.UniqueIdentifier, value: id } });
-  await executeQuery(`DELETE FROM Appointment WHERE id = @id AND organisationId = @organisationId`, {
-    id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId },
-  });
+  await executeQuery(
+    `UPDATE Appointment SET status = 'ReturnedToLeads', updatedAt = NOW()
+     WHERE id = @id AND organisationId = @organisationId`,
+    { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
   await executeQuery(
     `UPDATE Lead SET pipelineStatus = 'Unassigned', assignedAgentId = NULL, updatedAt = NOW()
      WHERE id = @leadId AND organisationId = @organisationId`,
@@ -366,8 +371,8 @@ export async function saveOutcome(id, data) {
     { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
   if (!current) throw { status: 404, message: 'Appointment not found' };
-  if (current.status === 'ClosedWon' || current.status === 'ClosedLost') {
-    throw { status: 400, message: 'This appointment is closed and can no longer be edited.' };
+  if (['ClosedWon', 'ClosedLost', 'ReturnedToLeads'].includes(current.status)) {
+    throw { status: 400, message: 'This appointment is locked and can no longer be edited.' };
   }
 
   const newStatus = computeAppointmentStatus(current.status, {

@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Context
 ====================================================
-Last updated: 23 July 2026 (session 2)
+Last updated: 23 July 2026 (session 2, revised)
 Purpose: Continuity file — load in a new chat to restore full project context.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -134,24 +134,46 @@ Call outcome → Lead status transition:
   Not interested      → Closed
   (Book Appointment)  → AppointmentScheduled (separate action, not a call outcome)
 
-APPOINTMENT statuses (5 values):
-  Unassigned   Appointment booked, no broker assigned yet
-  Assigned     Broker allocated (assign model) or claimed (claim model)
-  InProgress   Meetings underway
-  ClosedWon    Customer signed
-  ClosedLost   Customer did not sign
+APPOINTMENT statuses (6 values — 6th added 23 Jul 2026, §36):
+  Unassigned       Appointment booked, no broker assigned yet
+  Assigned         Broker allocated (assign model) or claimed (claim model)
+  InProgress       Meetings underway
+  ClosedWon        Customer signed
+  ClosedLost       Customer did not sign
+  ReturnedToLeads  Sent back to the leads queue via Return to Leads (Admin/
+                   Supervisor). NOT a sales outcome — deliberately kept
+                   separate from ClosedWon/ClosedLost so win/loss reporting
+                   isn't skewed by administrative returns. Locked, same as
+                   ClosedWon/ClosedLost, but distinguishable from them.
+                   Until 23 Jul 2026 Return to Leads deleted the Appointment
+                   row outright instead of setting this status — changed on
+                   Mark's explicit request: deleting lost the history that
+                   matters for metrics (how many appointments get returned,
+                   by whom, why), and orphaned the AppointmentReturnedToLeads
+                   audit entry the handler already wrote (it referenced a
+                   row that no longer existed, so was practically
+                   unreachable even though the AuditLog row itself survived).
 
 AppointmentList.jsx/LeadList.jsx both also expose composite Active
-(Unassigned+Assigned+InProgress) and Closed (ClosedWon+ClosedLost for
-Appointment; the single Closed status for Lead) quick-filter tabs, Active
-as the default view on both — added 23 Jul 2026, see §34.
+(Unassigned+Assigned+InProgress) and Closed quick-filter tabs, Active as
+the default view on both — added 23 Jul 2026, see §34. Closed on the
+Appointment side is ClosedWon+ClosedLost+ReturnedToLeads (§36) — "not
+currently being worked", broader than just won/lost; ReturnedToLeads also
+has its own individual filter chip for when the distinction matters. Closed
+on the Lead side is just the single literal Closed status.
 
 Appointment status driven by:
   Saving outcome with customerSigned = true  → ClosedWon
   Saving outcome with customerSigned = false → ClosedLost
   First meeting marked Seen                  → InProgress
-Once ClosedWon/ClosedLost, the appointment is locked — saveOutcome()
-rejects further edits server-side, not just a client-side disable (§34).
+  Return to Leads action (Admin/Supervisor)  → ReturnedToLeads (§36)
+Once ClosedWon/ClosedLost/ReturnedToLeads, the appointment is LOCKED —
+saveOutcome() rejects further edits server-side, not just a client-side
+disable (§34, extended to cover ReturnedToLeads in §36 — a real gap found
+while making this change: the server-side check had only covered
+ClosedWon/ClosedLost). AppointmentDetail.jsx's isLocked covers all three;
+the narrower isClosed (won/lost only) still exists for outcome-specific
+messaging that shouldn't apply to an administrative return.
 Meeting-level lock is separate and finer-grained: a meeting locks once
 explicitly marked Held (status 'Seen', via the dedicated "Mark Meeting
 Held" button — not just any recorded status). Only a Held meeting unlocks
@@ -159,6 +181,12 @@ the next one; Rescheduled/Cancelled keep the current meeting's Date field
 open for a new date instead (§34). Meeting date/status/notes edits that
 aren't a Held action save via a separate "Save Changes" button per meeting
 (§35) — Mark Meeting Held alone wasn't a complete save path.
+
+FLAGGED, NOT FIXED (§36): assignBroker()/reassignAppointment() in
+appointmentService.js have no server-side status guard at all — reassigning
+a locked appointment today relies entirely on the frontend's canReassign
+check. Pre-existing, not introduced by §36; worth a look, out of scope for
+what was asked at the time.
 
 LEAD ↔ APPOINTMENT CARDINALITY — ONE-TO-MANY (changed 23 Jul 2026, §35):
   Previously hard 1:1, enforced by a UNIQUE constraint on Appointment.leadId
@@ -195,11 +223,13 @@ LEAD LOCK / REOPEN (added 23 Jul 2026, §35):
   which correctly re-locks a reopened lead the instant a second appointment
   is booked.
   Distinct from the older Return to Leads action (Admin/Supervisor,
-  Appointment Detail): Return to Leads DELETES the Appointment row and
-  resets the Lead to Unassigned with no agent — for "this shouldn't have
-  been booked". Reopen Lead PRESERVES the Appointment row as history and
-  keeps the same agent — for "this attempt legitimately fell through, try
-  again". Two different tools for two different situations; not a
+  Appointment Detail): Return to Leads LOCKS the Appointment (status
+  ReturnedToLeads, §36 — previously deleted it, changed on Mark's request)
+  and resets the Lead to Unassigned with no agent — for "this shouldn't
+  have been booked". Reopen Lead keeps the Appointment as ClosedLost and
+  moves the Lead to InProgress with the same agent — for "this attempt
+  legitimately fell through, try again". Both now preserve full history;
+  they remain two different tools for two different situations, not a
   redundant pair.
 
 PORTFOLIO ON LEAD (added 23 Jul 2026, §35):
@@ -227,10 +257,16 @@ LEAD → APPOINTMENT CONVERSION (Salesforce Lead→Opportunity pattern):
     they booked on the agent's behalf; see §34). Still read-only in the
     UI, only correctable via Reassign (Admin/Supervisor), not directly
     editable — just no longer wrong at creation time.
-  - Return to Leads: Admin/Supervisor can return an appointment to Unassigned queue
-    via "Return to Leads" button on Appointment Detail — a genuine delete
-    of the Appointment row (no archive column exists), distinct from
-    Reopen Lead above which preserves it. See LEAD LOCK / REOPEN above.
+  - Return to Leads: Admin/Supervisor can return an appointment to Unassigned
+    queue via "Return to Leads" button on Appointment Detail. Changed 23 Jul
+    2026 (§36, Mark's request): previously a genuine delete of the
+    Appointment row (no archive column existed); now sets
+    status = 'ReturnedToLeads' and LOCKS it instead — preserved as history
+    for metrics and audit rather than deleted. Still distinct from Reopen
+    Lead above: Return to Leads says "this shouldn't have been booked" (Lead
+    resets to Unassigned, no agent); Reopen says "this attempt legitimately
+    fell through, keep the record, try again" (Lead goes to InProgress, same
+    agent). Two different tools, deliberately not merged into one.
   - Auto-return: Azure Function (autoReturnLeads.js) runs daily at 05:00 UTC
 
 LEAD EDITING (added 23 Jul 2026, see §34):

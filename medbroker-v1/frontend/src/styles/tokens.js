@@ -75,11 +75,12 @@ export const STATUS_META = {
 };
 
 export const APPT_STATUS_META = {
-  Unassigned: { colour: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'Unassigned' },
-  Assigned:   { colour: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe', label: 'Assigned'   },
-  InProgress: { colour: '#0891b2', bg: '#ecfeff', border: '#a5f3fc', label: 'In Progress' },
-  ClosedWon:  { colour: '#15803d', bg: '#f0fdf4', border: '#bbf7d0', label: 'Closed Won'  },
-  ClosedLost: { colour: '#dc2626', bg: '#fef2f2', border: '#fecaca', label: 'Closed Lost' },
+  Unassigned:      { colour: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'Unassigned' },
+  Assigned:        { colour: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe', label: 'Assigned'   },
+  InProgress:      { colour: '#0891b2', bg: '#ecfeff', border: '#a5f3fc', label: 'In Progress' },
+  ClosedWon:       { colour: '#15803d', bg: '#f0fdf4', border: '#bbf7d0', label: 'Closed Won'  },
+  ClosedLost:      { colour: '#dc2626', bg: '#fef2f2', border: '#fecaca', label: 'Closed Lost' },
+  ReturnedToLeads: { colour: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb', label: 'Returned'    },
 };
 
 export const MEETING_STATUS_META = {
