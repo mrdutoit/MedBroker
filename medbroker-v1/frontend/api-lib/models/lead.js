@@ -82,12 +82,16 @@ export const CreateLeadSchema = z.object({
   policies:             z.string().max(500).optional(),
   medicalAid:           z.boolean().optional(),
   medicalAidProvider:   z.string().max(200).optional(),
-  // Portfolio name (e.g. 'Discovery', 'Money and Medicine') — resolved to
-  // portfolioId server-side via resolvePortfolioId(), same pattern as
-  // CreateAppointmentSchema's portfolio field. Optional: a Lead can exist
-  // for a long time before anyone knows which portfolio it belongs to.
-  // Added 23 Jul 2026, Mark's request — carries through to Book Appointment.
-  portfolio:            z.string().optional(),
+  // Portfolio names (e.g. ['Discovery', 'Money and Medicine']) — resolved
+  // to portfolioIds server-side via resolvePortfolioIds(), same helper
+  // userService.js already uses for User's multi-portfolio support.
+  // Changed 23 Jul 2026 from a single value to an array (Mark's request,
+  // see §41) — a lead's declared interest isn't limited to one portfolio
+  // any more than a broker is limited to selling from one. Optional: a
+  // Lead can exist for a long time before anyone knows any of its
+  // portfolios. Carries through to Book Appointment's own (still
+  // single-select — one appointment is for one portfolio) pre-fill.
+  portfolios:           z.array(z.string()).optional(),
   leadSource:           LeadSource.default('ManualEntry'),
   linkedEventId:        z.string().uuid().optional(),
   linkedSubscriptionId: z.string().uuid().optional(),

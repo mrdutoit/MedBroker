@@ -262,7 +262,7 @@ export default function LeadDetail() {
       degreeAttained: baseLead.degreeAttained ?? '',
       existingCover: baseLead.existingCover ?? null, policies: baseLead.policies ?? '',
       medicalAid: baseLead.medicalAid ?? null, medicalAidProvider: baseLead.medicalAidProvider ?? '',
-      portfolio: baseLead.portfolio ?? '',
+      portfolios: baseLead.portfolios ?? [],
     });
     setEditError('');
     setEditing(true);
@@ -282,6 +282,11 @@ export default function LeadDetail() {
       // Every field here starts as '' or null when unset, so strip both
       // rather than sending them — same class of bug as LeadImport.jsx's
       // stripEmpty(), found there the same way (submitting the real form).
+      // portfolios (array, added 23 Jul 2026, §41) needs no special case
+      // here: it's never a "blank placeholder" the way a text input is —
+      // the checkbox selection is always accurate, empty or not — and
+      // [] !== '' / [] !== null, so this filter already passes it through
+      // correctly either way, including the genuine "clear all" case.
       const payload = Object.fromEntries(
         Object.entries(editForm).filter(([, v]) => v !== '' && v !== null)
       );
@@ -491,12 +496,46 @@ export default function LeadDetail() {
           <div style={cardTitle}>Lead Detail</div>
           <Field label="Status"><StatusPill status={currentStatus} /></Field>
           {editing ? (
-            <EditableField
-              label="Portfolio" type="select" options={PORTFOLIOS.map(p => p.name)}
-              editing value={editForm.portfolio} onChange={v => setField('portfolio', v)}
-            />
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '7px 0', borderBottom:'1px solid var(--line)', fontSize: '0.875rem', gap: '12px' }}>
+              <span style={{ color:'var(--mut)', flexShrink: 0 }}>Portfolio</span>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {PORTFOLIOS.map(p => {
+                  const checked = editForm.portfolios.includes(p.name);
+                  return (
+                    <label
+                      key={p.id}
+                      style={{
+                        display: 'flex', alignItems: 'center', gap: '4px',
+                        cursor: 'pointer', padding: '3px 9px',
+                        border: `1px solid ${checked ? 'var(--accent)' : 'var(--line)'}`,
+                        borderRadius: '20px', fontSize: '0.75rem',
+                        background: checked ? 'color-mix(in srgb, var(--accent) 10%, var(--panel))' : 'var(--panel)',
+                        color: checked ? 'var(--accent)' : 'var(--ink)',
+                        userSelect: 'none',
+                      }}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={checked}
+                        onChange={() => setField('portfolios', checked
+                          ? editForm.portfolios.filter(x => x !== p.name)
+                          : [...editForm.portfolios, p.name])}
+                        style={{ accentColor: 'var(--accent)' }}
+                      />
+                      {p.name}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
           ) : (
-            <Field label="Portfolio"><PortfolioPill portfolio={baseLead.portfolio} /></Field>
+            <Field label="Portfolio">
+              {baseLead.portfolios?.length
+                ? <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    {baseLead.portfolios.map(p => <PortfolioPill key={p} portfolio={p} />)}
+                  </div>
+                : '—'}
+            </Field>
           )}
           <Field label="Lead source" value={baseLead.sourceLabel} />
           <Field label="Agent"       value={baseLead.agentName} />
@@ -685,11 +724,15 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
     ghost:   { background: 'none', color:'var(--mut)', border: '1px solid var(--line)', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
   };
 
-  // Pre-filled from the Lead's own portfolio if it was captured there
-  // (added 23 Jul 2026, Mark's request) — still editable here, a booking
-  // in progress can always override it.
+  // Book Appointment is still single-select — one appointment is always
+  // for one portfolio, that structural fact hasn't changed even though
+  // the Lead itself can now be tagged with several (§41). Pre-fill only
+  // when there's exactly one unambiguous choice on the Lead; if it's
+  // tagged with more than one (or none), leave this blank so the booker
+  // picks explicitly rather than guessing which one this appointment is
+  // for.
   const [region,       setRegion]       = useState('');
-  const [portfolio,    setPortfolio]    = useState(lead.portfolio ?? '');
+  const [portfolio,    setPortfolio]    = useState(lead.portfolios?.length === 1 ? lead.portfolios[0] : '');
   const [products,     setProducts]     = useState([]);
   const [searched,     setSearched]     = useState(false);
   const [searching,    setSearching]    = useState(false);

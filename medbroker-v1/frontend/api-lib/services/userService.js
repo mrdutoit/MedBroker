@@ -93,7 +93,7 @@ export async function listSupervisors() {
  * ids. Returns [] for an empty/missing input rather than querying with an
  * empty ANY() array, which is valid SQL but a wasted round trip.
  */
-async function resolvePortfolioIds(names) {
+export async function resolvePortfolioIds(names) {
   if (!names || names.length === 0) return [];
   const rows = await executeQuery(
     `SELECT id FROM Portfolio WHERE name = ANY(@names)`,

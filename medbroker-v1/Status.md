@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 23 July 2026 (session 6)
+Last updated: 23 July 2026 (session 7)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -896,9 +896,12 @@ These decisions caused rework when changed — preserve them in every session:
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Mark needs to apply §40 (meeting dates disappearing on reload —
-saved fine, but <input type="date"> silently rejects the timestamp format
-Postgres actually returns — see §40). Single-file fix: AppointmentDetail.jsx.
+Priority: Mark needs to apply §41 (Lead portfolio changed from single-
+select to multi-select, mirroring the existing UserPortfolio pattern —
+see §41). New migration: 007_add_lead_portfolio_multi.sql — run this one
+directly against Neon like every other migration in this list; not
+optional, getLeadById()/createLead()/updateLead() all now read/write
+LeadPortfolio, which doesn't exist until this runs.
 
 RESOLVED — §37's root-cause theory for the blank Lead Detail page was
 confirmed correct by Mark directly: he'd forgotten to run the pending
@@ -2731,6 +2734,76 @@ passing (45 tests).
 
 MIGRATION — straightforward overwrite, single file:
   src/pages/AppointmentDetail.jsx
+Plus this Status.md.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+41. LEAD PORTFOLIO: SINGLE-SELECT TO MULTI-SELECT — 23 July 2026 (session 7)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark: "I think brokers can sell products from multiple portfolios, so it
+needs to support multi-select." Asked which specific screen before
+building anything, since the obvious candidate (User Admin's broker
+portfolio/product assignment) turned out, on inspection, to already
+support multi-select correctly end-to-end — checkboxes into an array,
+synced properly to the UserPortfolio/BrokerProduct many-to-many tables,
+not the vestigial singular User.portfolioId column. Mark clarified: the
+Leads page — specifically the Portfolio field added in §35, which was a
+single dropdown backed by a single Lead.portfolioId column.
+
+CHANGE: Lead's portfolio capture is now many-to-many, mirroring
+UserPortfolio exactly (new LeadPortfolio table: leadId, portfolioId,
+UNIQUE(leadId, portfolioId), same shape, no isPrimary — wasn't asked for,
+kept simple). Lead.portfolioId (added §35) is now DEPRECATED — left in
+place, unused by app logic going forward, same treatment as the existing
+vestigial User.portfolioId. Migration 007_add_lead_portfolio_multi.sql
+also carries forward any single portfolio already captured on existing
+leads into the new table, so nothing entered under §35 is lost.
+
+Backend: leadService.js gained syncLeadPortfolios() (mirrors
+syncUserPortfolios() in userService.js exactly), and now imports and
+reuses resolvePortfolioIds() (now exported from userService.js — same
+helper the User multi-portfolio path already used, not duplicated).
+createLead()/updateLead() both switched from a single portfolio name to
+a portfolios array; getLeadById() aggregates via a scalar subquery
+(array_agg) rather than restructuring the whole query around GROUP BY
+the way userService.js's list query does — simpler for a single-row
+fetch, doesn't interact with the other LEFT JOINs/LATERAL already there.
+
+CAUGHT BEFORE SHIPPING, not after another screenshot this time: the same
+audit-log false-diff bug class as §39's Date of Birth issue would have
+recurred immediately — comparing two arrays with `!==` is always true
+even when the contents are identical (compared by reference, not value),
+so an untouched portfolios selection would have shown as "changed" on
+every single save. Fixed in leadHandlers.js's diff logic with an order-
+independent (sorted-join) comparison before this ever got tested, let
+alone shipped.
+
+Frontend: LeadImport.jsx's Manual Entry form and LeadDetail.jsx's
+editable Portfolio field both changed from a single dropdown to
+multi-select checkbox pills, matching the visual style already
+established for broker portfolio assignment in User Admin. Read-only
+display renders one pill per portfolio instead of one pill total. Book
+Appointment's own portfolio picker is UNCHANGED and correctly still
+single-select — one appointment is for one portfolio, that's a real
+structural fact, not a limitation to relax. Its pre-fill logic now only
+fires when the Lead has exactly one portfolio tagged; with zero or
+several, it's left blank so the booker picks explicitly rather than the
+form silently guessing which one this appointment is for.
+
+BUILD VERIFICATION: full Vite build clean, Vitest suite unchanged and
+passing (45 tests).
+
+MIGRATION — straightforward overwrite:
+  api-lib/handlers/leadHandlers.js
+  api-lib/models/lead.js
+  api-lib/services/leadService.js
+  api-lib/services/userService.js
+  db/schema.postgres.sql
+  db/migrations/007_add_lead_portfolio_multi.sql (NEW)
+  src/components/AuditLogList.jsx
+  src/pages/LeadDetail.jsx
+  src/pages/LeadImport.jsx
 Plus this Status.md.
 
 

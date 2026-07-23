@@ -25,7 +25,7 @@ const SUBSCRIPTIONS = [
 const BLANK_FORM = {
   title: '', source: '', firstName: '', lastName: '', dateOfBirth: '', email: '',
   mobileNumber: '', occupation: '', hospitalOrPractice: '',
-  universityAttended: '', yearOfAttendance: '', degreeAttained: '', portfolio: '',
+  universityAttended: '', yearOfAttendance: '', degreeAttained: '', portfolios: [],
 };
 
 // Strips empty-string fields before sending. Left-blank optional fields
@@ -380,11 +380,37 @@ export default function LeadImport() {
 
           <div style={s.formGroup}>
             <label style={s.formLabel}>Portfolio</label>
-            <select style={s.formInput} value={form.portfolio} onChange={e => setForm(f => ({ ...f, portfolio: e.target.value }))}>
-              <option value="">Not yet known</option>
-              {PORTFOLIOS.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
-            </select>
-            <p style={s.formHint}>Optional — if known this early, it carries through to Book Appointment later.</p>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+              {PORTFOLIOS.map(p => {
+                const checked = form.portfolios.includes(p.name);
+                return (
+                  <label
+                    key={p.id}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '5px',
+                      cursor: 'pointer', padding: '6px 12px',
+                      border: `1px solid ${checked ? 'var(--accent)' : 'var(--line)'}`,
+                      borderRadius: '6px', fontSize: '0.875rem',
+                      background: checked ? 'color-mix(in srgb, var(--accent) 10%, var(--panel))' : 'var(--panel)',
+                      color: checked ? 'var(--accent)' : 'var(--ink)',
+                      userSelect: 'none',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => setForm(f => ({
+                        ...f,
+                        portfolios: checked ? f.portfolios.filter(x => x !== p.name) : [...f.portfolios, p.name],
+                      }))}
+                      style={{ accentColor: 'var(--accent)' }}
+                    />
+                    {p.name}
+                  </label>
+                );
+              })}
+            </div>
+            <p style={s.formHint}>Optional, and not limited to one — a lead can be interested in more than one portfolio, same as a broker isn't limited to selling from just one. If known this early, it carries through to Book Appointment later.</p>
           </div>
 
           <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>

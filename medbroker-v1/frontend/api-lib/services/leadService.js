@@ -40,8 +40,7 @@
 import { executeQuery, executeQueryOne, sql } from './db.js';
 import { encrypt, blindIndex } from './encryption.js';
 import { computeLeadStatus } from './leadStatusService.js';
-import { getActiveUserById } from './userService.js';
-import { resolvePortfolioId } from './appointmentService.js';
+import { getActiveUserById, resolvePortfolioIds } from './userService.js';
 import { config } from '../config.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
@@ -179,7 +178,17 @@ export async function getLeadById(id) {
        l.linkedEventId AS "linkedEventId", l.pipelineStatus AS "pipelineStatus",
        l.assignedAgentId AS "assignedAgentId", a.displayName AS "agentName",
        l.createdAt AS "createdAt", l.updatedAt AS "updatedAt",
-       ap.id AS "appointmentId", ap.status AS "appointmentStatus", pf.name AS "portfolio"
+       ap.id AS "appointmentId", ap.status AS "appointmentStatus",
+       -- Changed 23 Jul 2026 from a single LEFT JOIN Portfolio to this
+       -- (Mark's request, see §41 — a lead can now be tagged with more
+       -- than one portfolio, mirroring UserPortfolio). Scalar subquery
+       -- rather than restructuring this whole query around GROUP BY the
+       -- way userService.js's USER_LIST_SELECT does — simpler for a
+       -- single-row-by-id fetch, and doesn't interact with the other
+       -- LEFT JOINs/LATERAL below.
+       (SELECT COALESCE(array_agg(p2.name ORDER BY p2.name), ARRAY[]::text[])
+        FROM LeadPortfolio lp2 JOIN Portfolio p2 ON p2.id = lp2.portfolioId
+        WHERE lp2.leadId = l.id) AS "portfolios"
      FROM Lead l
      ${SOURCE_JOINS}
      -- Added 23 Jul 2026 — missing entirely before. listLeads() already
@@ -198,7 +207,6 @@ export async function getLeadById(id) {
        ORDER BY createdAt DESC
        LIMIT 1
      ) ap ON true
-     LEFT JOIN Portfolio pf ON pf.id = l.portfolioId
      WHERE l.id = @id AND l.deletedAt IS NULL AND l.organisationId = @organisationId`,
     {
       id: { type: sql.UniqueIdentifier, value: id },
@@ -246,6 +254,25 @@ export async function reopenLead(leadId) {
   );
 }
 
+// Replace-all pattern — simplest correct match for a checkbox UI where the
+// full desired set is sent on every save, not an incremental diff. Mirrors
+// userService.js's syncUserPortfolios() exactly.
+async function syncLeadPortfolios(leadId, portfolioIds) {
+  await executeQuery(`DELETE FROM LeadPortfolio WHERE leadId = @leadId`, {
+    leadId: { type: sql.UniqueIdentifier, value: leadId },
+  });
+  for (const portfolioId of portfolioIds) {
+    await executeQuery(
+      `INSERT INTO LeadPortfolio (id, leadId, portfolioId) VALUES (@id, @leadId, @portfolioId)`,
+      {
+        id:          { type: sql.UniqueIdentifier, value: crypto.randomUUID() },
+        leadId:      { type: sql.UniqueIdentifier, value: leadId },
+        portfolioId: { type: sql.UniqueIdentifier, value: portfolioId },
+      }
+    );
+  }
+}
+
 /**
  * Create a new lead. Encrypts id_number before storage.
  * @param {Object} data - validated CreateLeadSchema data
@@ -256,13 +283,6 @@ export async function createLead(data, createdById) {
   const encryptedIdNumber = data.idNumber ? await encrypt(data.idNumber) : null;
   const idNumberHash = data.idNumber ? blindIndex(data.idNumber) : null;
   const newId = crypto.randomUUID();
-  // Optional — a Lead can exist long before anyone knows its portfolio.
-  // Same resolvePortfolioId() Appointment booking uses; throws the same
-  // "Unknown portfolio" error if a bad name somehow gets through (the
-  // dropdown only offers valid names, so this is defence-in-depth, not
-  // an expected path).
-  const portfolioId = data.portfolio ? await resolvePortfolioId(data.portfolio) : null;
-  if (data.portfolio && !portfolioId) throw { status: 400, message: `Unknown portfolio: ${data.portfolio}` };
 
   await executeQuery(
     `INSERT INTO Lead (
@@ -270,14 +290,14 @@ export async function createLead(data, createdById) {
        mobileNumber, whatsappNumber, universityAttended, yearOfAttendance,
        degreeAttained, occupation, hospitalOrPractice, existingCover, policies,
        medicalAid, medicalAidProvider, linkedEventId, linkedSubscriptionId,
-       csvImportBatchId, manualSourceName, portfolioId, pipelineStatus,
+       csvImportBatchId, manualSourceName, pipelineStatus,
        createdById, createdAt, updatedAt
      ) VALUES (
        @id, @organisationId, @title, @firstName, @lastName, @dateOfBirth, @idNumberEncrypted, @idNumberHash, @email,
        @mobileNumber, @whatsappNumber, @universityAttended, @yearOfAttendance,
        @degreeAttained, @occupation, @hospitalOrPractice, @existingCover, @policies,
        @medicalAid, @medicalAidProvider, @linkedEventId, @linkedSubscriptionId,
-       @csvImportBatchId, @manualSourceName, @portfolioId, 'Unassigned',
+       @csvImportBatchId, @manualSourceName, 'Unassigned',
        @createdById, NOW(), NOW()
      )`,
     {
@@ -305,10 +325,19 @@ export async function createLead(data, createdById) {
       linkedSubscriptionId: { type: sql.UniqueIdentifier,   value: data.linkedSubscriptionId ?? null },
       csvImportBatchId:     { type: sql.UniqueIdentifier,   value: data.csvImportBatchId ?? null },
       manualSourceName:     { type: sql.NVarChar(300),      value: data.manualSourceName ?? null },
-      portfolioId:          { type: sql.UniqueIdentifier,   value: portfolioId },
       createdById:          { type: sql.UniqueIdentifier,   value: createdById },
     }
   );
+
+  // Optional — a Lead can exist long before anyone knows its portfolio(s).
+  // resolvePortfolioIds() silently ignores any name that doesn't match a
+  // real Portfolio rather than throwing — the dropdown only offers valid
+  // names, so a mismatch here isn't an expected path; matches the same
+  // tolerant behaviour userService.js's equivalent already has.
+  if (data.portfolios?.length) {
+    const portfolioIds = await resolvePortfolioIds(data.portfolios);
+    await syncLeadPortfolios(newId, portfolioIds);
+  }
 
   return newId;
 }
@@ -358,24 +387,30 @@ export async function updateLead(leadId, data) {
     params[field] = { type, value: data[field] };
   }
 
-  // portfolio isn't in UPDATE_LEAD_COLUMNS — it's a name that needs
-  // resolving to portfolioId, not a direct column value like the rest.
-  // Added 23 Jul 2026 alongside portfolio capture on the Lead (see §35).
-  if (data.portfolio !== undefined) {
-    const portfolioId = await resolvePortfolioId(data.portfolio);
-    if (!portfolioId) throw { status: 400, message: `Unknown portfolio: ${data.portfolio}` };
-    setClauses.push('portfolioId = @portfolioId');
-    params.portfolioId = { type: sql.UniqueIdentifier, value: portfolioId };
+  let changed = false;
+  if (setClauses.length > 0) {
+    await executeQuery(
+      `UPDATE Lead SET ${setClauses.join(', ')}, updatedAt = NOW()
+       WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
+      params
+    );
+    changed = true;
   }
 
-  if (setClauses.length === 0) return false;
+  // portfolios isn't in UPDATE_LEAD_COLUMNS — it's a many-to-many sync
+  // (LeadPortfolio), not a direct column value like the rest. Changed 23
+  // Jul 2026 from a single portfolioId column to this (Mark's request,
+  // see §41) — a lead can now be tagged with more than one portfolio.
+  // An explicit empty array is a real, intentional "clear all portfolios"
+  // and is synced the same as any other value — only a genuinely absent
+  // key (undefined) means "don't touch this".
+  if (data.portfolios !== undefined) {
+    const portfolioIds = await resolvePortfolioIds(data.portfolios);
+    await syncLeadPortfolios(leadId, portfolioIds);
+    changed = true;
+  }
 
-  await executeQuery(
-    `UPDATE Lead SET ${setClauses.join(', ')}, updatedAt = NOW()
-     WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
-    params
-  );
-  return true;
+  return changed;
 }
 
 /**

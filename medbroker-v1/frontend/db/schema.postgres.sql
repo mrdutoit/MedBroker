@@ -304,6 +304,11 @@ CREATE TABLE IF NOT EXISTS Lead (
     linkedSubscriptionId    UUID            NULL,
     csvImportBatchId        UUID            NULL,
     manualSourceName        VARCHAR(300)    NULL,
+    -- DEPRECATED 23 Jul 2026 — superseded by LeadPortfolio (many-to-many,
+    -- see below). A lead can be tagged with more than one portfolio (a
+    -- broker isn't limited to one either — mirrors the existing
+    -- UserPortfolio pattern). Column kept in place, unused by app logic
+    -- going forward, same as the existing vestigial User.portfolioId.
     portfolioId             UUID            NULL,
 
     pipelineStatus          VARCHAR(50)     NOT NULL DEFAULT 'Unassigned',
@@ -331,6 +336,20 @@ CREATE TABLE IF NOT EXISTS Lead (
         yearOfAttendance IS NULL
         OR (yearOfAttendance >= 1960 AND yearOfAttendance <= 2100)
     )
+);
+
+-- Many-to-many, mirrors UserPortfolio exactly (23 Jul 2026, Mark's
+-- request — a Lead can be tagged with interest across more than one
+-- portfolio, same as a broker isn't limited to selling from just one).
+CREATE TABLE IF NOT EXISTS LeadPortfolio (
+    id          UUID            NOT NULL DEFAULT gen_random_uuid(),
+    leadId      UUID            NOT NULL,
+    portfolioId UUID            NOT NULL,
+    createdAt   TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    CONSTRAINT PK_LeadPortfolio           PRIMARY KEY (id),
+    CONSTRAINT FK_LeadPortfolio_Lead      FOREIGN KEY (leadId)      REFERENCES Lead(id),
+    CONSTRAINT FK_LeadPortfolio_Portfolio FOREIGN KEY (portfolioId) REFERENCES Portfolio(id),
+    CONSTRAINT UQ_LeadPortfolio           UNIQUE (leadId, portfolioId)
 );
 
 CREATE INDEX IF NOT EXISTS IX_Lead_PipelineStatus

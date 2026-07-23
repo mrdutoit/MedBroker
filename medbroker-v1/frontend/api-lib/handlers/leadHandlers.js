@@ -167,13 +167,43 @@ export async function handleLeadById(req, res, id) {
         // actual saved value (updateLead() writes parsed.data.dateOfBirth
         // correctly either way) — purely a false entry in the diff shown
         // here.
+        // dateOfBirth and portfolios both need normalising before
+        // comparing, for two different reasons:
+        //  - dateOfBirth: node-postgres parses DATE columns into JS Date
+        //    objects (no custom type parser registered in db.js), but the
+        //    client always sends a plain 'YYYY-MM-DD' string. A Date
+        //    object is never === a string even for the same calendar
+        //    date — confirmed by Mark's screenshot, which showed this
+        //    field "changed" on every single save.
+        //  - portfolios (array, added 23 Jul 2026, §41): arrays compare
+        //    by reference with !==, never by content, so two arrays with
+        //    identical elements are still never equal — the exact same
+        //    false-positive shape as the dateOfBirth bug, caught this
+        //    time before it shipped rather than after a screenshot.
+        //    Order-independent comparison (sorted-join) since portfolios
+        //    is a set, not a sequence — reordering the same selection
+        //    shouldn't read as a change.
         const changeDetail = {};
         for (const field of Object.keys(parsed.data)) {
-          const existingValue = (field === 'dateOfBirth' && existing.dateOfBirth instanceof Date)
-            ? existing.dateOfBirth.toISOString().slice(0, 10)
-            : existing[field];
-          if (existingValue !== parsed.data[field]) {
-            changeDetail[field] = { from: existingValue ?? null, to: parsed.data[field] ?? null };
+          if (field === 'dateOfBirth') {
+            const existingValue = existing.dateOfBirth instanceof Date
+              ? existing.dateOfBirth.toISOString().slice(0, 10)
+              : existing.dateOfBirth;
+            if (existingValue !== parsed.data.dateOfBirth) {
+              changeDetail.dateOfBirth = { from: existingValue ?? null, to: parsed.data.dateOfBirth ?? null };
+            }
+            continue;
+          }
+          if (field === 'portfolios') {
+            const existingSorted = [...(existing.portfolios ?? [])].sort().join(',');
+            const incomingSorted = [...(parsed.data.portfolios ?? [])].sort().join(',');
+            if (existingSorted !== incomingSorted) {
+              changeDetail.portfolios = { from: existing.portfolios ?? [], to: parsed.data.portfolios ?? [] };
+            }
+            continue;
+          }
+          if (existing[field] !== parsed.data[field]) {
+            changeDetail[field] = { from: existing[field] ?? null, to: parsed.data[field] ?? null };
           }
         }
         await writeAuditLog({

@@ -35,7 +35,7 @@ const FIELD_LABELS = {
   whatsappNumber: 'WhatsApp', universityAttended: 'University', yearOfAttendance: 'Year',
   degreeAttained: 'Degree', occupation: 'Job Title', hospitalOrPractice: 'Hospital / Practice',
   existingCover: 'Existing cover', policies: 'Current policies', medicalAid: 'Medical aid',
-  medicalAidProvider: 'Medical aid provider', portfolio: 'Portfolio',
+  medicalAidProvider: 'Medical aid provider', portfolios: 'Portfolio',
 };
 
 function describeEntry(entry) {
@@ -44,11 +44,13 @@ function describeEntry(entry) {
   if (!detail) return label;
 
   if (entry.action === 'LeadUpdated') {
+    const format = (v) => {
+      if (Array.isArray(v)) return v.length ? v.join(', ') : '—';
+      return v ?? '—';
+    };
     const changes = Object.entries(detail).map(([field, change]) => {
       const fieldLabel = FIELD_LABELS[field] ?? field;
-      const from = change?.from ?? '—';
-      const to = change?.to ?? '—';
-      return `${fieldLabel}: ${from} → ${to}`;
+      return `${fieldLabel}: ${format(change?.from)} → ${format(change?.to)}`;
     });
     return changes.length ? changes.join('; ') : label;
   }
