@@ -291,4 +291,6 @@ export const reportsApi = {
   summary: (period) => request(`/reports/summary?period=${period}`),
   brokers: (period) => request(`/reports/brokers?period=${period}`),
   agents:  (period) => request(`/reports/agents?period=${period}`),
+  agentDetail:  (id, period) => request(`/reports/agent/${id}?period=${period}`),
+  brokerDetail: (id, period) => request(`/reports/broker/${id}?period=${period}`),
 };

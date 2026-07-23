@@ -163,6 +163,253 @@ export async function getReportSummary(period) {
 }
 
 /**
+ * Single-agent drill-down — AgentDetail.jsx. Permission: Admin/GlobalAdmin
+ * can view any agent; Supervisor only their own direct reports; Agent only
+ * themselves. Returns null if not found OR not permitted — the handler
+ * treats both the same (404), not leaking which case it was.
+ * @param {string} agentId
+ * @param {'Monthly'|'Quarterly'|'Yearly'} period
+ * @param {{role: string, userId: string}} scope
+ */
+export async function getAgentDetailReport(agentId, period, scope) {
+  const organisationId = resolveOrganisationId();
+  const { start, end } = getPeriodRange(period);
+
+  if (scope.role === 'Agent' && scope.userId !== agentId) return null;
+  if (scope.role === 'Supervisor') {
+    const reportIds = await getDirectReportIds(scope.userId);
+    if (!reportIds.includes(agentId)) return null;
+  }
+  if (scope.role === 'Broker') return null;
+
+  const metaRows = await executeQuery(
+    `SELECT u.id, u.displayName AS "name", u.region,
+       COALESCE(array_agg(DISTINCT p.name) FILTER (WHERE p.name IS NOT NULL), ARRAY[]::text[]) AS "portfolios"
+     FROM "User" u
+     LEFT JOIN UserPortfolio up ON up.userId = u.id
+     LEFT JOIN Portfolio p ON p.id = up.portfolioId
+     WHERE u.id = @agentId AND u.role = 'Agent' AND u.organisationId = @organisationId
+     GROUP BY u.id, u.displayName, u.region`,
+    { agentId: { type: sql.UniqueIdentifier, value: agentId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  if (metaRows.length === 0) return null;
+  const meta = metaRows[0];
+
+  const kpiRows = await executeQuery(
+    `SELECT
+       COUNT(DISTINCT l.id) AS "leads",
+       COUNT(DISTINCT ca.id) AS "calls",
+       COUNT(DISTINCT ca.id) FILTER (WHERE ca.outcome = 'CallbackRequested') AS "callbacks",
+       COUNT(DISTINCT ca.id) FILTER (WHERE ca.outcome = 'NoAnswer') AS "noAnswer",
+       COUNT(DISTINCT a.id) AS "appts"
+     FROM "User" u
+     LEFT JOIN Lead l ON l.assignedAgentId = u.id AND l.createdAt >= @start AND l.createdAt <= @end AND l.deletedAt IS NULL
+     LEFT JOIN CallAttempt ca ON ca.agentId = u.id AND ca.callTime >= @start AND ca.callTime <= @end
+     LEFT JOIN Appointment a ON a.agentId = u.id AND a.createdAt >= @start AND a.createdAt <= @end
+     WHERE u.id = @agentId
+     GROUP BY u.id`,
+    { agentId: { type: sql.UniqueIdentifier, value: agentId }, start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end } }
+  );
+  const k = kpiRows[0] ?? { leads: 0, calls: 0, callbacks: 0, noAnswer: 0, appts: 0 };
+  const leads = Number(k.leads), appts = Number(k.appts);
+  const kpi = {
+    leads, calls: Number(k.calls), callbacks: Number(k.callbacks), noAnswer: Number(k.noAnswer), appts,
+    conversion: leads === 0 ? '0%' : `${Math.round((appts / leads) * 100)}%`,
+  };
+
+  // Call outcome breakdown — all 7 real CallAttempt.outcome values, not the
+  // mock's 6 (which omitted ClientContacted).
+  const outcomeRows = await executeQuery(
+    `SELECT outcome, COUNT(*) AS count FROM CallAttempt
+     WHERE agentId = @agentId AND callTime >= @start AND callTime <= @end
+     GROUP BY outcome`,
+    { agentId: { type: sql.UniqueIdentifier, value: agentId }, start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end } }
+  );
+  const outcomeCounts = Object.fromEntries(outcomeRows.map(r => [r.outcome, Number(r.count)]));
+  const totalCalls = Object.values(outcomeCounts).reduce((a, b) => a + b, 0);
+  const callOutcomes = [
+    { outcome: 'NoAnswer',             label: 'No Answer' },
+    { outcome: 'Voicemail',            label: 'Voicemail' },
+    { outcome: 'ClientContacted',      label: 'Client Contacted' },
+    { outcome: 'CallbackRequested',    label: 'Callback Requested' },
+    { outcome: 'AppointmentScheduled', label: 'Appointment Booked' },
+    { outcome: 'NotInterested',        label: 'Not Interested' },
+    { outcome: 'WrongNumber',          label: 'Wrong Number' },
+  ].map(o => {
+    const count = outcomeCounts[o.outcome] ?? 0;
+    return { label: o.label, count, pct: totalCalls === 0 ? 0 : Math.round((count / totalCalls) * 100) };
+  }).filter(o => o.count > 0 || totalCalls === 0);
+
+  // Activity trend — calls made + appointments booked per bucket, scoped
+  // to this one agent. Same bucket generator getReportSummary() uses.
+  const buckets = getTrendBuckets(period);
+  const activity = [];
+  for (const b of buckets) {
+    if (b.future) { activity.push({ label: b.label, calls: 0, booked: 0 }); continue; }
+    const [callRows, bookedRows] = await Promise.all([
+      executeQuery(
+        `SELECT COUNT(*) AS count FROM CallAttempt WHERE agentId = @agentId AND callTime >= @start AND callTime <= @end`,
+        { agentId: { type: sql.UniqueIdentifier, value: agentId }, start: { type: sql.DateTimeOffset, value: b.start }, end: { type: sql.DateTimeOffset, value: b.end } }
+      ),
+      executeQuery(
+        `SELECT COUNT(*) AS count FROM Appointment WHERE agentId = @agentId AND createdAt >= @start AND createdAt <= @end`,
+        { agentId: { type: sql.UniqueIdentifier, value: agentId }, start: { type: sql.DateTimeOffset, value: b.start }, end: { type: sql.DateTimeOffset, value: b.end } }
+      ),
+    ]);
+    activity.push({ label: b.label, calls: Number(callRows[0].count), booked: Number(bookedRows[0].count) });
+  }
+
+  // Recent lead activity — last 5 leads assigned to this agent, with their
+  // most recent call attempt (if any).
+  const recentLeads = await executeQuery(
+    `SELECT
+       l.id AS "leadId", l.firstName AS "firstName", l.lastName AS "lastName",
+       COALESCE(ev.name, ms.name, l.manualSourceName) AS "source",
+       l.pipelineStatus AS "status",
+       lc.outcome AS "lastOutcome", lc.callTime AS "lastCallTime"
+     FROM Lead l
+     LEFT JOIN LATERAL (
+       SELECT outcome, callTime FROM CallAttempt WHERE leadId = l.id ORDER BY callTime DESC LIMIT 1
+     ) lc ON true
+     LEFT JOIN Event ev ON l.linkedEventId = ev.id
+     LEFT JOIN MedicalSubscription ms ON l.linkedSubscriptionId = ms.id
+     WHERE l.assignedAgentId = @agentId AND l.deletedAt IS NULL
+     ORDER BY l.updatedAt DESC
+     LIMIT 5`,
+    { agentId: { type: sql.UniqueIdentifier, value: agentId } }
+  );
+
+  return {
+    meta: { name: meta.name, region: meta.region, portfolios: meta.portfolios },
+    kpi, callOutcomes, activity,
+    recentLeads: recentLeads.map(r => ({
+      leadId: r.leadId, name: `${r.firstName} ${r.lastName}`, source: r.source,
+      status: r.status, lastOutcome: r.lastOutcome, lastCallTime: r.lastCallTime,
+    })),
+  };
+}
+
+/**
+ * Single-broker drill-down — BrokerDetail.jsx. Permission: Admin/
+ * GlobalAdmin/Supervisor can view any broker (brokers aren't in a
+ * supervisor's direct-report line, same as the list view); Broker only
+ * themselves; Agent cannot view broker detail at all (no path to it from
+ * their own Reports view either).
+ * @param {string} brokerId
+ * @param {'Monthly'|'Quarterly'|'Yearly'} period
+ * @param {{role: string, userId: string}} scope
+ */
+export async function getBrokerDetailReport(brokerId, period, scope) {
+  const organisationId = resolveOrganisationId();
+  const { start, end } = getPeriodRange(period);
+
+  if (scope.role === 'Agent') return null;
+  if (scope.role === 'Broker' && scope.userId !== brokerId) return null;
+
+  const metaRows = await executeQuery(
+    `SELECT u.id, u.displayName AS "name", u.region,
+       COALESCE(array_agg(DISTINCT p.name) FILTER (WHERE p.name IS NOT NULL), ARRAY[]::text[]) AS "portfolios"
+     FROM "User" u
+     LEFT JOIN UserPortfolio up ON up.userId = u.id
+     LEFT JOIN Portfolio p ON p.id = up.portfolioId
+     WHERE u.id = @brokerId AND u.role = 'Broker' AND u.organisationId = @organisationId
+     GROUP BY u.id, u.displayName, u.region`,
+    { brokerId: { type: sql.UniqueIdentifier, value: brokerId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  if (metaRows.length === 0) return null;
+  const meta = metaRows[0];
+
+  const kpiRows = await executeQuery(
+    `SELECT
+       COUNT(a.id) AS "appts",
+       COUNT(a.id) FILTER (WHERE a.status = 'ClosedWon') AS "signed",
+       COUNT(a.id) FILTER (WHERE a.isBrokerSwitch = true) AS "switches",
+       COUNT(a.id) FILTER (WHERE a.meeting1Status = 'Seen') +
+       COUNT(a.id) FILTER (WHERE a.meeting2Status = 'Seen') +
+       COUNT(a.id) FILTER (WHERE a.meeting3Status = 'Seen') AS "meetingsHeld"
+     FROM Appointment a
+     WHERE a.brokerId = @brokerId AND a.createdAt >= @start AND a.createdAt <= @end`,
+    { brokerId: { type: sql.UniqueIdentifier, value: brokerId }, start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end } }
+  );
+  const k = kpiRows[0] ?? { appts: 0, signed: 0, switches: 0, meetingsHeld: 0 };
+  const appts = Number(k.appts), signed = Number(k.signed);
+  const kpi = {
+    appts, signed, switches: Number(k.switches), meetingsHeld: Number(k.meetingsHeld),
+    conversion: appts === 0 ? '0%' : `${Math.round((signed / appts) * 100)}%`,
+  };
+
+  // Products sold — real, via AppointmentProduct (already fully wired by
+  // the outcome-save flow; nothing new needed there).
+  const productRows = await executeQuery(
+    `SELECT p.name, COUNT(*) AS count
+     FROM AppointmentProduct ap
+     JOIN Appointment a ON a.id = ap.appointmentId
+     JOIN Product p ON p.id = ap.productId
+     WHERE a.brokerId = @brokerId AND a.createdAt >= @start AND a.createdAt <= @end
+     GROUP BY p.name
+     ORDER BY count DESC`,
+    { brokerId: { type: sql.UniqueIdentifier, value: brokerId }, start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end } }
+  );
+  const productsSold = productRows.map(r => ({ name: r.name, count: Number(r.count) }));
+
+  // Meeting outcome summary — real counts per meeting number/status, plus
+  // an overall signed-vs-appointments-with-a-held-meeting ratio. Simpler
+  // than the mock's exact "signed after 2nd meeting" framing (which
+  // implied a stricter causal link this data doesn't actually establish),
+  // but every number in it is real.
+  const meetingRows = await executeQuery(
+    `SELECT
+       COUNT(*) FILTER (WHERE meeting1Status = 'Seen') AS "m1Seen",
+       COUNT(*) FILTER (WHERE meeting1Status = 'Rescheduled') AS "m1Resched",
+       COUNT(*) FILTER (WHERE meeting1Status = 'Cancelled') AS "m1Cancelled",
+       COUNT(*) FILTER (WHERE meeting1Date IS NOT NULL) AS "m1Total",
+       COUNT(*) FILTER (WHERE meeting2Status = 'Seen') AS "m2Seen",
+       COUNT(*) FILTER (WHERE meeting2Status = 'Rescheduled') AS "m2Resched",
+       COUNT(*) FILTER (WHERE meeting2Status = 'Cancelled') AS "m2Cancelled",
+       COUNT(*) FILTER (WHERE meeting2Date IS NOT NULL) AS "m2Total"
+     FROM Appointment
+     WHERE brokerId = @brokerId AND createdAt >= @start AND createdAt <= @end`,
+    { brokerId: { type: sql.UniqueIdentifier, value: brokerId }, start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end } }
+  );
+  const m = meetingRows[0] ?? {};
+  const meetingSummary = [
+    { label: '1st meeting — Seen',        value: `${Number(m.m1Seen ?? 0)} / ${Number(m.m1Total ?? 0)}` },
+    { label: '1st meeting — Rescheduled', value: `${Number(m.m1Resched ?? 0)} / ${Number(m.m1Total ?? 0)}` },
+    { label: '1st meeting — Cancelled',   value: `${Number(m.m1Cancelled ?? 0)} / ${Number(m.m1Total ?? 0)}` },
+    { label: '2nd meeting — Seen',        value: `${Number(m.m2Seen ?? 0)} / ${Number(m.m2Total ?? 0)}` },
+    { label: '2nd meeting — Rescheduled', value: `${Number(m.m2Resched ?? 0)} / ${Number(m.m2Total ?? 0)}` },
+    { label: '2nd meeting — Cancelled',   value: `${Number(m.m2Cancelled ?? 0)} / ${Number(m.m2Total ?? 0)}` },
+    { label: 'Signed (of all appointments)', value: `${signed} / ${appts}${appts > 0 ? ` (${Math.round(signed / appts * 100)}%)` : ''}`, bold: true },
+  ];
+
+  // Recent appointments — last 5, with lead name, portfolio, meeting
+  // statuses, signed decision, and products sold (joined names).
+  const recentRows = await executeQuery(
+    `SELECT
+       a.id, l.firstName AS "firstName", l.lastName AS "lastName", pf.name AS "portfolio",
+       a.meeting1Status AS "m1", a.meeting2Status AS "m2", a.customerSigned AS "signed",
+       (SELECT COALESCE(array_agg(p2.name), ARRAY[]::text[]) FROM AppointmentProduct ap2
+        JOIN Product p2 ON p2.id = ap2.productId WHERE ap2.appointmentId = a.id) AS "products"
+     FROM Appointment a
+     JOIN Lead l ON l.id = a.leadId
+     JOIN Portfolio pf ON pf.id = a.portfolioId
+     WHERE a.brokerId = @brokerId
+     ORDER BY a.createdAt DESC
+     LIMIT 5`,
+    { brokerId: { type: sql.UniqueIdentifier, value: brokerId } }
+  );
+
+  return {
+    meta: { name: meta.name, region: meta.region, portfolios: meta.portfolios },
+    kpi, productsSold, meetingSummary,
+    recentAppointments: recentRows.map(r => ({
+      id: r.id, name: `${r.firstName} ${r.lastName}`, portfolio: r.portfolio,
+      m1: r.m1, m2: r.m2, signed: r.signed, products: r.products,
+    })),
+  };
+}
+
+/**
  * Broker performance table. Scoped by role: Admin/GlobalAdmin/Supervisor see
  * all brokers (brokers aren't in a supervisor's direct-report line the way
  * agents are — matches the mock's own scoping, where Supervisor fell

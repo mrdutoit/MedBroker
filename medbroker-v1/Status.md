@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 23 July 2026 (session 8)
+Last updated: 23 July 2026 (session 9)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -896,13 +896,14 @@ These decisions caused rework when changed — preserve them in every session:
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Mark needs to apply §42 (Reports.jsx rewired to real data — the
-last remaining mock-data page, first half of the job; drill-down pages
-AgentDetail.jsx/BrokerDetail.jsx are the deliberately-deferred second half
-— see §42). No new migration this time. Also needs to redeploy/reconfigure
-Vercel routing since vercel.json changed (new /api/reports/:slug* rewrite)
-— a plain file overwrite may not be enough if Vercel caches route config;
-worth Mark confirming the new endpoints actually resolve after deploy.
+Priority: Mark needs to apply §43 (AgentDetail.jsx/BrokerDetail.jsx rewired
+to real data — the deferred second half of the Reports feature; see §43).
+With this, the ENTIRE app is now off mock data — no page left with
+hardcoded fixtures. No new migration. New routes added to the same
+reports-router.js from §42 (already deployed with the /api/reports/:slug*
+rewrite) — should need no further vercel.json change, but worth Mark
+confirming /api/reports/agent/:id and /api/reports/broker/:id actually
+resolve after this deploy, same caution as §42.
 
 RESOLVED — §37's root-cause theory for the blank Lead Detail page was
 confirmed correct by Mark directly: he'd forgotten to run the pending
@@ -2910,6 +2911,91 @@ change:
 Plus this Status.md. Flagging again in the delivery message: vercel.json
 changed (new rewrite rule) — confirm the new /api/reports/* routes
 actually resolve after deploy, not just that the files landed.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+43. AGENTDETAIL.JSX / BROKERDETAIL.JSX REWIRED TO REAL DATA — REPORTS FEATURE COMPLETE — 23 July 2026 (session 9)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The deferred second half of §42, built as its own item per Mark's
+"continue with what's next on the list". Both pages were entirely mock —
+AgentDetail.jsx keyed off 4 fake agent IDs (tm/nv/kp/bn), BrokerDetail.jsx
+off 4 fake broker IDs (sb/pj/rb/ms) — reached from Reports' "View →"
+buttons, which already pass real User.id values, so the pages were
+completely disconnected from what actually linked to them even before
+this session.
+
+CAUGHT AND FIXED MID-SESSION, not after: a str_replace edit while adding
+getAgentDetailReport()/getBrokerDetailReport() accidentally deleted
+getBrokerReport()'s own function declaration, orphaning its body under
+getBrokerDetailReport()'s closing brace — a silent syntax error that
+would have failed the build. Caught by grepping for all function
+declarations right after the edit (a cross-check habit worth keeping
+after any large str_replace on a file with several functions, not just
+trusting the diff looked plausible) and fixed before it went anywhere
+near a build step, let alone a delivery.
+
+Same class of real-data gap as §42, resolved the same way — decisive
+substitution with real metrics, not invented ones, flagged rather than
+silently done:
+  - AgentDetail's "Uncontactable" KPI -> replaced with "No Answer", a
+    real CallAttempt.outcome value and the closest real thing to what
+    Uncontactable was gesturing at.
+  - BrokerDetail's "Policy Value" KPI -> replaced with "Meetings Held"
+    (real, COUNT across meeting1/2/3Status = 'Seen'). "Broker switches"
+    KEPT as-is — isBrokerSwitch is a real boolean column on Appointment,
+    no gap there despite living right next to Policy Value in the mock.
+
+CONFIRMED FULLY REAL, no gap at all: BrokerDetail's "Products Sold" chart
+— AppointmentProduct was already correctly wired by the outcome-save flow
+from much earlier work, this session only needed a read query against it,
+not a new write path.
+
+BUILT:
+  - reportService.js: getAgentDetailReport() (meta incl. region +
+    portfolios via the same UserPortfolio join pattern as the list
+    report; KPI row; call-outcome breakdown across all 7 real
+    CallAttempt.outcome values, not the mock's 6 which omitted
+    ClientContacted; activity trend reusing getTrendBuckets(); last 5
+    leads with their most recent call). getBrokerDetailReport() (meta;
+    KPI row incl. meetingsHeld/switches; products sold via
+    AppointmentProduct; a real meeting-outcome summary — simplified from
+    the mock's exact "signed after 2nd meeting" framing, which implied a
+    stricter causal link the data doesn't actually establish, to a
+    straightforward per-meeting-number Seen/Rescheduled/Cancelled
+    breakdown plus an overall signed ratio, every number in it real; last
+    5 appointments with meeting statuses and products).
+  - Permission model for both: Admin/GlobalAdmin see any agent/broker;
+    Supervisor sees their own direct reports for agents (all brokers, per
+    the same "brokers aren't in a supervisor's line" reasoning as §42's
+    list report); Agent sees only themselves and cannot reach broker
+    detail at all; Broker sees only themselves. Not found and not
+    permitted return the identical 404 — doesn't leak which case it was.
+  - reportHandlers.js: handleAgentDetail/handleBrokerDetail, same
+    resolveScopeRole() precedence helper §42 already established.
+  - reports-router.js: two new routes, /api/reports/agent/:id and
+    /api/reports/broker/:id, added to the same router §42 already wired
+    into vercel.json — no further vercel.json change needed this time.
+  - AgentDetail.jsx/BrokerDetail.jsx: full rewrite, mock data removed
+    entirely, useFetch against the new endpoints, same loading/error
+    pattern established across every rewired page this whole session
+    (§37 onward) — real error surfaced, never silently swallowed.
+
+RESULT: with this, the entire application is off mock data. No page left
+with hardcoded fixtures — the last one standing (Reports and its two
+drill-downs) is done.
+
+BUILD VERIFICATION: full Vite build clean (1,300 modules), Vitest suite
+unchanged and passing (45 tests).
+
+MIGRATION — straightforward overwrite, no new database migration:
+  api-lib/services/reportService.js
+  api-lib/handlers/reportHandlers.js
+  api/reports-router.js
+  src/pages/AgentDetail.jsx
+  src/pages/BrokerDetail.jsx
+  src/services/api.js
+Plus this Status.md.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

@@ -8,9 +8,10 @@
  */
 
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
-import { getReportSummary, getBrokerReport, getAgentReport } from '../services/reportService.js';
+import { getReportSummary, getBrokerReport, getAgentReport, getAgentDetailReport, getBrokerDetailReport } from '../services/reportService.js';
 import { ReportPeriodQuerySchema } from '../models/report.js';
 import { isSupervisorOnly, isAgentOnly } from '../services/userService.js';
+import { isUuid } from '../http/helpers.js';
 
 const ALLOWED_ROLES = ['Agent', 'Supervisor', 'Admin', 'GlobalAdmin', 'Broker'];
 
@@ -104,6 +105,68 @@ export async function handleReportAgents(req, res) {
       return res.status(status).json(body);
     }
     console.error('reports/agents error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** GET /api/reports/agent/:id */
+export async function handleAgentDetail(req, res, id) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ALLOWED_ROLES);
+
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid agent ID format' });
+
+    const parsed = ReportPeriodQuerySchema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const report = await getAgentDetailReport(id, parsed.data.period, { role: resolveScopeRole(claims.roles), userId: claims.oid });
+    // null covers both "not found" and "not permitted to view" — same
+    // response either way, doesn't leak which case it was.
+    if (!report) return res.status(404).json({ error: 'Agent not found' });
+
+    return res.status(200).json(report);
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('reports/agent/[id] error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** GET /api/reports/broker/:id */
+export async function handleBrokerDetail(req, res, id) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ALLOWED_ROLES);
+
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid broker ID format' });
+
+    const parsed = ReportPeriodQuerySchema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const report = await getBrokerDetailReport(id, parsed.data.period, { role: resolveScopeRole(claims.roles), userId: claims.oid });
+    if (!report) return res.status(404).json({ error: 'Broker not found' });
+
+    return res.status(200).json(report);
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('reports/broker/[id] error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
