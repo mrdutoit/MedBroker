@@ -2,11 +2,9 @@
  * pages/UserAdmin.jsx
  * User management — create, edit, activate/deactivate.
  *
- * Wired to the real Users API (usersApi.list/create/update/listSupervisors)
- * — added 22 July 2026. In preview mode (api.js PREVIEW_MODE) this behaves
- * exactly as before: MOCK_USERS, no network calls, buttons are cosmetic.
- * In demo-backend mode, the list is real, creation/edits persist, and
- * deactivation actually deactivates the user server-side.
+ * Wired to the real Users API (usersApi.list/create/update/listSupervisors).
+ * The list is real, creation/edits persist, and deactivation actually
+ * deactivates the user server-side.
  *
  * SSO vs local-auth creation — driven by the auth.sso.enabled flag, which
  * already existed and already defaults to false (see feature-flags.sql):
@@ -30,20 +28,7 @@ import { REGIONS } from '../constants/leadOptions.js';
 import { s } from '../styles/tokens.js';
 
 const ROLES = ['Admin', 'Supervisor', 'Agent', 'Broker'];
-const MOCK_USERS = [
-  { id:'1',  displayName:'Thabo Molefe',        email:'thabo.molefe@medbroker.co.za',      role:'Agent',      region:'Gauteng',          supervisor:'Supervisor One', portfolios:['Discovery'],                   products:[],                            isActive:true },
-  { id:'2',  displayName:'Naledi van Wyk',       email:'naledi.vanwyk@medbroker.co.za',     role:'Agent',      region:'Western Cape',      supervisor:'Supervisor One', portfolios:['Discovery'],                   products:[],                            isActive:true },
-  { id:'3',  displayName:'Kabelo Petersen',      email:'kabelo.petersen@medbroker.co.za',   role:'Agent',      region:'Gauteng',          supervisor:'Supervisor One', portfolios:['Money and Medicine'],           products:[],                            isActive:true },
-  { id:'4',  displayName:'Bongani Ntuli',        email:'bongani.ntuli@medbroker.co.za',     role:'Agent',      region:'KwaZulu-Natal',    supervisor:'Supervisor One', portfolios:['Discovery'],                   products:[],                            isActive:true },
-  { id:'5',  displayName:'Siphiwe Mahlangu',     email:'siphiwe.mahlangu@medbroker.co.za',  role:'Agent',      region:'Gauteng',          supervisor:'Supervisor One', portfolios:['Discovery'],                   products:[],                            isActive:false },
-  { id:'6',  displayName:'Sandra van der Berg',  email:'sandra@medbroker.co.za',            role:'Broker',     region:'Gauteng',          supervisor:'Supervisor One', portfolios:['Discovery','Money and Medicine'], products:['Life Insurance','Medical Aid'], isActive:true },
-  { id:'7',  displayName:'Riaan Botha',          email:'riaan.botha@medbroker.co.za',       role:'Broker',     region:'Western Cape',      supervisor:'Supervisor One', portfolios:['Discovery'],                   products:['Income Protection','Disability Cover'], isActive:true },
-  { id:'8',  displayName:'Pieter Joubert',       email:'pieter.joubert@medbroker.co.za',    role:'Broker',     region:'Gauteng',          supervisor:'Supervisor One', portfolios:['Discovery'],                   products:['Life Insurance','Gap Cover'],  isActive:true },
-  { id:'9',  displayName:'Supervisor One',       email:'supervisor@medbroker.co.za',        role:'Supervisor', region:'All',              supervisor:'—',             portfolios:[],                              products:[],                            isActive:true },
-  { id:'10', displayName:'Admin User',           email:'admin@medbroker.co.za',             role:'Admin',      region:'—',                supervisor:'—',             portfolios:[],                              products:[],                            isActive:true },
-];
 
-const MOCK_SUPERVISORS = MOCK_USERS.filter(u => u.role === 'Supervisor').map(u => ({ id: u.id, displayName: u.displayName }));
 
 const ROLE_STYLE = {
   GlobalAdmin: { bg: '#fdf2ff', colour: '#7e22ce' },
@@ -382,20 +367,11 @@ export default function UserAdmin() {
   );
   const { data: supervisorsData } = useFetch(() => usersApi.listSupervisors(), []);
 
-  // PREVIEW_MODE (no backend configured at all): usersData is always null,
-  // forever — MOCK_USERS is correct and permanent here.
-  // DEMO_MODE (a real backend, real data): usersData is null only briefly,
-  // while the fetch is in flight — falling back to MOCK_USERS during that
-  // window (as this used to) meant every real user briefly saw fake
-  // people's names flash on screen before the real (possibly genuinely
-  // empty) list replaced them, which reads as data having been wiped
-  // rather than a page still loading. Checking PREVIEW_MODE directly
-  // instead of usersData's truthiness fixes this: real mode always shows
-  // real data, even while that real data is still "empty because loading".
-  const allUsers = apiMode.PREVIEW_MODE
-    ? MOCK_USERS
-    : (usersData?.users ?? []).map(u => ({ ...u, supervisor: u.supervisorName ?? '—' }));
-  const supervisors = apiMode.PREVIEW_MODE ? MOCK_SUPERVISORS : (supervisorsData?.supervisors ?? []);
+  // usersLoading (checked below, near the top of the render) keeps the
+  // brief window while the real fetch is in flight from showing an empty
+  // table as if it were the final result.
+  const allUsers = (usersData?.users ?? []).map(u => ({ ...u, supervisor: u.supervisorName ?? '—' }));
+  const supervisors = supervisorsData?.supervisors ?? [];
 
   const filtered = allUsers.filter(u => roleFilter === 'All' || u.role === roleFilter);
   const counts   = ROLES.reduce((acc, r) => { acc[r] = allUsers.filter(u => u.role === r).length; return acc; }, {});

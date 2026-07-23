@@ -31,7 +31,13 @@ import { useFetch } from '../hooks/useFetch.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s, APPT_STATUS_META, MEETING_STATUS_META, PORTFOLIO_META } from '../styles/tokens.js';
 
-// ─── Mock data ────────────────────────────────────────────────────────────────
+// ─── Claim-model mock data ──────────────────────────────────────────────────
+// Everything below is specifically for the claim model (brokers
+// self-serving from an available-appointments pool + token economy) —
+// a separate, larger feature with a real payment-provider dependency
+// that stays deliberately mocked, not part of the assign-model wiring
+// this page otherwise uses real data for. See models/appointment.js's
+// header (backend) for the full reasoning on why claim model isn't built.
 const ALL_APPOINTMENTS = [
   { id:'A1', leadName:'Dr Priya Naidoo',     leadEmail:'p.naidoo@netcare.co.za',
     occupation:'Anaesthesiologist',   portfolio:'Discovery',
@@ -85,9 +91,7 @@ const AVAILABLE_TO_CLAIM = [
 ];
 
 const MY_APPOINTMENTS = ALL_APPOINTMENTS.filter(a => a.brokerCode === 'SB');
-const SOURCES         = [...new Set(ALL_APPOINTMENTS.map(a => a.source))].sort();
 const PORTFOLIOS      = ['Discovery', 'M&M'];
-const BROKERS         = ['Sandra van der Berg','Pieter Joubert','Riaan Botha','Marelize Swart'];
 
 // ─── Badge helpers ─────────────────────────────────────────────────────────────
 function MeetingBadge({ status }) {
@@ -347,19 +351,11 @@ export default function AppointmentList() {
     agentId:     a.agentId,
   }));
 
-  // PREVIEW_MODE (no backend at all): apptData/brokersData are always
-  // null, forever — the mock arrays below are correct and permanent here.
-  // DEMO_MODE: both are null only briefly, while their fetches are in
-  // flight (or, for brokers, genuinely empty if none have been created
-  // yet) — falling back to mock in either case (as this used to) meant
-  // real users would briefly see fake appointments and fake broker names
-  // on screen before the real, possibly-empty data replaced them. Gate on
-  // PREVIEW_MODE directly instead of data truthiness/length so DEMO_MODE
-  // always shows real data, even while genuinely empty.
-  const sourceData = apiMode.PREVIEW_MODE ? ALL_APPOINTMENTS : realAppointments;
-  const brokerOptions = apiMode.PREVIEW_MODE
-    ? BROKERS.map(name => ({ id: name, displayName: name })) // preview fallback, matches mock's name-as-identifier
-    : realBrokers.map(b => ({ id: b.id, displayName: b.displayName }));
+  // apptLoading/DEMO_MODE checked below (near the top of the render) keeps
+  // the brief window while fetches are in flight from rendering an empty
+  // state as if it were the final result.
+  const sourceData = realAppointments;
+  const brokerOptions = realBrokers.map(b => ({ id: b.id, displayName: b.displayName }));
 
   const filtered = sourceData.filter(a => {
     // brokerCode holds the real brokerId in the real-data path (see mapping

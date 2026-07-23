@@ -45,40 +45,23 @@ import { s, APPT_STATUS_META }                from '../styles/tokens.js';
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 // In production: fetched from GET /api/appointments/:id
 // The agent field is set at booking time from the JWT and is never editable.
-const MOCK_APPOINTMENT = {
-  id:             'appt-001',
-  leadId:         'lead-042',
-  leadName:       'Dr Priya Naidoo',
-  occupation:     'Anaesthesiologist',
-  mobile:         '082 456 7890',
-  currentInsurer: 'Discovery Life',
-  portfolio:      'Discovery',
-  source:         'Wits Career Fair 2026',
-  productsInterested: ['Life Insurance', 'Income Protection'],
-
-  status:         'Assigned',
-  firstDate:      '2026-05-20',
-  firstTime:      '10:00',
-  address:        '123 Rivonia Rd, Sandton',
-  brokerName:     'Sandra van der Berg',
-  agentName:      'Thabo Molefe',        // read-only — set from JWT at booking time
-  brokerSwitch:   false,
-  customerSigned: null,
-  productsSold:   [],
-
+// Neutral initial shape for the appt state, before the real fetch resolves
+// — same fields meetingStatus/etc. throughout this file expect, but no
+// fake person data. The loading gate below (near the main render) means
+// this is never actually shown to a user; it exists only so state has a
+// safe, complete shape to start from.
+const EMPTY_APPOINTMENT = {
+  id: '', leadId: '', leadName: '', occupation: '', mobile: '', currentInsurer: '',
+  portfolio: '', source: '', productsInterested: [],
+  status: '', firstDate: '', firstTime: '', address: '', brokerName: '', agentName: '',
+  brokerSwitch: false, customerSigned: null, productsSold: [],
   meetings: [
-    { number: 1, date: '2026-05-20', status: '',  notes: '', required: true  },
-    { number: 2, date: '',           status: '',  notes: '', required: true  },
-    { number: 3, date: '',           status: '',  notes: '', required: false },
+    { number: 1, date: '', status: '', notes: '', required: true },
+    { number: 2, date: '', status: '', notes: '', required: true },
+    { number: 3, date: '', status: '', notes: '', required: false },
   ],
 };
 
-const BROKERS = [
-  { id: 'broker-sb', name: 'Sandra van der Berg' },
-  { id: 'broker-pj', name: 'Pieter Joubert'       },
-  { id: 'broker-rb', name: 'Riaan Botha'           },
-  { id: 'broker-ms', name: 'Marelize Swart'        },
-];
 
 const MEETING_STATUSES = ['Seen', 'Rescheduled', 'Cancelled'];
 
@@ -419,15 +402,12 @@ export default function AppointmentDetail() {
   // Real data — GET /api/appointments/:id. Transformed into the same
   // { meetings: [{number,date,status,notes,required}, ...] } shape the
   // rest of this file already expects, so nothing below needs touching —
-  // only this mapping and the sync effect are new. Preview mode:
-  // apptData stays null forever, appt keeps its MOCK_APPOINTMENT seed
-  // exactly as before.
-  const { data: apptData, refetch: refetchAppt } = useFetch(() => appointmentsApi.get(id), [id]);
+  // only this mapping and the sync effect are new.
+  const { data: apptData, loading: apptLoading, refetch: refetchAppt } = useFetch(() => appointmentsApi.get(id), [id]);
   const { data: brokersData } = useFetch(() => usersApi.list({ role: 'Broker' }), []);
   const realBrokers = brokersData?.users ?? [];
 
-  // Initialise from mock data (production: fetch from GET /api/appointments/:id)
-  const [appt,              setAppt]              = useState({ ...MOCK_APPOINTMENT, id: id ?? MOCK_APPOINTMENT.id });
+  const [appt,              setAppt]              = useState({ ...EMPTY_APPOINTMENT, id: id ?? '' });
   const [showReassign,      setShowReassign]      = useState(false);
   const [showReturnConfirm, setShowReturnConfirm] = useState(false);
   const [outcomeSaved,      setOutcomeSaved]      = useState(false);
@@ -520,6 +500,17 @@ export default function AppointmentDetail() {
     } finally {
       setSavingOutcome(false);
     }
+  }
+
+  // Still loading: show a simple loading state rather than the neutral
+  // empty-appointment shape appt starts from — otherwise the page would
+  // briefly render with blank fields before the real fetch resolves.
+  if (apptLoading) {
+    return (
+      <div style={{ padding: isMobile ? '12px' : '24px' }}>
+        <p style={{ color: 'var(--mut)', fontSize: '0.875rem' }}>Loading…</p>
+      </div>
+    );
   }
 
   return (

@@ -274,10 +274,8 @@ export default function FeatureFlags() {
   const { flags, setFlag } = useFlags();
   const [activeTier, setActiveTier] = useState('Core');
 
-  // Demo mode: real PATCH /api/flags/:key, then reflect it in context on
-  // success. Preview mode: flagsApi.update() would just be a no-op (api.js
-  // PREVIEW_MODE), so this stays local-only there — same behaviour as
-  // before, nothing regresses.
+  // Real PATCH /api/flags/:key when using the local-auth demo backend,
+  // reflected in context on success either way.
   async function handleSaveFlag(key, value) {
     if (apiMode.DEMO_MODE) {
       await flagsApi.update(key, value); // throws ApiError on failure — caller (FlagRow) catches it

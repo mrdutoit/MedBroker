@@ -30,7 +30,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch.js';
-import { leadsApi, appointmentsApi, brokerMatchingApi, apiMode, ApiError } from '../services/api.js';
+import { leadsApi, appointmentsApi, brokerMatchingApi, ApiError } from '../services/api.js';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useRole, PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
@@ -89,30 +89,6 @@ const OUTCOME_LABELS = {
   AppointmentScheduled: 'Appointment scheduled',
 };
 
-// ─── Mock data ─────────────────────────────────────────────────────────────────
-const MOCK_LEAD = {
-  id: '1',
-  title: 'Dr', firstName: 'Priya', lastName: 'Naidoo', dateOfBirth: '1985-03-22',
-  email: 'p.naidoo@netcare.co.za', mobileNumber: '082 456 7890',
-  whatsappNumber: '082 456 7890', occupation: 'Anaesthesiologist',
-  hospitalOrPractice: 'Netcare Sunninghill Hospital',
-  universityAttended: 'University of the Witwatersrand',
-  yearOfAttendance: 2008, degreeAttained: 'MBBCh',
-  existingCover: true, policies: 'Discovery Life, Old Mutual',
-  medicalAid: true, medicalAidProvider: 'Discovery Health',
-  sourceLabel: 'Wits Career Fair 2026',
-  pipelineStatus: 'Assigned',
-  agentName: 'Thabo Molefe',
-  portfolio: 'Discovery',
-  createdAt: new Date(Date.now() - 86400000 * 14).toISOString(),
-};
-
-const MOCK_CALLS = [
-  { id:'1', outcome:'NoAnswer',         label:'No answer',          notes: null,                              attemptedAt: new Date(Date.now()-86400000*3).toISOString() },
-  { id:'2', outcome:'Voicemail',        label:'Voicemail left',     notes: 'Left voicemail, awaiting return', attemptedAt: new Date(Date.now()-86400000*2).toISOString() },
-  { id:'3', outcome:'CallbackRequested',label:'Callback requested', notes: 'Callback Thursday 10am',         callbackDateTime: new Date(Date.now()+86400000).toISOString(), attemptedAt: new Date(Date.now()-86400000).toISOString() },
-];
-
 // ─── Sub-components ────────────────────────────────────────────────────────────
 function Field({ label, value, children }) {
   return (
@@ -162,23 +138,22 @@ export default function LeadDetail() {
   const { isMobile } = useWindowSize();
 
   const { data: lead, loading: leadLoading } = useFetch(() => leadsApi.get(id), [id]);
-  const baseLead = lead ?? MOCK_LEAD;
+  const baseLead = lead ?? {};
 
-  // Real call history — GET /api/leads/:id/calls, added alongside this
-  // wiring pass; previously nothing ever fetched it back, so "Recent
-  // Calls" only ever reflected whatever was logged in the current browser
-  // session. In preview mode this stays null forever and `calls` below
-  // keeps its MOCK_CALLS seed, unchanged from before.
+  // Real call history — GET /api/leads/:id/calls, added alongside an
+  // earlier wiring pass; previously nothing ever fetched it back, so
+  // "Recent Calls" only ever reflected whatever was logged in the
+  // current browser session.
   const { data: callsData } = useFetch(() => leadsApi.listCalls(id), [id]);
 
-  // Local status override — reflects transitions after actions in preview mode.
-  // In production: re-fetch the lead after each API call to get server state.
+  // Local status override — reflects transitions immediately after an
+  // action, before the next real fetch would otherwise pick them up.
   const [statusOverride,   setStatusOverride]   = useState(null);
   const [bookingConfirmed, setBookingConfirmed]  = useState(false);
   const [showCallForm,     setShowCallForm]      = useState(false);
   const [showBookForm,     setShowBookForm]      = useState(false);
   const [callForm,         setCallForm]          = useState({ outcome: '', notes: '', callbackDateTime: '' });
-  const [calls,            setCalls]             = useState(MOCK_CALLS);
+  const [calls,            setCalls]             = useState([]);
   const [submitting,       setSubmitting]        = useState(false);
   const [submitError,      setSubmitError]       = useState('');
 
@@ -226,20 +201,15 @@ export default function LeadDetail() {
       }, ...prev]);
       setShowCallForm(false);
       setCallForm({ outcome: '', notes: '', callbackDateTime: '' });
-    } catch {
-      // In preview mode leadsApi.logCall returns null — still apply transition
-      const newStatus = computeNewStatus(currentStatus, callForm.outcome);
-      if (newStatus !== currentStatus) setStatusOverride(newStatus);
-      setCalls(prev => [{
-        id: String(Date.now()),
-        outcome: callForm.outcome,
-        label: OUTCOME_LABELS[callForm.outcome] ?? callForm.outcome,
-        notes: callForm.notes || null,
-        callbackDateTime: callForm.callbackDateTime || null,
-        attemptedAt: new Date().toISOString(),
-      }, ...prev]);
-      setShowCallForm(false);
-      setCallForm({ outcome: '', notes: '', callbackDateTime: '' });
+    } catch (err) {
+      // Previously silently treated every failure as a success — applied
+      // the same optimistic call-history update and status transition as
+      // the try block above, regardless of what actually went wrong. That
+      // masked real backend failures (validation, auth, network) behind
+      // what looked like a successful save. Now shows the real error
+      // instead, and does NOT apply an update that was never actually
+      // saved server-side.
+      setSubmitError(err.message ?? 'Could not log the call. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -257,14 +227,10 @@ export default function LeadDetail() {
   const labelStyle = { display: 'block', fontSize: '0.8125rem', fontWeight: 500, color:'var(--ink)', marginBottom: '5px' };
   const badge = (bg, text) => ({ display: 'inline-block', padding: '2px 9px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 500, background: bg, color: text });
 
-  // DEMO_MODE, still loading: show a simple loading state rather than the
-  // MOCK_LEAD-seeded page — otherwise every real lead detail page would
-  // briefly show a fake person's name and details before the real fetch
-  // resolves, exactly the "flash of demo data" bug already fixed on the
-  // list pages. PREVIEW_MODE is unaffected — lead there is never fetched
-  // at all, so leadLoading resolves to false immediately and this never
-  // triggers.
-  if (apiMode.DEMO_MODE && leadLoading) {
+  // Still loading: show a simple loading state rather than an incomplete
+  // page — otherwise every lead detail page would briefly render with
+  // missing fields before the real fetch resolves.
+  if (leadLoading) {
     return (
       <div style={{ padding: isMobile ? '16px' : '24px' }}>
         <p style={{ color: 'var(--mut)', fontSize: '0.875rem' }}>Loading…</p>
