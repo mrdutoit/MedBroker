@@ -2,7 +2,12 @@
  * pages/AppointmentDetail.jsx
  *
  * The Appointment is the "active deal" entity — analogous to Salesforce Opportunity.
- * It is a child of Lead (1:1, enforced by UNIQUE leadId in the schema).
+ * It is a child of Lead — one-to-many since 23 Jul 2026 (Mark's request, see
+ * Status.md §35): a Lead can have several Appointments over its lifetime
+ * (Closed Lost -> manual Reopen on Lead Detail -> a new Book Appointment
+ * attempt). Full history is preserved; "the" appointment shown on Lead
+ * Detail is the most recent one by createdAt, resolved server-side in
+ * leadService.getLeadById().
  *
  * This page is reached from the Appointments list (View →) and shows:
  *   - Lead/contact details (read-only — editable from Lead Detail)
@@ -108,11 +113,12 @@ function FieldRow({ label, children }) {
 // Rendered only once a meeting has actually been created — see AddMeetingPrompt
 // below and the secondMeetingCreated/thirdMeetingCreated state in the main
 // component.
-function MeetingSection({ meeting, onChange, onMarkHeld, marking, isMobile, disabled }) {
+function MeetingSection({ meeting, onChange, onSave, saving, onMarkHeld, marking, justSaved, isMobile, disabled }) {
   const isOptional = meeting.number === 3;
   const titles = ['', 'First Meeting', 'Second Meeting', 'Third Meeting'];
   const locked = isMeetingLocked(meeting) || disabled;
   const canMarkHeld = !locked && !!meeting.date;
+  const busy = saving || marking;
 
   return (
     <div style={{ ...s.card, borderStyle: isOptional ? 'dashed' : 'solid', marginBottom: '12px', opacity: disabled ? 0.6 : 1 }}>
@@ -166,17 +172,28 @@ function MeetingSection({ meeting, onChange, onMarkHeld, marking, isMobile, disa
         />
       </div>
       {!locked && (
-        <div style={{ marginTop: '12px' }}>
+        <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <button
             type="button"
-            style={{ ...s.secondaryBtn, opacity: (!canMarkHeld || marking) ? 0.5 : 1 }}
-            disabled={!canMarkHeld || marking}
+            style={{ ...s.secondaryBtn, opacity: busy ? 0.5 : 1 }}
+            disabled={busy}
+            onClick={() => onSave(meeting.number)}
+          >
+            {saving ? 'Saving…' : 'Save Changes'}
+          </button>
+          <button
+            type="button"
+            style={{ ...s.secondaryBtn, opacity: (!canMarkHeld || busy) ? 0.5 : 1 }}
+            disabled={!canMarkHeld || busy}
             onClick={() => onMarkHeld(meeting.number)}
           >
             {marking ? 'Saving…' : '✓ Mark Meeting Held'}
           </button>
+          {justSaved && (
+            <span style={{ fontSize: '0.8125rem', color: '#15803d' }}>✓ Saved</span>
+          )}
           {!meeting.date && (
-            <span style={{ fontSize: '0.75rem', color: 'var(--mut)', marginLeft: '8px' }}>
+            <span style={{ fontSize: '0.75rem', color: 'var(--mut)' }}>
               Set a date before marking this meeting held.
             </span>
           )}
@@ -453,7 +470,9 @@ export default function AppointmentDetail() {
   const [outcomeSaved,      setOutcomeSaved]      = useState(false);
   const [savingOutcome,     setSavingOutcome]     = useState(false);
   const [outcomeError,      setOutcomeError]      = useState(null);
-  const [markingHeld,       setMarkingHeld]       = useState(null); // meeting number currently being saved, or null
+  const [markingHeld,       setMarkingHeld]       = useState(null); // meeting number currently being marked Held, or null
+  const [savingMeetingNum,  setSavingMeetingNum]  = useState(null); // meeting number currently being saved, or null
+  const [savedMeetingNum,   setSavedMeetingNum]   = useState(null); // meeting number just saved (transient ✓), or null
   const [secondMeetingCreated, setSecondMeetingCreated] = useState(() => meetingHasData(appt.meetings[1]));
   const [thirdMeetingCreated,  setThirdMeetingCreated]  = useState(() => meetingHasData(appt.meetings[2]));
 
@@ -541,6 +560,35 @@ export default function AppointmentDetail() {
       setOutcomeError(err?.message ?? 'Could not save the outcome. Please try again.');
     } finally {
       setSavingOutcome(false);
+    }
+  }
+
+  // Save Changes — generic per-meeting save, added 23 Jul 2026 to fix a real
+  // gap: Mark Meeting Held was the ONLY save action on a meeting, and it
+  // forces status to 'Seen'. A broker who selects Rescheduled or Cancelled
+  // and enters a new date (or just adds notes) had no way to persist that —
+  // the general Save Outcome button lives on a different card, gated behind
+  // the first meeting having data, and isn't an obvious place to look for
+  // "save my reschedule". This saves exactly the current draft state of one
+  // meeting, whatever it is, without forcing a status.
+  async function handleSaveMeeting(meetingNumber) {
+    const meeting = appt.meetings.find(m => m.number === meetingNumber);
+    if (!meeting) return;
+    setSavingMeetingNum(meetingNumber);
+    setSavedMeetingNum(null);
+    setOutcomeError(null);
+    try {
+      const result = await appointmentsApi.saveOutcome(appt.id, {
+        meetings: [{ number: meetingNumber, date: meeting.date, status: meeting.status || '', notes: meeting.notes }],
+      });
+      setAppt(prev => ({ ...prev, status: result?.status ?? prev.status }));
+      refetchAudit();
+      setSavedMeetingNum(meetingNumber);
+      setTimeout(() => setSavedMeetingNum(null), 3000);
+    } catch (err) {
+      setOutcomeError(err?.message ?? 'Could not save this meeting. Please try again.');
+    } finally {
+      setSavingMeetingNum(null);
     }
   }
 
@@ -646,6 +694,7 @@ export default function AppointmentDetail() {
       {/* ── Meeting tracking ────────────────────────────────────────────────── */}
       <MeetingSection
         meeting={appt.meetings[0]} onChange={handleMeetingChange}
+        onSave={handleSaveMeeting} saving={savingMeetingNum === 1} justSaved={savedMeetingNum === 1}
         onMarkHeld={handleMarkMeetingHeld} marking={markingHeld === 1}
         isMobile={isMobile} disabled={isClosed}
       />
@@ -653,6 +702,7 @@ export default function AppointmentDetail() {
       {secondMeetingCreated ? (
         <MeetingSection
           meeting={appt.meetings[1]} onChange={handleMeetingChange}
+          onSave={handleSaveMeeting} saving={savingMeetingNum === 2} justSaved={savedMeetingNum === 2}
           onMarkHeld={handleMarkMeetingHeld} marking={markingHeld === 2}
           isMobile={isMobile} disabled={isClosed}
         />
@@ -669,6 +719,7 @@ export default function AppointmentDetail() {
         thirdMeetingCreated ? (
           <MeetingSection
             meeting={appt.meetings[2]} onChange={handleMeetingChange}
+            onSave={handleSaveMeeting} saving={savingMeetingNum === 3} justSaved={savedMeetingNum === 3}
             onMarkHeld={handleMarkMeetingHeld} marking={markingHeld === 3}
             isMobile={isMobile} disabled={isClosed}
           />

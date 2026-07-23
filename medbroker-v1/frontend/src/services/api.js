@@ -192,6 +192,10 @@ export const leadsApi = {
     request(`/leads/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   // auditLog — change history for LeadDetail.jsx's Audit Log panel.
   auditLog: (id) => request(`/leads/${id}/audit`),
+  // reopen — Admin/Supervisor only, only valid once the lead's most recent
+  // appointment is Closed Lost. Manual by design (Mark's choice) — not
+  // triggered automatically when an outcome is saved.
+  reopen: (id) => request(`/leads/${id}/reopen`, { method: 'PUT' }),
   logCall: (id, attemptData) =>
     request(`/leads/${id}/calls`, { method: 'POST', body: JSON.stringify(attemptData) }),
   // listCalls — call history for a lead, most recent first. Used by

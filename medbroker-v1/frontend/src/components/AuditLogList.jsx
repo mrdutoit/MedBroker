@@ -21,6 +21,7 @@ const ACTION_LABELS = {
   LeadAssigned:                'Lead assigned to an agent',
   LeadReassigned:               'Lead reassigned to a different agent',
   LeadUpdated:                 'Lead details updated',
+  LeadReopened:                'Lead reopened after Closed Lost',
   LeadDeleted:                 'Lead deleted',
   AppointmentCreated:          'Appointment booked',
   AppointmentBrokerAssigned:   'Broker assigned',
@@ -34,7 +35,7 @@ const FIELD_LABELS = {
   whatsappNumber: 'WhatsApp', universityAttended: 'University', yearOfAttendance: 'Year',
   degreeAttained: 'Degree', occupation: 'Job Title', hospitalOrPractice: 'Hospital / Practice',
   existingCover: 'Existing cover', policies: 'Current policies', medicalAid: 'Medical aid',
-  medicalAidProvider: 'Medical aid provider',
+  medicalAidProvider: 'Medical aid provider', portfolio: 'Portfolio',
 };
 
 function describeEntry(entry) {

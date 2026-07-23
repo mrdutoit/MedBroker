@@ -304,6 +304,7 @@ CREATE TABLE IF NOT EXISTS Lead (
     linkedSubscriptionId    UUID            NULL,
     csvImportBatchId        UUID            NULL,
     manualSourceName        VARCHAR(300)    NULL,
+    portfolioId             UUID            NULL,
 
     pipelineStatus          VARCHAR(50)     NOT NULL DEFAULT 'Unassigned',
     assignedAgentId         UUID            NULL,
@@ -321,6 +322,7 @@ CREATE TABLE IF NOT EXISTS Lead (
     CONSTRAINT FK_Lead_ImportBatch  FOREIGN KEY (csvImportBatchId)     REFERENCES CsvImportBatch(id),
     CONSTRAINT FK_Lead_Agent        FOREIGN KEY (assignedAgentId)      REFERENCES "User"(id),
     CONSTRAINT FK_Lead_CreatedBy    FOREIGN KEY (createdById)          REFERENCES "User"(id),
+    CONSTRAINT FK_Lead_Portfolio    FOREIGN KEY (portfolioId)          REFERENCES Portfolio(id),
     CONSTRAINT CK_Lead_Status       CHECK (pipelineStatus IN (
         'Unassigned', 'Assigned', 'InProgress', 'AppointmentScheduled', 'Closed'
     )),
@@ -440,7 +442,13 @@ CREATE TABLE IF NOT EXISTS Appointment (
     updatedAt                   TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
 
     CONSTRAINT PK_Appointment           PRIMARY KEY (id),
-    CONSTRAINT UQ_Appointment_LeadId    UNIQUE (leadId),
+    -- UQ_Appointment_LeadId removed 23 Jul 2026 (Mark's request, see Status.md
+    -- §35) — was a hard 1:1 Lead:Appointment constraint. A Lead can now have
+    -- multiple Appointments over its lifetime (Closed Lost -> manual Reopen
+    -- -> new Book Appointment attempt). Full history preserved; "the current
+    -- appointment" for a Lead is resolved as the most recent by createdAt
+    -- (see leadService.getLeadById's LATERAL join). IX_Appointment_LeadId
+    -- below (a plain, non-unique index) still covers the lookup.
     CONSTRAINT FK_Appointment_Org       FOREIGN KEY (organisationId)    REFERENCES Organisation(id),
     CONSTRAINT FK_Appointment_Lead      FOREIGN KEY (leadId)            REFERENCES Lead(id),
     CONSTRAINT FK_Appointment_Agent     FOREIGN KEY (agentId)           REFERENCES "User"(id),

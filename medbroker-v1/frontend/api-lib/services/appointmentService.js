@@ -47,7 +47,7 @@ const APPOINTMENT_JOINS = `
   LEFT JOIN Event ev                ON l.linkedEventId = ev.id
   LEFT JOIN MedicalSubscription ms  ON l.linkedSubscriptionId = ms.id`;
 
-async function resolvePortfolioId(name) {
+export async function resolvePortfolioId(name) {
   const row = await executeQueryOne(`SELECT id FROM Portfolio WHERE name = @name`, {
     name: { type: sql.NVarChar(200), value: name },
   });
@@ -297,10 +297,16 @@ export async function reassignAppointment(id, data) {
  * Admin/Supervisor returns an appointment to the unassigned leads queue —
  * refuses if the deal is already won (customerSigned = true), matching the
  * comment already in services/api.js. The schema has no archive/soft-delete
- * column for Appointment (and the UNIQUE leadId constraint means the Lead
- * can't get a new appointment while an old row still exists), so this is a
- * genuine delete, not an "archive" despite the frontend comment's wording —
- * confirmed against the actual schema, not assumed.
+ * column for Appointment, so this is a genuine delete, not an "archive"
+ * despite the frontend comment's wording. (Until 23 Jul 2026 this was also
+ * forced by the UNIQUE leadId constraint — a Lead couldn't get a new
+ * Appointment while an old row still existed. That constraint is gone now
+ * (see migration 005), but the delete behaviour here is unchanged; nobody
+ * asked for Return to Leads itself to start preserving history. Contrast
+ * with the newer Reopen Lead action on Lead Detail, which exists precisely
+ * to preserve history — different tool for a different situation: Return
+ * to Leads says "this shouldn't have been booked", Reopen says "this
+ * attempt legitimately fell through, keep the record, let's try again".)
  * @param {string} id
  */
 export async function returnToLeads(id) {

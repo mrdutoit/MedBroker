@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Context
 ====================================================
-Last updated: 23 July 2026
+Last updated: 23 July 2026 (session 2)
 Purpose: Continuity file — load in a new chat to restore full project context.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -156,7 +156,62 @@ Meeting-level lock is separate and finer-grained: a meeting locks once
 explicitly marked Held (status 'Seen', via the dedicated "Mark Meeting
 Held" button — not just any recorded status). Only a Held meeting unlocks
 the next one; Rescheduled/Cancelled keep the current meeting's Date field
-open for a new date instead (§34).
+open for a new date instead (§34). Meeting date/status/notes edits that
+aren't a Held action save via a separate "Save Changes" button per meeting
+(§35) — Mark Meeting Held alone wasn't a complete save path.
+
+LEAD ↔ APPOINTMENT CARDINALITY — ONE-TO-MANY (changed 23 Jul 2026, §35):
+  Previously hard 1:1, enforced by a UNIQUE constraint on Appointment.leadId
+  at the database level, not just by convention — confirmed against the
+  actual schema before this was changed, not assumed from app logic. Now
+  a Lead can have several Appointment rows over its lifetime: a failed
+  attempt (ClosedLost), a Reopen, a second attempt, and so on. Full history
+  is preserved — nothing is deleted or archived when a lead is reopened.
+  "The" appointment shown on Lead Detail / linked via View in Appointments
+  is always the MOST RECENT one by createdAt (leadService.getLeadById()'s
+  LATERAL join) — not "the" appointment, since there may now be several.
+  AppointmentList.jsx needed no change for this: it already lists
+  Appointment rows, not leads deduplicated by lead, so a lead with two
+  appointments over time correctly shows as two separate rows there.
+
+LEAD LOCK / REOPEN (added 23 Jul 2026, §35):
+  A Lead is locked from editing (PUT /api/leads/:id rejected server-side,
+  not just hidden client-side) whenever pipelineStatus === 'AppointmentScheduled'
+  ("Converted"). This covers three real states with different implications,
+  distinguished on LeadDetail.jsx's conversion banner by the current
+  appointment's own status:
+    - Still active (Unassigned/Assigned/InProgress on the Appointment) —
+      locked while the deal is being worked.
+    - ClosedWon — locked PERMANENTLY. No reopen path; the deal is done.
+    - ClosedLost — locked until an Admin/Supervisor explicitly clicks
+      "Reopen Lead". Mark's explicit choice: MANUAL, not automatic on
+      outcome save — a person decides to re-engage.
+  Reopening (leadService.reopenLead(), PUT /api/leads/:id/reopen) reverts
+  pipelineStatus to InProgress — same assignedAgentId, no reassignment
+  needed. Book Appointment becomes available again immediately since that
+  button is already gated on Assigned/InProgress — no separate change was
+  needed there. createAppointment() also needed no change: it already sets
+  pipelineStatus = 'AppointmentScheduled' unconditionally on every booking,
+  which correctly re-locks a reopened lead the instant a second appointment
+  is booked.
+  Distinct from the older Return to Leads action (Admin/Supervisor,
+  Appointment Detail): Return to Leads DELETES the Appointment row and
+  resets the Lead to Unassigned with no agent — for "this shouldn't have
+  been booked". Reopen Lead PRESERVES the Appointment row as history and
+  keeps the same agent — for "this attempt legitimately fell through, try
+  again". Two different tools for two different situations; not a
+  redundant pair.
+
+PORTFOLIO ON LEAD (added 23 Jul 2026, §35):
+  Previously portfolio only existed on Appointment (portfolioId NOT NULL,
+  set at booking). Lead.portfolioId is now a separate, nullable column
+  (migration 004) — a Lead can exist long before anyone knows which
+  portfolio it belongs to, so this is opt-in capture, not required. Editable
+  via the same field-edit mechanism as Contact/Education/Insurance
+  (leadService.updateLead(), resolving the name to portfolioId via
+  resolvePortfolioId() — exported from appointmentService.js and reused,
+  not duplicated). Book Appointment pre-fills its own portfolio field from
+  the Lead's if set, but it's still changeable at booking time, not locked.
 
 LEAD → APPOINTMENT CONVERSION (Salesforce Lead→Opportunity pattern):
   - Book Appointment on Lead Detail creates Appointment child record (leadId FK)
@@ -173,7 +228,9 @@ LEAD → APPOINTMENT CONVERSION (Salesforce Lead→Opportunity pattern):
     UI, only correctable via Reassign (Admin/Supervisor), not directly
     editable — just no longer wrong at creation time.
   - Return to Leads: Admin/Supervisor can return an appointment to Unassigned queue
-    via "Return to Leads" button on Appointment Detail
+    via "Return to Leads" button on Appointment Detail — a genuine delete
+    of the Appointment row (no archive column exists), distinct from
+    Reopen Lead above which preserves it. See LEAD LOCK / REOPEN above.
   - Auto-return: Azure Function (autoReturnLeads.js) runs daily at 05:00 UTC
 
 LEAD EDITING (added 23 Jul 2026, see §34):
@@ -184,10 +241,16 @@ LEAD EDITING (added 23 Jul 2026, see §34):
   /api/leads/:id, enforced server-side in leadHandlers.js. Column scope is
   UPDATE_LEAD_COLUMNS in leadService.js — deliberately narrower than the
   full UpdateLeadSchema surface: exactly the fields LeadDetail.jsx renders
-  as Field rows (Contact Details/Education/Insurance). title/firstName/
-  lastName (page header) and idNumber (not shown on this page) are on the
-  schema but not yet wired to a UI field or a DB column in this function —
-  extending later is additive.
+  as Field rows (Contact Details/Education/Insurance/Portfolio). title/
+  firstName/lastName (page header) and idNumber (not shown on this page)
+  are on the schema but not yet wired to a UI field or a DB column in this
+  function — extending later is additive. portfolio (added §35) is NOT in
+  UPDATE_LEAD_COLUMNS — it needs name-to-ID resolution via
+  resolvePortfolioId(), handled as its own branch in updateLead() rather
+  than the generic column loop, which assumes a direct value.
+  LOCKED (added §35) whenever pipelineStatus === 'AppointmentScheduled' —
+  the request is rejected with 400 before UpdateLeadSchema even runs. See
+  LEAD LOCK / REOPEN above for the full state machine.
 
 AUDIT LOG READ PATH (added 23 Jul 2026, see §34):
   AuditLog table existed and was written to since the A4 security fix

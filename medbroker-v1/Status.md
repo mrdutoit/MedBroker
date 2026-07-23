@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 23 July 2026
+Last updated: 23 July 2026 (session 2)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -896,22 +896,23 @@ These decisions caused rework when changed — preserve them in every session:
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Mark needs to apply §34 (14-item bug/feature batch from his own
-testing — Lead field editing, broker-matching multi-product bug, Audit Log/
-Change Log, meeting lock workflow, Active/Closed status categories, and
-more — see §34 for the full list and what's still outstanding within it).
+Priority: Mark needs to apply §35 (meeting save fix, Lead edit Save button
+placement, Portfolio capture on Lead, and the Lead:Appointment one-to-many
+rework with manual Reopen — see §35 for the full design and file list).
+§35 supersedes §34's file list where they overlap (leadService.js,
+LeadDetail.jsx, AppointmentDetail.jsx, AuditLogList.jsx, schema.postgres.sql)
+— built on top of §34's complete state, not from a fresh hydration, so §35's
+file list is the current, complete one for those files. Don't apply §34's
+versions of them separately.
 
 THEN: Reports (backend + wiring) — still the only remaining page on mock
-data, deferred again this session in favour of Mark's bug list. IMPORTANT,
-per Mark's explicit instruction in §33: build Reports (and anything after
-it) WITHOUT the preview/mock-fallback pattern from the start — no MOCK_*
-constants, no PREVIEW_MODE branching, just real data from the moment the
-backend exists. That pattern is retired, not just removed retroactively
-from the 4 domains that had it. Then the queued prospect-facing Lead
-Portal (§27, confirmed 22 July, not yet scoped in detail), and the Excel/
-JSON data take-on importer flagged in §34 (medical subscriptions, and
-general Lead/Appointment take-on) — deliberately out of scope for §34,
-needs its own scoping session given the size.
+data, deferred again this session. IMPORTANT, per Mark's explicit
+instruction in §33: build Reports (and anything after it) WITHOUT the
+preview/mock-fallback pattern from the start — no MOCK_* constants, no
+PREVIEW_MODE branching, just real data from the moment the backend exists.
+Then the queued prospect-facing Lead Portal (§27), and the Excel/JSON data
+take-on importer flagged in §34 — still deliberately out of scope, still
+needs its own scoping session.
 
 IMPORTANT — read §28 in full before touching Reports or anything else
 that touches api/leads/ or api/appointments/: at the start of an earlier
@@ -921,25 +922,20 @@ missing entirely, api/leads/[id]/calls.js reverted to its old POST-only
 state. Given this, treat every future delivery's file list as something to
 actually re-verify against a fresh hydration at the START of the next
 session, not assumed still correct from a prior session's confirmation.
-This matters more than usual right now: §34 was built from a GitHub
-hydration that turned out to be a STALE COPY OF THIS FILE (Status.md
-itself) — last updated 18 June in the repo vs 22 July here in project
-knowledge, missing roughly five weeks of documented state including all of
-§28 through §33. The code files under api-lib/, api/, and src/ matched
-what this document describes (Appointments/audit/preview-removal all
-present and correct in the actual source), so the STALE COPY problem this
-session was specifically Status.md and Project_Context.md not having been
-pushed after being written — not a code reversion. Mark should confirm
-which commit actually landed on GitHub for these two files and push the
-corrected versions in this delivery if they didn't.
+§34 also found Status.md/Project_Context.md themselves had gone stale on
+GitHub (18 June in the repo vs the far more current project-knowledge
+copy) — confirm that's been corrected; if this document is showing 18 June
+again when you read this, the same thing happened twice and is worth
+investigating properly rather than just re-pushing again.
 
-MIGRATIONS PENDING ON MARK'S LIVE NEON DATABASE (check both are actually
+MIGRATIONS PENDING ON MARK'S LIVE NEON DATABASE (check all are actually
 run before assuming anything Lead/Appointment-related works there):
-db/migrations/002_add_lead_title_dob.sql (title/dateOfBirth on Lead, from
-the Lead-fields session) and db/migrations/003_add_calendly_uri.sql
-(calendlyEventTypeUri on User, from this session) — schema.postgres.sql
-alone does not reach an already-existing database. Still unconfirmed as of
-§34 — carried forward again, ask Mark directly next session if still open.
+db/migrations/002_add_lead_title_dob.sql and 003_add_calendly_uri.sql
+(status unconfirmed — see §34's note that no db/migrations/ directory
+existed in the repo at all before this session, so these may never have
+been committed even if they were run by hand), plus two new ones from
+§35: 004_add_lead_portfolio.sql and 005_drop_appointment_lead_unique.sql.
+schema.postgres.sql alone does not reach an already-existing database.
 
 Before starting Appointments (now done — keeping this for the next
 similar build): read Status.md §25 in full — four real bugs were found
@@ -2273,6 +2269,136 @@ MIGRATION — straightforward overwrite, no deletions:
   src/utils/dateFormat.js                        (NEW)
 Plus this Status.md and Project_Context.md — see the staleness note above,
 push these even if the code files above already landed correctly.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+35. MEETING SAVE FIX, LEAD PORTFOLIO, AND LEAD:APPOINTMENT ONE-TO-MANY — 23 July 2026 (session 2)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Four items from Mark, in one follow-up message right after §34: two bugs
+(meeting save, Save button placement), one feature (Portfolio on Lead), and
+one architecture question he explicitly asked for a recommendation on
+before any code got written.
+
+1. MEETING SAVE BUG FIXED. Root cause: "Mark Meeting Held" was the ONLY
+   save action on a meeting, and it forces status to 'Seen'. A broker who
+   selected Rescheduled or Cancelled and entered a new date — or just added
+   notes — had no way to persist that. The general Save Outcome button
+   lives on a different card, gated behind the first meeting having data,
+   and isn't a place anyone would look for "save my reschedule". New: a
+   "Save Changes" button on every unlocked MeetingSection, alongside Mark
+   Meeting Held — persists whatever's currently drafted (date/status/notes)
+   as-is, no forced status. New handleSaveMeeting() in AppointmentDetail.jsx,
+   reuses the existing scoped-saveOutcome pattern Mark Meeting Held already
+   used. Caught a real bug while writing it: SaveOutcomeSchema's meeting
+   status accepts an enum value or '' — not null. Sending null (my first
+   draft) would have 400'd on every single save; fixed before it shipped.
+
+2. SAVE BUTTON PLACEMENT FIXED. Was at the bottom of the Insurance
+   Information card — Mark's specific complaint: it should be where Edit
+   Details is. Moved to the header, replacing Edit Details while editing;
+   the save-error message moved up there too.
+
+3. PORTFOLIO ON LEAD. Previously portfolio only existed on Appointment
+   (NOT NULL, set at booking). LeadDetail.jsx's "Portfolio" field in the
+   Lead Detail card had existed since the page was built but always
+   rendered '—' — the column never existed on Lead at all, not just an
+   unwired display (confirmed against the actual schema, not assumed).
+   New: nullable Lead.portfolioId (migration 004_add_lead_portfolio.sql),
+   optional field on CreateLeadSchema/UpdateLeadSchema, editable via the
+   existing edit-mode mechanism, optional field on LeadImport.jsx's Manual
+   Entry tab. Book Appointment now pre-fills its own portfolio selection
+   from the Lead's, per Mark's "carries through" request — still
+   overridable at booking time, not locked. resolvePortfolioId() exported
+   from appointmentService.js and reused rather than duplicated.
+
+4. LEAD:APPOINTMENT ONE-TO-MANY (the architecture question). Mark asked
+   directly: "if a lead is converted, it should be locked... if closed-won,
+   it should also be locked, but if closed-lost, it should allow for
+   re-opening... I am thinking there is a one-to-many relationship." Before
+   answering, checked the actual schema rather than reasoning from app
+   logic alone: Appointment.leadId had a UNIQUE constraint — the system was
+   hard 1:1 at the database level, not just by convention. Confirmed his
+   instinct was right and it's the actual blocker.
+
+   Recommended one-to-many over an archive/delete-and-recreate pattern:
+   preserves full history (a lead that took two failed attempts and a
+   third successful one has three Appointment rows, all visible — matters
+   for Reports, not yet built, so this was the right time to decide it
+   rather than after Reports gets built on the wrong assumption). Asked
+   Mark one scoped question before building — automatic unlock on Closed
+   Lost, or manual Reopen requiring an Admin/Supervisor action. Mark chose
+   MANUAL.
+
+   Built:
+   - Migration 005_drop_appointment_lead_unique.sql — drops
+     UQ_Appointment_LeadId. The existing plain index (IX_Appointment_LeadId)
+     already covers the lookup, untouched.
+   - leadService.getLeadById() — "the" appointment on a Lead is now
+     resolved as the most recent by createdAt (LATERAL join), not assumed
+     unique. Also now returns appointmentStatus, needed to decide whether
+     Reopen should show.
+   - New leadService.reopenLead() — validates server-side (not just
+     hidden client-side) that the Lead is genuinely AppointmentScheduled
+     AND its most recent Appointment is genuinely ClosedLost before
+     reverting pipelineStatus to InProgress. Same agent stays assigned;
+     Book Appointment becomes available again immediately (already gated
+     on Assigned/InProgress — no separate change needed there).
+   - New PUT /api/leads/:id/reopen (leadHandlers.handleLeadReopen) —
+     Admin/Supervisor only, same team-scoping pattern as the rest of this
+     file. Writes a LeadReopened audit entry.
+   - Server-side edit lock: leadHandlers.js's existing PUT /leads/:id now
+     rejects the edit outright if pipelineStatus === 'AppointmentScheduled'
+     — the real enforcement; LeadDetail.jsx hiding Edit Details is just
+     the UX layer, matching how every other permission boundary in this
+     app already works (client hides, server enforces).
+   - LeadDetail.jsx: canEdit gains `&& !isConverted`. Conversion banner
+     now distinguishes three states instead of one generic message — still
+     active (locked, no action), Closed Won (🏆 locked permanently), Closed
+     Lost (🔒 locked + "↺ Reopen Lead" button for Admin/Supervisor). New
+     canReopen/handleReopenLead.
+   - Comments fixed in two places that asserted 1:1 as fact: the header
+     comment in AppointmentDetail.jsx, and returnToLeads()'s comment in
+     appointmentService.js, which had used the UNIQUE constraint as part of
+     its reasoning for why Return to Leads does a genuine delete rather
+     than an archive. That reasoning is now partly stale — the constraint
+     is gone — but the conclusion (genuine delete) is unchanged: there's
+     still no archive/soft-delete column, and nobody asked Return to Leads
+     itself to start preserving history. Return to Leads and Reopen Lead
+     are deliberately different tools now: Return to Leads says "this
+     shouldn't have been booked" (deletes it); Reopen says "this attempt
+     legitimately fell through, keep the record, try again" (preserves it).
+
+   NOT changed: AppointmentList.jsx needed no changes — it already lists
+   Appointment rows, not leads deduplicated by lead, so a lead with two
+   appointments over time just shows as two rows, which is correct.
+   createAppointment() needed no changes either — it already sets
+   Lead.pipelineStatus = 'AppointmentScheduled' unconditionally on booking,
+   which now correctly re-locks a reopened lead the moment a second
+   appointment is booked, with no special-casing required.
+
+BUILD VERIFICATION: full Vite build clean (1,300 modules), Vitest suite
+unchanged and passing (45 tests). `npm run lint` still can't run at all
+(missing eslint.config.js, flagged in §34, still not fixed).
+
+MIGRATION — straightforward overwrite, no deletions. This delivery is
+CUMULATIVE — Mark had not yet applied §34 when this session started, so
+this is the complete current state of every file below, not a diff on top
+of an already-applied §34:
+  api-lib/models/lead.js
+  api-lib/services/leadService.js
+  api-lib/services/appointmentService.js
+  api-lib/handlers/leadHandlers.js
+  api/leads-router.js
+  src/services/api.js
+  src/pages/AppointmentDetail.jsx
+  src/pages/LeadDetail.jsx
+  src/pages/LeadImport.jsx
+  src/components/AuditLogList.jsx
+  db/schema.postgres.sql
+  db/migrations/004_add_lead_portfolio.sql          (NEW)
+  db/migrations/005_drop_appointment_lead_unique.sql (NEW)
+Plus this Status.md and Project_Context.md.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

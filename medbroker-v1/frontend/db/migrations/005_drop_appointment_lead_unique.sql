@@ -1,0 +1,21 @@
+-- 005_drop_appointment_lead_unique.sql
+-- Relaxes Lead:Appointment from hard 1:1 to 1:many (23 Jul 2026, Mark's
+-- request — see Status.md §35 for the full design writeup).
+--
+-- Previously a Lead could never have a second Appointment — enforced at the
+-- database level, not just by app logic. That made "reopen a lead after a
+-- lost appointment and try again" impossible without either losing the
+-- history of the first attempt or reinventing a weaker version of this same
+-- change. Full history is now preserved: a Lead that's been through two
+-- failed attempts and a third successful one has three Appointment rows,
+-- all visible.
+--
+-- "The current appointment" for a Lead going forward is resolved as the
+-- most recent by createdAt — see leadService.getLeadById()'s LATERAL join.
+-- No other query needs to change: nothing else in the codebase assumed
+-- uniqueness at the SQL level, only this constraint enforced it.
+--
+-- Run this directly against the live Neon database — schema.postgres.sql
+-- alone does not reach an already-existing database.
+
+ALTER TABLE Appointment DROP CONSTRAINT IF EXISTS UQ_Appointment_LeadId;

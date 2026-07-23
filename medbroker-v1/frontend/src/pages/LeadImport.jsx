@@ -11,6 +11,7 @@ import { useNavigate } from 'react-router-dom';
 import { leadsApi } from '../services/api.js';
 import { s } from '../styles/tokens.js';
 import { TITLES, JOB_TITLES } from '../constants/leadOptions.js';
+import { PORTFOLIOS } from '../context/RoleContext.jsx';
 
 const SUBSCRIPTIONS = [
   'MedLeads SA — Monthly Bundle',
@@ -24,7 +25,7 @@ const SUBSCRIPTIONS = [
 const BLANK_FORM = {
   title: '', source: '', firstName: '', lastName: '', dateOfBirth: '', email: '',
   mobileNumber: '', occupation: '', hospitalOrPractice: '',
-  universityAttended: '', yearOfAttendance: '', degreeAttained: '',
+  universityAttended: '', yearOfAttendance: '', degreeAttained: '', portfolio: '',
 };
 
 // Strips empty-string fields before sending. Left-blank optional fields
@@ -375,6 +376,15 @@ export default function LeadImport() {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
             <div style={s.formGroup}><label style={s.formLabel}>Hospital / Practice</label><input style={s.formInput} value={form.hospitalOrPractice} onChange={e => setForm(f => ({ ...f, hospitalOrPractice: e.target.value }))} /></div>
             <div style={s.formGroup}><label style={s.formLabel}>University Attended</label><input style={s.formInput} value={form.universityAttended} onChange={e => setForm(f => ({ ...f, universityAttended: e.target.value }))} /></div>
+          </div>
+
+          <div style={s.formGroup}>
+            <label style={s.formLabel}>Portfolio</label>
+            <select style={s.formInput} value={form.portfolio} onChange={e => setForm(f => ({ ...f, portfolio: e.target.value }))}>
+              <option value="">Not yet known</option>
+              {PORTFOLIOS.map(p => <option key={p.id} value={p.name}>{p.name}</option>)}
+            </select>
+            <p style={s.formHint}>Optional — if known this early, it carries through to Book Appointment later.</p>
           </div>
 
           <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>

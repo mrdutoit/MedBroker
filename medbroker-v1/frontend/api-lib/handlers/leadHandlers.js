@@ -6,7 +6,7 @@
  */
 
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
-import { listLeads, createLead, listSources, getLeadById, updateLead, deleteLead, assignLead, logCallAttempt, listCallAttempts } from '../services/leadService.js';
+import { listLeads, createLead, listSources, getLeadById, updateLead, deleteLead, assignLead, reopenLead, logCallAttempt, listCallAttempts } from '../services/leadService.js';
 import { getDirectReportIds, isSupervisorOnly, isAgentOnly } from '../services/userService.js';
 import { writeAuditLog, clientIp, listAuditLog } from '../services/auditService.js';
 import { CreateLeadSchema, UpdateLeadSchema, LeadListQuerySchema, AssignLeadSchema, CallAttemptSchema } from '../models/lead.js';
@@ -139,6 +139,13 @@ export async function handleLeadById(req, res, id) {
         }
       }
 
+      // Locked once Converted — added 23 Jul 2026, Mark's request. Stays
+      // locked through ClosedWon permanently, and through ClosedLost until
+      // an Admin/Supervisor explicitly reopens it (PUT /leads/:id/reopen).
+      if (existing.pipelineStatus === 'AppointmentScheduled') {
+        return res.status(400).json({ error: 'This lead is converted and locked. Reopen it before editing.' });
+      }
+
       const parsed = UpdateLeadSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -259,6 +266,64 @@ export async function handleLeadAssign(req, res, id) {
       return res.status(status).json(body);
     }
     console.error('leads/[id]/assign error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * PUT /api/leads/:id/reopen
+ * Manual reopen after a Closed Lost appointment — Admin/Supervisor only
+ * (Mark's explicit choice, 23 Jul 2026: a person decides to re-engage,
+ * it doesn't happen automatically the moment an outcome is saved). An
+ * Agent, even the lead's own assigned agent, cannot reopen it themselves —
+ * matches the same elevated-action pattern as Reassign elsewhere in the app.
+ */
+export async function handleLeadReopen(req, res, id) {
+  if (req.method !== 'PUT') {
+    res.setHeader('Allow', 'PUT, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Supervisor', 'Admin', 'GlobalAdmin']);
+
+    if (!isUuid(id)) {
+      return res.status(400).json({ error: 'Invalid lead ID format' });
+    }
+
+    const existing = await getLeadById(id);
+    if (!existing) return res.status(404).json({ error: 'Lead not found' });
+
+    if (isSupervisorOnly(claims.roles)) {
+      const directReports = await getDirectReportIds(claims.oid);
+      if (!existing.assignedAgentId || !directReports.includes(existing.assignedAgentId)) {
+        return res.status(403).json({ error: 'This lead is outside your team' });
+      }
+    }
+
+    // reopenLead() re-validates pipelineStatus/appointmentStatus itself —
+    // the checks above are ownership/role, not the state machine's own
+    // preconditions, which live in the service layer.
+    await reopenLead(id);
+
+    await writeAuditLog({
+      entityType: 'Lead',
+      entityId: id,
+      action: 'LeadReopened',
+      performedById: claims.oid,
+      changeDetail: { from: 'AppointmentScheduled', to: 'InProgress' },
+      ipAddress: clientIp(req),
+    });
+
+    const updated = await getLeadById(id);
+    return res.status(200).json(updated);
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('leads/[id]/reopen error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

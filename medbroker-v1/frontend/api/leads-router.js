@@ -13,6 +13,7 @@
  *   PUT    /api/leads/:id
  *   DELETE /api/leads/:id
  *   PUT    /api/leads/:id/assign
+ *   PUT    /api/leads/:id/reopen
  *   GET    /api/leads/:id/calls
  *   POST   /api/leads/:id/calls
  *   GET    /api/leads/:id/audit
@@ -20,7 +21,7 @@
 
 import {
   handleLeadsCollection, handleLeadSources, handleLeadById,
-  handleLeadAssign, handleLeadCalls, handleLeadAudit,
+  handleLeadAssign, handleLeadReopen, handleLeadCalls, handleLeadAudit,
 } from '../api-lib/handlers/leadHandlers.js';
 import { applyCors, parseSlug } from '../api-lib/http/helpers.js';
 
@@ -43,6 +44,10 @@ export default async function handler(req, res) {
 
   if (segments.length === 2 && segments[1] === 'assign') {
     return handleLeadAssign(req, res, segments[0]);
+  }
+
+  if (segments.length === 2 && segments[1] === 'reopen') {
+    return handleLeadReopen(req, res, segments[0]);
   }
 
   if (segments.length === 2 && segments[1] === 'calls') {

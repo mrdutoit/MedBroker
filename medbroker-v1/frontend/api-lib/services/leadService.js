@@ -41,6 +41,7 @@ import { executeQuery, executeQueryOne, sql } from './db.js';
 import { encrypt, blindIndex } from './encryption.js';
 import { computeLeadStatus } from './leadStatusService.js';
 import { getActiveUserById } from './userService.js';
+import { resolvePortfolioId } from './appointmentService.js';
 import { config } from '../config.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
@@ -177,15 +178,65 @@ export async function getLeadById(id) {
        ${SOURCE_LABEL_SELECT} AS "sourceLabel",
        l.linkedEventId AS "linkedEventId", l.pipelineStatus AS "pipelineStatus",
        l.assignedAgentId AS "assignedAgentId", l.createdAt AS "createdAt", l.updatedAt AS "updatedAt",
-       ap.id AS "appointmentId"
+       ap.id AS "appointmentId", ap.status AS "appointmentStatus", pf.name AS "portfolio"
      FROM Lead l
      ${SOURCE_JOINS}
-     LEFT JOIN Appointment ap ON ap.leadId = l.id
+     -- A Lead can now have several Appointments over its lifetime (see
+     -- migration 005 — the old UNIQUE leadId constraint is gone). "The"
+     -- appointment shown on Lead Detail / linked via View in Appointments
+     -- is the most recent one by createdAt, not "the" one — LATERAL picks
+     -- exactly one row per Lead so this stays a single-row result.
+     LEFT JOIN LATERAL (
+       SELECT id, status FROM Appointment
+       WHERE leadId = l.id
+       ORDER BY createdAt DESC
+       LIMIT 1
+     ) ap ON true
+     LEFT JOIN Portfolio pf ON pf.id = l.portfolioId
      WHERE l.id = @id AND l.deletedAt IS NULL AND l.organisationId = @organisationId`,
     {
       id: { type: sql.UniqueIdentifier, value: id },
       organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
     }
+  );
+}
+
+/**
+ * Reopen a Lead after its most recent Appointment closed lost — manual
+ * action, Admin/Supervisor only (Mark's explicit choice over an automatic
+ * unlock: a person should decide to re-engage, not have it happen silently
+ * the moment an outcome is saved). Reverts pipelineStatus from
+ * AppointmentScheduled back to InProgress — same agent stays assigned,
+ * Lead becomes editable again, and Book Appointment becomes available
+ * again immediately (already gated on Assigned/InProgress, no separate
+ * change needed there). Validated server-side, not just hidden client-side:
+ * only actually reopenable if the Lead is genuinely Converted AND its most
+ * recent Appointment is genuinely ClosedLost.
+ * @param {string} leadId
+ */
+export async function reopenLead(leadId) {
+  const organisationId = resolveOrganisationId();
+  const lead = await executeQueryOne(
+    `SELECT l.pipelineStatus AS "pipelineStatus", ap.status AS "appointmentStatus"
+     FROM Lead l
+     LEFT JOIN LATERAL (
+       SELECT status FROM Appointment WHERE leadId = l.id ORDER BY createdAt DESC LIMIT 1
+     ) ap ON true
+     WHERE l.id = @leadId AND l.deletedAt IS NULL AND l.organisationId = @organisationId`,
+    { leadId: { type: sql.UniqueIdentifier, value: leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  if (!lead) throw { status: 404, message: 'Lead not found' };
+  if (lead.pipelineStatus !== 'AppointmentScheduled') {
+    throw { status: 400, message: 'This lead is not in a converted state.' };
+  }
+  if (lead.appointmentStatus !== 'ClosedLost') {
+    throw { status: 400, message: 'This lead\'s most recent appointment is not Closed Lost.' };
+  }
+
+  await executeQuery(
+    `UPDATE Lead SET pipelineStatus = 'InProgress', updatedAt = NOW()
+     WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
+    { leadId: { type: sql.UniqueIdentifier, value: leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
 }
 
@@ -199,6 +250,13 @@ export async function createLead(data, createdById) {
   const encryptedIdNumber = data.idNumber ? await encrypt(data.idNumber) : null;
   const idNumberHash = data.idNumber ? blindIndex(data.idNumber) : null;
   const newId = crypto.randomUUID();
+  // Optional — a Lead can exist long before anyone knows its portfolio.
+  // Same resolvePortfolioId() Appointment booking uses; throws the same
+  // "Unknown portfolio" error if a bad name somehow gets through (the
+  // dropdown only offers valid names, so this is defence-in-depth, not
+  // an expected path).
+  const portfolioId = data.portfolio ? await resolvePortfolioId(data.portfolio) : null;
+  if (data.portfolio && !portfolioId) throw { status: 400, message: `Unknown portfolio: ${data.portfolio}` };
 
   await executeQuery(
     `INSERT INTO Lead (
@@ -206,14 +264,14 @@ export async function createLead(data, createdById) {
        mobileNumber, whatsappNumber, universityAttended, yearOfAttendance,
        degreeAttained, occupation, hospitalOrPractice, existingCover, policies,
        medicalAid, medicalAidProvider, linkedEventId, linkedSubscriptionId,
-       csvImportBatchId, manualSourceName, pipelineStatus,
+       csvImportBatchId, manualSourceName, portfolioId, pipelineStatus,
        createdById, createdAt, updatedAt
      ) VALUES (
        @id, @organisationId, @title, @firstName, @lastName, @dateOfBirth, @idNumberEncrypted, @idNumberHash, @email,
        @mobileNumber, @whatsappNumber, @universityAttended, @yearOfAttendance,
        @degreeAttained, @occupation, @hospitalOrPractice, @existingCover, @policies,
        @medicalAid, @medicalAidProvider, @linkedEventId, @linkedSubscriptionId,
-       @csvImportBatchId, @manualSourceName, 'Unassigned',
+       @csvImportBatchId, @manualSourceName, @portfolioId, 'Unassigned',
        @createdById, NOW(), NOW()
      )`,
     {
@@ -241,6 +299,7 @@ export async function createLead(data, createdById) {
       linkedSubscriptionId: { type: sql.UniqueIdentifier,   value: data.linkedSubscriptionId ?? null },
       csvImportBatchId:     { type: sql.UniqueIdentifier,   value: data.csvImportBatchId ?? null },
       manualSourceName:     { type: sql.NVarChar(300),      value: data.manualSourceName ?? null },
+      portfolioId:          { type: sql.UniqueIdentifier,   value: portfolioId },
       createdById:          { type: sql.UniqueIdentifier,   value: createdById },
     }
   );
@@ -292,6 +351,17 @@ export async function updateLead(leadId, data) {
     setClauses.push(`${col} = @${field}`);
     params[field] = { type, value: data[field] };
   }
+
+  // portfolio isn't in UPDATE_LEAD_COLUMNS — it's a name that needs
+  // resolving to portfolioId, not a direct column value like the rest.
+  // Added 23 Jul 2026 alongside portfolio capture on the Lead (see §35).
+  if (data.portfolio !== undefined) {
+    const portfolioId = await resolvePortfolioId(data.portfolio);
+    if (!portfolioId) throw { status: 400, message: `Unknown portfolio: ${data.portfolio}` };
+    setClauses.push('portfolioId = @portfolioId');
+    params.portfolioId = { type: sql.UniqueIdentifier, value: portfolioId };
+  }
+
   if (setClauses.length === 0) return false;
 
   await executeQuery(

@@ -196,16 +196,50 @@ export default function LeadDetail() {
   const { data: auditData, refetch: refetchAudit } = useFetch(() => leadsApi.auditLog(id), [id]);
   const auditEntries = auditData?.entries ?? [];
 
-  // Editable-fields permission — assigned Agent, Supervisor, or Admin/
-  // GlobalAdmin, matching the server-side check in leadHandlers.js exactly
-  // (this is a UX gate only; the real enforcement is server-side).
-  const isAdminRole = role === 'Admin' || role === 'GlobalAdmin';
-  const canEdit = isAdminRole || role === 'Supervisor' || (role === 'Agent' && baseLead.assignedAgentId === persona.id);
-
   // Local status override — reflects transitions immediately after an
   // action, before the next real fetch would otherwise pick them up.
   const [statusOverride,   setStatusOverride]   = useState(null);
   const [bookingConfirmed, setBookingConfirmed]  = useState(false);
+  const [reopening,        setReopening]        = useState(false);
+  const [reopenError,      setReopenError]      = useState('');
+
+  const currentStatus = bookingConfirmed
+    ? 'AppointmentScheduled'
+    : (statusOverride ?? baseLead.pipelineStatus ?? 'Unassigned');
+
+  const isConverted = currentStatus === 'AppointmentScheduled';
+  const isClosed    = currentStatus === 'Closed';
+  // Book Appointment only available for active, assigned/in-progress leads
+  const canBook     = currentStatus === 'Assigned' || currentStatus === 'InProgress';
+
+  // Editable-fields permission — assigned Agent, Supervisor, or Admin/
+  // GlobalAdmin, matching the server-side check in leadHandlers.js exactly
+  // (this is a UX gate only; the real enforcement is server-side). Locked
+  // once Converted (23 Jul 2026, Mark's request) — stays locked through
+  // ClosedWon permanently, and through ClosedLost until reopened.
+  const isAdminRole = role === 'Admin' || role === 'GlobalAdmin';
+  const canEdit    = (isAdminRole || role === 'Supervisor' || (role === 'Agent' && baseLead.assignedAgentId === persona.id)) && !isConverted;
+  // Reopen is Admin/Supervisor only, manual (Mark's explicit choice over
+  // an automatic unlock) — only meaningful once Converted AND the most
+  // recent appointment is genuinely Closed Lost.
+  const canManage  = isAdminRole || role === 'Supervisor';
+  const canReopen  = canManage && isConverted && baseLead.appointmentStatus === 'ClosedLost';
+
+  async function handleReopenLead() {
+    setReopening(true);
+    setReopenError('');
+    try {
+      await leadsApi.reopen(id);
+      setStatusOverride('InProgress');
+      refetchAudit();
+      await refetchLead();
+    } catch (err) {
+      setReopenError(err instanceof ApiError ? err.message : 'Could not reopen this lead. Please try again.');
+    } finally {
+      setReopening(false);
+    }
+  }
+
   const [showCallForm,     setShowCallForm]      = useState(false);
   const [showBookForm,     setShowBookForm]      = useState(false);
   const [callForm,         setCallForm]          = useState({ outcome: '', notes: '', callbackDateTime: '' });
@@ -228,6 +262,7 @@ export default function LeadDetail() {
       degreeAttained: baseLead.degreeAttained ?? '',
       existingCover: baseLead.existingCover ?? null, policies: baseLead.policies ?? '',
       medicalAid: baseLead.medicalAid ?? null, medicalAidProvider: baseLead.medicalAidProvider ?? '',
+      portfolio: baseLead.portfolio ?? '',
     });
     setEditError('');
     setEditing(true);
@@ -266,15 +301,6 @@ export default function LeadDetail() {
       setCalls(callsData.calls.map(c => ({ ...c, label: OUTCOME_LABELS[c.outcome] ?? c.outcome })));
     }
   }, [callsData]);
-
-  const currentStatus = bookingConfirmed
-    ? 'AppointmentScheduled'
-    : (statusOverride ?? baseLead.pipelineStatus ?? 'Unassigned');
-
-  const isConverted = currentStatus === 'AppointmentScheduled';
-  const isClosed    = currentStatus === 'Closed';
-  // Book Appointment only available for active, assigned/in-progress leads
-  const canBook     = currentStatus === 'Assigned' || currentStatus === 'InProgress';
 
   async function handleLogCall(e) {
     e.preventDefault();
@@ -345,17 +371,40 @@ export default function LeadDetail() {
   return (
     <div style={{ padding: isMobile ? '16px' : '24px' }}>
 
-      {/* Conversion notice */}
+      {/* Conversion notice — wording and actions depend on the current
+          appointment's own status, not just "converted or not" (23 Jul
+          2026, Mark's request: Closed Won stays locked permanently, Closed
+          Lost stays locked until an Admin/Supervisor reopens it). */}
       {isConverted && (
-        <div style={{ background: 'color-mix(in srgb, #15803d 14%, var(--panel))', border: '1px solid color-mix(in srgb, #15803d 30%, var(--panel))', borderRadius: '6px', padding: '10px 14px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', fontSize: '0.875rem', color: '#15803d', flexWrap: 'wrap' }}>
-          <span>✅ <strong>Appointment booked.</strong> This lead is now Converted and stays visible here.</span>
-          <button
-            onClick={() => navigate(baseLead.appointmentId ? `/appointments/${baseLead.appointmentId}` : '/appointments')}
-            style={{ background:'var(--live)', color:'white', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
-          >
-            View in Appointments →
-          </button>
+        <div style={{
+          background: baseLead.appointmentStatus === 'ClosedLost' ? 'color-mix(in srgb, #dc2626 14%, var(--panel))' : 'color-mix(in srgb, #15803d 14%, var(--panel))',
+          border: `1px solid ${baseLead.appointmentStatus === 'ClosedLost' ? 'color-mix(in srgb, #dc2626 30%, var(--panel))' : 'color-mix(in srgb, #15803d 30%, var(--panel))'}`,
+          borderRadius: '6px', padding: '10px 14px', marginBottom: '16px',
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px',
+          fontSize: '0.875rem', color: baseLead.appointmentStatus === 'ClosedLost' ? '#dc2626' : '#15803d', flexWrap: 'wrap',
+        }}>
+          <span>
+            {baseLead.appointmentStatus === 'ClosedWon' && <>🏆 <strong>Closed Won.</strong> This lead is locked — the deal is done.</>}
+            {baseLead.appointmentStatus === 'ClosedLost' && <>🔒 <strong>Closed Lost.</strong> This lead is locked until reopened.</>}
+            {baseLead.appointmentStatus !== 'ClosedWon' && baseLead.appointmentStatus !== 'ClosedLost' && <>✅ <strong>Appointment booked.</strong> This lead is now Converted and locked while it's active.</>}
+          </span>
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            {canReopen && (
+              <button onClick={handleReopenLead} disabled={reopening} style={{ background: 'none', color: '#dc2626', border: '1px solid #dc2626', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap', opacity: reopening ? 0.6 : 1 }}>
+                {reopening ? 'Reopening…' : '↺ Reopen Lead'}
+              </button>
+            )}
+            <button
+              onClick={() => navigate(baseLead.appointmentId ? `/appointments/${baseLead.appointmentId}` : '/appointments')}
+              style={{ background:'var(--live)', color:'white', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+            >
+              View in Appointments →
+            </button>
+          </div>
         </div>
+      )}
+      {reopenError && (
+        <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.8125rem', marginBottom: '14px' }}>{reopenError}</div>
       )}
 
       {/* Header */}
@@ -364,9 +413,17 @@ export default function LeadDetail() {
         <h1 style={{ fontSize: isMobile ? '1.25rem' : '1.5rem', fontWeight: 700, color:'var(--ink)', margin: 0 }}>
           {baseLead.title} {baseLead.firstName} {baseLead.lastName}
         </h1>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
           {canEdit && !editing && (
             <button onClick={startEditing} style={btn.secondary}>Edit Details</button>
+          )}
+          {canEdit && editing && (
+            <>
+              <button onClick={handleSaveEdit} disabled={savingEdit} style={btn.primary}>
+                {savingEdit ? 'Saving…' : 'Save Changes'}
+              </button>
+              <button onClick={() => setEditing(false)} disabled={savingEdit} style={btn.ghost}>Cancel</button>
+            </>
           )}
           {!isConverted && !isClosed && (
             <>
@@ -383,6 +440,11 @@ export default function LeadDetail() {
         </div>
       </div>
 
+      {/* Edit save error */}
+      {editError && (
+        <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.8125rem', marginBottom: '14px' }}>{editError}</div>
+      )}
+
       {/* Status transition hint */}
       {!isConverted && !isClosed && (
         <div style={{ background: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))', border: '1px solid color-mix(in srgb, #1d4ed8 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: 'var(--accent)' }}>
@@ -398,7 +460,14 @@ export default function LeadDetail() {
         <div style={cardStyle}>
           <div style={cardTitle}>Lead Detail</div>
           <Field label="Status"><StatusPill status={currentStatus} /></Field>
-          <Field label="Portfolio"><PortfolioPill portfolio={baseLead.portfolio} /></Field>
+          {editing ? (
+            <EditableField
+              label="Portfolio" type="select" options={PORTFOLIOS.map(p => p.name)}
+              editing value={editForm.portfolio} onChange={v => setField('portfolio', v)}
+            />
+          ) : (
+            <Field label="Portfolio"><PortfolioPill portfolio={baseLead.portfolio} /></Field>
+          )}
           <Field label="Lead source" value={baseLead.sourceLabel} />
           <Field label="Agent"       value={baseLead.agentName} />
           <Field label="Date created">
@@ -434,15 +503,6 @@ export default function LeadDetail() {
           <EditableField label="Current policies" type="textarea" editing={editing} value={editing ? editForm.policies : baseLead.policies} onChange={v => setField('policies', v)} />
           <EditableField label="Medical aid" type="bool" editing={editing} value={editing ? editForm.medicalAid : baseLead.medicalAid} onChange={v => setField('medicalAid', v)} />
           <EditableField label="Medical aid provider" editing={editing} value={editing ? editForm.medicalAidProvider : baseLead.medicalAidProvider} onChange={v => setField('medicalAidProvider', v)} />
-          {editing && (
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--line)' }}>
-              <button onClick={handleSaveEdit} disabled={savingEdit} style={btn.primary}>
-                {savingEdit ? 'Saving…' : 'Save Changes'}
-              </button>
-              <button onClick={() => setEditing(false)} disabled={savingEdit} style={btn.ghost}>Cancel</button>
-            </div>
-          )}
-          {editError && <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.8125rem', marginTop: '10px' }}>{editError}</div>}
         </div>
 
         {/* Call history */}
@@ -595,8 +655,11 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
     ghost:   { background: 'none', color:'var(--mut)', border: '1px solid var(--line)', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
   };
 
+  // Pre-filled from the Lead's own portfolio if it was captured there
+  // (added 23 Jul 2026, Mark's request) — still editable here, a booking
+  // in progress can always override it.
   const [region,       setRegion]       = useState('');
-  const [portfolio,    setPortfolio]    = useState('');
+  const [portfolio,    setPortfolio]    = useState(lead.portfolio ?? '');
   const [products,     setProducts]     = useState([]);
   const [searched,     setSearched]     = useState(false);
   const [searching,    setSearching]    = useState(false);
