@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 23 July 2026 (session 9)
+Last updated: 23 July 2026 (session 10)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -896,14 +896,12 @@ These decisions caused rework when changed — preserve them in every session:
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Mark needs to apply §43 (AgentDetail.jsx/BrokerDetail.jsx rewired
-to real data — the deferred second half of the Reports feature; see §43).
-With this, the ENTIRE app is now off mock data — no page left with
-hardcoded fixtures. No new migration. New routes added to the same
-reports-router.js from §42 (already deployed with the /api/reports/:slug*
-rewrite) — should need no further vercel.json change, but worth Mark
-confirming /api/reports/agent/:id and /api/reports/broker/:id actually
-resolve after this deploy, same caution as §42.
+Priority: Mark needs to apply §44 (per-product policy value tracking —
+AppointmentProduct.policyValue, captured on Appointment Outcome, fed back
+into Reports.jsx/BrokerDetail.jsx's Policy Value KPIs which had been
+dropped in §42/§43 for having no real data — see §44). New migration:
+008_add_appointment_product_value.sql — run against Neon like every other
+migration in this list.
 
 RESOLVED — §37's root-cause theory for the blank Lead Detail page was
 confirmed correct by Mark directly: he'd forgotten to run the pending
@@ -2995,6 +2993,92 @@ MIGRATION — straightforward overwrite, no new database migration:
   src/pages/AgentDetail.jsx
   src/pages/BrokerDetail.jsx
   src/services/api.js
+Plus this Status.md.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+44. PER-PRODUCT POLICY VALUE TRACKING — 23 July 2026 (session 10)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark, directly: "I actually want to be able to track values for policies
+sold... against the items selected and store them, so that it could be a
+metric that is reported on." This is the direct answer to the gap flagged
+repeatedly in §42/§43 — no monetary field existed anywhere in the schema,
+so Policy Value was dropped from every KPI it used to live in rather than
+inventing a capture feature nobody had asked for. Now they have.
+
+Scope decided from the wording, not asked about again given how clearly
+it was stated: value is tracked PER PRODUCT on an appointment (Mark said
+"against the items selected"), not one lump sum per appointment — a
+broker selling both Life Insurance and Gap Cover in one meeting can have
+different values against each. Value is optional at save time — a broker
+recording the outcome without the exact figure yet shouldn't be blocked
+from saving; the UI surfaces how many products are still missing a value
+as a gentle nudge, not a hard requirement.
+
+CAUGHT MID-BUILD, not after shipping: adding SUM(policyValue) via a
+direct JOIN to AppointmentProduct in the broker-list report query would
+have silently fanned out one row per product sold, inflating the
+appts/signed COUNT()s on the very same query (an appointment with 3
+products sold would have counted as 3 appointments). Used a correlated
+scalar subquery for the policy-value sum instead, keeping the
+appointment-level aggregates on a completely separate, fan-out-free path.
+Same reasoning applied to the org-wide total in getReportSummary() — its
+own standalone query, not folded into the pipeline/trend aggregates.
+
+BUILT:
+  - Schema: AppointmentProduct.policyValue NUMERIC(12,2), nullable.
+    Migration 008_add_appointment_product_value.sql.
+  - models/appointment.js: SaveOutcomeSchema.productsSold changed from
+    z.array(z.string()) to z.array({product, value}) — value optional/
+    nullable. A real breaking change to the wire contract, updated
+    consistently on both ends in the same pass (not left half-migrated).
+  - appointmentService.js: resolveProductIds() -> resolveProductIdMap()
+    (returns a name->id Map instead of a bare array, so a value stays
+    attached to its product through the resolve step rather than relying
+    on two parallel arrays staying in matching order — fragile the moment
+    that assumption breaks). getProductNames() -> getProductsSold(),
+    returns {name, value} pairs instead of bare names. syncAppointmentProducts()
+    now writes the value column alongside each row.
+  - AppointmentDetail.jsx: Products Sold reworked from a flex-wrap
+    checkbox-pill row to a vertical list — each checked product gets its
+    own inline Rand input, plus a running total and a note on how many
+    products still lack a value. Draft state changed from a bare product-
+    name array to [{product, value}], consistent with the new wire shape.
+  - reportService.js: getBrokerReport() adds a fan-out-safe policyValue
+    per broker (scalar subquery, see above). getBrokerDetailReport()'s
+    existing products-sold query gains SUM(policyValue) per product (safe
+    here — that query already groups by product name, no new fan-out
+    risk). getReportSummary() adds an org-wide totalPolicyValue, its own
+    standalone query.
+  - Reports.jsx: reintroduced the fmt() Rand formatter removed in §42.
+    Real "Total Policy Value" org KPI (5th slot, grid now sized
+    dynamically off kpis.length rather than a hardcoded column count so
+    self-views with 4 cards and the org view's 5 both lay out correctly).
+    Policy Value column back on the Broker Performance table, sort order
+    restored to by-policy-value (matching the original mock's intent, now
+    backed by real data instead of a fabricated number).
+  - BrokerDetail.jsx: "Meetings Held" (the placeholder substituted in for
+    Policy Value back in §43) swapped for real Policy Value. Products
+    Sold chart now shows Rand value alongside count per product. Broker's
+    own self-view KPI on Reports.jsx: "Portfolios" swapped for "My Policy
+    Value" — a real performance number is more useful there than mostly-
+    static metadata.
+  - AgentDetail.jsx: untouched — agents don't sell products, no policy
+    value concept applies to that page.
+
+BUILD VERIFICATION: full Vite build clean, Vitest suite unchanged and
+passing (45 tests).
+
+MIGRATION — straightforward overwrite:
+  api-lib/models/appointment.js
+  api-lib/services/appointmentService.js
+  api-lib/services/reportService.js
+  db/schema.postgres.sql
+  db/migrations/008_add_appointment_product_value.sql (NEW)
+  src/pages/AppointmentDetail.jsx
+  src/pages/BrokerDetail.jsx
+  src/pages/Reports.jsx
 Plus this Status.md.
 
 

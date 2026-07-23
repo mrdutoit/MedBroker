@@ -529,7 +529,9 @@ export default function AppointmentDetail() {
       agentName:      apptData.agentName,
       brokerSwitch:   apptData.isBrokerSwitch ?? false,
       customerSigned: apptData.customerSigned,
-      productsSold:   apptData.productsSold ?? [],
+      // apptData.productsSold is [{name, value}] from the API (§44) — map
+      // to {product, value} to match this component's own field naming.
+      productsSold:   (apptData.productsSold ?? []).map(p => ({ product: p.name, value: p.value })),
       meetings: [1, 2, 3].map((n) => ({
         number:   n,
         // .slice(0, 10) — apptData[`meeting${n}Date`] comes back as a full
@@ -591,12 +593,25 @@ export default function AppointmentDetail() {
     setAppt(prev => ({ ...prev, [field]: value }));
   }
 
+  // Changed 23 Jul 2026 (§44, Mark's request) — productsSold is now
+  // [{product, value}] instead of a bare string array, carrying an
+  // optional Rand value per product. Checking a product adds it with
+  // value: null (not yet captured); unchecking removes it entirely,
+  // value and all.
   function handleProductToggle(product) {
     setAppt(prev => ({
       ...prev,
-      productsSold: prev.productsSold.includes(product)
-        ? prev.productsSold.filter(p => p !== product)
-        : [...prev.productsSold, product],
+      productsSold: prev.productsSold.some(p => p.product === product)
+        ? prev.productsSold.filter(p => p.product !== product)
+        : [...prev.productsSold, { product, value: null }],
+    }));
+  }
+
+  function handleProductValueChange(product, rawValue) {
+    const value = rawValue === '' ? null : Number(rawValue);
+    setAppt(prev => ({
+      ...prev,
+      productsSold: prev.productsSold.map(p => p.product === product ? { ...p, value } : p),
     }));
   }
 
@@ -880,19 +895,47 @@ export default function AppointmentDetail() {
         </div>
         <div style={{ marginBottom: '14px' }}>
           <label style={s.formLabel}>Products Sold</label>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px' }}>
-            {productsForPortfolio.map(product => (
-              <label key={product} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8125rem', cursor: isLocked ? 'default' : 'pointer' }}>
-                <input
-                  type="checkbox"
-                  checked={appt.productsSold.includes(product)}
-                  disabled={isLocked}
-                  onChange={() => handleProductToggle(product)}
-                />
-                {product}
-              </label>
-            ))}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginTop: '6px' }}>
+            {productsForPortfolio.map(product => {
+              const entry = appt.productsSold.find(p => p.product === product);
+              const checked = !!entry;
+              return (
+                <div key={product} style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8125rem', cursor: isLocked ? 'default' : 'pointer', minWidth: '200px' }}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      disabled={isLocked}
+                      onChange={() => handleProductToggle(product)}
+                    />
+                    {product}
+                  </label>
+                  {checked && (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ fontSize: '0.8125rem', color: 'var(--mut)' }}>R</span>
+                      <input
+                        type="number" min="0" step="0.01" placeholder="Policy value"
+                        style={{ ...s.formInput, width: '140px', opacity: isLocked ? 0.6 : 1 }}
+                        value={entry.value ?? ''}
+                        disabled={isLocked}
+                        onChange={e => handleProductValueChange(product, e.target.value)}
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
+          {appt.productsSold.length > 0 && (
+            <p style={{ fontSize: '0.8125rem', color: 'var(--mut)', marginTop: '10px' }}>
+              Total policy value: <strong style={{ color: 'var(--ink)' }}>
+                R{appt.productsSold.reduce((sum, p) => sum + (p.value ?? 0), 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </strong>
+              {appt.productsSold.some(p => p.value === null) && (
+                <span> — {appt.productsSold.filter(p => p.value === null).length} product{appt.productsSold.filter(p => p.value === null).length !== 1 ? 's' : ''} without a value yet</span>
+              )}
+            </p>
+          )}
         </div>
         {!isLocked && (
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>

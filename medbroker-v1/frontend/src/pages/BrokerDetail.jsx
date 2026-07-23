@@ -141,7 +141,7 @@ export default function BrokerDetail() {
           { label: 'Appointments',    value: kpi.appts.toString(),        colour: 'var(--ink)' },
           { label: 'Signed',          value: kpi.signed.toString(),       colour: '#15803d' },
           { label: 'Conversion',      value: kpi.conversion,              colour: '#15803d' },
-          { label: 'Meetings held',   value: kpi.meetingsHeld.toString(), colour: '#15803d' },
+          { label: 'Policy value',    value: `R${kpi.policyValue.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, colour: '#15803d' },
           { label: 'Broker switches', value: kpi.switches.toString(),     colour: 'var(--ink)' },
         ].map(m => (
           <div key={m.label} style={s.metricCard}>
@@ -161,7 +161,9 @@ export default function BrokerDetail() {
             <div key={p.name} style={{ marginBottom: '9px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
                 <span style={{ fontSize: '0.8125rem', color:'var(--ink)' }}>{p.name}</span>
-                <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>{p.count}</span>
+                <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+                  {p.count} {p.value > 0 && <span style={{ color: '#15803d', fontWeight: 500 }}>· R{p.value.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>}
+                </span>
               </div>
               <div style={s.barTrack}>
                 <div style={{ ...s.barFill, background: PRODUCT_COLOURS[i % PRODUCT_COLOURS.length], width: `${(p.count / maxProducts) * 100}%` }} />

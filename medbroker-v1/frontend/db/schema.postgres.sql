@@ -504,6 +504,15 @@ CREATE TABLE IF NOT EXISTS AppointmentProduct (
     id              UUID            NOT NULL DEFAULT gen_random_uuid(),
     appointmentId   UUID            NOT NULL,
     productId       UUID            NOT NULL,
+    -- Added 23 Jul 2026 (Mark's request) — the Rand value of this specific
+    -- product on this specific appointment, so policy value can be tracked
+    -- per item sold and reported on (previously no monetary field existed
+    -- anywhere in the schema — Reports.jsx/BrokerDetail.jsx both dropped
+    -- Policy Value KPIs for exactly that reason; this is what re-enables
+    -- them for real, see reportService.js). Nullable — capturing a value
+    -- shouldn't block saving the outcome if the broker doesn't have the
+    -- exact figure to hand yet.
+    policyValue     NUMERIC(12,2)   NULL,
     CONSTRAINT PK_AppointmentProduct         PRIMARY KEY (id),
     CONSTRAINT FK_AppointmentProduct_Appt    FOREIGN KEY (appointmentId) REFERENCES Appointment(id),
     CONSTRAINT FK_AppointmentProduct_Product FOREIGN KEY (productId)     REFERENCES Product(id),

@@ -46,6 +46,9 @@ import { s, colors, CHART_PALETTE } from '../styles/tokens.js';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 const pct = (n, d) => d === 0 ? '0%' : `${Math.round(n / d * 100)}%`;
+// Reintroduced 23 Jul 2026, §44 — removed in §42 when Policy Value was
+// dropped for having no real data source. It has one now.
+const fmt = v => `R${(v / 1000000).toFixed(2)}m`;
 
 const TOOLTIP_STYLE = {
   background: 'var(--panel)', color: 'var(--ink)', border: `1px solid ${colors.line}`,
@@ -183,10 +186,11 @@ export default function Reports() {
   const myAgent  = selfView ? agents[0]  : undefined;
   const myBroker = selfView ? brokers[0] : undefined;
 
-  const orgTotalLeads = pipeline.reduce((sum, r) => sum + r.count, 0);
-  const orgClosedWon  = pipeline.find(r => r.status === 'Closed Won')?.count ?? 0;
-  const orgAppts      = agents.reduce((sum, a) => sum + a.appts, 0);
-  const activeBrokers = brokers.filter(b => b.appts > 0).length;
+  const orgTotalLeads     = pipeline.reduce((sum, r) => sum + r.count, 0);
+  const orgClosedWon      = pipeline.find(r => r.status === 'Closed Won')?.count ?? 0;
+  const orgAppts          = agents.reduce((sum, a) => sum + a.appts, 0);
+  const activeBrokers     = brokers.filter(b => b.appts > 0).length;
+  const orgTotalPolicyValue = summaryData?.totalPolicyValue ?? 0;
 
   const kpis = selfView
     ? (isAgentView && myAgent
@@ -201,7 +205,7 @@ export default function Reports() {
             { label: 'My appointments', value: myBroker.appts.toString(),  sub: 'Allocated to you'  },
             { label: 'Signed',          value: myBroker.signed.toString(), sub: `${pct(myBroker.signed, myBroker.appts)} conversion` },
             { label: 'Conversion rate', value: pct(myBroker.signed, myBroker.appts), sub: 'Signed ÷ appointments' },
-            { label: 'Portfolios',      value: myBroker.portfolios.length.toString(), sub: myBroker.portfolios.join(', ') || 'None assigned' },
+            { label: 'My policy value', value: fmt(myBroker.policyValue),  sub: 'Products sold this period' },
           ]
         : [])
     : [
@@ -209,6 +213,7 @@ export default function Reports() {
         { label: 'Closed Won',         value: orgClosedWon.toString(),        sub: `${pct(orgClosedWon, orgTotalLeads)} conversion` },
         { label: 'Appointments booked',value: orgAppts.toLocaleString(),      sub: 'Booked this period' },
         { label: 'Active brokers',     value: activeBrokers.toString(),       sub: 'With ≥1 appointment' },
+        { label: 'Total policy value', value: fmt(orgTotalPolicyValue),       sub: 'Across all products sold' },
       ];
 
   const noSelfData = selfView && !anyLoading && kpis.length === 0;
@@ -256,7 +261,7 @@ export default function Reports() {
           No reporting data for your account in this period.
         </div>
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '12px', marginBottom: '16px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : `repeat(${kpis.length}, 1fr)`, gap: '12px', marginBottom: '16px' }}>
           {kpis.map(c => (
             <div key={c.label} style={s.card}>
               <div style={s.kpiLabel}>{c.label}</div>
@@ -296,6 +301,7 @@ export default function Reports() {
               <th style={s.th}>Portfolio</th>
               <th style={{ ...s.th, textAlign: 'right' }}>Appointments</th>
               <th style={{ ...s.th, textAlign: 'right' }}>Signed</th>
+              <th style={{ ...s.th, textAlign: 'right' }}>Policy Value</th>
               <th style={{ ...s.th, textAlign: 'right' }}>Conversion</th>
               <th style={s.th}></th>
             </tr>
@@ -303,12 +309,12 @@ export default function Reports() {
           <tbody>
             {brokers
               .slice()
-              .sort((a, b) => b.signed - a.signed)
+              .sort((a, b) => b.policyValue - a.policyValue)
               .map((b, i) => (
                 <tr key={b.id} style={s.tr}>
                   <td style={s.td}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                      {!isBrokerView && i === 0 && b.signed > 0 && <span title="Top performer">🏆</span>}
+                      {!isBrokerView && i === 0 && b.policyValue > 0 && <span title="Top performer">🏆</span>}
                       <span style={{ fontWeight: 600, color: colors.ink }}>{b.name}</span>
                     </div>
                   </td>
@@ -329,6 +335,9 @@ export default function Reports() {
                   </td>
                   <td style={{ ...s.td, textAlign: 'right' }}>{b.appts}</td>
                   <td style={{ ...s.td, textAlign: 'right' }}>{b.signed}</td>
+                  <td style={{ ...s.td, textAlign: 'right', fontWeight: 600, color: colors.success }}>
+                    {fmt(b.policyValue)}
+                  </td>
                   <td style={{ ...s.td, textAlign: 'right' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '6px', justifyContent: 'flex-end' }}>
                       <div style={{ width: '50px', background: colors.surfaceSubtle, borderRadius: '999px', height: '6px', overflow: 'hidden' }}>

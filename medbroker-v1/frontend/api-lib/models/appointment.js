@@ -75,9 +75,18 @@ const MeetingInputSchema = z.object({
  * appointmentStatusService.js — never accepted directly from the client,
  * matching the header comment in AppointmentDetail.jsx.
  */
+// Added 23 Jul 2026 (Mark's request, §44) — productsSold now carries an
+// optional Rand value per product, not just the product name. value is
+// nullable/optional deliberately: a broker recording the outcome without
+// the exact figure yet shouldn't be blocked from saving.
+const ProductSoldInputSchema = z.object({
+  product: z.string(),
+  value:   z.number().nonnegative().optional().nullable(),
+});
+
 export const SaveOutcomeSchema = z.object({
   customerSigned: z.boolean().optional().nullable(),
-  productsSold:   z.array(z.string()).optional(), // product NAMEs
+  productsSold:   z.array(ProductSoldInputSchema).optional(),
   meetings:       z.array(MeetingInputSchema).optional(),
 });
 

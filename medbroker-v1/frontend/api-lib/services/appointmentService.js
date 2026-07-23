@@ -54,33 +54,46 @@ export async function resolvePortfolioId(name) {
   return row?.id ?? null;
 }
 
-async function resolveProductIds(names) {
-  if (!names || names.length === 0) return [];
-  const rows = await executeQuery(`SELECT id FROM Product WHERE name = ANY(@names)`, {
+// Changed 23 Jul 2026 (§44) — returns a name->id Map instead of a bare id
+// array, so a per-product value can stay attached to its product through
+// the resolve step (an array would lose the association once names and
+// ids are two separate parallel arrays, which is fragile the moment order
+// isn't guaranteed to match — a Map sidesteps that entirely).
+async function resolveProductIdMap(names) {
+  if (!names || names.length === 0) return new Map();
+  const rows = await executeQuery(`SELECT id, name FROM Product WHERE name = ANY(@names)`, {
     names: { type: sql.NVarChar(sql.MAX), value: names },
   });
-  return rows.map((r) => r.id);
+  return new Map(rows.map((r) => [r.name, r.id]));
 }
 
-async function getProductNames(appointmentId) {
+// Changed 23 Jul 2026 (§44) — was getProductNames(), returned bare names.
+// Now returns {name, value} pairs so the frontend can display a
+// previously-captured policy value when reloading an appointment, not
+// just which products were checked.
+async function getProductsSold(appointmentId) {
   const rows = await executeQuery(
-    `SELECT p.name FROM AppointmentProduct ap JOIN Product p ON ap.productId = p.id WHERE ap.appointmentId = @appointmentId`,
+    `SELECT p.name, ap.policyValue AS "value" FROM AppointmentProduct ap
+     JOIN Product p ON ap.productId = p.id WHERE ap.appointmentId = @appointmentId`,
     { appointmentId: { type: sql.UniqueIdentifier, value: appointmentId } }
   );
-  return rows.map((r) => r.name);
+  return rows.map((r) => ({ name: r.name, value: r.value === null ? null : Number(r.value) }));
 }
 
-async function syncAppointmentProducts(appointmentId, productIds) {
+// Changed 23 Jul 2026 (§44) — takes [{productId, value}] instead of a bare
+// productId array, writing the new policyValue column alongside each row.
+async function syncAppointmentProducts(appointmentId, productsWithValues) {
   await executeQuery(`DELETE FROM AppointmentProduct WHERE appointmentId = @appointmentId`, {
     appointmentId: { type: sql.UniqueIdentifier, value: appointmentId },
   });
-  for (const productId of productIds) {
+  for (const { productId, value } of productsWithValues) {
     await executeQuery(
-      `INSERT INTO AppointmentProduct (id, appointmentId, productId) VALUES (@id, @appointmentId, @productId)`,
+      `INSERT INTO AppointmentProduct (id, appointmentId, productId, policyValue) VALUES (@id, @appointmentId, @productId, @value)`,
       {
         id:            { type: sql.UniqueIdentifier, value: crypto.randomUUID() },
         appointmentId: { type: sql.UniqueIdentifier, value: appointmentId },
         productId:     { type: sql.UniqueIdentifier, value: productId },
+        value:         { type: sql.Decimal(12, 2), value: value ?? null },
       }
     );
   }
@@ -157,7 +170,7 @@ export async function getAppointmentById(id) {
   if (!appt) return null;
 
   appt.productsInterestedIn = appt.productsInterestedIn ? JSON.parse(appt.productsInterestedIn) : [];
-  appt.productsSold = await getProductNames(id);
+  appt.productsSold = await getProductsSold(id);
   return appt;
 }
 
@@ -408,8 +421,11 @@ export async function saveOutcome(id, data) {
   await executeQuery(`UPDATE Appointment SET ${setClauses.join(', ')} WHERE id = @id AND organisationId = @organisationId`, params);
 
   if (data.productsSold !== undefined) {
-    const productIds = await resolveProductIds(data.productsSold);
-    await syncAppointmentProducts(id, productIds);
+    const idMap = await resolveProductIdMap(data.productsSold.map(p => p.product));
+    const productsWithValues = data.productsSold
+      .filter(p => idMap.has(p.product)) // silently drop any name that doesn't match a real Product — same tolerant behaviour the old resolveProductIds() had
+      .map(p => ({ productId: idMap.get(p.product), value: p.value ?? null }));
+    await syncAppointmentProducts(id, productsWithValues);
   }
 
   return { status: newStatus };

@@ -159,7 +159,19 @@ export async function getReportSummary(period) {
     trend.push({ label: b.label, leads: Number(leadsRows[0].count), won: Number(wonRows[0].count) });
   }
 
-  return { pipeline, trend };
+  // Org-wide total policy value — added 23 Jul 2026, §44. Its own
+  // standalone query, not folded into the pipeline/trend queries above,
+  // to avoid any fan-out risk from joining AppointmentProduct alongside
+  // Lead/Appointment aggregates that weren't designed around it.
+  const policyValueRows = await executeQuery(
+    `SELECT COALESCE(SUM(ap.policyValue), 0) AS "total" FROM AppointmentProduct ap
+     JOIN Appointment a ON a.id = ap.appointmentId
+     WHERE a.createdAt >= @start AND a.createdAt <= @end AND a.organisationId = @organisationId`,
+    { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  const totalPolicyValue = Number(policyValueRows[0].total);
+
+  return { pipeline, trend, totalPolicyValue };
 }
 
 /**
@@ -333,24 +345,28 @@ export async function getBrokerDetailReport(brokerId, period, scope) {
   );
   const k = kpiRows[0] ?? { appts: 0, signed: 0, switches: 0, meetingsHeld: 0 };
   const appts = Number(k.appts), signed = Number(k.signed);
-  const kpi = {
-    appts, signed, switches: Number(k.switches), meetingsHeld: Number(k.meetingsHeld),
-    conversion: appts === 0 ? '0%' : `${Math.round((signed / appts) * 100)}%`,
-  };
 
   // Products sold — real, via AppointmentProduct (already fully wired by
-  // the outcome-save flow; nothing new needed there).
+  // the outcome-save flow; nothing new needed there). policyValue added
+  // 23 Jul 2026, §44 — per-product Rand value, now tracked and summed.
   const productRows = await executeQuery(
-    `SELECT p.name, COUNT(*) AS count
+    `SELECT p.name, COUNT(*) AS count, COALESCE(SUM(ap.policyValue), 0) AS "totalValue"
      FROM AppointmentProduct ap
      JOIN Appointment a ON a.id = ap.appointmentId
      JOIN Product p ON p.id = ap.productId
      WHERE a.brokerId = @brokerId AND a.createdAt >= @start AND a.createdAt <= @end
      GROUP BY p.name
-     ORDER BY count DESC`,
+     ORDER BY "totalValue" DESC`,
     { brokerId: { type: sql.UniqueIdentifier, value: brokerId }, start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end } }
   );
-  const productsSold = productRows.map(r => ({ name: r.name, count: Number(r.count) }));
+  const productsSold = productRows.map(r => ({ name: r.name, count: Number(r.count), value: Number(r.totalValue) }));
+  const totalPolicyValue = productsSold.reduce((sum, p) => sum + p.value, 0);
+
+  const kpi = {
+    appts, signed, switches: Number(k.switches), meetingsHeld: Number(k.meetingsHeld),
+    policyValue: totalPolicyValue,
+    conversion: appts === 0 ? '0%' : `${Math.round((signed / appts) * 100)}%`,
+  };
 
   // Meeting outcome summary — real counts per meeting number/status, plus
   // an overall signed-vs-appointments-with-a-held-meeting ratio. Simpler
@@ -428,7 +444,18 @@ export async function getBrokerReport(period, scope) {
        u.id, u.displayName AS "name",
        COUNT(a.id) AS "appts",
        COUNT(a.id) FILTER (WHERE a.status = 'ClosedWon') AS "signed",
-       COALESCE(array_agg(DISTINCT p.name) FILTER (WHERE p.name IS NOT NULL), ARRAY[]::text[]) AS "portfolios"
+       COALESCE(array_agg(DISTINCT p.name) FILTER (WHERE p.name IS NOT NULL), ARRAY[]::text[]) AS "portfolios",
+       -- Scalar subquery, not a direct JOIN to AppointmentProduct — a
+       -- direct join would fan out one row per product sold, silently
+       -- inflating the appts/signed counts above (an appointment with 3
+       -- products sold would count as 3 appointments). This keeps the
+       -- appointment-level aggregates correct regardless of how many
+       -- products any given appointment has.
+       COALESCE((
+         SELECT SUM(ap2.policyValue) FROM AppointmentProduct ap2
+         JOIN Appointment a2 ON a2.id = ap2.appointmentId
+         WHERE a2.brokerId = u.id AND a2.createdAt >= @start AND a2.createdAt <= @end
+       ), 0) AS "policyValue"
      FROM "User" u
      LEFT JOIN Appointment a ON a.brokerId = u.id AND a.createdAt >= @start AND a.createdAt <= @end
      LEFT JOIN UserPortfolio up ON up.userId = u.id
@@ -446,6 +473,7 @@ export async function getBrokerReport(period, scope) {
 
   return rows.map(r => ({
     id: r.id, name: r.name, appts: Number(r.appts), signed: Number(r.signed), portfolios: r.portfolios,
+    policyValue: Number(r.policyValue),
   }));
 }
 
