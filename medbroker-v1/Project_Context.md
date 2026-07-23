@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Context
 ====================================================
-Last updated: 23 July 2026 (session 3)
+Last updated: 23 July 2026 (session 4)
 Purpose: Continuity file — load in a new chat to restore full project context.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -174,13 +174,40 @@ while making this change: the server-side check had only covered
 ClosedWon/ClosedLost). AppointmentDetail.jsx's isLocked covers all three;
 the narrower isClosed (won/lost only) still exists for outcome-specific
 messaging that shouldn't apply to an administrative return.
-Meeting-level lock is separate and finer-grained: a meeting locks once
-explicitly marked Held (status 'Seen', via the dedicated "Mark Meeting
-Held" button — not just any recorded status). Only a Held meeting unlocks
-the next one; Rescheduled/Cancelled keep the current meeting's Date field
-open for a new date instead (§34). Meeting date/status/notes edits that
-aren't a Held action save via a separate "Save Changes" button per meeting
-(§35) — Mark Meeting Held alone wasn't a complete save path.
+MEETING-LEVEL LOCK (redesigned §38 — the original §34/§35 version had a
+real bug): a meeting is held/locked only once genuinely SAVED with status
+'Seen' — never merely because 'Seen' is currently selected in the Status
+dropdown. The original design derived the lock directly from the draft
+form state (`meeting.status === 'Seen'`), which updates the instant the
+dropdown changes, before any save — so picking "Seen" locked the fields
+in the same render, with no chance to type notes first. Mark caught this
+by testing.
+  Frontend (AppointmentDetail.jsx): heldMeetingNums — the true, persisted
+  lock state, populated only from the server's own fetched data or from a
+  successful save's outcome, never from the draft appt.meetings. A second
+  set, unlockedMeetingNums, is a purely local "Unlock to Edit" override —
+  clicking it on an already-held meeting re-enables its fields; the next
+  save on that meeting re-applies the real lock (held again if saved as
+  Seen, open if saved as anything else) and clears the override. No API
+  call for the unlock action itself — only the subsequent save touches
+  the server.
+  Backend (appointmentService.saveOutcome()): the per-meeting server-side
+  guard that used to silently drop edits to an already-Seen meeting was
+  REMOVED in §38 — it directly conflicted with Unlock to Edit (a save
+  after unlocking would have appeared to succeed in the UI while the
+  server quietly no-op'd it). The appointment-level lock
+  (ClosedWon/ClosedLost/ReturnedToLeads, checked above) is now the only
+  real server-side boundary; individual meeting locking is a frontend-only
+  concept.
+  Unlocking the NEXT meeting (Add Second/Third Meeting) still requires the
+  previous one to be genuinely held — firstMeetingComplete/
+  secondMeetingComplete read from heldMeetingNums directly, ignoring any
+  active unlock override (re-opening meeting 1 for editing doesn't hide
+  meeting 2 once it's already been created).
+  Rescheduled/Cancelled still don't lock anything and keep the current
+  meeting's Date field open for a new date (§34) — unaffected by this
+  redesign, since they were never subject to the buggy premature-lock
+  behaviour (only selecting Seen was).
 
 FLAGGED, NOT FIXED (§36): assignBroker()/reassignAppointment() in
 appointmentService.js have no server-side status guard at all — reassigning
@@ -268,6 +295,22 @@ LEAD → APPOINTMENT CONVERSION (Salesforce Lead→Opportunity pattern):
     fell through, keep the record, try again" (Lead goes to InProgress, same
     agent). Two different tools, deliberately not merged into one.
   - Auto-return: Azure Function (autoReturnLeads.js) runs daily at 05:00 UTC
+
+ROW-CLICK NAVIGATION (established §37, extended §38): LeadList.jsx,
+AppointmentList.jsx (main table), and UserAdmin.jsx all make the whole
+table row clickable rather than requiring the View/Edit button
+specifically — clicking anywhere on the row opens that record. Leads/
+Appointments navigate to a dedicated detail route; UserAdmin.jsx has no
+separate detail page, so its row click opens the same edit modal the
+Edit button does. In every case, any interactive element inside the row
+(View, Edit, Assign, Reassign buttons) calls stopPropagation on its
+containing cell so it keeps its own distinct behaviour instead of also
+firing the row's navigation — matters most where the button's action
+differs from "go to detail" (Assign/Reassign open a modal; without this
+they'd also navigate away mid-click). NOT applied to AppointmentList.jsx's
+second table (Available to Claim, under the claim-model tab) — still
+mock-data preview content for the deferred claim model (§28), no View
+button to mirror, no single obvious destination per row.
 
 GET LEAD BY ID — fields worth knowing about (leadService.getLeadById(),
 last touched §37): joins "User" for agentName (added §37 — missing

@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 23 July 2026 (session 3)
+Last updated: 23 July 2026 (session 4)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -896,19 +896,19 @@ These decisions caused rework when changed — preserve them in every session:
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Mark needs to apply §37 (Lead Detail page silently rendering
-blank on a fetch error — the real bug behind "Lead Detail isn't showing
-data" — plus a missing Agent-name JOIN, and click-anywhere-on-the-row
-navigation for Leads/Appointments — see §37). Confirmed via a genuinely
-fresh GitHub diff before packaging this: §34, §35, AND §36 are all already
-on GitHub. §37's actual delta is small: leadService.js, LeadDetail.jsx,
-LeadList.jsx, AppointmentList.jsx. IMPORTANT — §37 strongly suspects the
-root cause of the blank-page bug was an unmigrated database (portfolioId
-column missing, breaking getLeadById()'s query outright) — see §37's
-notes and MIGRATIONS PENDING below. Mark needs to actually confirm
-migrations 002 through 006 are run against the live Neon database; this
-has been carried forward unconfirmed for multiple sessions now and may be
-the actual root cause of user-facing bugs, not just a housekeeping item.
+Priority: Mark needs to apply §38 (Users list row-click navigation, and a
+real fix to the meeting-held lock — selecting "Seen" was locking the
+meeting immediately, before any save, blocking notes entry entirely — see
+§38). §38's delta is small: appointmentService.js, AppointmentDetail.jsx,
+UserAdmin.jsx.
+
+RESOLVED — §37's root-cause theory for the blank Lead Detail page was
+confirmed correct by Mark directly: he'd forgotten to run the pending
+migrations. Migrations 002 through 006 are now presumed run and working
+(Lead Detail loads correctly per his confirmation) — the escalated
+MIGRATIONS PENDING warning from §37 can stand down; the general lesson
+(check useFetch error states, don't let fetch failures render silently)
+stays as a permanent pattern, documented in Project_Context.md.
 
 THEN: Reports (backend + wiring) — still the only remaining page on mock
 data, deferred again this session. IMPORTANT, per Mark's explicit
@@ -933,20 +933,14 @@ copy) — confirm that's been corrected; if this document is showing 18 June
 again when you read this, the same thing happened twice and is worth
 investigating properly rather than just re-pushing again.
 
-MIGRATIONS PENDING ON MARK'S LIVE NEON DATABASE — ⚠ NOW SUSPECTED AS THE
-ROOT CAUSE OF A REAL BUG (§37: Lead Detail rendering blank), not just
-housekeeping. Check all are actually run before assuming anything Lead/
-Appointment-related works there:
-db/migrations/002_add_lead_title_dob.sql and 003_add_calendly_uri.sql
-(status unconfirmed — see §34's note that no db/migrations/ directory
-existed in the repo at all before this session, so these may never have
-been committed even if they were run by hand), plus two new ones from
-§35: 004_add_lead_portfolio.sql and 005_drop_appointment_lead_unique.sql,
-plus one new one from §36: 006_add_appointment_returned_status.sql.
-schema.postgres.sql alone does not reach an already-existing database.
-If 004 specifically hasn't run, Lead.portfolioId doesn't exist yet on the
-live table, and leadService.getLeadById()'s query referencing it would
-fail outright — see §37 for the full chain from there to a blank page.
+MIGRATIONS — ✅ RESOLVED §38. Confirmed directly by Mark: he'd forgotten to
+run the pending migrations; running them fixed the blank Lead Detail page,
+matching §37's theory exactly. All of 002 through 006 presumed run as of
+§38. Keeping this entry as a record rather than deleting it — the pattern
+(migrations documented and delivered but not confirmed run for multiple
+sessions) is worth remembering even though this specific instance is
+closed. New migrations going forward should still get an explicit
+confirmation from Mark rather than assumed.
 
 Before starting Appointments (now done — keeping this for the next
 similar build): read Status.md §25 in full — four real bugs were found
@@ -2557,6 +2551,92 @@ there):
   src/pages/LeadDetail.jsx
   src/pages/LeadList.jsx
   src/pages/AppointmentList.jsx
+Plus this Status.md / Project_Context.md.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+38. USERS ROW-CLICK, AND THE REAL MEETING-HELD LOCK FIX — 23 July 2026 (session 4)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Confirmed via §37: Mark had simply forgotten to run the pending
+migrations — running them fixed the blank Lead Detail page exactly as
+diagnosed. MIGRATIONS PENDING note above is now marked resolved. Two new
+items from testing after that:
+
+1. USERS ROW-CLICK. Mark asked for the Leads/Appointments row-click
+   pattern (§37) on Users too. UserAdmin.jsx doesn't have a separate
+   detail page the way Leads/Appointments do — user management there is
+   an Edit modal, not a route. So "click row, it opens" here means the
+   row now opens that same modal the Edit button already opened. Edit
+   button kept, stopPropagation added so it doesn't double-fire with the
+   row's own click (harmless either way since both do the same thing, but
+   cleaner).
+
+2. MEETING-HELD LOCK — real bug, not just a design tweak. Mark: "Selecting
+   Seen from the Appointment dropdown list mustn't automatically set the
+   status to held and lock the Appointment. This should happen on Save
+   Changes, so that Notes can be captured. If the meeting has been saved,
+   a user should be able to edit it again by unlocking it."
+
+   ROOT CAUSE, confirmed by reading the actual code rather than assumed:
+   the lock (`isMeetingLocked`) was computed directly from the DRAFT form
+   state — `meeting.status === 'Seen'`, where `meeting` was
+   `appt.meetings[n]`, the same object the Status dropdown writes to on
+   every keystroke/selection via handleMeetingChange. So selecting "Seen"
+   updated that draft immediately, which recomputed `locked = true` in
+   the very same render — before any save, any API call, any chance to
+   type notes. This was a real bug in the §34 design, not a deliberate
+   choice being reconsidered.
+
+   FIX — separated "what's currently drafted" from "what's actually been
+   saved":
+   - New heldMeetingNums (Set of meeting numbers) — the TRUE, persisted
+     lock state. Populated only from apptData on fetch (meetingNStatus
+     === 'Seen' server-side) and updated only inside handleSaveMeeting/
+     handleMarkMeetingHeld after a successful save, based on what was
+     actually just persisted. Never touched by handleMeetingChange or any
+     other draft-editing path.
+   - MeetingSection no longer derives its own lock — it takes `held` as
+     an explicit prop from the parent. Selecting "Seen" in the dropdown
+     now only updates the draft (visible, editable, notes can be typed);
+     the fields only actually lock once Save Changes (or Mark Meeting
+     Held) persists status 'Seen'.
+   - New unlockedMeetingNums (Set) + "🔓 Unlock to Edit" button, shown on
+     any currently-held meeting (Mark's second ask). Purely local, no API
+     call — re-enables the fields. The NEXT successful save on that
+     meeting re-applies the real lock rule (held again if saved as Seen,
+     open if saved as anything else) and clears the override. Fresh data
+     from a refetch also clears any stale override.
+   - firstMeetingComplete/secondMeetingComplete (gate Add Second/Third
+     Meeting) now read heldMeetingNums directly too, not the draft —
+     consistent with the rest of the fix, and deliberately NOT affected
+     by an active unlock override (re-opening meeting 1 for editing
+     shouldn't retroactively hide meeting 2 once it already exists).
+
+   SERVER-SIDE CONFLICT FOUND AND FIXED WHILE DOING THIS: saveOutcome()
+   had its own per-meeting guard — `if (current[meetingNStatus] ===
+   'Seen') continue` — silently dropping any edit to a meeting already
+   marked Seen. This was deliberate defence-in-depth added alongside the
+   original (buggy) design, and it directly conflicts with Unlock to
+   Edit: a save after clicking Unlock would have appeared to succeed in
+   the UI while the server quietly ignored it — a worse bug than the one
+   being fixed, since it would look like data loss with no error shown.
+   REMOVED. The appointment-level lock (ClosedWon/ClosedLost/
+   ReturnedToLeads) is now the only real server-side boundary for meeting
+   edits; per-meeting locking is a frontend-only concept, matching what
+   Mark actually asked for (lock is a UX state, not a data-integrity
+   rule — the same meeting's true history is always in the audit log
+   regardless of how many times it's unlocked and re-saved).
+
+BUILD VERIFICATION: full Vite build clean, Vitest suite unchanged and
+passing (45 tests).
+
+MIGRATION — straightforward overwrite, small delta (confirmed via a
+genuinely fresh GitHub diff — §34 through §37 are all already applied
+there):
+  api-lib/services/appointmentService.js
+  src/pages/AppointmentDetail.jsx
+  src/pages/UserAdmin.jsx
 Plus this Status.md / Project_Context.md.
 
 

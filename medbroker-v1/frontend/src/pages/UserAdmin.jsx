@@ -452,7 +452,8 @@ export default function UserAdmin() {
               return (
                 <tr
                   key={user.id}
-                  style={s.tr}
+                  style={{ ...s.tr, cursor: 'pointer' }}
+                  onClick={() => setModal({ mode: 'edit', user })}
                   onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
                   onMouseLeave={e => e.currentTarget.style.background = ''}
                 >
@@ -501,7 +502,7 @@ export default function UserAdmin() {
                       {user.isActive ? 'Active' : 'Inactive'}
                     </span>
                   </td>
-                  <td style={s.td}>
+                  <td style={s.td} onClick={e => e.stopPropagation()}>
                     <button style={s.linkBtn} onClick={() => setModal({ mode: 'edit', user })}>Edit</button>
                   </td>
                 </tr>

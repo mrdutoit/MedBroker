@@ -72,14 +72,6 @@ const EMPTY_APPOINTMENT = {
 
 const MEETING_STATUSES = ['Seen', 'Rescheduled', 'Cancelled'];
 
-// Changed 23 Jul 2026 (Mark's request): previously ANY recorded status
-// (including Rescheduled/Cancelled) unlocked the next meeting — that's
-// wrong, since a rescheduled or cancelled meeting isn't actually done, the
-// broker still needs to capture a new date for THIS meeting, not move on.
-// Only a meeting genuinely held (status 'Seen', set via the dedicated "Mark
-// Meeting Held" button below) unlocks the next one and locks this one.
-const isMeetingComplete = (meeting) => meeting.status === 'Seen';
-const isMeetingLocked   = isMeetingComplete; // same signal — held means locked
 // A meeting already "exists" if any of its fields already carry data — handles
 // loading an appointment that already has a Second/Third meeting filled in,
 // so it renders immediately rather than behind the Add-meeting button again.
@@ -113,10 +105,16 @@ function FieldRow({ label, children }) {
 // Rendered only once a meeting has actually been created — see AddMeetingPrompt
 // below and the secondMeetingCreated/thirdMeetingCreated state in the main
 // component.
-function MeetingSection({ meeting, onChange, onSave, saving, onMarkHeld, marking, justSaved, isMobile, disabled }) {
+function MeetingSection({ meeting, onChange, onSave, saving, onMarkHeld, marking, justSaved, held, onUnlock, isMobile, disabled }) {
   const isOptional = meeting.number === 3;
   const titles = ['', 'First Meeting', 'Second Meeting', 'Third Meeting'];
-  const locked = isMeetingLocked(meeting) || disabled;
+  // `held` is the true, persisted lock state — set by the parent from
+  // heldMeetingNums, which only changes on a successful save, never from
+  // the draft dropdown selection (23 Jul 2026 fix, Mark's request: picking
+  // "Seen" from Status must not itself lock anything — only Save Changes
+  // persisting that choice should. See handleSaveMeeting/
+  // handleMarkMeetingHeld's heldMeetingNums updates in the main component).
+  const locked = disabled || held;
   const canMarkHeld = !locked && !!meeting.date;
   const busy = saving || marking;
 
@@ -124,7 +122,7 @@ function MeetingSection({ meeting, onChange, onSave, saving, onMarkHeld, marking
     <div style={{ ...s.card, borderStyle: isOptional ? 'dashed' : 'solid', marginBottom: '12px', opacity: disabled ? 0.6 : 1 }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', ...s.cardTitle }}>
         <span>{titles[meeting.number]}</span>
-        {isMeetingLocked(meeting) && (
+        {held && (
           <span style={{ ...s.badge, background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d', fontWeight: 600 }}>
             ✓ Held
           </span>
@@ -145,6 +143,11 @@ function MeetingSection({ meeting, onChange, onSave, saving, onMarkHeld, marking
               {meeting.status === 'Rescheduled'
                 ? 'Client rescheduled — enter the new date above, still against this meeting.'
                 : 'Client cancelled — enter a new date above if one is set, still against this meeting.'}
+            </p>
+          )}
+          {!locked && meeting.status === 'Seen' && (
+            <p style={{ ...s.formHint, marginTop: '4px' }}>
+              Add any notes below, then Save Changes to lock this meeting in as held.
             </p>
           )}
         </div>
@@ -197,6 +200,22 @@ function MeetingSection({ meeting, onChange, onSave, saving, onMarkHeld, marking
               Set a date before marking this meeting held.
             </span>
           )}
+        </div>
+      )}
+      {/* Unlock — added 23 Jul 2026, Mark's request: once saved as held, a
+          user should still be able to re-open it for editing rather than
+          it being permanently frozen. Purely a local override (no server
+          call) — the fields become editable again, and the next successful
+          save re-applies the real lock rule based on whatever gets saved. */}
+      {held && !disabled && (
+        <div style={{ marginTop: '12px' }}>
+          <button
+            type="button"
+            style={s.secondaryBtn}
+            onClick={() => onUnlock(meeting.number)}
+          >
+            🔓 Unlock to Edit
+          </button>
         </div>
       )}
     </div>
@@ -475,6 +494,16 @@ export default function AppointmentDetail() {
   const [markingHeld,       setMarkingHeld]       = useState(null); // meeting number currently being marked Held, or null
   const [savingMeetingNum,  setSavingMeetingNum]  = useState(null); // meeting number currently being saved, or null
   const [savedMeetingNum,   setSavedMeetingNum]   = useState(null); // meeting number just saved (transient ✓), or null
+  // heldMeetingNums — the TRUE, persisted lock state (23 Jul 2026 fix, Mark's
+  // request). Only ever set from apptData (on fetch) or from a successful
+  // save's own response — never from the draft appt.meetings, so merely
+  // selecting "Seen" in the Status dropdown can't lock anything by itself.
+  const [heldMeetingNums,    setHeldMeetingNums]    = useState(() => new Set());
+  // unlockedMeetingNums — a meeting the user has explicitly re-opened for
+  // editing despite being held. Purely local; cleared whenever that meeting
+  // is next saved (the save itself re-applies the real lock rule) or when
+  // fresh data arrives from the server.
+  const [unlockedMeetingNums, setUnlockedMeetingNums] = useState(() => new Set());
   const [secondMeetingCreated, setSecondMeetingCreated] = useState(() => meetingHasData(appt.meetings[1]));
   const [thirdMeetingCreated,  setThirdMeetingCreated]  = useState(() => meetingHasData(appt.meetings[2]));
 
@@ -509,6 +538,13 @@ export default function AppointmentDetail() {
         required: n < 3,
       })),
     });
+    // heldMeetingNums reflects the server's own record of what's genuinely
+    // been saved as Seen — this, not the draft above, is what drives
+    // locking. Any pending "Unlock to Edit" override is reset too: fresh
+    // data from the server is the new source of truth, so a stale local
+    // override shouldn't linger past a refetch.
+    setHeldMeetingNums(new Set([1, 2, 3].filter(n => apptData[`meeting${n}Status`] === 'Seen')));
+    setUnlockedMeetingNums(new Set());
   }, [apptData]);
 
   // Derived
@@ -524,8 +560,8 @@ export default function AppointmentDetail() {
   const isLocked     = isClosed || appt.status === 'ReturnedToLeads';
   const canReturn   = canManage && !isLocked && appt.customerSigned !== true;
   const canReassign = canManage && !isLocked;
-  const firstMeetingComplete  = isMeetingComplete(appt.meetings[0]);
-  const secondMeetingComplete = isMeetingComplete(appt.meetings[1]);
+  const firstMeetingComplete  = heldMeetingNums.has(1);
+  const secondMeetingComplete = heldMeetingNums.has(2);
 
   const productsForPortfolio = PRODUCTS_BY_PORTFOLIO[appt.portfolio === 'Discovery' ? 'disc' : 'mm'] ?? [];
 
@@ -589,10 +625,24 @@ export default function AppointmentDetail() {
     setSavedMeetingNum(null);
     setOutcomeError(null);
     try {
+      const savedStatus = meeting.status || '';
       const result = await appointmentsApi.saveOutcome(appt.id, {
-        meetings: [{ number: meetingNumber, date: meeting.date, status: meeting.status || '', notes: meeting.notes }],
+        meetings: [{ number: meetingNumber, date: meeting.date, status: savedStatus, notes: meeting.notes }],
       });
       setAppt(prev => ({ ...prev, status: result?.status ?? prev.status }));
+      // The actual lock decision — only a genuine save can add or remove a
+      // meeting from heldMeetingNums, never the draft dropdown selection.
+      setHeldMeetingNums(prev => {
+        const next = new Set(prev);
+        if (savedStatus === 'Seen') next.add(meetingNumber); else next.delete(meetingNumber);
+        return next;
+      });
+      setUnlockedMeetingNums(prev => {
+        if (!prev.has(meetingNumber)) return prev;
+        const next = new Set(prev);
+        next.delete(meetingNumber);
+        return next;
+      });
       refetchAudit();
       setSavedMeetingNum(meetingNumber);
       setTimeout(() => setSavedMeetingNum(null), 3000);
@@ -624,12 +674,29 @@ export default function AppointmentDetail() {
         status: result?.status ?? prev.status,
         meetings: prev.meetings.map(m => m.number === meetingNumber ? { ...m, status: 'Seen' } : m),
       }));
+      setHeldMeetingNums(prev => new Set(prev).add(meetingNumber));
+      setUnlockedMeetingNums(prev => {
+        if (!prev.has(meetingNumber)) return prev;
+        const next = new Set(prev);
+        next.delete(meetingNumber);
+        return next;
+      });
       refetchAudit();
     } catch (err) {
       setOutcomeError(err?.message ?? 'Could not mark this meeting held. Please try again.');
     } finally {
       setMarkingHeld(null);
     }
+  }
+
+  // Unlock to Edit — added 23 Jul 2026, Mark's request: a held meeting
+  // shouldn't be permanently frozen. Purely local (no API call) — just
+  // lets the fields become editable again. The next successful save on
+  // that meeting re-applies the real lock (held again if saved as Seen,
+  // unlocked if saved as anything else) via handleSaveMeeting/
+  // handleMarkMeetingHeld above, not this function.
+  function handleUnlockMeeting(meetingNumber) {
+    setUnlockedMeetingNums(prev => new Set(prev).add(meetingNumber));
   }
 
   // Still loading: show a simple loading state rather than the neutral
@@ -707,6 +774,7 @@ export default function AppointmentDetail() {
         meeting={appt.meetings[0]} onChange={handleMeetingChange}
         onSave={handleSaveMeeting} saving={savingMeetingNum === 1} justSaved={savedMeetingNum === 1}
         onMarkHeld={handleMarkMeetingHeld} marking={markingHeld === 1}
+        held={heldMeetingNums.has(1) && !unlockedMeetingNums.has(1)} onUnlock={handleUnlockMeeting}
         isMobile={isMobile} disabled={isLocked}
       />
 
@@ -715,6 +783,7 @@ export default function AppointmentDetail() {
           meeting={appt.meetings[1]} onChange={handleMeetingChange}
           onSave={handleSaveMeeting} saving={savingMeetingNum === 2} justSaved={savedMeetingNum === 2}
           onMarkHeld={handleMarkMeetingHeld} marking={markingHeld === 2}
+          held={heldMeetingNums.has(2) && !unlockedMeetingNums.has(2)} onUnlock={handleUnlockMeeting}
           isMobile={isMobile} disabled={isLocked}
         />
       ) : (
@@ -732,6 +801,7 @@ export default function AppointmentDetail() {
             meeting={appt.meetings[2]} onChange={handleMeetingChange}
             onSave={handleSaveMeeting} saving={savingMeetingNum === 3} justSaved={savedMeetingNum === 3}
             onMarkHeld={handleMarkMeetingHeld} marking={markingHeld === 3}
+            held={heldMeetingNums.has(3) && !unlockedMeetingNums.has(3)} onUnlock={handleUnlockMeeting}
             isMobile={isMobile} disabled={isLocked}
           />
         ) : (

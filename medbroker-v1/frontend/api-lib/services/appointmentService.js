@@ -347,18 +347,23 @@ export async function returnToLeads(id) {
  * Computes the resulting status server-side via appointmentStatusService.js;
  * the client never sends status directly.
  *
- * LOCKING (added 23 Jul 2026, Mark's request):
- *   - Once status is ClosedWon/ClosedLost, the whole appointment is locked —
- *     the entire call is rejected rather than silently no-op'd, so the UI
- *     gets a clear error instead of a save that looked like it worked.
- *   - Individually, once a given meeting's persisted status is 'Seen' (held),
- *     that meeting is locked — any incoming changes to its date/status/notes
- *     are silently dropped rather than erroring, so a single saveOutcome call
- *     can still legitimately touch a signed decision or a still-open later
- *     meeting alongside an already-held one without failing the whole request.
- *     Mirrors the "Mark Meeting Held" button on AppointmentDetail.jsx, which
- *     is the only client-side path that sets a meeting to Seen in the first
- *     place — this is defence-in-depth against a stale form re-submitting.
+ * LOCKING (added 23 Jul 2026, revised same day, Mark's request):
+ *   - Once status is ClosedWon/ClosedLost/ReturnedToLeads, the whole
+ *     appointment is locked — the entire call is rejected rather than
+ *     silently no-op'd, so the UI gets a clear error instead of a save
+ *     that looked like it worked.
+ *   - Individual meetings are NOT separately locked server-side (this was
+ *     tried and then reverted the same day). The original version silently
+ *     dropped any edit to a meeting whose persisted status was already
+ *     'Seen' — reasonable-sounding defence-in-depth, but it directly
+ *     conflicted with Mark's very next request: selecting "Seen" must not
+ *     itself lock anything, only an explicit Save should, and even after
+ *     that save, the meeting should be re-editable via "Unlock to Edit" on
+ *     AppointmentDetail.jsx. That's a purely client-side concept now —
+ *     heldMeetingNums/unlockedMeetingNums in the frontend component, no
+ *     equivalent here. The appointment-level check above is the only real
+ *     boundary left; whatever the client sends for an individual meeting
+ *     is trusted and written as-is, same as any other field on this call.
  * @param {string} id
  * @param {Object} data - validated SaveOutcomeSchema data
  * @returns {Promise<{status: string}>}
@@ -366,8 +371,7 @@ export async function returnToLeads(id) {
 export async function saveOutcome(id, data) {
   const organisationId = resolveOrganisationId();
   const current = await executeQueryOne(
-    `SELECT status, meeting1Status AS "meeting1Status", meeting2Status AS "meeting2Status", meeting3Status AS "meeting3Status"
-     FROM Appointment WHERE id = @id AND organisationId = @organisationId`,
+    `SELECT status FROM Appointment WHERE id = @id AND organisationId = @organisationId`,
     { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
   if (!current) throw { status: 404, message: 'Appointment not found' };
@@ -395,7 +399,6 @@ export async function saveOutcome(id, data) {
   for (const meeting of data.meetings ?? []) {
     const n = meeting.number;
     if (![1, 2, 3].includes(n)) continue;
-    if (current[`meeting${n}Status`] === 'Seen') continue; // locked — already held, drop the edit
     setClauses.push(`meeting${n}Date = @meeting${n}Date`, `meeting${n}Status = @meeting${n}Status`, `meeting${n}Feedback = @meeting${n}Feedback`);
     params[`meeting${n}Date`]     = { type: sql.Date,            value: meeting.date || null };
     params[`meeting${n}Status`]   = { type: sql.NVarChar(50),    value: meeting.status || null };
