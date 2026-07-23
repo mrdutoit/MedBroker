@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 23 July 2026 (session 5)
+Last updated: 23 July 2026 (session 6)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -896,9 +896,9 @@ These decisions caused rework when changed — preserve them in every session:
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Mark needs to apply §39 (Lead Audit Log falsely showing Date of
-Birth as changed on every single edit — see §39). Single-file fix:
-leadHandlers.js.
+Priority: Mark needs to apply §40 (meeting dates disappearing on reload —
+saved fine, but <input type="date"> silently rejects the timestamp format
+Postgres actually returns — see §40). Single-file fix: AppointmentDetail.jsx.
 
 RESOLVED — §37's root-cause theory for the blank Lead Detail page was
 confirmed correct by Mark directly: he'd forgotten to run the pending
@@ -2682,6 +2682,55 @@ passing (45 tests).
 
 MIGRATION — straightforward overwrite, single file:
   api-lib/handlers/leadHandlers.js
+Plus this Status.md.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+40. MEETING DATES DISAPPEARING ON RELOAD — SAME BUG CLASS AS §39, DIFFERENT SYMPTOM — 23 July 2026 (session 6)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark found (via screenshot, right after §39): First Meeting's Date field
+showed empty ("yyyy/mm/dd" placeholder) on reload/renavigation, even
+though the meeting was genuinely saved and Held — Status ("Seen") and
+Meeting Feedback both displayed correctly, only Date was blank.
+
+ROOT CAUSE — the same underlying issue as §39 (node-postgres parsing DATE
+columns into JS Date objects, no custom type parser registered), but a
+different symptom because of WHERE it surfaces: appointmentService.js's
+SELECT returns `a.meeting1Date AS "meeting1Date"` unformatted, so the API
+response carries a full ISO timestamp ("2026-07-24T00:00:00.000Z") rather
+than a plain 'YYYY-MM-DD' string. AppointmentDetail.jsx bound this
+directly to `<input type="date" value={meeting.date}>` with no slicing.
+Native date inputs require the value to be EXACTLY 'YYYY-MM-DD' — anything
+else (including a correct date with extra time/timezone characters
+appended) is treated as invalid and rendered as a blank field, silently,
+with no console error. That's exactly what looked like data loss: the
+value really was being saved and returned correctly, the input just
+couldn't display it.
+
+Confirmed against the actual API response shape and the exact input
+binding before writing the fix, not assumed from the symptom alone.
+
+FIXED: `.slice(0, 10)` on `apptData[meetingNDate]` when building the
+meetings array — the same fix already applied to firstTime one line below
+it (`.slice(0, 5)`), which is presumably why that one was never reported:
+it already had this treatment, meeting dates didn't.
+
+SWEPT the rest of the app for the same bug class rather than assuming
+this was the only instance: every `type="date"` input — LeadDetail.jsx's
+Date of Birth (already sliced, from the §34 Lead-editing work — safe),
+LeadImport.jsx's manual-entry Date of Birth (fresh user input, never
+pre-filled from a fetch — safe), the Book Appointment modal's date field
+in LeadDetail.jsx (local state, starts blank for a new booking — safe),
+Tasks.jsx's dueDate (still hardcoded mock data, not from a real fetch yet
+— not affected today, but worth remembering if/when Tasks gets wired to
+a real backend). Meeting dates were the only live instance.
+
+BUILD VERIFICATION: full Vite build clean, Vitest suite unchanged and
+passing (45 tests).
+
+MIGRATION — straightforward overwrite, single file:
+  src/pages/AppointmentDetail.jsx
 Plus this Status.md.
 
 

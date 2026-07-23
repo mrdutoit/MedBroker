@@ -532,7 +532,20 @@ export default function AppointmentDetail() {
       productsSold:   apptData.productsSold ?? [],
       meetings: [1, 2, 3].map((n) => ({
         number:   n,
-        date:     apptData[`meeting${n}Date`] ?? '',
+        // .slice(0, 10) — apptData[`meeting${n}Date`] comes back as a full
+        // ISO timestamp ("2026-07-24T00:00:00.000Z"), not a plain
+        // 'YYYY-MM-DD' string: node-postgres parses DATE columns into JS
+        // Date objects (no custom type parser registered in db.js — same
+        // root cause as the Lead Audit Log's false Date of Birth diffs,
+        // just a different symptom here). <input type="date"> requires the
+        // value to be exactly 'YYYY-MM-DD' — anything else is silently
+        // treated as invalid and rendered as an empty field, no error, no
+        // console warning. That's what Mark saw: the meeting was genuinely
+        // saved (Status and Feedback round-tripped fine, both plain
+        // strings with no format requirement), but the Date field looked
+        // empty on every reload. Confirmed against the actual API response
+        // shape before writing this fix, not assumed.
+        date:     (apptData[`meeting${n}Date`] ?? '').slice(0, 10),
         status:   apptData[`meeting${n}Status`] ?? '',
         notes:    apptData[`meeting${n}Feedback`] ?? '',
         required: n < 3,
