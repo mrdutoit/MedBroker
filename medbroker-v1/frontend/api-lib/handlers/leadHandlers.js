@@ -155,10 +155,25 @@ export async function handleLeadById(req, res, id) {
         // rather than logging the raw payload, so the audit entry reads as
         // "what changed" and doesn't repeat unrelated fields untouched by
         // this save.
+        //
+        // dateOfBirth needs normalising before comparing: node-postgres
+        // parses DATE columns into JS Date objects by default (no custom
+        // type parser is registered in db.js), but the client always sends
+        // a plain 'YYYY-MM-DD' string from the date input. A Date object
+        // is never === a string, even for the same calendar date, so this
+        // field showed up as "changed" on every single save regardless of
+        // whether the user touched it — confirmed by Mark's screenshot,
+        // which shows dateOfBirth in every audit entry. Doesn't affect the
+        // actual saved value (updateLead() writes parsed.data.dateOfBirth
+        // correctly either way) — purely a false entry in the diff shown
+        // here.
         const changeDetail = {};
         for (const field of Object.keys(parsed.data)) {
-          if (existing[field] !== parsed.data[field]) {
-            changeDetail[field] = { from: existing[field] ?? null, to: parsed.data[field] ?? null };
+          const existingValue = (field === 'dateOfBirth' && existing.dateOfBirth instanceof Date)
+            ? existing.dateOfBirth.toISOString().slice(0, 10)
+            : existing[field];
+          if (existingValue !== parsed.data[field]) {
+            changeDetail[field] = { from: existingValue ?? null, to: parsed.data[field] ?? null };
           }
         }
         await writeAuditLog({

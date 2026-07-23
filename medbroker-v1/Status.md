@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 23 July 2026 (session 4)
+Last updated: 23 July 2026 (session 5)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -896,11 +896,9 @@ These decisions caused rework when changed — preserve them in every session:
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Mark needs to apply §38 (Users list row-click navigation, and a
-real fix to the meeting-held lock — selecting "Seen" was locking the
-meeting immediately, before any save, blocking notes entry entirely — see
-§38). §38's delta is small: appointmentService.js, AppointmentDetail.jsx,
-UserAdmin.jsx.
+Priority: Mark needs to apply §39 (Lead Audit Log falsely showing Date of
+Birth as changed on every single edit — see §39). Single-file fix:
+leadHandlers.js.
 
 RESOLVED — §37's root-cause theory for the blank Lead Detail page was
 confirmed correct by Mark directly: he'd forgotten to run the pending
@@ -2638,6 +2636,53 @@ there):
   src/pages/AppointmentDetail.jsx
   src/pages/UserAdmin.jsx
 Plus this Status.md / Project_Context.md.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+39. LEAD AUDIT LOG FALSELY SHOWING DATE OF BIRTH CHANGED ON EVERY EDIT — 23 July 2026 (session 5)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark spotted (via screenshot) that the Audit Log on Lead Detail showed
+"Date of Birth: 1999-05-19T00:00:00.000Z → 1999-05-19" on every single
+edit entry, regardless of what was actually changed — Portfolio, WhatsApp/
+Year/Degree, Existing cover/etc. all showed this same DOB line alongside
+the real change. Correctly suspected it was a display artifact rather
+than a real repeated edit.
+
+ROOT CAUSE, confirmed by reading the code (not guessed): node-postgres
+parses DATE columns into JS Date objects by default — no custom type
+parser is registered in db.js. So leadHandlers.js's PUT handler had
+existing.dateOfBirth as a genuine Date object (from getLeadById()), while
+parsed.data.dateOfBirth was always a plain 'YYYY-MM-DD' string (what the
+date input sends, and it's always present in the payload — the edit form
+initialises it from the lead's own DOB, never blank once set). The diff
+check was a strict `existing[field] !== parsed.data[field]` — a Date
+object is never === a string even for the identical calendar date, so
+this comparison was true on literally every save that included
+dateOfBirth, which is every save (whether or not the user touched that
+field). The Date object's ISO serialisation
+("1999-05-19T00:00:00.000Z") is exactly what showed in Mark's
+screenshot — matches Date.prototype.toJSON() precisely, confirming the
+diagnosis before any fix was written.
+
+FIXED: normalise existing.dateOfBirth to the same 'YYYY-MM-DD' string
+form before comparing, only for that one field (every other editable Lead
+field is a plain string/number/boolean both sides and compares correctly
+already — checked, not assumed). Purely a display/audit-log bug — the
+actual saved value was never wrong, updateLead() writes
+parsed.data.dateOfBirth correctly regardless of this comparison bug.
+
+Checked for the same bug pattern elsewhere in the codebase: this diffing
+logic (existing vs incoming, field by field) doesn't exist anywhere else —
+Appointment's outcome audit entries log the raw payload, not a diff
+against prior values, so there's no equivalent comparison to be wrong.
+
+BUILD VERIFICATION: full Vite build clean, Vitest suite unchanged and
+passing (45 tests).
+
+MIGRATION — straightforward overwrite, single file:
+  api-lib/handlers/leadHandlers.js
+Plus this Status.md.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
