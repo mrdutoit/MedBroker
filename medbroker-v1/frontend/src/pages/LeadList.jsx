@@ -16,7 +16,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useFetch } from '../hooks/useFetch.js';
-import { leadsApi, usersApi } from '../services/api.js';
+import { leadsApi, usersApi, apiMode } from '../services/api.js';
 import { formatDistanceToNow } from 'date-fns';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
@@ -159,15 +159,17 @@ export default function LeadList() {
     page, pageSize,
   };
 
-  const { data: apiData, loading, error, refetch } = useFetch(
+  const { data: apiData, loading: leadsLoading, error, refetch } = useFetch(
     () => leadsApi.list(apiParams),
     [activeStatus, search, agentFilter, occFilter, page]
   );
 
-  // apiData is null only briefly, while the fetch is in flight — the
-  // loading check below (line ~326) keeps that window from rendering
-  // anything at all, so this default only matters for the brief instant
-  // before that check applies.
+  // apiData is null only briefly, while the fetch is in flight. Previously
+  // the content block below only rendered once !loading, so this default
+  // barely mattered; now the table renders unconditionally (matching
+  // AppointmentList.jsx/UserAdmin.jsx — see the loading notice below), so
+  // this fallback is what actually shows during that window: an empty
+  // "0 leads" table rather than a blank page.
   const data = apiData ?? { total: 0, leads: [] };
 
   // Source filter — fetches from API.
@@ -283,10 +285,12 @@ export default function LeadList() {
         )}
       </div>
 
-      {loading && <p style={{ color:'var(--mut)', fontSize: '0.875rem' }}>Loading leads…</p>}
+      {apiMode.DEMO_MODE && leadsLoading && (
+        <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading leads…</div>
+      )}
       {error && <div style={s.errorBox}>Could not load leads: {error.message}</div>}
 
-      {!loading && !error && data && (
+      {!error && (
         <>
           <div style={{ marginBottom: '8px', fontSize: '0.813rem', color:'var(--mut)' }}>
             {data.total} lead{data.total !== 1 ? 's' : ''}
