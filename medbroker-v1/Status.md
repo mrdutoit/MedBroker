@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 23 July 2026 (session 7)
+Last updated: 23 July 2026 (session 8)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -896,12 +896,13 @@ These decisions caused rework when changed — preserve them in every session:
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Mark needs to apply §41 (Lead portfolio changed from single-
-select to multi-select, mirroring the existing UserPortfolio pattern —
-see §41). New migration: 007_add_lead_portfolio_multi.sql — run this one
-directly against Neon like every other migration in this list; not
-optional, getLeadById()/createLead()/updateLead() all now read/write
-LeadPortfolio, which doesn't exist until this runs.
+Priority: Mark needs to apply §42 (Reports.jsx rewired to real data — the
+last remaining mock-data page, first half of the job; drill-down pages
+AgentDetail.jsx/BrokerDetail.jsx are the deliberately-deferred second half
+— see §42). No new migration this time. Also needs to redeploy/reconfigure
+Vercel routing since vercel.json changed (new /api/reports/:slug* rewrite)
+— a plain file overwrite may not be enough if Vercel caches route config;
+worth Mark confirming the new endpoints actually resolve after deploy.
 
 RESOLVED — §37's root-cause theory for the blank Lead Detail page was
 confirmed correct by Mark directly: he'd forgotten to run the pending
@@ -2805,6 +2806,110 @@ MIGRATION — straightforward overwrite:
   src/pages/LeadDetail.jsx
   src/pages/LeadImport.jsx
 Plus this Status.md.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+42. REPORTS.JSX REWIRED TO REAL DATA — 23 July 2026 (session 8)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The last remaining page on mock data (deferred since §33, repeatedly
+carried forward as "THEN: Reports" in this block across many sessions).
+Reports.jsx itself is done — its own header comment already documented
+the intended API shape (GET /api/reports/summary|brokers|agents?period=...)
+from whenever this page was originally scaffolded; this session actually
+built that API rather than inventing a different one.
+
+Two real gaps found and resolved WITH Mark before any backend code was
+written, not assumed (both confirmed via ask_user_input_v0, both got a
+decisive recommendation rather than an open-ended question):
+
+1. PIPELINE BUCKETS. Mock had 7: Unassigned, Assigned, In Progress,
+   Appointment Booked, Closed Won, Closed Lost, Uncontactable. Two don't
+   map cleanly onto the real schema: Closed Won/Lost live on Appointment,
+   not Lead (a Lead's own status only ever says Converted or Closed, and
+   since §35 a Lead can have several Appointments over time — "the"
+   outcome means the most recent one's); and Uncontactable has zero
+   backing data anywhere — checked CallAttempt.outcome's full CHECK
+   constraint (NoAnswer/Voicemail/WrongNumber/CallbackRequested/
+   ClientContacted/NotInterested/AppointmentScheduled), no such value,
+   and nothing tracks "no answer after N attempts" as a derived state.
+   RESOLVED: 6 real buckets. Unassigned/Assigned/InProgress straight from
+   pipelineStatus; Converted leads split by their most recent Appointment's
+   actual status (still active -> Appointment Booked, ClosedWon -> Closed
+   Won, ClosedLost/ReturnedToLeads -> Closed Lost); Leads closed via a call
+   outcome without ever getting an appointment (pipelineStatus = 'Closed')
+   folded into Closed Lost too — both mean "didn't convert", no reason for
+   a 7th bucket. Uncontactable dropped entirely.
+
+2. POLICY VALUE. No monetary/premium field exists anywhere in the schema —
+   checked exhaustively (grepped the whole schema for policyValue/premium/
+   DECIMAL/NUMERIC/MONEY), not assumed from the mock's presence of the
+   column. RESOLVED: dropped Policy Value and everything derived from it
+   (Avg per broker, Avg per signing) rather than inventing a new capture
+   feature nobody asked for. Real KPIs substituted: org-wide, Appointments
+   Booked and Active Brokers (both already derivable from real data,
+   money-free); a broker's own view, Conversion Rate and Portfolios
+   (count + list — genuinely available now that brokers can have several,
+   see §41) instead of the two money-based KPIs.
+
+BUILT:
+  - api-lib/models/report.js — period query validation (Monthly/
+    Quarterly/Yearly, matches the enum Reports.jsx's UI already used).
+  - api-lib/services/reportService.js — getReportSummary() (pipeline +
+    trend), getBrokerReport(), getAgentReport(). Trend chart bucketing
+    (weeks for Monthly, months for Quarterly/Yearly) computed in JS, one
+    pair of COUNT queries per bucket (max 12 for Yearly) rather than
+    dynamic SQL date-bucketing — simpler and plenty fast enough for a
+    low-traffic internal report at this org's scale.
+  - api-lib/handlers/reportHandlers.js — all three endpoints open to all
+    four roles; row-level scoping happens inside reportService.js, not
+    via requireRole exclusion. Resolves the effective role via the SAME
+    precedence helpers (isAgentOnly/isSupervisorOnly) every other handler
+    in this codebase already uses — caught myself about to invent a
+    claims.roles[0] pattern that doesn't exist anywhere else here, fixed
+    before it shipped, not after.
+  - Broker scope: Admin/GlobalAdmin/Supervisor see all brokers (brokers
+    aren't in a supervisor's direct-report line the way agents are —
+    matches the mock's own scoping exactly, which fell through to the
+    full list for Supervisor too). Agent scope: Admin/GlobalAdmin see all,
+    Supervisor sees real direct reports via getDirectReportIds() (not the
+    mock's hardcoded SUPERVISOR_AGENTS = ['Thabo Molefe', 'Naledi van Wyk']).
+  - api/reports-router.js + vercel.json — new /api/reports/:slug* rewrite,
+    matches the existing router pattern exactly (leads/appointments/etc).
+  - src/services/api.js — replaced a STALE, never-wired reportsApi
+    (pipeline/broker-activity endpoints) that didn't match Reports.jsx's
+    own documented API shape and was never called from anywhere — found
+    while adding the real one, not something this session introduced.
+  - Reports.jsx — mock data (PIPELINE_DATA/TREND_DATA/BROKER_DATA/
+    AGENT_DATA, all keyed by period) replaced with three useFetch calls.
+    Client-side role-filtering of mock arrays by persona name removed
+    entirely — the API already returns only what the viewer may see.
+    Loading/error handling follows the established pattern (§37's
+    DEMO_MODE-gated notice, real error surfaced rather than silently
+    swallowed — the exact bug class that caused the blank Lead Detail
+    page in §37 was checked for here from the start, not retrofitted).
+
+NOT BUILT (deliberately, per Mark's own confirmed sequencing): AgentDetail.jsx
+and BrokerDetail.jsx, the two drill-down pages Reports.jsx's "View →"
+buttons link to (/reports/agent/:id, /reports/broker/:id) — both still
+entirely mock (257 and 249 lines respectively). Queued as the explicit
+next item.
+
+BUILD VERIFICATION: full Vite build clean (1,300 modules), Vitest suite
+unchanged and passing (45 tests).
+
+MIGRATION — no new database migration this time. New files + vercel.json
+change:
+  api-lib/models/report.js                (NEW)
+  api-lib/services/reportService.js       (NEW)
+  api-lib/handlers/reportHandlers.js      (NEW)
+  api/reports-router.js                   (NEW)
+  src/pages/Reports.jsx
+  src/services/api.js
+  vercel.json
+Plus this Status.md. Flagging again in the delivery message: vercel.json
+changed (new rewrite rule) — confirm the new /api/reports/* routes
+actually resolve after deploy, not just that the files landed.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

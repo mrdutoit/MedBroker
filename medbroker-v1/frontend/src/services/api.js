@@ -284,10 +284,11 @@ export const flagsApi = {
 };
 
 // ─── Reports ─────────────────────────────────────────────────────────────────
-
+// Replaces a stale reportsApi shape (pipeline/broker-activity) that never
+// matched Reports.jsx's own header comment and was never wired to
+// anything — leftover scaffolding from an earlier design pass.
 export const reportsApi = {
-  pipeline:       (params) =>
-    request(`/reports/pipeline?${new URLSearchParams(params)}`),
-  brokerActivity: (params) =>
-    request(`/reports/broker-activity?${new URLSearchParams(params)}`),
+  summary: (period) => request(`/reports/summary?period=${period}`),
+  brokers: (period) => request(`/reports/brokers?period=${period}`),
+  agents:  (period) => request(`/reports/agents?period=${period}`),
 };
