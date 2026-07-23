@@ -271,8 +271,18 @@ export async function getAgentDetailReport(agentId, period, scope) {
     activity.push({ label: b.label, calls: Number(callRows[0].count), booked: Number(bookedRows[0].count) });
   }
 
-  // Recent lead activity — last 5 leads assigned to this agent, with their
-  // most recent call attempt (if any).
+  // Recent lead activity — last 5 leads assigned to this agent, with the
+  // most recent call attempt THIS AGENT made on each (if any). Fixed 23
+  // Jul 2026: the LATERAL subquery previously filtered only by leadId, so
+  // it surfaced the most recent call ANY agent ever made on that lead —
+  // including a prior agent's, from before the lead was reassigned to
+  // this one. That's misleading here specifically: a lead reassigned to
+  // a new agent legitimately keeps its full call history (nothing about
+  // reassignment deletes or transfers past CallAttempt rows — matches how
+  // Appointment.agentId also stays with whoever booked it, not whoever
+  // holds the lead now, per §35), but showing an activity the CURRENT
+  // agent never performed under their own name on their own detail page
+  // is a genuine bug, not just an artifact of the data model.
   const recentLeads = await executeQuery(
     `SELECT
        l.id AS "leadId", l.firstName AS "firstName", l.lastName AS "lastName",
@@ -281,7 +291,9 @@ export async function getAgentDetailReport(agentId, period, scope) {
        lc.outcome AS "lastOutcome", lc.callTime AS "lastCallTime"
      FROM Lead l
      LEFT JOIN LATERAL (
-       SELECT outcome, callTime FROM CallAttempt WHERE leadId = l.id ORDER BY callTime DESC LIMIT 1
+       SELECT outcome, callTime FROM CallAttempt
+       WHERE leadId = l.id AND agentId = @agentId
+       ORDER BY callTime DESC LIMIT 1
      ) lc ON true
      LEFT JOIN Event ev ON l.linkedEventId = ev.id
      LEFT JOIN MedicalSubscription ms ON l.linkedSubscriptionId = ms.id
