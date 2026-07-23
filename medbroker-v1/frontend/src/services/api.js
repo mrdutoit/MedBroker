@@ -184,6 +184,14 @@ export const leadsApi = {
   //   Used to populate the Source filter dropdown in LeadList.
   //   Falls back to LEAD_SOURCES constant in preview mode.
   sources: () => request('/leads/sources'),
+  // update — patches the editable Contact/Education/Insurance fields on
+  //   LeadDetail.jsx. Editable by the assigned Agent, their Supervisor, or
+  //   Admin/GlobalAdmin — enforced server-side, not just hidden client-side.
+  //   Server-side: writes a diffed LeadUpdated AuditLog entry.
+  update: (id, data) =>
+    request(`/leads/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  // auditLog — change history for LeadDetail.jsx's Audit Log panel.
+  auditLog: (id) => request(`/leads/${id}/audit`),
   logCall: (id, attemptData) =>
     request(`/leads/${id}/calls`, { method: 'POST', body: JSON.stringify(attemptData) }),
   // listCalls — call history for a lead, most recent first. Used by
@@ -227,6 +235,8 @@ export const appointmentsApi = {
   //   Body: { customerSigned, productsSold, meetings }.
   saveOutcome: (id, data) =>
     request(`/appointments/${id}/outcome`, { method: 'POST', body: JSON.stringify(data) }),
+  // auditLog — change history for AppointmentDetail.jsx's Change Log panel.
+  auditLog: (id) => request(`/appointments/${id}/audit`),
 };
 
 // ─── Broker matching ──────────────────────────────────────────────────────────

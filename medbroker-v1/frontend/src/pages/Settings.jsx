@@ -12,6 +12,7 @@ import { useRole }       from '../context/RoleContext.jsx';
 import { useTheme }      from '../context/ThemeContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s, colors }     from '../styles/tokens.js';
+import { getUserTimezone, setUserTimezone, SUPPORTED_TIMEZONES } from '../utils/dateFormat.js';
 
 const AVATAR_OPTIONS = [
   { id: 'grad',    value: 'linear-gradient(135deg, var(--accent), var(--accent2))' },
@@ -28,13 +29,15 @@ export default function Settings() {
 
   const [displayName, setDisplayName] = useState(persona.displayName);
   const [avatar, setAvatar]           = useState(AVATAR_OPTIONS[0].value);
+  const [timezone, setTimezone]       = useState(getUserTimezone());
 
   // Saved baseline — what was last committed
   const [savedName,   setSavedName]   = useState(persona.displayName);
   const [savedAvatar, setSavedAvatar] = useState(AVATAR_OPTIONS[0].value);
+  const [savedTimezone, setSavedTimezone] = useState(getUserTimezone());
   const [saveStatus,  setSaveStatus]  = useState(null); // null | 'saving' | 'saved'
 
-  const isDirty = displayName !== savedName || avatar !== savedAvatar;
+  const isDirty = displayName !== savedName || avatar !== savedAvatar || timezone !== savedTimezone;
 
   function handleSave() {
     if (!isDirty) return;
@@ -44,9 +47,11 @@ export default function Settings() {
       sessionStorage.setItem('mb_displayName', displayName);
       sessionStorage.setItem('mb_avatarColour', avatar);
     } catch (_) {}
+    setUserTimezone(timezone);
     setTimeout(() => {
       setSavedName(displayName);
       setSavedAvatar(avatar);
+      setSavedTimezone(timezone);
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus(null), 2500);
     }, 400);
@@ -102,6 +107,23 @@ export default function Settings() {
               </button>
             );
           })}
+        </div>
+      </div>
+
+      {/* ── Date & Time ──────────────────────────────────────────────────── */}
+      <div style={{ ...s.card, marginBottom: '16px' }}>
+        <h2 style={s.cardTitle}>Date &amp; Time</h2>
+        <p style={{ fontSize: '0.8125rem', color: colors.ink500, margin: '0 0 14px' }}>
+          Dates display as DD-MM-YYYY throughout MedBroker. Choose the timezone
+          appointment times are shown in.
+        </p>
+        <div style={{ maxWidth: '360px' }}>
+          <label style={s.formLabel}>Timezone</label>
+          <select style={s.formInput} value={timezone} onChange={e => setTimezone(e.target.value)}>
+            {SUPPORTED_TIMEZONES.map(tz => (
+              <option key={tz.id} value={tz.id}>{tz.label}</option>
+            ))}
+          </select>
         </div>
       </div>
 

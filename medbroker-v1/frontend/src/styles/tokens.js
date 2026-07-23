@@ -70,7 +70,7 @@ export const STATUS_META = {
   Unassigned:            { colour: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb', label: 'Unassigned' },
   Assigned:              { colour: '#1d4ed8', bg: '#eff6ff', border: '#bfdbfe', label: 'Assigned' },
   InProgress:            { colour: '#d97706', bg: '#fffbeb', border: '#fde68a', label: 'In Progress' },
-  AppointmentScheduled:  { colour: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe', label: 'Appt Scheduled' },
+  AppointmentScheduled:  { colour: '#7c3aed', bg: '#f5f3ff', border: '#ddd6fe', label: 'Converted' },
   Closed:                { colour: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb', label: 'Closed' },
 };
 

@@ -41,6 +41,8 @@ import { useWindowSize }                      from '../hooks/useWindowSize';
 import { useFetch }                           from '../hooks/useFetch.js';
 import { appointmentsApi, usersApi }          from '../services/api';
 import { s, APPT_STATUS_META }                from '../styles/tokens.js';
+import { formatDate, formatTime }             from '../utils/dateFormat.js';
+import AuditLogList                           from '../components/AuditLogList.jsx';
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 // In production: fetched from GET /api/appointments/:id
@@ -65,9 +67,14 @@ const EMPTY_APPOINTMENT = {
 
 const MEETING_STATUSES = ['Seen', 'Rescheduled', 'Cancelled'];
 
-// A meeting is "complete" once its outcome status has been recorded — that's
-// what unlocks the button to create the next meeting in the sequence.
-const isMeetingComplete = (meeting) => !!meeting.status;
+// Changed 23 Jul 2026 (Mark's request): previously ANY recorded status
+// (including Rescheduled/Cancelled) unlocked the next meeting — that's
+// wrong, since a rescheduled or cancelled meeting isn't actually done, the
+// broker still needs to capture a new date for THIS meeting, not move on.
+// Only a meeting genuinely held (status 'Seen', set via the dedicated "Mark
+// Meeting Held" button below) unlocks the next one and locks this one.
+const isMeetingComplete = (meeting) => meeting.status === 'Seen';
+const isMeetingLocked   = isMeetingComplete; // same signal — held means locked
 // A meeting already "exists" if any of its fields already carry data — handles
 // loading an appointment that already has a Second/Third meeting filled in,
 // so it renders immediately rather than behind the Add-meeting button again.
@@ -100,29 +107,47 @@ function FieldRow({ label, children }) {
 // ─── Meeting section ───────────────────────────────────────────────────────────
 // Rendered only once a meeting has actually been created — see AddMeetingPrompt
 // below and the secondMeetingCreated/thirdMeetingCreated state in the main
-// component. No per-field disabling needed any more: if it's rendered, it's active.
-function MeetingSection({ meeting, onChange, isMobile }) {
+// component.
+function MeetingSection({ meeting, onChange, onMarkHeld, marking, isMobile, disabled }) {
   const isOptional = meeting.number === 3;
   const titles = ['', 'First Meeting', 'Second Meeting', 'Third Meeting'];
+  const locked = isMeetingLocked(meeting) || disabled;
+  const canMarkHeld = !locked && !!meeting.date;
 
   return (
-    <div style={{ ...s.card, borderStyle: isOptional ? 'dashed' : 'solid', marginBottom: '12px' }}>
-      <div style={s.cardTitle}>{titles[meeting.number]}</div>
+    <div style={{ ...s.card, borderStyle: isOptional ? 'dashed' : 'solid', marginBottom: '12px', opacity: disabled ? 0.6 : 1 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', ...s.cardTitle }}>
+        <span>{titles[meeting.number]}</span>
+        {isMeetingLocked(meeting) && (
+          <span style={{ ...s.badge, background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d', fontWeight: 600 }}>
+            ✓ Held
+          </span>
+        )}
+      </div>
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
         <div>
           <label style={s.formLabel}>Date</label>
           <input
             type="date"
-            style={s.formInput}
+            style={{ ...s.formInput, opacity: locked ? 0.6 : 1 }}
             value={meeting.date}
+            disabled={locked}
             onChange={e => onChange(meeting.number, 'date', e.target.value)}
           />
+          {!locked && meeting.status && meeting.status !== 'Seen' && (
+            <p style={{ ...s.formHint, marginTop: '4px' }}>
+              {meeting.status === 'Rescheduled'
+                ? 'Client rescheduled — enter the new date above, still against this meeting.'
+                : 'Client cancelled — enter a new date above if one is set, still against this meeting.'}
+            </p>
+          )}
         </div>
         <div>
           <label style={s.formLabel}>Status</label>
           <select
-            style={s.formInput}
+            style={{ ...s.formInput, opacity: locked ? 0.6 : 1 }}
             value={meeting.status}
+            disabled={locked}
             onChange={e => onChange(meeting.number, 'status', e.target.value)}
           >
             <option value="">Please select</option>
@@ -133,12 +158,30 @@ function MeetingSection({ meeting, onChange, isMobile }) {
       <div>
         <label style={s.formLabel}>Meeting Feedback</label>
         <textarea
-          style={{ ...s.formInput, height: '60px', resize: 'vertical' }}
+          style={{ ...s.formInput, height: '60px', resize: 'vertical', opacity: locked ? 0.6 : 1 }}
           placeholder="Notes from the meeting…"
           value={meeting.notes}
+          disabled={locked}
           onChange={e => onChange(meeting.number, 'notes', e.target.value)}
         />
       </div>
+      {!locked && (
+        <div style={{ marginTop: '12px' }}>
+          <button
+            type="button"
+            style={{ ...s.secondaryBtn, opacity: (!canMarkHeld || marking) ? 0.5 : 1 }}
+            disabled={!canMarkHeld || marking}
+            onClick={() => onMarkHeld(meeting.number)}
+          >
+            {marking ? 'Saving…' : '✓ Mark Meeting Held'}
+          </button>
+          {!meeting.date && (
+            <span style={{ fontSize: '0.75rem', color: 'var(--mut)', marginLeft: '8px' }}>
+              Set a date before marking this meeting held.
+            </span>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -180,33 +223,38 @@ function PortfolioPill({ portfolio }) {
   );
 }
 
-// ─── Reassign Broker modal ─────────────────────────────────────────────────────
+// ─── Reassign Broker / Agent modal ─────────────────────────────────────────────
 //
-// CRITICAL: Mirrors AssignBrokerModal behaviour exactly.
-// The Agent field is ALWAYS read-only — it shows who booked the appointment
-// and cannot be changed through this interface. Only the Broker field is editable.
+// Broker was always editable here. Agent was previously hardcoded read-only
+// — "the user who booked it, never subsequently editable" — which is exactly
+// the rule Mark asked to reverse: the Agent should be the Lead's assigned
+// agent, and correctable via this same Reassign action if it's ever wrong
+// (e.g. the Lead gets reassigned to a different agent after the appointment
+// already exists). The backend (ReassignAppointmentSchema / reassignAppointment())
+// already accepted an optional agentId — only this modal enforced read-only.
 //
-// isAssign=false (this is always a reassign from AppointmentDetail).
-// The current broker is pre-selected so the user can see who is assigned
-// before choosing a replacement.
-//
-// Production: calls PUT /api/appointments/:id/reassign → { brokerId }
-// The endpoint updates the broker, keeps the current status, and writes an audit
-// log entry. It does NOT accept an agentId — agent is immutable at the API level.
-function ReassignBrokerModal({ appointment, brokers, onSaved, onClose }) {
+// Production: calls PUT /api/appointments/:id/reassign → { brokerId, agentId }
+function ReassignBrokerModal({ appointment, brokers, agents, onSaved, onClose }) {
   const [broker, setBroker] = useState(appointment.brokerId ?? '');
+  const [agent,  setAgent]  = useState(appointment.agentId ?? '');
   const [saving, setSaving] = useState(false);
   const [saved,  setSaved]  = useState(false);
   const [error,  setError]  = useState('');
 
   const brokerChanged = broker !== (appointment.brokerId ?? '');
+  const agentChanged  = agent  !== (appointment.agentId ?? '');
+  const hasChange = (brokerChanged && !!broker) || (agentChanged && !!agent);
 
   async function handleSave() {
-    if (!broker || !brokerChanged) return;
+    if (!hasChange) return;
     setSaving(true);
     setError('');
     try {
-      await appointmentsApi.reassign(appointment.id, broker);
+      await appointmentsApi.reassign(
+        appointment.id,
+        brokerChanged ? broker : undefined,
+        agentChanged  ? agent  : undefined
+      );
       setSaved(true);
       await onSaved?.();
       setTimeout(onClose, 900);
@@ -223,7 +271,7 @@ function ReassignBrokerModal({ appointment, brokers, onSaved, onClose }) {
 
         {/* Header */}
         <div style={s.modalHeader}>
-          <h2 style={s.modalTitle}>Reassign Broker</h2>
+          <h2 style={s.modalTitle}>Reassign Broker / Agent</h2>
           <button style={s.closeBtn} onClick={onClose} aria-label="Close">
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="16" height="16">
               <path d="M3 3l10 10M13 3L3 13"/>
@@ -233,48 +281,37 @@ function ReassignBrokerModal({ appointment, brokers, onSaved, onClose }) {
 
         {/* Context line */}
         <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '16px' }}>
-          {appointment.leadName} · Currently assigned to <strong>{appointment.brokerName}</strong>
+          {appointment.leadName} · Currently: <strong>{appointment.agentName}</strong> (agent) / <strong>{appointment.brokerName}</strong> (broker)
         </p>
 
         {saved && (
           <div style={{ ...s.noticeSuccess, marginBottom: '12px' }}>
-            ✓ Broker reassigned successfully
+            ✓ Reassigned successfully
           </div>
         )}
         {error && (
           <div style={{ ...s.errorBox, marginBottom: '12px' }}>{error}</div>
         )}
 
-        {/* Agent — read-only, always */}
+        {/* Agent — editable */}
         <div style={{ marginBottom: '14px' }}>
-          <label style={s.formLabel}>
-            Agent
-            <span style={{ marginLeft: '6px', fontSize: '0.6875rem', color:'var(--mut)', fontWeight: 400, textTransform: 'none', letterSpacing: 0 }}>
-              (read only)
-            </span>
-          </label>
-          <div style={{
-            ...s.formInput,
-            background:'var(--panel2)',
-            color:'var(--mut)',
-            cursor: 'not-allowed',
-            display: 'flex',
-            alignItems: 'center',
-            gap: '6px',
-          }}>
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" width="13" height="13" style={{ flexShrink: 0, opacity: 0.5 }}>
-              <rect x="4" y="7" width="8" height="6" rx="1"/><path d="M6 7V5a2 2 0 014 0v2"/>
-            </svg>
-            {appointment.agentName}
-          </div>
-          <p style={{ fontSize: '0.6875rem', color:'var(--mut)', marginTop: '4px' }}>
-            Set when the appointment was booked. Cannot be changed here.
-          </p>
+          <label style={s.formLabel}>Agent</label>
+          {appointment.agentName && (
+            <p style={{ fontSize: '0.6875rem', color:'var(--mut)', marginBottom: '6px' }}>
+              Current: {appointment.agentName}
+            </p>
+          )}
+          <select style={s.formInput} value={agent} onChange={e => setAgent(e.target.value)} disabled={saved}>
+            <option value="">Select agent…</option>
+            {agents.map((a) => (
+              <option key={a.id} value={a.id}>{a.displayName}</option>
+            ))}
+          </select>
         </div>
 
         {/* Broker — editable, pre-populated with current broker */}
         <div style={{ marginBottom: '20px' }}>
-          <label style={s.formLabel}>Reassign broker *</label>
+          <label style={s.formLabel}>Broker</label>
           {appointment.brokerName && (
             <p style={{ fontSize: '0.6875rem', color:'var(--mut)', marginBottom: '6px' }}>
               Current: {appointment.brokerName}
@@ -291,11 +328,6 @@ function ReassignBrokerModal({ appointment, brokers, onSaved, onClose }) {
               <option key={b.id} value={b.id}>{b.displayName}</option>
             ))}
           </select>
-          {broker && broker === (appointment.brokerId ?? '') && (
-            <p style={{ fontSize: '0.6875rem', color:'var(--mut)', marginTop: '4px' }}>
-              Select a different broker to reassign.
-            </p>
-          )}
         </div>
 
         {/* Footer */}
@@ -308,9 +340,9 @@ function ReassignBrokerModal({ appointment, brokers, onSaved, onClose }) {
             Cancel
           </button>
           <button
-            style={{ ...s.primaryBtn, opacity: (!broker || !brokerChanged || saving || saved) ? 0.5 : 1 }}
+            style={{ ...s.primaryBtn, opacity: (!hasChange || saving || saved) ? 0.5 : 1 }}
             onClick={handleSave}
-            disabled={!broker || !brokerChanged || saving || saved}
+            disabled={!hasChange || saving || saved}
           >
             {saved ? 'Saved ✓' : saving ? 'Saving…' : 'Save Changes'}
           </button>
@@ -406,6 +438,14 @@ export default function AppointmentDetail() {
   const { data: apptData, loading: apptLoading, refetch: refetchAppt } = useFetch(() => appointmentsApi.get(id), [id]);
   const { data: brokersData } = useFetch(() => usersApi.list({ role: 'Broker' }), []);
   const realBrokers = brokersData?.users ?? [];
+  const { data: agentsData } = useFetch(() => usersApi.list({ role: 'Agent' }), []);
+  const realAgents = agentsData?.users ?? [];
+  // Change Log — GET /api/appointments/:id/audit, same generic AuditLog
+  // table the Lead side reads from. Refetched alongside the appointment
+  // itself whenever an action (outcome save, reassign, meeting held) writes
+  // a new entry, via the same refetchAppt-triggered re-render pattern.
+  const { data: auditData, refetch: refetchAudit } = useFetch(() => appointmentsApi.auditLog(id), [id]);
+  const auditEntries = auditData?.entries ?? [];
 
   const [appt,              setAppt]              = useState({ ...EMPTY_APPOINTMENT, id: id ?? '' });
   const [showReassign,      setShowReassign]      = useState(false);
@@ -413,6 +453,7 @@ export default function AppointmentDetail() {
   const [outcomeSaved,      setOutcomeSaved]      = useState(false);
   const [savingOutcome,     setSavingOutcome]     = useState(false);
   const [outcomeError,      setOutcomeError]      = useState(null);
+  const [markingHeld,       setMarkingHeld]       = useState(null); // meeting number currently being saved, or null
   const [secondMeetingCreated, setSecondMeetingCreated] = useState(() => meetingHasData(appt.meetings[1]));
   const [thirdMeetingCreated,  setThirdMeetingCreated]  = useState(() => meetingHasData(appt.meetings[2]));
 
@@ -494,11 +535,41 @@ export default function AppointmentDetail() {
       // Production returns the updated record; preview returns null (mock mode).
       if (result?.status) setAppt(prev => ({ ...prev, status: result.status }));
       setOutcomeSaved(true);
+      refetchAudit();
       setTimeout(() => setOutcomeSaved(false), 3000);
     } catch (err) {
-      setOutcomeError('Could not save the outcome. Please try again.');
+      setOutcomeError(err?.message ?? 'Could not save the outcome. Please try again.');
     } finally {
       setSavingOutcome(false);
+    }
+  }
+
+  // Mark Meeting Held — the dedicated action Mark asked for, distinct from
+  // just picking "Seen" in the status dropdown: it immediately persists and
+  // locks THIS meeting (date/status/notes become read-only) and, once
+  // saved, unlocks the next meeting's Add-meeting prompt. Scoped to send
+  // only this meeting's fields — customerSigned/productsSold/other meetings
+  // are omitted from the payload so they can't be accidentally overwritten
+  // by whatever's currently in the rest of the draft form.
+  async function handleMarkMeetingHeld(meetingNumber) {
+    const meeting = appt.meetings.find(m => m.number === meetingNumber);
+    if (!meeting?.date) return;
+    setMarkingHeld(meetingNumber);
+    setOutcomeError(null);
+    try {
+      const result = await appointmentsApi.saveOutcome(appt.id, {
+        meetings: [{ number: meetingNumber, date: meeting.date, status: 'Seen', notes: meeting.notes }],
+      });
+      setAppt(prev => ({
+        ...prev,
+        status: result?.status ?? prev.status,
+        meetings: prev.meetings.map(m => m.number === meetingNumber ? { ...m, status: 'Seen' } : m),
+      }));
+      refetchAudit();
+    } catch (err) {
+      setOutcomeError(err?.message ?? 'Could not mark this meeting held. Please try again.');
+    } finally {
+      setMarkingHeld(null);
     }
   }
 
@@ -535,7 +606,7 @@ export default function AppointmentDetail() {
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {canReassign && (
               <button style={s.secondaryBtn} onClick={() => setShowReassign(true)}>
-                Reassign Broker
+                Reassign
               </button>
             )}
             {canReturn && (
@@ -564,7 +635,7 @@ export default function AppointmentDetail() {
           <div style={s.cardTitle}>Appointment Details</div>
           <FieldRow label="Status"><StatusChip status={appt.status} /></FieldRow>
           <FieldRow label="Portfolio"><PortfolioPill portfolio={appt.portfolio} /></FieldRow>
-          <FieldRow label="First appt date">{appt.firstDate}  {appt.firstTime}</FieldRow>
+          <FieldRow label="First appt date">{formatDate(appt.firstDate)} · {formatTime(appt.firstTime)}</FieldRow>
           <FieldRow label="Address">{appt.address}</FieldRow>
           <FieldRow label="Broker">{appt.brokerName}</FieldRow>
           <FieldRow label="Agent">{appt.agentName}</FieldRow>
@@ -573,41 +644,69 @@ export default function AppointmentDetail() {
       </div>
 
       {/* ── Meeting tracking ────────────────────────────────────────────────── */}
-      <MeetingSection meeting={appt.meetings[0]} onChange={handleMeetingChange} isMobile={isMobile} />
+      <MeetingSection
+        meeting={appt.meetings[0]} onChange={handleMeetingChange}
+        onMarkHeld={handleMarkMeetingHeld} marking={markingHeld === 1}
+        isMobile={isMobile} disabled={isClosed}
+      />
 
       {secondMeetingCreated ? (
-        <MeetingSection meeting={appt.meetings[1]} onChange={handleMeetingChange} isMobile={isMobile} />
+        <MeetingSection
+          meeting={appt.meetings[1]} onChange={handleMeetingChange}
+          onMarkHeld={handleMarkMeetingHeld} marking={markingHeld === 2}
+          isMobile={isMobile} disabled={isClosed}
+        />
       ) : (
         <AddMeetingPrompt
           label="Add Second Meeting"
-          unlocked={firstMeetingComplete}
-          unlockHint="Record the First Meeting's status before adding a Second Meeting."
+          unlocked={firstMeetingComplete && !isClosed}
+          unlockHint="Mark the First Meeting Held before adding a Second Meeting."
           onClick={() => setSecondMeetingCreated(true)}
         />
       )}
 
       {thirdMeetingEnabled && secondMeetingCreated && (
         thirdMeetingCreated ? (
-          <MeetingSection meeting={appt.meetings[2]} onChange={handleMeetingChange} isMobile={isMobile} />
+          <MeetingSection
+            meeting={appt.meetings[2]} onChange={handleMeetingChange}
+            onMarkHeld={handleMarkMeetingHeld} marking={markingHeld === 3}
+            isMobile={isMobile} disabled={isClosed}
+          />
         ) : (
           <AddMeetingPrompt
             label="Add Third Meeting"
-            unlocked={secondMeetingComplete}
-            unlockHint="Record the Second Meeting's status before adding a Third Meeting."
+            unlocked={secondMeetingComplete && !isClosed}
+            unlockHint="Mark the Second Meeting Held before adding a Third Meeting."
             onClick={() => setThirdMeetingCreated(true)}
           />
         )
       )}
 
       {/* ── Appointment outcome ─────────────────────────────────────────────── */}
-      <div style={s.card}>
-        <div style={s.cardTitle}>Appointment Outcome</div>
+      {/* Only shown once the First Meeting actually has details — no meeting,
+          nothing to report an outcome on yet (Mark's request). */}
+      {meetingHasData(appt.meetings[0]) && (
+      <div style={{ ...s.card, opacity: isClosed ? 0.75 : 1 }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', ...s.cardTitle }}>
+          <span>Appointment Outcome</span>
+          {isClosed && (
+            <span style={{ ...s.badge, background: 'var(--panel2)', color: 'var(--mut)', fontWeight: 600 }}>
+              🔒 Locked
+            </span>
+          )}
+        </div>
+        {isClosed && (
+          <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>
+            This appointment is closed ({appt.status === 'ClosedWon' ? 'Closed Won' : 'Closed Lost'}) and can no longer be edited.
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px', marginBottom: '14px' }}>
           <div>
             <label style={s.formLabel}>Customer Signed?</label>
             <select
-              style={s.formInput}
+              style={{ ...s.formInput, opacity: isClosed ? 0.6 : 1 }}
               value={appt.customerSigned === null ? '' : appt.customerSigned ? 'Yes' : 'No'}
+              disabled={isClosed}
               onChange={e => handleOutcomeChange('customerSigned', e.target.value === '' ? null : e.target.value === 'Yes')}
             >
               <option value="">Please select</option>
@@ -618,8 +717,9 @@ export default function AppointmentDetail() {
           <div>
             <label style={s.formLabel}>Broker Switch?</label>
             <select
-              style={s.formInput}
+              style={{ ...s.formInput, opacity: isClosed ? 0.6 : 1 }}
               value={appt.brokerSwitch === null ? '' : appt.brokerSwitch ? 'Yes' : 'No'}
+              disabled={isClosed}
               onChange={e => handleOutcomeChange('brokerSwitch', e.target.value === '' ? null : e.target.value === 'Yes')}
             >
               <option value="">Please select</option>
@@ -632,10 +732,11 @@ export default function AppointmentDetail() {
           <label style={s.formLabel}>Products Sold</label>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginTop: '6px' }}>
             {productsForPortfolio.map(product => (
-              <label key={product} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8125rem', cursor: 'pointer' }}>
+              <label key={product} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8125rem', cursor: isClosed ? 'default' : 'pointer' }}>
                 <input
                   type="checkbox"
                   checked={appt.productsSold.includes(product)}
+                  disabled={isClosed}
                   onChange={() => handleProductToggle(product)}
                 />
                 {product}
@@ -643,14 +744,16 @@ export default function AppointmentDetail() {
             ))}
           </div>
         </div>
-        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-          <button style={s.primaryBtn} onClick={handleSaveOutcome} disabled={savingOutcome}>
-            {savingOutcome ? 'Saving…' : 'Save Outcome'}
-          </button>
-          {outcomeSaved && (
-            <span style={{ fontSize: '0.8125rem', color: '#15803d' }}>✓ Outcome saved</span>
-          )}
-        </div>
+        {!isClosed && (
+          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+            <button style={s.primaryBtn} onClick={handleSaveOutcome} disabled={savingOutcome}>
+              {savingOutcome ? 'Saving…' : 'Save Outcome'}
+            </button>
+            {outcomeSaved && (
+              <span style={{ fontSize: '0.8125rem', color: '#15803d' }}>✓ Outcome saved</span>
+            )}
+          </div>
+        )}
         {outcomeError && (
           <div style={{ ...s.noticeWarn, marginTop: '10px' }}>{outcomeError}</div>
         )}
@@ -665,13 +768,21 @@ export default function AppointmentDetail() {
           </p>
         )}
       </div>
+      )}
 
-      {/* ── Reassign Broker modal ────────────────────────────────────────────── */}
+      {/* ── Change Log ──────────────────────────────────────────────────────── */}
+      <div style={s.card}>
+        <div style={s.cardTitle}>Change Log ({auditEntries.length})</div>
+        <AuditLogList entries={auditEntries} emptyLabel="No changes recorded yet." />
+      </div>
+
+      {/* ── Reassign Broker / Agent modal ────────────────────────────────────── */}
       {showReassign && (
         <ReassignBrokerModal
           appointment={appt}
           brokers={realBrokers}
-          onSaved={refetchAppt}
+          agents={realAgents}
+          onSaved={() => { refetchAppt(); refetchAudit(); }}
           onClose={() => setShowReassign(false)}
         />
       )}

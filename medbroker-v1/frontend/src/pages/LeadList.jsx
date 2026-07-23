@@ -23,9 +23,17 @@ import { useFlags } from '../context/FlagContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s, STATUS_META } from '../styles/tokens.js';
 import { JOB_TITLES } from '../constants/leadOptions.js';
-const STATUS_CHIPS      = ['All', ...Object.keys(STATUS_META)];
-// Leads with AppointmentScheduled are shown in Appointments, not here
-const EXCLUDED_STATUSES = ['AppointmentScheduled'];
+// Composite/quick-filter chips shown ahead of the individual pipeline
+// statuses. 'Active' and 'Closed' group several pipelineStatus values into
+// one tab (mirrors the same split added to AppointmentList.jsx); 'Converted'
+// is AppointmentScheduled under its STATUS_META display label. Previously a
+// converted Lead was force-excluded from every view via EXCLUDED_STATUSES —
+// Mark asked for it to stay visible instead, so 'Active' now excludes it
+// specifically (that's the "still being worked" view), while 'All' and
+// 'Converted' both surface it.
+const STATUS_CHIPS  = ['Active', 'Unassigned', 'Assigned', 'InProgress', 'Converted', 'Closed', 'All'];
+const ACTIVE_EXCLUDE = ['AppointmentScheduled', 'Closed'];
+const CHIP_TO_STATUS = { Converted: 'AppointmentScheduled' }; // chip label -> real pipelineStatus value
 
 // ─── Assign / Reassign Lead Modal ─────────────────────────────────────────────
 // isAssign=true  → "Assign Lead"   — calls leadsApi.assign()   (Unassigned → Assigned)
@@ -118,7 +126,7 @@ export default function LeadList() {
   const showImport           = (flag('leads.importCsv.enabled') || flag('leads.importSubscription.enabled')) && (isAdmin || isSupervisor);
   const showOccupationFilter = flag('leads.occupationFilter.enabled');
 
-  const [activeStatus,   setActiveStatus]   = useState('All');
+  const [activeStatus,   setActiveStatus]   = useState('Active');
   const [search,         setSearch]         = useState('');
   const [agentFilter,    setAgentFilter]    = useState('');
   const [occFilter,      setOccFilter]      = useState('');
@@ -130,9 +138,18 @@ export default function LeadList() {
 
   useEffect(() => { setPage(1); }, [activeStatus, search, agentFilter, occFilter, sourceFilter]);
 
+  // 'Active' groups Unassigned/Assigned/InProgress by exclusion (Converted
+  // and Closed leave the working queue); 'All' applies no status filter at
+  // all; 'Converted' maps to the real AppointmentScheduled value; every
+  // other chip (including 'Closed', which for Leads is a single literal
+  // status, unlike Appointments' two-value Closed group) is its own status.
+  const statusParams =
+    activeStatus === 'Active' ? { excludeStatuses: ACTIVE_EXCLUDE.join(',') } :
+    activeStatus === 'All'    ? {} :
+    { status: CHIP_TO_STATUS[activeStatus] ?? activeStatus };
+
   const apiParams = {
-    ...(activeStatus !== 'All' ? { status: activeStatus } : {}),
-    excludeStatuses: EXCLUDED_STATUSES.join(','),
+    ...statusParams,
     ...(search       ? { search }                         : {}),
     ...(isAgent      ? { agentId: persona.id }            : {}),
     ...(isSupervisor ? { supervisorId: persona.id }       : {}),
@@ -169,7 +186,7 @@ export default function LeadList() {
     : [];
 
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0;
-  const hasFilter  = activeStatus !== 'All' || search || agentFilter || occFilter || sourceFilter;
+  const hasFilter  = activeStatus !== 'Active' || search || agentFilter || occFilter || sourceFilter;
 
   const subtitle = isAgent      ? 'Showing leads assigned to you'
                  : isSupervisor ? 'Leads for your direct reports'
@@ -206,26 +223,29 @@ export default function LeadList() {
         </div>
       )}
       <div style={{ ...s.noticeInfo, marginBottom: '14px', fontSize: '0.8125rem' }}>
-        ℹ Leads with a booked appointment are shown in Appointments. Leads are automatically
+        ℹ Leads with a booked appointment show a Converted status and stay in this list.
+        Switch to the Active tab to see only leads still being worked. Leads are automatically
         returned to the queue after 6 months without closure.
       </div>
 
       {/* Status chips */}
       <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '12px' }}>
-        {STATUS_CHIPS.filter(st => !EXCLUDED_STATUSES.includes(st)).map(status => {
-          const isActive = activeStatus === status;
-          const meta     = STATUS_META[status];
+        {STATUS_CHIPS.map(chip => {
+          const isActive = activeStatus === chip;
+          // Active/All are composite/no-filter chips with no single STATUS_META
+          // entry of their own; Converted borrows AppointmentScheduled's colours.
+          const meta = STATUS_META[CHIP_TO_STATUS[chip] ?? chip];
           return (
             <button
-              key={status}
-              onClick={() => setActiveStatus(status)}
+              key={chip}
+              onClick={() => setActiveStatus(chip)}
               style={{
                 ...s.chip,
-                ...(isActive && status === 'All' ? s.chipActive : {}),
-                ...(isActive && status !== 'All' ? { background: meta.bg, color: meta.colour, borderColor: meta.border, fontWeight: 500 } : {}),
+                ...(isActive && !meta ? s.chipActive : {}),
+                ...(isActive && meta ? { background: meta.bg, color: meta.colour, borderColor: meta.border, fontWeight: 500 } : {}),
               }}
             >
-              {meta?.label ?? status}
+              {meta?.label ?? chip}
             </button>
           );
         })}
@@ -255,7 +275,7 @@ export default function LeadList() {
         )}
         {hasFilter && (
           <button
-            onClick={() => { setActiveStatus('All'); setSearch(''); setAgentFilter(''); setOccFilter(''); setSourceFilter(''); }}
+            onClick={() => { setActiveStatus('Active'); setSearch(''); setAgentFilter(''); setOccFilter(''); setSourceFilter(''); }}
             style={s.ghostBtn}
           >
             ✕ Clear filters
@@ -270,7 +290,7 @@ export default function LeadList() {
         <>
           <div style={{ marginBottom: '8px', fontSize: '0.813rem', color:'var(--mut)' }}>
             {data.total} lead{data.total !== 1 ? 's' : ''}
-            {activeStatus !== 'All' ? ` · ${STATUS_META[activeStatus]?.label ?? activeStatus}` : ''}
+            {activeStatus !== 'All' ? ` · ${STATUS_META[CHIP_TO_STATUS[activeStatus] ?? activeStatus]?.label ?? activeStatus}` : ''}
             {occFilter   ? ` · ${occFilter}`      : ''}
             {agentFilter ? ` · filtered by agent` : ''}
             {search      ? ` · "${search}"`       : ''}

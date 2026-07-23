@@ -11,7 +11,7 @@ import {
   reassignAppointment, returnToLeads, saveOutcome,
 } from '../services/appointmentService.js';
 import { getDirectReportIds, isSupervisorOnly, isAgentOnly } from '../services/userService.js';
-import { writeAuditLog, clientIp } from '../services/auditService.js';
+import { writeAuditLog, clientIp, listAuditLog } from '../services/auditService.js';
 import {
   CreateAppointmentSchema, AppointmentListQuerySchema, AssignBrokerSchema,
   ReassignAppointmentSchema, SaveOutcomeSchema,
@@ -48,7 +48,7 @@ export async function handleAppointmentsCollection(req, res) {
       const parsed = CreateAppointmentSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-      const newId = await createAppointment(parsed.data, claims.oid);
+      const newId = await createAppointment(parsed.data);
 
       await writeAuditLog({
         entityType: 'Appointment',
@@ -233,6 +233,47 @@ export async function handleAppointmentReturn(req, res, id) {
   }
 }
 
+/** GET /api/appointments/:id/audit */
+export async function handleAppointmentAudit(req, res, id) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Agent', 'Supervisor', 'Admin', 'GlobalAdmin', 'Broker']);
+
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid appointment ID format' });
+
+    const appt = await getAppointmentById(id);
+    if (!appt) return res.status(404).json({ error: 'Appointment not found' });
+
+    if (isAgentOnly(claims.roles) && appt.agentId !== claims.oid) {
+      return res.status(403).json({ error: 'You did not book this appointment' });
+    }
+    if (claims.roles.includes('Broker') && !claims.roles.includes('Admin') && !claims.roles.includes('GlobalAdmin') && appt.brokerId !== claims.oid) {
+      return res.status(403).json({ error: 'This appointment is not assigned to you' });
+    }
+    if (isSupervisorOnly(claims.roles)) {
+      const directReports = await getDirectReportIds(claims.oid);
+      if (!directReports.includes(appt.agentId) && appt.agentId !== claims.oid) {
+        return res.status(403).json({ error: 'This appointment is outside your team' });
+      }
+    }
+
+    const entries = await listAuditLog('Appointment', id);
+    return res.status(200).json({ entries });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('appointments/[id]/audit error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
 /** POST /api/appointments/:id/outcome */
 export async function handleAppointmentOutcome(req, res, id) {
   if (req.method !== 'POST') {
@@ -259,7 +300,11 @@ export async function handleAppointmentOutcome(req, res, id) {
       entityId: id,
       action: 'AppointmentOutcomeSaved',
       performedById: claims.oid,
-      changeDetail: { customerSigned: parsed.data.customerSigned ?? null, newStatus: result.status },
+      changeDetail: {
+        customerSigned: parsed.data.customerSigned ?? null,
+        newStatus: result.status,
+        meetings: parsed.data.meetings ?? null,
+      },
       ipAddress: clientIp(req),
     });
 

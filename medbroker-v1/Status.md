@@ -1,7 +1,12 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 18 June 2026
+Last updated: 23 July 2026
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
+
+See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
+22 July 2026, medbroker-v1/api-vercel/ is the permanent standard codebase for
+all build work; medbroker-v1/api/ (Azure) is touched only for a real
+customer's production deployment. Everything below defaults to that.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. WHAT HAS BEEN BUILT AND IS WORKING
@@ -891,7 +896,76 @@ These decisions caused rework when changed — preserve them in every session:
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Appointments API build (see §4 + §5).
+Priority: Mark needs to apply §34 (14-item bug/feature batch from his own
+testing — Lead field editing, broker-matching multi-product bug, Audit Log/
+Change Log, meeting lock workflow, Active/Closed status categories, and
+more — see §34 for the full list and what's still outstanding within it).
+
+THEN: Reports (backend + wiring) — still the only remaining page on mock
+data, deferred again this session in favour of Mark's bug list. IMPORTANT,
+per Mark's explicit instruction in §33: build Reports (and anything after
+it) WITHOUT the preview/mock-fallback pattern from the start — no MOCK_*
+constants, no PREVIEW_MODE branching, just real data from the moment the
+backend exists. That pattern is retired, not just removed retroactively
+from the 4 domains that had it. Then the queued prospect-facing Lead
+Portal (§27, confirmed 22 July, not yet scoped in detail), and the Excel/
+JSON data take-on importer flagged in §34 (medical subscriptions, and
+general Lead/Appointment take-on) — deliberately out of scope for §34,
+needs its own scoping session given the size.
+
+IMPORTANT — read §28 in full before touching Reports or anything else
+that touches api/leads/ or api/appointments/: at the start of an earlier
+session, several fixes had reverted on GitHub for reasons still unknown —
+GlobalAdmin missing again on three Lead routes, api/leads/sources.js
+missing entirely, api/leads/[id]/calls.js reverted to its old POST-only
+state. Given this, treat every future delivery's file list as something to
+actually re-verify against a fresh hydration at the START of the next
+session, not assumed still correct from a prior session's confirmation.
+This matters more than usual right now: §34 was built from a GitHub
+hydration that turned out to be a STALE COPY OF THIS FILE (Status.md
+itself) — last updated 18 June in the repo vs 22 July here in project
+knowledge, missing roughly five weeks of documented state including all of
+§28 through §33. The code files under api-lib/, api/, and src/ matched
+what this document describes (Appointments/audit/preview-removal all
+present and correct in the actual source), so the STALE COPY problem this
+session was specifically Status.md and Project_Context.md not having been
+pushed after being written — not a code reversion. Mark should confirm
+which commit actually landed on GitHub for these two files and push the
+corrected versions in this delivery if they didn't.
+
+MIGRATIONS PENDING ON MARK'S LIVE NEON DATABASE (check both are actually
+run before assuming anything Lead/Appointment-related works there):
+db/migrations/002_add_lead_title_dob.sql (title/dateOfBirth on Lead, from
+the Lead-fields session) and db/migrations/003_add_calendly_uri.sql
+(calendlyEventTypeUri on User, from this session) — schema.postgres.sql
+alone does not reach an already-existing database. Still unconfirmed as of
+§34 — carried forward again, ask Mark directly next session if still open.
+
+Before starting Appointments (now done — keeping this for the next
+similar build): read Status.md §25 in full — four real bugs were found
+there by testing (not by review) that are worth having front of mind for
+the exact same failure modes recurring: (1) GlobalAdmin missing from
+requireRole() allow-lists on new routes — check every new route
+explicitly includes it, don't assume; (2) empty-string form fields sent
+instead of omitted breaking Zod .optional() validation — apply
+stripEmpty() (already exists in LeadImport.jsx, reusable) to any new
+create/update payload with optional fields; (3) HTML datetime-local
+inputs need z.string().datetime({ local: true }), not the bare default.
+
+The Azure-target Appointments API build (previously the top priority here,
+§4 + §5) is superseded FOR NOW by building against the demo stack first,
+per Mark's 21 July direction — build once against Postgres/Vercel,
+lift-and-shift to Azure SQL/Functions only when a real customer needs the
+production deployment. Don't build the same API twice in parallel.
+
+⚠ CRITICAL — READ BEFORE TOUCHING functions/leads.js, services/leadService.js,
+OR middleware/auth.js ON THE AZURE SIDE:
+This session found that the A1–A4 security fixes this file documents below
+as complete (18 June session) are NOT actually present in the hydrated
+GitHub source — see §21.2 for the full finding. Verify against GitHub
+before assuming any of A1–A4 are live in the Azure codebase; do not trust
+this document's "COMPLETE AS OF 18 JUNE" claim below without checking the
+actual files first.
 
 FRONTEND UI/UX FIXES — COMPLETE AS OF 18 JUNE 2026
   AppAdmin flag-gating, LeadDetail/AppointmentDetail full-width layout, the
@@ -933,6 +1007,1272 @@ KNOWN HOUSEKEEPING (non-blocking, no build impact):
     docs/delivery/MedBroker_Delivery_MultiTenancy_Playbook.docx still unconfirmed
   - User avatar and theme preference persist in sessionStorage only until
     Users API is built
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+21. DEMO BACKEND (Vercel + Neon) — added 21 July 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+21.1 PURPOSE AND SCOPE
+  Mark wants a genuinely working demo — real backend, real database, not
+  just the mock-data frontend preview — to show as proof the application
+  works, separate from the client's eventual production deployment. Azure
+  (Profile A) remains the confirmed production target; nothing about that
+  changed. New folder: medbroker-v1/api-vercel/ — full detail in
+  api-vercel/VERCEL_NOTES.md, summarised here.
+
+  Stack: Vercel Functions (Node.js) + Neon Postgres, both free tier.
+  Legitimate here because this is non-commercial demo use, not the paying
+  client's production system — the Vercel Hobby ToS restriction that ruled
+  out "Vercel for the real client" doesn't apply to a demo.
+  Auth: kept the existing role-switcher bypass (x-demo-user-id /
+  x-demo-role headers) rather than wiring real Entra SSO — Mark's call,
+  faster iteration on the API build; SSO is independent, portable work.
+  Repo layout: new folder in the same repo (api-vercel/), not a branch —
+  Mark's call.
+
+21.2 FINDING — A1-A4 SECURITY FIXES NOT ACTUALLY IN THE AZURE REPO
+  Hydrating fresh from GitHub to start this port surfaced that the A1-A4
+  fixes this document (§0, §4 area, and the 18 June entries above) describe
+  as complete are NOT present in main. functions/leads.js has no
+  Supervisor-scoping logic. services/leadService.js has no
+  isDirectReport()/getActiveUserById() helper — doesn't exist anywhere in
+  the repo. middleware/auth.js validates JWT claims but never checks
+  User.isActive. Nothing calls writeAuditLog() from any route.
+  Cause unknown (uncommitted fix vs. Status.md written ahead of the code) —
+  needs resolving on the Azure side independently. Do not assume A1-A4 are
+  live in the Azure codebase without checking the actual files first.
+  The demo backend implements A1-A4 as this document specifies them (see
+  api-vercel/src/services/userService.js, new — doesn't exist on Azure side
+  either). Port it back (T-SQL dialect) when doing the Azure Appointments
+  API work or reconciling this finding.
+
+21.3 REAL FIX — leadSource / assignedBrokerId (was a known outstanding item)
+  Root-caused, not guessed: Lead never had a leadSource or assignedBrokerId
+  column (assignedBrokerId is Appointment-only by design). LeadImport.jsx
+  already sends manualSourceName on create; CreateLeadSchema never declared
+  it so Zod silently stripped it. LeadList.jsx reads/filters on sourceLabel
+  and sends a `source` query param; leadService never computed or filtered
+  on either. Fixed in the demo's models/lead.js + leadService.js:
+  manualSourceName is now stored, sourceLabel is computed via
+  COALESCE(event.name, subscription.name, manualSourceName), source filter
+  works. Same fix applies verbatim (T-SQL COALESCE/JOIN, same shape) on the
+  Azure side — worth porting back rather than re-deriving.
+
+21.4 VERIFICATION PERFORMED
+  No live Neon instance exists yet. Verified against a real local
+  Postgres 16 instead (same engine/dialect) — not just syntax-reviewed:
+    - schema.postgres.sql + feature-flags.postgres.sql run clean, full
+      seed data lands correctly.
+    - leadStatusService.test.js (28 tests) passes unmodified.
+    - leadService.js + userService.js exercised end-to-end: create, read,
+      assign, log call, soft-delete, plus the A1 (Supervisor scoping) and
+      A2 (inactive-agent rejection) scenarios specifically.
+    - Every api/leads/* route handler exercised with mock req/res: auth
+      failures, role gates, validation, CORS preflight, full happy path.
+    - One real bug caught this way and fixed: Postgres folds unquoted
+      column names to lowercase in results, so several camelCase field
+      reads (lead.assignedAgentId, current.pipelineStatus, user.displayName)
+      were silently reading undefined. Fixed by aliasing every mixed-case
+      SELECT column explicitly. Flagged in DEMO_NOTES.md §4 as the one
+      dialect gotcha that fails silently — check for it in any new query.
+  NOT yet verified: an actual Neon connection (TLS/pooling behaviour may
+  differ from local Postgres). api/health.js exists specifically to check
+  this first once DATABASE_URL points at a real Neon project.
+
+21.5 WHAT'S BUILT VS NOT, IN THE DEMO
+  Built: Lead domain end-to-end (list/get/create/assign/log call/delete),
+  with Supervisor scoping and audit logging. Local auth end-to-end (§21.6).
+  Not built: Appointments/Flags/Config/Reports APIs — same gap as the Azure
+  side, now also open here. Same file pattern carries forward. Users API
+  specifically not built either (create/list/deactivate a user, portfolio
+  assignment) — userService.js has what login needs, but there's no route
+  to create a second user without inserting a row directly. UserAdmin.jsx
+  still shows the Entra-only "SSO invite notice" flow, not a real
+  create-user-with-password form.
+  Not done: frontend wiring (services/api.js) to call this backend instead
+  of mock data, including an actual Login page (still the role-switcher);
+  creating the second Vercel project (Root Directory = medbroker-v1/api-vercel)
+  — both are manual steps for Mark, documented in DEMO_NOTES.md §6.
+
+21.6 LOCAL AUTH — added 21 July 2026 (same session, Mark's follow-up)
+  Mark asked how auth was handled, wanted local email/password with company
+  password policy, a GlobalAdmin bootstrap for every version of the app,
+  and how to create the DB from inside Vercel.
+
+  Local auth completes auth.sso.enabled=false, which the FeatureFlag seed
+  data already described ("users log in with a standalone email and
+  password managed within MedBroker") but nothing had ever implemented —
+  not demo-only scope, a real gap on the Azure side too. Coexists with
+  Entra SSO, doesn't replace it.
+
+  Built: services/authService.js (bcryptjs hashing, hand-rolled HMAC-SHA256
+  JWT sign/verify — matches the manual-JWT style middleware/auth.js already
+  uses for Entra, no JWT library dependency picked up). POST /api/auth/login
+  (email/password -> JWT). POST /api/auth/bootstrap-admin (creates the
+  first GlobalAdmin — gated by BOOTSTRAP_SECRET env var AND zero-GlobalAdmin
+  check; refuses permanently once one exists; same call works on every
+  fresh instance, per Mark's "every version of the app" request).
+  GET/PUT /api/system-config, extended with passwordRotationDays and
+  passwordLockoutAttempts (both admin-configurable, 0 = off — Mark wants a
+  preset dropdown: 30/60/90/180 days, 3/5/10 attempts, plus custom; the API
+  just takes any non-negative integer). middleware/auth.js now checks
+  Authorization: Bearer first, falls back to the x-demo-user-id/x-demo-role
+  header bypass only when no Authorization header is present.
+
+  User table gained (demo schema only, v2.5 — not yet ported to Azure
+  infra/schema.sql): passwordHash, passwordSetAt, passwordMustChange,
+  failedLoginAttempts, isLocked.
+
+  Rotation doesn't block login — expired-age password still logs in, but
+  the response carries passwordMustChange:true for the frontend to act on.
+  Lockout does block login — locked account rejects even the correct
+  password (423) until an admin unlocks it (userService.unlockUser() exists,
+  no route wired to it yet).
+
+  Verified against real local Postgres: wrong bootstrap secret, weak
+  password rejected, successful bootstrap, second bootstrap attempt refused,
+  wrong-password login rejected, correct login returns a working JWT,
+  that JWT works on a real protected Leads route, a tampered JWT is
+  rejected, system-config read/update (including custom rotation value),
+  3-failed-attempts lockout, locked account rejects the correct password,
+  and rotation correctly flags passwordMustChange after backdating
+  passwordSetAt past the configured period.
+
+  Still needed: self-service change-password endpoint, admin reset/unlock
+  endpoints, and the Users API generally — no way yet to create a second
+  user without inserting a row directly. DB creation from inside Vercel:
+  Storage tab -> Marketplace -> Neon (Vercel-Managed Integration) auto-
+  injects DATABASE_URL, no manual neon.com signup needed — see
+  DEMO_NOTES.md §6 (corrected this session — the earlier note describing a
+  direct neon.com signup was the long way round).
+
+21.7 DEPLOYMENT — Mark's first live deploy, 22 July 2026, plus a real bug found
+  Walked Mark through his first live api-vercel deployment. Two Vercel-specific
+  snags worth remembering for next time:
+  - The Neon "Connect Project" prefix field, if filled in, prefixes EVERY
+    injected variable (DATABASE_URL became medBroker_DATABASE_URL) — the
+    app only reads the exact name DATABASE_URL. Leave the prefix field
+    blank unless multiple databases are attached to the same project.
+  - Env var changes never apply to an already-built deployment — always
+    needs an explicit Redeploy (Deployments -> ... menu -> Redeploy ->
+    confirm in the dialog) afterward, and it's easy to only complete the
+    first click and think it's done.
+
+  Real bug found via testing, not review: src/http/helpers.js's
+  applyCors() hardcoded Access-Control-Allow-Origin to FRONTEND_ORIGIN —
+  silently broke any caller from a different origin, including a file://
+  page (origin "null"). Also missing Authorization from the allowed-headers
+  list, which would have broken real JWT login calls from a browser the
+  same way. Fixed to reflect the actual request origin instead of a fixed
+  value — safe here specifically because none of these routes use cookies,
+  so there's no cross-site-cookie exposure to protect against; every route
+  is authorised by an explicit bearer token or request-body secret. Full
+  detail in api-vercel/VERCEL_NOTES.md §10. If any api-vercel deployment predates
+  this fix, it needs src/http/helpers.js replaced and redeployed.
+
+  New: api-vercel/bootstrap-admin.html (lives outside the repo — a one-off
+  utility, not part of the app) — browser-based form for calling
+  POST /api/auth/bootstrap-admin without curl/Postman, since Mark's work PC
+  has neither. Verified end-to-end with a real Chromium browser via
+  Playwright (success and wrong-secret-error paths both), not just
+  reviewed — that testing is what surfaced the CORS bug above. Detail in
+  DEMO_NOTES.md §11.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+22. FRONTEND AUTH WIRING — added 22 July 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+First real backend calls from the actual React frontend (medbroker-v1/
+frontend/) — everything before this was the demo backend + standalone test
+pages, not the app itself. Mark's goal: something demoable, not just a
+backend proven to work in isolation. Sequence agreed: auth wiring (this) ->
+Users API + UserAdmin creation flow -> wire Leads pages to the real backend
+-> Appointments -> Reports.
+
+NEW MODE, ADDITIVE — zero change to existing behaviour:
+  api.js already had PREVIEW_MODE (no backend, mock data — the original
+  default) and an Entra production mode (never fully wired). Added a third,
+  DEMO_MODE, active when VITE_API_BASE_URL is set and VITE_ENTRA_CLIENT_ID
+  is NOT — i.e. exactly the api-vercel backend case. Preview mode is
+  completely unaffected when VITE_API_BASE_URL is unset; verified by a full
+  Vite production build + real-browser Playwright click-through in preview
+  mode after these changes — role switcher, navigation, GlobalAdmin nav
+  items all behave identically to before.
+
+FILES — new: src/services/authStore.js (plain module, JWT + user in
+sessionStorage, so services/api.js can read the token without prop-drilling
+it through every call), src/context/AuthContext.jsx (React layer over
+authStore — login()/logout()/isAuthenticated), src/pages/Login.jsx (styled
+per tokens.js — s.formGroup/formLabel/formInput/errorBox/primaryBtn,
+matching Settings.jsx's existing form conventions).
+FILES — modified: src/services/api.js (DEMO_MODE detection, authApi.login,
+JWT attached to every authenticated call, 401 auto-clears the session),
+src/context/RoleContext.jsx (in DEMO_MODE with a real logged-in user, role/
+persona come from that user instead of the preview switcher; setRole
+becomes a no-op in that case — preview-mode behaviour is byte-for-byte
+unchanged when not in DEMO_MODE), src/App.jsx (AuthProvider wraps
+RoleProvider — required, since RoleContext now calls useAuth(); renders
+Login instead of the app when DEMO_MODE and not authenticated; sidebar
+footer shows a real "Signed in" + Log out control in DEMO_MODE instead of
+the preview role switcher, which stays exactly as it was otherwise).
+
+VERIFIED — real Chromium browser via Playwright, not just code review, in
+BOTH modes:
+  Preview mode (no env vars): full build, role switcher present and
+  functional, GlobalAdmin nav gating unchanged — confirms zero regression.
+  Demo mode (VITE_API_BASE_URL set, mock backend standing in for api-vercel):
+  shows Login (not the app) on load; wrong password shows an inline error
+  and stays on Login; correct login renders the real app; sidebar shows the
+  real logged-in user's name and role (not a preview persona) with a
+  working Log out button; Log out returns to Login.
+
+DEPLOYMENT NOTE for Mark: this needs VITE_API_BASE_URL set as an
+environment variable on the FRONTEND Vercel project (not api-vercel) —
+pointing at the api-vercel backend's URL, e.g.
+https://med-broker-demo.vercel.app/api. Same redeploy-after-env-var-change
+rule as api-vercel applies here too.
+
+NOT YET DONE: Users API (no way to create a second user — still the single
+bootstrapped GlobalAdmin only), UserAdmin's create-user form (still shows
+the Entra-only SSO-invite message), and every page besides the login flow
+itself still reads mock data — LeadList/LeadDetail/etc. are not yet wired
+to leadsApi even though that backend is fully built and tested. Next
+session per the agreed sequence: Users API + UserAdmin first (it's what
+actually lets "create a user, assign a role, they log in" be demoed), then
+wire Leads.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+23. USERS API — added 22 July 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Built by reading UserAdmin.jsx first, not guessed. New: models/user.js;
+extended services/userService.js (listUsers, getUserForAdmin,
+listSupervisors, createUserFull, updateUserFull, plus the portfolio/
+product junction-table sync helpers); new api/users/index.js (GET list +
+?supervisors=true dropdown, POST create) and api/users/[id]/index.js
+(GET one, PUT update/deactivate).
+
+Portfolios/products travel as NAMES end to end (["Discovery"],
+["Life Insurance"]), not ids — matches the frontend's existing checkbox
+state exactly, resolved to Portfolio/Product ids server-side, synced into
+UserPortfolio/BrokerProduct via delete-then-reinsert on every save.
+GlobalAdmin excluded from the list — bootstrap-only, matches the
+frontend's own ROLES constant.
+
+Password is optional on create — present means a real local-auth user
+(hashed the same way bootstrap-admin does); absent means an SSO-style user
+with no local password. UserAdmin.jsx now shows a password field OR the
+original SSO-invite notice based on the auth.sso.enabled flag — that flag
+already existed and already defaulted to false; this wires up behaviour it
+was always meant to control, not new scope.
+
+Verified against real Postgres: create Supervisor/Agent/Broker (region,
+supervisor, portfolios, products all persist correctly), duplicate email
+-> clean 409 not a raw 500, password-less SSO-style creation, list/role-
+filter/search, single-user fetch, portfolio/product re-sync on update
+(not accumulation), deactivate, and a deactivated user correctly can no
+longer log in (ties back to the A3 enforcement). Re-ran the earlier Leads
+and auth suites against this same updated codebase too — clean, nothing
+regressed from the userService.js additions.
+
+Frontend (UserAdmin.jsx) rewired to the real API via the existing useFetch
+hook, MOCK_USERS kept as the preview-mode fallback exactly like every
+other page — verified via a real Vite build + Playwright click-through in
+preview mode specifically to confirm zero regression, and separately in
+demo mode: login -> real list loads -> create with password + region +
+supervisor + portfolio checkbox -> appears in table -> edit -> deactivate
+-> status updates, all against a real backend (mocked server standing in
+for api-vercel in this test, same as previous sessions).
+
+One process note for future sessions in this project: a Playwright text
+locator like `text=Add User` will match both a button and a modal heading
+on this page and give a false "still open" reading — scope to a specific
+element (e.g. `h2:has-text(...)`) instead. Cost real time working out this
+was a test bug, not an app bug, before confirming it.
+
+Net result: "create a user, assign a role, they log in" — the scenario
+Mark asked to be able to demo — now genuinely works end to end. What that
+logged-in user then SEES is still mock data (Leads/Appointments/Reports
+pages not yet wired) — that's the next piece, not this one.
+
+Still not built: self-service change-password, admin password reset/
+unlock routes (unlockUser() exists in userService.js, no route calls it
+yet), editing an existing user's email (matches the frontend, which
+doesn't offer that field in edit mode either).
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+24. RENAMED TO api-vercel, THEN MERGED INTO ONE PROJECT — 22 July 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Two changes in the same session, second one supersedes the folder-location
+part of the first.
+
+24.1 RENAME api-demo -> api-vercel
+  Mark's call — "api-demo" read as though it might be the Self-Hosted
+  profile from the app-builder skill's own architecture taxonomy
+  (Docker/VPS, no cloud dependency), when it's actually the existing
+  Vercel profile from that same taxonomy, just with local auth on top.
+  Worth encoding into the app-builder skill itself (separate project, not
+  actioned here): default build-first-on-Vercel-profile pattern should use
+  "Vercel" consistently, not introduce an overlapping "Local" concept —
+  local-vs-SSO auth is an independent axis (already the auth.sso.enabled
+  flag) from which cloud profile is being used.
+
+24.2 MERGED into a single Vercel project
+  Then Mark asked to also drop "demo" from the Vercel PROJECT name (not
+  just the folder) and asked whether frontend + backend could just be one
+  application instead of two separate Vercel projects. Yes to both, and
+  doing the second thing resolves the first automatically — see below.
+
+  Structural changes: api-vercel/api/ -> frontend/api/ (unchanged
+  internally). api-vercel/src/ -> frontend/api-lib/ (sibling to the
+  frontend's own src/, deliberately not merged into it — keeps backend-
+  only Node code, pg/bcrypt/server-secrets, out of the tree a bundler
+  globs for the browser build). Every route file's imports mechanically
+  rewired (../../src/ -> ../../api-lib/); internal cross-references
+  between backend files needed zero changes, same relative distance.
+  frontend/'s existing vercel.json had a catch-all SPA rewrite that would
+  have swallowed every /api/* request once merged — fixed using Vercel's
+  own currently-documented negative-lookahead pattern
+  ("/((?!api/).*)" -> "/index.html"), verified against real compiled
+  path-to-regexp before shipping, not assumed. VITE_API_BASE_URL changes
+  meaning: was a full cross-origin URL, now just "/api" (same origin, no
+  CORS needed for any of it — services/api.js's DEMO_MODE detection logic
+  needed zero code changes, only the env var's value changes).
+
+  Verified with a from-scratch local server built specifically to
+  replicate Vercel's actual routing model (static files + the fixed SPA
+  rewrite + dynamic dispatch to the real api/**/*.js handlers, including
+  [id]-style dynamic segments) — not just testing frontend and backend
+  separately and assuming they'd combine correctly. Real browser, one
+  origin: Login page, real login against real Postgres, real user's name
+  in the sidebar, User Admin and Feature Flags both working with zero CORS
+  errors (nothing to reflect an Origin header for anymore), and a hard
+  reload on a nested route (/admin/sso) still resolving correctly —
+  confirms the rewrite fix holds under the exact scenario that breaks if
+  it's wrong.
+
+  Migration: frontend/ keeps its name and its existing Vercel project's
+  Root Directory setting (medbroker-v1/frontend) unchanged — one fewer
+  setting to get wrong on an already error-prone deployment history.
+  api-vercel/ gets deleted from the repo once merged in. The med-broker-
+  demo Vercel project gets retired entirely once the merged one is
+  verified working — that's what actually removes "demo" from Mark's
+  Vercel dashboard, not a rename of a project about to stop being used.
+  Same Neon database gets a second Storage "Connect Project" pointed at
+  the surviving (frontend) project — no new database needed.
+
+24.3 FEATURE FLAGS API + SSO SETTINGS FIX (same session, built alongside the merge)
+  Prompted by Mark asking how local auth and SSO should coexist and
+  whether settings should "cater for the change." Two real answers:
+  local-vs-SSO coexistence was already correct by design (a user created
+  with a password keeps logging in with it regardless of what the flag
+  says later; the flag only sets the default for new users going
+  forward) — nothing to build there. But FeatureFlags.jsx's own header
+  comment already said flag changes are "persisted via PATCH
+  /api/flags/:key" and never actually were — handleSave() faked a 400ms
+  delay and only updated local React state. That's now built for real:
+  new services/flagService.js, GET /api/flags (no auth — app config, not
+  user data), PATCH /api/flags/:key (Admin+, validates type/allowedValues
+  server-side, rejects Phase2 flags even if the frontend's disabled toggle
+  is bypassed directly).
+
+  Also found and fixed: FlagContext.jsx was doing a raw fetch('/api/flags')
+  that bypassed services/api.js entirely — same class of bug as the CORS
+  issue from an earlier session, never reaching the real backend in demo
+  mode. Routed through flagsApi instead.
+
+  SingleSignOn.jsx had two real bugs, not cosmetic: its "SSO is active"
+  banner was hardcoded true regardless of the actual flag value, and the
+  page (plus its nav item) were only reachable once SSO was ALREADY
+  enabled — backwards, since an admin needs to reach it to turn SSO on in
+  the first place. Both fixed; gating is isAdminOrAbove alone now, and the
+  banner reflects the real flag.
+
+  The explicit boundary stated to Mark and worth restating here: none of
+  this makes a real "Sign in with Microsoft/Google" button work. It
+  changes what the app shows based on the flag. Actually authenticating
+  via a real identity provider needs a real external OAuth app
+  registration with real credentials only Mark can create — Azure/Google
+  production-target work (Entra ID External is already the plan for the
+  Azure profile), not something the free demo stack can responsibly claim
+  to deliver.
+
+  Verified against real Postgres: GET with no auth, PATCH without auth
+  rejected (401), a real boolean flip persisting and reading back
+  correctly, invalid enum rejected (400), Phase2 flag rejected (403),
+  unknown key (404) — then re-verified as part of the full merged-app
+  browser test above (toggle SSO, save, reload the whole page and
+  navigate elsewhere, confirm still on from the real backend not
+  optimistic local state, confirm SingleSignOn.jsx now shows the enabled
+  banner).
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+25. LEADS PAGES WIRED TO REAL DATA — 22 July 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Session started by re-hydrating from GitHub and confirming the merge
+migration (§24.2) had already landed correctly — folder structure, merged
+package.json, the fixed vercel.json rewrite, all present and correct.
+Confirms the migration instructions from that session worked as written.
+
+LeadList.jsx, LeadDetail.jsx, LeadImport.jsx were already written
+speculatively against a leadsApi client assuming backend capabilities
+that didn't fully exist yet (built during the original mock-only phase).
+Reading them first surfaced exactly what was missing rather than
+guessing:
+
+BUILT: GET /api/leads/sources (leadsApi.sources() already called it, it
+just didn't exist), excludeStatuses + occupation filters on listLeads()
+(frontend already sent both), GET /api/leads/:id/calls (call history was
+written but never read back — "Recent Calls" only reflected the current
+browser session). leadsApi.reassign() fixed to call the same /assign
+endpoint as assign() rather than a /reassign URL that never existed — the
+backend already distinguishes them internally.
+
+FOUR REAL BUGS FOUND BY TESTING, NOT REVIEW — worth remembering the
+pattern for future domains:
+  1. GlobalAdmin was missing from requireRole() on three Lead routes
+     (create, delete, assign) — the one account you can actually log in
+     with couldn't manage a single lead. Check every new route explicitly
+     includes GlobalAdmin; it does not follow automatically from Admin
+     being allowed.
+  2. Submitting a form with only required fields filled — the normal
+     case — sent empty strings for untouched optional fields rather than
+     omitting them. Zod's .optional() only skips validation for a
+     genuinely absent key, not '' failing a type/regex check underneath.
+     Fixed with a reusable stripEmpty() helper (LeadImport.jsx), applied
+     before every create/update call with optional fields.
+  3. Same bug, different file — LeadDetail.jsx's call-logging form had
+     the identical callbackDateTime-defaults-to-'' issue. Same fix
+     pattern applied.
+  4. Even a real callbackDateTime value failed — HTML datetime-local
+     inputs produce timezone-less strings, and Zod's default
+     z.string().datetime() requires an offset. Confirmed by testing the
+     actual input value against the schema directly, not assumed; fixed
+     with z.string().datetime({ local: true }).
+
+VERIFIED — real Postgres, real Chromium browser, full chain: create a
+lead with only required fields -> appears in list -> source filter
+populated from real data -> open lead -> log a plain call -> status
+updates -> log a second, callback-dated call -> hard reload the whole
+page -> both calls and the status are still there from the server, not
+an optimistic echo that would have vanished. Re-ran the full cross-domain
+regression (auth/leads/users/flags) as GlobalAdmin after the role fixes
+to confirm nothing else has the same gap.
+
+One process note logged for future sessions: an ambiguous Playwright
+locator (button:has-text('Save Call')) matched both the real submit
+button and a different, correctly-still-mocked "Save call & Book
+Appointment" button (Client Contacted outcome only — depends on
+Appointments API, not built yet, correctly out of scope). Cost real time
+working out a false pass was a locator bug, not an app bug, before
+finding the real one underneath it.
+
+STILL NOT BUILT: LeadImport.jsx's Subscription tab (always fully
+simulated, never functional even as UI-only mockup — separate, larger
+piece of work). LeadDetail.jsx's Book Appointment flow (correctly still
+local-only, depends on Appointments API — next up).
+
+Files changed this session (backend): api-lib/services/leadService.js,
+api-lib/models/lead.js, api/leads/index.js, api/leads/[id]/index.js,
+api/leads/[id]/assign.js, api/leads/[id]/calls.js, api/leads/sources.js
+(new). Files changed (frontend): src/services/api.js,
+src/pages/LeadDetail.jsx, src/pages/LeadImport.jsx. LeadList.jsx needed
+no changes — it was already correctly wired, only the backend it was
+calling was incomplete.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+26. LEAD INTAKE FIELDS MATCHED TO CLIENT'S REAL FORM — 22 July 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's ask: the client's real Appointment Tracking sheet has Title, First
+Name, Last Name, Date of Birth, Job Title (was "Occupation" in this
+build), Contact Number, and Email as intake fields. Since these represent
+the client's actual required fields, all seven became REQUIRED on lead
+creation — including mobileNumber and occupation, previously optional.
+Stated as an explicit assumption at the time, not silently decided.
+
+Schema: title VARCHAR(10) and dateOfBirth DATE added to Lead, nullable at
+the column level (required-ness enforced at the validation layer, same
+pattern as every other required field here). CK_Lead_Title restricts
+stored values to Dr/Mr/Mrs/Ms.
+
+IMPORTANT — Mark's Neon database already exists live, so
+schema.postgres.sql alone doesn't reach it (CREATE TABLE IF NOT EXISTS
+does nothing to an existing table). New:
+db/migrations/002_add_lead_title_dob.sql, ADD COLUMN IF NOT EXISTS +
+guarded DO block for the constraint. Verified against a database built
+from a deliberately old, pre-migration schema (title/dateOfBirth
+stripped) to confirm the migration genuinely adds them, not just
+confirmed present on an already-current database.
+
+Job Title is now a fixed list, not free text — new
+src/constants/leadOptions.js is the single shared source LeadImport.jsx's
+create form and LeadList.jsx's filter both import from, matching
+api-lib/models/lead.js's JobTitle enum server-side. LeadList.jsx
+previously had its own separately hardcoded copy of this list — real,
+if minor, drift risk fixed by having one list feed both places.
+
+Real mistake caught mid-edit, not shipped: an early pass at adding
+title/dateOfBirth to listLeads()'s SELECT accidentally deleted the entire
+rest of the column list (mobileNumber, occupation, sourceLabel, status,
+everything) and left a dangling comma before FROM — caught by the next
+syntax check and Postgres run before it went anywhere near a delivered
+file, restored properly, re-verified.
+
+Verified against real Postgres and a real Chromium browser, full chain:
+missing any new required field -> clean 400 naming which fields; invalid
+Title or Job Title value -> 400; valid submission -> 201, persists and
+reads back correctly; migration script tested against a genuinely
+old-shaped table. Browser: all relabelled/new form elements present with
+correct labels, missing-field submission shows inline validation without
+crashing, valid submission creates and redirects, Leads list shows "Job
+Title" column header, Lead Detail shows the real title in the header
+("Dr Priya Naidoo") instead of the old hardcoded "Dr" — a genuine
+correctness improvement the new field enabled — plus Date of Birth and
+the relabelled fields all displaying correctly. Re-ran the full
+cross-domain regression afterward.
+
+Kept unchanged per Mark's explicit instruction: every field not on his
+list (WhatsApp, University Attended, Year of Attendance, Degree Attained,
+Hospital/Practice, existing cover, policies, medical aid/provider, ID
+number). Only title and dateOfBirth were added as new columns; only the
+Job Title / Contact Number LABELS changed — the underlying
+occupation/mobileNumber field names in the schema and API were
+deliberately not renamed, to avoid unnecessary churn.
+
+CSV import template and required-columns check updated to match
+(title,firstName,lastName,dateOfBirth,occupation,mobileNumber,email).
+Subscription tab unaffected — still fully simulated, unchanged.
+
+Files changed: db/schema.postgres.sql, db/migrations/
+002_add_lead_title_dob.sql (new), api-lib/models/lead.js,
+api-lib/services/leadService.js, src/constants/leadOptions.js (new),
+src/pages/LeadImport.jsx, src/pages/LeadDetail.jsx, src/pages/LeadList.jsx.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+27. LEAD PORTAL — decided 22 July 2026, NOT YET SCOPED IN DETAIL OR STARTED
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's ask: a prospect-facing portal so MedBroker doesn't need native
+iOS/Android apps — prospects scan a QR code at an event, register, and
+get a real account they can log back into later (confirmed as "full
+account", not a one-time registration form — see the two-option
+comparison this session for what was ruled out). Deliberately queued
+until AFTER Appointments and Reports are done — this is a separate app
+surface from the staff-facing MedBroker app, not an extension of it, and
+shouldn't be interleaved with finishing the core staff pipeline.
+
+WHAT ALREADY EXISTS, DESIGNED BUT UNBUILT — this is not starting from
+zero: Event.qrToken (UUID, unique, already in schema.postgres.sql).
+EventAttendee table (eventId, leadId, rsvp, attended, attendedAt,
+popiConsent, registeredAt — already has a consent flag). The original
+Azure codebase had an api/src/functions/eventRegistration.js that was
+never ported to this stack (api-lib/ has no equivalent yet). None of this
+is wired to any frontend — EventList.jsx/EventDetail.jsx (if built) are
+staff-facing event management, not a prospect-facing scan-and-register
+flow.
+
+REAL TECHNICAL FINDING FROM THIS SESSION, WORTH REMEMBERING WHEN THIS
+STARTS: the native browser BarcodeDetector API — the obvious choice for
+QR scanning without a native app — is NOT supported on Safari or ANY
+iOS browser (all iOS browsers use WebKit underneath, so this isn't a
+Safari-specific workaround, it's an iPhone problem). Since the prospects
+are medical professionals, a lot of them are on iPhones. Confirmed via
+search, not assumed, since this directly undermines the "no native app"
+goal if built wrong. Fix: use a pure-JS/WASM decoding library (jsQR,
+ZXing, html5-qrcode) that reads camera frames directly rather than
+relying on the native API — works identically across Safari/Chrome/
+Android. Build it this way from the start, don't reach for
+BarcodeDetector first and patch iOS later.
+
+STILL OPEN, TO NAIL DOWN WHEN THIS PHASE ACTUALLY STARTS — deliberately
+not decided yet, don't guess when picking this up:
+  - What can a logged-in prospect actually DO? View appointment status?
+    See which broker they're matched with? Update their own contact
+    details? This is the single biggest undetermined scope question and
+    changes the size of the build significantly.
+  - Auth model — almost certainly needs to be a genuinely separate auth
+    surface from staff login (prospects aren't Users in the existing
+    role sense: GlobalAdmin/Admin/Supervisor/Agent/Broker), not an
+    extension of the existing local-auth system built for staff.
+  - POPIA angle worth designing properly, not bolting on: a Lead record
+    already stores medical aid status, existing cover, potentially an ID
+    number. Giving the prospect themselves direct access to that record
+    is defensible (arguably a good data-subject-rights alignment) but
+    needs real design, not an afterthought.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+28. APPOINTMENTS BUILT — ASSIGN MODEL — 22 July 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Scope: assign model only (appointments.claimModel = 'assign', the flag's
+current default). Claim model + token economy (real Stripe dependency)
+deliberately stays mocked — same reasoning as the earlier SSO/OAuth
+boundary, not something to half-build.
+
+BUILT: models/appointment.js, services/appointmentService.js (list/get/
+create/assignBroker/reassign/returnToLeads/saveOutcome),
+services/appointmentStatusService.js (pure-logic status machine mirroring
+leadStatusService.js's pattern, own 17-test suite), services/
+brokerMatchingService.js (ported from the Azure reference almost
+unchanged — three-step algorithm: region+product filter, Calendly
+availability with a circuit breaker, rank by fewest upcoming
+appointments). Routes: api/appointments/{index,[id]/index,[id]/assign,
+[id]/reassign,[id]/return,[id]/outcome}.js, api/broker-matching/index.js.
+
+CALENDLY: no real account connected in this demo, so matching runs in
+degraded mode by default (workload ranking only, no live slots) — this
+was ALREADY the original design's intended fallback for exactly this
+case, not a stub. config.calendly (both vars optional) and
+User.calendlyEventTypeUri (nullable) are ready for a real connection
+later; nothing here claims working Calendly integration exists.
+
+REAL BUG, FOUND BY TESTING BEFORE ANY UI WORK: User.region was never
+synced to BrokerRegion (the table brokerMatchingService.js actually
+reads) — no broker created via the existing Users API could ever have
+matched anyone. Fixed with syncBrokerRegion() in userService.js, called
+from createUserFull/updateUserFull for Broker role only.
+
+SERIOUS FINDING — NOT A BUILD ISSUE, A DELIVERY ONE: re-hydrating fresh
+from GitHub at the start of this session showed several fixes from the
+EARLIER Leads-wiring session had reverted — GlobalAdmin missing again on
+three Lead routes (create/delete/assign), api/leads/sources.js missing
+entirely, api/leads/[id]/calls.js back to its pre-session POST-only
+state (also missing GlobalAdmin). Everything under api-lib/ and src/ from
+that session was correct; only files under api/leads/ specifically were
+affected. All re-applied and re-verified here. Root cause unknown from
+this side — Mark should check what happened with that delivery, since it
+could recur with a future one touching the same files. Practical
+implication: don't assume a prior session's "verified and delivered"
+status still holds for route files without re-hydrating and checking
+first.
+
+FRONTEND — LeadDetail.jsx's Book Appointment modal, previously fully
+static (no value/onChange on any field, submit did nothing but flip
+local flags), completely rewritten: portfolio -> products-interested
+checkboxes -> region -> live broker search (real endpoint) -> selection
+-> date/time/address/insurer -> real POST /api/appointments. Region is
+collected at booking time (matches the CLIENT, not the agent) purely to
+query broker matching — not persisted anywhere, since neither Lead nor
+Appointment has a region column.
+
+AppointmentList.jsx: real data wired in; AssignBrokerModal fixed to use
+real broker ids instead of hardcoded name strings (same class of fix as
+Users/Leads); a latent bug comparing broker identity against a fixed
+mock string ('SB') that could never match a real user, fixed to compare
+against the logged-in user's real id.
+
+AppointmentDetail.jsx: added the GET /api/appointments/:id fetch that
+was missing entirely — the file already called reassign/returnToLeads/
+saveOutcome but never actually loaded real data, always started from
+MOCK_APPOINTMENT. Backend's flat meeting1Date/meeting1Status/etc. fields
+transformed into the {meetings:[...]} array shape the rest of the
+650-line file already expects, so nothing else needed touching.
+
+REAL PRE-EXISTING BUG FOUND, UNRELATED TO THIS SESSION'S OWN WIRING:
+PRODUCTS_BY_PORTFOLIO['Discovery'] was looked up directly, but that
+object's actual keys are 'disc'/'mm' — "products sold" checkboxes have
+silently rendered empty since this page was first built, even in the
+original mock-only version. Fixed the mapping. Also fixed: Return to
+Leads confirmation copy said "will be archived" — schema has no archive
+column, UNIQUE leadId means it must be a genuine delete for the lead to
+be rebookable, copy was wrong not the implementation; and wired
+onReturned to navigate away after a successful return, since the
+appointment row (and this very page) no longer exists afterward.
+
+VERIFIED — real Postgres, real Chromium, full chain: broker + region
+setup -> matching finds them correctly, excludes non-matching regions ->
+book via the real modal (portfolio, products, region, live search,
+date/time/address) -> shows correctly in AppointmentList with resolved
+source label -> Assign flow on an unassigned appointment, persists across
+reload -> Reassign flow on the detail page, persists -> first meeting
+Seen -> In Progress, persists -> signed Yes + products sold -> Closed
+Won, persists, Return to Leads button correctly disappears -> Return to
+Leads on a separate unsigned appointment -> navigates away, lead
+confirmed back in the queue via direct API check. Row-level access
+verified (403 for a non-owning agent). Re-ran the full 23-check backend
+regression on a fresh database as the final step.
+
+Testing note for future sessions: several Playwright locator ambiguities
+this build specifically (text=Assign matching "Unassigned" as a
+substring; a bare select locator matching the page's own background
+filter instead of a modal's field when both list the same option text)
+cost real time before confirming they were test bugs, not app bugs — all
+were fixed with exact-match locators or scoping to the last-added DOM
+element, not app changes.
+
+Files changed — backend: db/schema.postgres.sql,
+db/migrations/003_add_calendly_uri.sql (new), api-lib/models/
+appointment.js (new), api-lib/services/appointmentService.js (new),
+api-lib/services/appointmentStatusService.js (new, +test),
+api-lib/services/brokerMatchingService.js (new),
+api-lib/services/userService.js, api-lib/config.js,
+api/appointments/* (new, 6 files), api/broker-matching/index.js (new),
+api/leads/index.js + [id]/index.js + [id]/assign.js (reverted fixes
+re-applied), api/leads/[id]/calls.js + sources.js (restored). Frontend:
+src/constants/leadOptions.js, src/pages/UserAdmin.jsx,
+src/pages/LeadDetail.jsx, src/pages/AppointmentList.jsx,
+src/pages/AppointmentDetail.jsx.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+29. CONSOLIDATED TO 8 VERCEL FUNCTIONS — 22 July 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark hit Vercel Hobby's 12-Serverless-Functions-per-deployment limit at
+deploy time — the build had grown to ~20 separate route files, each its
+own deployed function. Confirmed via search that Vercel's automatic
+multi-file function bundling is currently Next.js-only (this is a plain,
+non-Next.js Vercel Functions project) — not assumed, checked against
+Vercel's current docs directly.
+
+Two options presented: upgrade to Vercel Pro ($20/mo, five-minute fix,
+removes the limit entirely) or consolidate route files for free. Mark
+chose consolidation.
+
+FIX: collapsed each domain's separate route files into one dispatcher
+file per domain using Vercel's catch-all file-naming convention —
+`[...slug].js` where no bare-path route exists (auth), `[[...slug]].js`
+where the bare path also needs to match (leads, users, flags,
+appointments — e.g. GET /api/flags itself, not just /api/flags/:key).
+20 files -> 8:
+  auth: 2 -> 1 (api/auth/[...slug].js)
+  leads: 5 -> 1 (api/leads/[[...slug]].js)
+  users: 2 -> 1 (api/users/[[...slug]].js)
+  flags: 2 -> 1 (api/flags/[[...slug]].js)
+  appointments: 6 -> 1 (api/appointments/[[...slug]].js)
+  broker-matching, health, system-config: 3 -> 3 (already single files,
+  untouched)
+
+LOWEST-RISK APPROACH, DELIBERATE: every handler's business logic is
+byte-for-byte unchanged from its original file — only the export style
+(named, not default export) and file location changed. Logic moved to
+api-lib/handlers/<domain>Handlers.js (outside api/, never separately
+deployed as a function); the new api/<domain>/[[...slug]].js files are
+thin dispatchers reading req.query.slug (the path-segment array Vercel's
+catch-all convention provides) + req.method, then calling the
+already-tested handler function. Nothing about request handling,
+validation, or business rules changed — only how a request finds its way
+to the code that was already there.
+
+ONE HONEST CAVEAT — the single piece of this entire build that couldn't
+be fully verified from this sandbox: Vercel's catch-all convention
+([...slug].js, [[...slug]].js) is thoroughly documented for Next.js;
+confirmation it works IDENTICALLY for a plain, non-Next.js Vercel
+Functions project (what this is) is thinner in Vercel's own docs. Strong
+supporting evidence: this project has already used Vercel's related
+single-dynamic-segment convention ([id].js) successfully and verifiably
+throughout the ENTIRE build to date. But this is real platform behavior
+that only an actual Vercel deployment can fully confirm — flagged clearly
+to Mark rather than presented as certain. If it doesn't work as expected,
+the documented fallback is vercel.json rewrites (already used elsewhere
+in this build for the SPA routing fix) mapping each domain's URL prefix
+to a single non-catch-all file instead.
+
+VERIFIED, everything that could be: extended the local test server
+(built fresh for this, not reused) to replicate Vercel's exact
+catch-all file-resolution rules — required vs. optional, path segments
+as an array, literal paths like /api/leads/sources correctly NOT
+swallowed by the :id dynamic pattern. Two full passes: (1) every
+consolidated handler called directly with a manually-constructed
+req.query.slug array — 26 checks across every domain and route shape,
+confirming business + dispatch logic; (2) real HTTP requests against the
+actual running server for every routing pattern (bare path, one-segment,
+two-segment, literal-vs-dynamic) — 16 checks, confirming the full chain
+resolves correctly end to end, not just the logic behind it. Both passed
+completely.
+
+MIGRATION IS DELETE-AND-ADD, NOT THE USUAL OVERWRITE — worth being very
+clear about this with Mark since every other delivery so far has been
+add/overwrite only. 17 old route files must be actually removed from
+GitHub:
+  api/auth/login.js, api/auth/bootstrap-admin.js,
+  api/flags/index.js, api/flags/[key].js,
+  api/users/index.js, api/users/[id]/index.js (+ the [id] folder),
+  api/leads/index.js, api/leads/sources.js, api/leads/[id]/index.js,
+  api/leads/[id]/assign.js, api/leads/[id]/calls.js (+ the [id] folder),
+  api/appointments/index.js, api/appointments/[id]/index.js,
+  api/appointments/[id]/assign.js, api/appointments/[id]/reassign.js,
+  api/appointments/[id]/return.js, api/appointments/[id]/outcome.js
+  (+ the [id] folder).
+Leaving old and new files both in place would make the function count
+WORSE, not better, and could create routing ambiguity. New files: 5
+handler files under api-lib/handlers/, 5 dispatcher files under api/.
+
+Frontend needs zero changes — every URL path the frontend calls is
+identical; only which backend file answers that URL changed.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+30. §29's FLAGGED RISK CONFIRMED REAL — FIXED WITH REWRITES — 22 July 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark deployed §29 and immediately got "Not found" trying to log in.
+Diagnosed by testing the LIVE deployment directly rather than guessing
+from the repo:
+  /api/health (plain file, untouched by §29)        -> 200, works fine
+  /api/flags  (simplest case of the new pattern —
+               [[...slug]].js matching ZERO segments) -> 404
+  /api/auth/login (a required catch-all, one segment) -> 404
+Conclusive: Vercel does not recognize the [...slug].js / [[...slug]].js
+catch-all file-naming convention as a route on this plain, non-Next.js
+Vercel Functions project. This is exactly the one risk §29 flagged in
+writing as unverifiable from the sandbox at the time — now confirmed as
+the actual cause, not a remaining theoretical concern.
+
+FIX: replaced all 5 bracket-named dispatcher files with 5 PLAIN files —
+api/auth-router.js, api/leads-router.js, api/users-router.js,
+api/flags-router.js, api/appointments-router.js — and added matching
+`rewrites` entries to vercel.json, e.g.:
+  { "source": "/api/auth/:slug*", "destination": "/api/auth-router?slug=:slug*" }
+This uses the SAME rewrite mechanism already proven working on Mark's
+live deployment — it's what serves the SPA fallback — so confidence here
+is substantially higher than the bracket-file approach was. Function
+count unchanged at 8; only the routing mechanism changed, not the count,
+not the handler logic (still byte-for-byte the same business logic from
+§29, itself unchanged from the original pre-consolidation files).
+
+One thing still not fully confirmable even with this fix: the EXACT
+format Vercel serializes a multi-segment wildcard capture into (a single
+slash-joined string? comma-joined? something else?) when substituting it
+into the destination query string. Rather than guess once and risk being
+wrong twice on the same kind of detail, added parseSlug() (new, in
+api-lib/http/helpers.js) which parses the slug query param defensively —
+handles array, slash-separated, comma-separated, single-segment, and
+empty/bare-path shapes, so the exact serialization format doesn't matter
+as long as it's some recognizable delimited form.
+
+VERIFIED: extended the local test server to actually simulate the
+vercel.json rewrite step itself (previously it only did file resolution,
+which was never the part in question) — 17 real-HTTP checks covering
+bare paths, single segments, two-segment sub-routes, and the
+literal-vs-dynamic disambiguation, run twice (once before and once after
+a further hardening pass on parseSlug), all passing both times.
+
+MIGRATION — this SUPERSEDES §29's delivery, don't apply §29's file list:
+DELETE (the 5 bracket files §29 added, which don't work):
+  api/auth/[...slug].js, api/leads/[[...slug]].js,
+  api/users/[[...slug]].js, api/flags/[[...slug]].js,
+  api/appointments/[[...slug]].js (+ their now-empty parent folders where
+  applicable — auth/, leads/, users/, flags/, appointments/ each only
+  contained that one file).
+ADD:
+  api/auth-router.js, api/leads-router.js, api/users-router.js,
+  api/flags-router.js, api/appointments-router.js (all flat, directly
+  under api/, no subfolder), plus an updated vercel.json (5 new rewrite
+  rules; existing SPA rewrite untouched) and an updated
+  api-lib/http/helpers.js (adds parseSlug(), everything else in that file
+  unchanged).
+The 5 handler files under api-lib/handlers/ from §29 are UNCHANGED and
+correct — nothing to touch there.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+31. MOCK-DATA FLASH + UNREADABLE VALIDATION ERRORS — 22 July 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+After §30's routing fix was confirmed applied and working, Mark reported
+Appointments and Users still showing the original hardcoded demo data —
+diagnosed by testing the live deployment directly (anonymous requests to
+/api/users and /api/appointments both correctly returned 401, proving
+routing itself was fine) and then, critically, by Mark clarifying a
+detail I'd initially missed: the mock data flashed briefly, then was
+REPLACED by an empty real result — not a permanently broken connection.
+
+BUG 1 — mock-data flash: every wired page's fallback logic checked
+whether fetched data was truthy — `apiData?.appointments ? real : MOCK` —
+to decide between real and mock data. That condition is true both while
+still loading (useFetch starts with data:null) and when there's
+genuinely no data, not just when there's no backend configured at all
+(true preview mode). So every page briefly rendered mock data on first
+paint before swapping to the real (here, correctly empty) result — reads
+as data being wiped, not a page loading. Confirmed as a LATENT bug on
+Leads too, just invisible there since Mark already has real lead data
+so the swap isn't jarring. Fixed by checking apiMode.PREVIEW_MODE
+directly instead of data truthiness, in LeadList.jsx, UserAdmin.jsx, and
+AppointmentList.jsx (appointments list AND broker-options list both).
+UserAdmin.jsx and LeadList.jsx already had a proper loading notice gated
+on the fetch's own `loading` flag; AppointmentList.jsx didn't, so one was
+added matching the same pattern.
+
+BUG 2 — separate, found via Mark's own lead-creation test: submitting a
+lead showed literally "[object Object]" as the error instead of a real
+message. Root cause: the backend sends validation failures as
+`{ error: <Zod .flatten() output> }` — an OBJECT, not a string — and
+ApiError's constructor stored that object directly as `.message`. Every
+form displaying `err.message` after a failed submission was affected,
+not just Lead Import — it just hadn't been hit yet elsewhere. Mark's own
+specific test case: the phone number he entered ("234234344") genuinely
+doesn't match the required South African format (saMobile regex needs a
+leading 0 or +27) — correct, intentional validation, simply invisible
+because of the display bug. Fixed once at the source in api.js's
+request(): new formatErrorBody() helper extracts a readable message from
+Zod's flatten shape ("mobileNumber: Mobile number must be a valid South
+African number"), falling back gracefully for plain-string or malformed
+error shapes. Fixing it here means every existing and future form
+benefits, not just the one that surfaced it.
+
+VERIFIED: mock-flash fix confirmed via a real, empty Postgres database
+and a real browser polling page content every 100ms for a full second
+after navigation — no mock name ever appeared, on Appointments or Users.
+Error-message fix confirmed two ways: a direct test of formatErrorBody()
+against Mark's exact error shape (produces the correct readable string),
+and end-to-end through a real browser replicating his exact form
+submission — shows the readable error, then succeeds once corrected to
+a valid SA number format and correctly navigates to /leads. Full
+regression re-run afterward (login, user/lead/appointment creation, and
+the invalid-number-still-correctly-rejected case) — all passing.
+
+MIGRATION: straightforward overwrite of 4 existing files, no deletions:
+  src/services/api.js
+  src/pages/LeadList.jsx
+  src/pages/UserAdmin.jsx
+  src/pages/AppointmentList.jsx
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+32. ASSIGN LEAD MODAL WAS NEVER WIRED AT ALL — 22 July 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Found via Mark's own testing of §31, explicitly flagged pre-fix — a
+genuinely more serious, DIFFERENT bug than §31's timing issue. The
+"Assign Lead" / "Reassign Lead" modal on the Leads page (and the agent
+filter dropdown beside it) had never been wired to real data at any
+point — not a loading-flash issue, a complete absence of wiring. Always
+showed a hardcoded array of 5 mock agent names
+(Thabo Molefe/Naledi van Wyk/Kabelo Petersen/Bongani Ntuli/Siphiwe
+Mahlangu). Selecting one and saving would have sent that NAME STRING to
+leadsApi.assign()/reassign(), which the backend requires as a real agent
+UUID (assignLead() validates via getActiveUserById) — would have
+silently failed or written garbage into assignedAgentId.
+
+FIX: the page already had a correctly-fetched real `agents` list
+elsewhere (feeding — sort of — its own filter dropdown, see below);
+ReassignLeadModal just never received it. Now takes `agents` as a prop,
+uses real ids for select/submit, calls `onSaved` (the list's own
+refetch) after saving. Confirmed the actual backend field names by
+reading leadService.js directly rather than assuming from the frontend's
+prior (wrong) naming: display uses `lead.agentName` (a real joined
+field), the select's value uses `lead.assignedAgentId` (not `agentId` —
+this was checked, not guessed, after getting it wrong once already this
+session).
+
+Two more found in the same investigation, fixed alongside:
+- The agent FILTER dropdown had the SAME "fall back to mock when real
+  data happens to be empty" bug §31 already fixed elsewhere —
+  `agents.length > 0 ? real : MOCK` instead of gating on
+  apiMode.PREVIEW_MODE. Same fix applied here too.
+- The real `agents` fetch itself was Admin-only (`isAdmin ? ... :
+  null`), even though this file's own role-behaviour comment documents
+  Supervisors as also needing Reassign access. Widened to `isAdmin ||
+  isSupervisor`.
+- LeadDetail.jsx had §31's identical mock-flash bug, just not yet
+  encountered on that specific page — both the main lead record and its
+  call history fall back to mock whenever real data isn't present yet,
+  not only in true preview mode. Given how extensively this page uses
+  the lead record's fields throughout a long render, swapping the mock
+  fallback for an empty object risked scattering `undefined` through
+  the page — used a page-level loading gate instead (early-return
+  "Loading…" while a real fetch is in flight in DEMO_MODE), which sidesteps
+  that risk entirely: real data is guaranteed in place before anything
+  with fields renders.
+
+DELIBERATELY NOT FIXED, flagged as separate future work: LeadImport.jsx's
+"Medical Subscription" tab dropdown (SUBSCRIPTIONS) is also hardcoded,
+but no backend endpoint for listing real MedicalSubscription records
+exists yet — confirmed by searching the whole codebase for one, not
+assumed absent. Needs a new endpoint, not just frontend rewiring; a
+separate, appropriately-scoped task.
+
+VERIFIED against real Postgres and a real browser, replicating Mark's
+exact scenario end to end: Supervisor created -> Agent created under
+that Supervisor -> Lead created -> Assign Lead opened -> dropdown
+correctly shows the real agent, correctly does NOT show any mock name ->
+selected and saved -> confirmed via a DIRECT DATABASE CHECK (not just
+the UI) that assignedAgentId matches the real agent's actual id.
+LeadDetail.jsx verified by polling page content every 100ms for a full
+second after navigation — no mock name ever appears.
+
+MIGRATION: straightforward overwrite of 2 existing files, no deletions:
+  src/pages/LeadList.jsx
+  src/pages/LeadDetail.jsx
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+33. PREVIEW MODE FULLY REMOVED — 4 WIRED DOMAINS — 22 July 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark asked, in the course of a question about why Leads/Users/
+Appointments loaded differently, why MOCK_LEAD was still "required" at
+all. Answer given: it wasn't required for the real deployment to work —
+only to keep preview mode (deploy with no backend configured, whole app
+renders from inline fake data, zero setup) functional as a capability.
+Asked directly whether that capability was still wanted. Mark: no,
+remove it, the app always runs against a real backend now — and build
+everything from here on without this pattern rather than retrofitting
+it out again later.
+
+IMPORTANT SCOPE DISTINCTION surfaced and confirmed before starting:
+mock data exists in two genuinely different categories in this
+codebase. (1) Preview-mode fallback on domains with a REAL backend
+already built (Leads, Users, Flags, Appointments) — this is what got
+removed. (2) Hardcoded placeholder data on pages with NO backend built
+at all yet (Events, Notifications, Tasks, App Admin's audit log and
+subscriptions list, LeadImport's Medical Subscription tab) — this is
+NOT preview mode, it's simply unbuilt functionality, and removing it
+would break those pages entirely rather than clean anything up. Only
+category (1) was touched. Category (2) needs real backends built first,
+each its own separate task.
+
+api.js: PREVIEW_MODE removed entirely, including the early-return in
+request() that silently resolved every call to null. DEMO_MODE/
+ENTRA_MODE simplified from three possible states to two, mutually
+exclusive and exhaustive — no more possible "neither" state.
+
+FlagContext.jsx/FeatureFlags.jsx: comment-only changes. DEFAULT_FLAGS
+was never purely preview-mode-specific — it's also a legitimate
+resilience fallback for an unreachable flags API, good practice
+independent of preview mode, left untouched. FeatureFlags.jsx's
+apiMode.DEMO_MODE check turned out to be the separate Demo-vs-Entra
+distinction, not preview-mode-related at all — correctly left alone.
+
+LeadList.jsx: MOCK_LEADS, AGENTS, LEAD_SOURCES removed, every fallback
+simplified to real-data-only.
+
+LeadDetail.jsx: MOCK_LEAD, MOCK_CALLS removed. Found and fixed a real,
+separate bug while in here: the call-logging error handler had a bare
+catch{} that silently applied the SAME optimistic "logged successfully"
+update regardless of whether the real save actually succeeded — a
+genuine backend failure would show as a success with no indication
+anything was wrong. Now shows the real error via the already-existing
+submitError display instead of masking it.
+
+UserAdmin.jsx: MOCK_USERS, MOCK_SUPERVISORS removed, simplified to
+real-data-only.
+
+AppointmentList.jsx: SOURCES (confirmed dead code) and BROKERS (only
+used by the removed fallback) removed. ALL_APPOINTMENTS,
+AVAILABLE_TO_CLAIM, MY_APPOINTMENTS were NOT removed — still genuinely
+needed for the claim-model tabs, a separate, deliberately-still-mocked
+feature (real token/payment economy, out of scope since the Appointments
+build, §28). Re-commented to make that narrower purpose explicit.
+sourceData/brokerOptions (the assign-model's own real data) simplified.
+
+AppointmentDetail.jsx: MOCK_APPOINTMENT removed, plus a BROKERS constant
+already confirmed dead since an earlier session. This page had NEVER
+gotten the loading-gate treatment LeadDetail.jsx got in §31/§32 — it
+would have flashed fake appointment data on every load exactly the same
+way, just not yet caught until this pass. Fixed the same way: a neutral
+placeholder shape (same fields, empty values, no fake names) for the
+brief window before data loads, protected by a loading gate so that
+placeholder is never actually visible.
+
+VERIFIED against real Postgres and a real browser: created a real
+broker, agent, lead, and appointment, then visited all 6 affected pages
+checking for any of the 13 known mock/demo names used throughout the
+app's history — none appeared anywhere. Confirmed real data displays
+correctly everywhere it should.
+
+MIGRATION: straightforward overwrite, no deletions:
+  src/services/api.js
+  src/context/FlagContext.jsx
+  src/pages/FeatureFlags.jsx
+  src/pages/LeadList.jsx
+  src/pages/LeadDetail.jsx
+  src/pages/UserAdmin.jsx
+  src/pages/AppointmentList.jsx
+  src/pages/AppointmentDetail.jsx
+This SUPERSEDES §32's file list — §32's LeadList.jsx/LeadDetail.jsx
+changes are already included here, built on top of, not from a fresh
+hydration. Don't apply §32 separately.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+34. MARK'S 14-ITEM BUG/FEATURE BATCH FROM HIS OWN TESTING — 23 July 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark tested §33's delivery before it had even finished building and came
+back with 14 items from that testing. Delivered 13 of the 14; the Excel/
+JSON data take-on importer is deliberately excluded — see below.
+
+STALE STATUS.MD DISCOVERED THIS SESSION: the GitHub hydration at the start
+of this session returned a Status.md last-updated 18 June, missing §28
+through §33 entirely (949 lines vs this document's 2,123). The actual code
+in api-lib/, api/, and src/ matched what §28-§33 describe — Appointments,
+audit writes, and the preview-mode removal were all genuinely present and
+correct in the hydrated source. Only Status.md and Project_Context.md
+themselves were stale, meaning a prior session's rewritten versions of
+these two files were apparently never pushed to GitHub. Mark should
+confirm what actually landed there and push the corrected pair included in
+this delivery.
+
+WHAT SHIPPED:
+
+1. Lead fields now editable — Contact Details / Education / Insurance
+   Information cards on LeadDetail.jsx, via a new "Edit Details" button.
+   Editable by: the Assigned Agent, Supervisor (if the lead's agent is a
+   direct report), or Admin/GlobalAdmin — enforced server-side in
+   leadHandlers.js's new PUT handler, not just hidden client-side.
+   UpdateLeadSchema already existed in models/lead.js (written earlier,
+   never wired to a route) — this wired it up rather than designing a new
+   schema. New: leadService.updateLead(), PUT /api/leads/:id,
+   leadsApi.update(). Writes a diffed LeadUpdated AuditLog entry (old →
+   new per changed field, not the raw payload). Scope: exactly the fields
+   already rendered as Field rows on this page — title/firstName/lastName
+   (in the header, not a Field row) and idNumber (not displayed on this
+   page at all) stay read-only for now; both are already on
+   UpdateLeadSchema so extending this later is additive.
+
+2. Broker-matching multi-product bug FIXED. Root cause: GET /api/
+   broker-matching?products=A,B sends one comma-joined string (URLSearchParams
+   coerces the array); BrokerMatchingQuerySchema wrapped a lone
+   multi-product string as a single-element array (['A,B']) instead of
+   splitting it, so `p.name IN (@prod0)` never matched a real product name
+   once more than one product was selected — matches Mark's exact repro
+   (works with one product, fails with several). Fixed in
+   models/appointment.js's Zod transform; no client or SQL change needed.
+
+3. Audit Log (Lead) and Change Log (Appointment) — both new, next to Call
+   History / Meeting tracking respectively. AuditLog table was already
+   write-only (LeadCreated/Assigned/Deleted, AppointmentCreated/Reassigned/
+   etc. already wrote to it) — nothing ever read it back. New:
+   auditService.listAuditLog(), GET /api/leads/:id/audit, GET /api/
+   appointments/:id/audit, shared src/components/AuditLogList.jsx (used by
+   both pages — same shape, same alternating-row request, no reason for
+   two copies). Scope note: assign/reassign entries currently show the
+   action label only, not resolved agent/broker names (changeDetail stores
+   raw UUIDs) — flagged as a follow-up, not silently guessed at.
+
+4. Alternating row shading — Call History and the new Audit Log (Lead),
+   Change Log (Appointment). Even rows transparent, odd rows var(--panel2),
+   theme-driven so it holds up on all four themes.
+
+5. Appointment Outcome card now hidden until the First Meeting has actual
+   data (date/status/notes) — previously always rendered even with nothing
+   to report on yet.
+
+6. First Appointment Date display fixed — was rendering the raw ISO
+   timestamp from the DATE column directly. New src/utils/dateFormat.js
+   (formatDate → DD-MM-YYYY, formatTime → HH:mm) applied to
+   AppointmentDetail.jsx's "First appt date" row. New Settings page card
+   (Date & Time) with a timezone selector, persisted to sessionStorage
+   (mb_timezone) the same way avatar/display-name already are, pending the
+   Users API. Scope note: only this specifically-flagged field was swept —
+   other date displays across the app (LeadDetail's Date created,
+   AppointmentList's date column) already format acceptably via date-fns/
+   toLocaleDateString and weren't touched; a full sweep onto the shared
+   utility is a reasonable follow-up, not bundled in here.
+
+7. Reschedule/Cancel within the same meeting, and the Meeting Held lock —
+   these turned out to be one fix, not two. Previously ANY recorded
+   meeting status (including Rescheduled/Cancelled) unlocked the next
+   meeting — wrong, since a rescheduled or cancelled meeting isn't
+   actually done. Now: only a meeting genuinely marked Held (status
+   'Seen') locks that meeting and unlocks the next one. New dedicated
+   "Mark Meeting Held" button (separate from the Status dropdown) —
+   immediately persists just that meeting via a scoped saveOutcome() call
+   (customerSigned/productsSold/other meetings omitted from the payload so
+   they can't be overwritten by whatever's currently in the rest of the
+   draft form) and locks its fields read-only. Rescheduled/Cancelled leave
+   the meeting's Date field open for the broker to capture a new date,
+   still against the same meeting number — no new "reschedule" UI needed,
+   the existing Date field just stays editable pre-lock. Server-side lock
+   added too, not just UI: appointmentService.saveOutcome() now silently
+   drops edits to any meeting whose persisted status is already 'Seen',
+   and rejects the whole call outright once the appointment itself is
+   ClosedWon/ClosedLost.
+
+8. Appointment locked once Closed — AppointmentDetail.jsx now disables
+   every outcome/meeting field and hides the Save button once
+   status is ClosedWon/ClosedLost, with a "🔒 Locked" badge and notice.
+   Backend enforcement described in item 7.
+
+9. Lead no longer disappears once an appointment is booked. AppointmentScheduled
+   is relabelled "Converted" in STATUS_META (tokens.js — one source, used
+   by LeadList's chips/table and LeadDetail's status pill) and LeadList no
+   longer force-excludes it. New Active/Closed/Converted composite tabs
+   replace the old always-on EXCLUDED_STATUSES: Active = Unassigned +
+   Assigned + InProgress (excludes Converted/Closed), and is now the
+   default view — this is what actually keeps a working agent's queue
+   clean, rather than hiding Converted leads from the list entirely.
+   Mirrored on AppointmentList.jsx: new Active (Unassigned/Assigned/
+   InProgress) and Closed (ClosedWon/ClosedLost) composite chips, Active
+   now the default view there too.
+
+10. Agent-on-booking bug FIXED — appointmentService.createAppointment()
+    previously took the authenticated booking user's own JWT claim as
+    the Appointment's agentId (a DELIBERATE, documented design at the
+    time — "Agent field is always read-only, set from the JWT"). Mark's
+    correction: it should be the Lead's own assignedAgentId, since a
+    Supervisor or Admin booking on an agent's behalf was bumping the
+    appointment onto their own name instead of the agent who actually
+    owns the lead. Fixed by resolving agentId from the Lead record
+    inside createAppointment() rather than accepting it as a parameter.
+    The "Agent is read-only" UI rule still holds — only where it's read
+    from changed. Additionally: the Reassign modal on AppointmentDetail.jsx
+    previously hardcoded Agent as permanently read-only in the UI even
+    though the backend (ReassignAppointmentSchema/reassignAppointment())
+    already accepted an optional agentId — only the modal itself blocked
+    it. Now exposes an Agent select alongside Broker, so a wrong agent-on-
+    booking can be corrected via the existing Reassign action, per Mark's
+    request. Modal renamed "Reassign Broker / Agent" accordingly.
+
+11. Log Call button hidden until the lead is Assigned (was visible
+    immediately on an Unassigned lead, where logging a call doesn't make
+    sense — there's no agent's queue to log it into yet).
+
+12. View in Appointments (from LeadDetail's conversion banner) now
+    navigates to the actual appointment instead of the bare Appointments
+    list. leadService.getLeadById() now LEFT JOINs Appointment to return
+    appointmentId on the Lead record for this.
+
+DELIBERATELY NOT BUILT — Excel/JSON data take-on importer (medical
+subscriptions as Excel, plus general Lead/Appointment historical take-on
+via CSV/Excel/JSON). Mark asked about this in passing alongside the 14
+fixes; flagged back to him as needing its own scoping session given the
+size — format detection, column mapping, validation, and how it relates
+to the existing CsvImportBatch concept referenced elsewhere in this
+document are all real design decisions, not something to fold into a bug-
+fix batch. Not started.
+
+BUILD VERIFICATION: full Vite production build clean (1,300 modules, zero
+errors) and the existing Vitest suite (45 tests across
+appointmentStatusService.test.js and leadStatusService.test.js) passes
+unchanged — nothing in this batch touched status-transition logic in a
+way that broke coverage. `npm run lint` currently can't run at all
+(missing eslint.config.js — ESLint 9 needs the new flat-config format,
+the repo still has none) — pre-existing gap, not introduced this session,
+worth fixing so lint is actually part of the verification gate again.
+
+MIGRATION — straightforward overwrite, no deletions:
+  api-lib/handlers/appointmentHandlers.js
+  api-lib/handlers/leadHandlers.js
+  api-lib/models/appointment.js
+  api-lib/services/appointmentService.js
+  api-lib/services/auditService.js
+  api-lib/services/leadService.js
+  api/appointments-router.js
+  api/leads-router.js
+  src/components/AuditLogList.jsx                (NEW)
+  src/pages/AppointmentDetail.jsx
+  src/pages/AppointmentList.jsx
+  src/pages/LeadDetail.jsx
+  src/pages/LeadList.jsx
+  src/pages/Settings.jsx
+  src/services/api.js
+  src/styles/tokens.js
+  src/utils/dateFormat.js                        (NEW)
+Plus this Status.md and Project_Context.md — see the staleness note above,
+push these even if the code files above already landed correctly.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

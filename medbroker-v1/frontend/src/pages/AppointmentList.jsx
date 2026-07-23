@@ -187,11 +187,14 @@ function BuyTokensModal({ onClose, paymentProvider }) {
 // Only the Broker field is editable.
 // isAssign=true  → Unassigned appointment → calls appointmentsApi.assignBroker()
 // isAssign=false → Already assigned → calls appointmentsApi.reassign()
-function AssignBrokerModal({ appointment, onClose, isAssign = false, brokers, onSaved }) {
+function AssignBrokerModal({ appointment, onClose, isAssign = false, brokers, agents, onSaved }) {
   const [broker,  setBroker]  = useState(appointment.brokerId ?? '');
+  const [agent,   setAgent]   = useState(appointment.agentId ?? '');
   const [saving,  setSaving]  = useState(false);
   const [saved,   setSaved]   = useState(false);
   const [error,   setError]   = useState('');
+
+  const agentChanged = !isAssign && agent !== (appointment.agentId ?? '') && !!agent;
 
   async function handleSave() {
     if (!broker) return;
@@ -199,11 +202,11 @@ function AssignBrokerModal({ appointment, onClose, isAssign = false, brokers, on
     setError('');
     try {
       if (isAssign) {
-        // agentId is NOT passed — the API derives it from the Appointment record.
-        // Agent is set at booking time and never changed through this modal.
+        // agentId is NOT passed — the API derives it from the Lead record
+        // at booking time. Agent isn't part of this first-allocation flow.
         await appointmentsApi.assignBroker(appointment.id, broker);
       } else {
-        await appointmentsApi.reassign(appointment.id, broker);
+        await appointmentsApi.reassign(appointment.id, broker, agentChanged ? agent : undefined);
       }
       setSaved(true);
       await onSaved?.();
@@ -219,28 +222,40 @@ function AssignBrokerModal({ appointment, onClose, isAssign = false, brokers, on
     <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ ...s.modal, width: '420px' }}>
         <div style={s.modalHeader}>
-          <h2 style={s.modalTitle}>{isAssign ? 'Assign Broker' : 'Reassign Broker'}</h2>
+          <h2 style={s.modalTitle}>{isAssign ? 'Assign Broker' : 'Reassign Broker / Agent'}</h2>
           <button style={s.closeBtn} onClick={onClose}>✕</button>
         </div>
         <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '14px' }}>
           {appointment.leadName} · {appointment.firstDate}
         </p>
 
-        {/* Agent — always read-only on both Assign and Reassign */}
+        {/* Agent — read-only on first Assign (agent is set from the Lead at
+            booking time, not part of this flow); editable on Reassign
+            (Mark's request, 23 Jul 2026 — corrects a wrong agent-on-booking
+            without going into Appointment Detail). */}
         <div style={s.formGroup}>
           <label style={s.formLabel}>Qualified by (Agent)</label>
-          <div style={{
-            padding: '9px 12px', borderRadius: '6px', background:'var(--panel2)',
-            border: '1px solid var(--line)', fontSize: '0.875rem', color:'var(--ink)',
-            display: 'flex', alignItems: 'center', gap: '8px',
-          }}>
-            <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>🔒</span>
-            {appointment.agentName}
-            <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color:'var(--mut)' }}>Read only</span>
-          </div>
-          <div style={s.formHint}>
-            The agent who booked this appointment is read only and cannot be changed here.
-          </div>
+          {isAssign ? (
+            <div style={{
+              padding: '9px 12px', borderRadius: '6px', background:'var(--panel2)',
+              border: '1px solid var(--line)', fontSize: '0.875rem', color:'var(--ink)',
+              display: 'flex', alignItems: 'center', gap: '8px',
+            }}>
+              <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>🔒</span>
+              {appointment.agentName}
+              <span style={{ marginLeft: 'auto', fontSize: '0.75rem', color:'var(--mut)' }}>Read only</span>
+            </div>
+          ) : (
+            <select style={s.formInput} value={agent} onChange={e => setAgent(e.target.value)}>
+              <option value="">— Select agent —</option>
+              {(agents ?? []).map(a => <option key={a.id} value={a.id}>{a.displayName}</option>)}
+            </select>
+          )}
+          {isAssign && (
+            <div style={s.formHint}>
+              Set from the lead's assigned agent at booking time.
+            </div>
+          )}
         </div>
 
         {/* Broker — editable on both Assign and Reassign */}
@@ -303,7 +318,7 @@ export default function AppointmentList() {
   const tokenBalance      = 7; // mock — in production read from TokenLedger
 
   const [activeTab,      setActiveTab]      = useState('mine');
-  const [statusFilter,   setStatusFilter]   = useState('All');
+  const [statusFilter,   setStatusFilter]   = useState('Active');
   const [search,         setSearch]         = useState('');
   const [sourceFilter,   setSourceFilter]   = useState('');
   const [portfolioFilter,setPortfolioFilter]= useState('');
@@ -327,6 +342,8 @@ export default function AppointmentList() {
   );
   const { data: brokersData } = useFetch(() => usersApi.list({ role: 'Broker' }), []);
   const realBrokers = brokersData?.users ?? [];
+  const { data: agentsData } = useFetch(() => usersApi.list({ role: 'Agent' }), []);
+  const realAgents = agentsData?.users ?? [];
 
   const today = new Date().toDateString();
   const realAppointments = (apptData?.appointments ?? []).map(a => ({
@@ -357,13 +374,19 @@ export default function AppointmentList() {
   const sourceData = realAppointments;
   const brokerOptions = realBrokers.map(b => ({ id: b.id, displayName: b.displayName }));
 
+  const ACTIVE_APPT_STATUSES = ['Unassigned', 'Assigned', 'InProgress'];
+  const CLOSED_APPT_STATUSES = ['ClosedWon', 'ClosedLost'];
+
   const filtered = sourceData.filter(a => {
     // brokerCode holds the real brokerId in the real-data path (see mapping
     // above) — compare against the current user's own id, not a mock code.
     if (isBroker && a.brokerCode !== persona.id) return false;
-    // Status chips — 'Today' is date-derived, others are status values
-    if (statusFilter === 'Today'      && !a.isToday)                              return false;
-    if (statusFilter !== 'All' && statusFilter !== 'Today'
+    // Status chips — 'Today' is date-derived; 'Active'/'Closed' are composite
+    // groups (Mark's request); others are exact status values.
+    if (statusFilter === 'Today'  && !a.isToday) return false;
+    if (statusFilter === 'Active' && !ACTIVE_APPT_STATUSES.includes(a.status)) return false;
+    if (statusFilter === 'Closed' && !CLOSED_APPT_STATUSES.includes(a.status)) return false;
+    if (statusFilter !== 'All' && statusFilter !== 'Today' && statusFilter !== 'Active' && statusFilter !== 'Closed'
         && a.status !== statusFilter)                                              return false;
     if (sourceFilter    && a.source    !== sourceFilter)    return false;
     if (portfolioFilter && a.portfolio !== portfolioFilter) return false;
@@ -383,7 +406,7 @@ export default function AppointmentList() {
   const closedWon   = myAppts.filter(a => a.status === 'ClosedWon').length;
   const claimedIds  = new Set(claimedAppointments.map(a => a.id));
   const availCount  = AVAILABLE_TO_CLAIM.filter(a => !claimedIds.has(a.id)).length;
-  const hasFilter  = statusFilter !== 'All' || search || sourceFilter || portfolioFilter || brokerFilter;
+  const hasFilter  = statusFilter !== 'Active' || search || sourceFilter || portfolioFilter || brokerFilter;
 
   const subtitleMap = {
     GlobalAdmin: 'All appointments across all brokers',
@@ -496,8 +519,9 @@ export default function AppointmentList() {
   }
 
   function FiltersBar() {
-    // Chips: All + the 5 appointment statuses + Today (date-derived, not a status)
-    const chips = ['All', 'Unassigned', 'Assigned', 'InProgress', 'ClosedWon', 'ClosedLost', 'Today'];
+    // Chips: composite Active/Closed groups (Mark's request, mirrors
+    // LeadList.jsx) + All + the 5 individual statuses + Today (date-derived).
+    const chips = ['Active', 'Closed', 'All', 'Unassigned', 'Assigned', 'InProgress', 'ClosedWon', 'ClosedLost', 'Today'];
     return (
       <>
         <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', marginBottom: '10px' }}>
@@ -507,8 +531,7 @@ export default function AppointmentList() {
             return (
               <button key={chip} onClick={() => setStatusFilter(chip)} style={{
                 ...s.chip,
-                ...(isActive && chip === 'All'   ? s.chipActive : {}),
-                ...(isActive && chip === 'Today' ? s.chipActive : {}),
+                ...(isActive && !meta ? s.chipActive : {}),
                 ...(isActive && meta ? { background: meta.bg, color: meta.colour, borderColor: meta.border, fontWeight: 500 } : {}),
               }}>
                 {chip === 'InProgress' ? 'In Progress'
@@ -537,7 +560,7 @@ export default function AppointmentList() {
             </select>
           )}
           {hasFilter && (
-            <button onClick={() => { setStatusFilter('All'); setSearch(''); setSourceFilter(''); setPortfolioFilter(''); setBrokerFilter(''); }} style={s.ghostBtn}>
+            <button onClick={() => { setStatusFilter('Active'); setSearch(''); setSourceFilter(''); setPortfolioFilter(''); setBrokerFilter(''); }} style={s.ghostBtn}>
               ✕ Clear
             </button>
           )}
@@ -792,6 +815,7 @@ export default function AppointmentList() {
           appointment={assignTarget}
           isAssign={isAssignMode}
           brokers={brokerOptions}
+          agents={realAgents}
           onSaved={refetchAppts}
           onClose={() => { setAssignTarget(null); setIsAssignMode(false); }}
         />

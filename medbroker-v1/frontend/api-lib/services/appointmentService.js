@@ -167,16 +167,30 @@ export async function getAppointmentById(id) {
  * LeadDetail.jsx's Book Appointment modal ("Production: POST
  * /api/appointments -> Creates Appointment child record -> Sets
  * Lead.pipelineStatus = 'AppointmentScheduled'").
+ *
+ * agentId is deliberately NOT a parameter here (changed 23 Jul 2026, Mark's
+ * request) — it's resolved from the Lead's own assignedAgentId, not the
+ * authenticated booking user. Previously this took the booking user's JWT
+ * claim directly, which meant a Supervisor or Admin booking on an agent's
+ * behalf put the appointment under their own name instead of the agent who
+ * actually owns the lead — wrong outcome, even though the code matched what
+ * was documented at the time. See models/appointment.js's updated header.
  * @param {Object} data - validated CreateAppointmentSchema data
- * @param {string} agentId - the authenticated booking user (claims.oid) —
- *   never client-supplied, matching the "Agent field is always read-only,
- *   set at booking time from the JWT" rule in both frontend files.
  * @returns {Promise<string>} new appointment id
  */
-export async function createAppointment(data, agentId) {
+export async function createAppointment(data) {
   const organisationId = resolveOrganisationId();
   const portfolioId = await resolvePortfolioId(data.portfolio);
   if (!portfolioId) throw { status: 400, message: `Unknown portfolio: ${data.portfolio}` };
+
+  const lead = await executeQueryOne(
+    `SELECT assignedAgentId AS "assignedAgentId" FROM Lead
+     WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
+    { leadId: { type: sql.UniqueIdentifier, value: data.leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  if (!lead) throw { status: 404, message: 'Lead not found' };
+  if (!lead.assignedAgentId) throw { status: 400, message: 'This lead has no assigned agent — assign it to an agent before booking an appointment' };
+  const agentId = lead.assignedAgentId;
 
   if (data.brokerId) {
     const broker = await getActiveUserById(data.brokerId);
@@ -317,13 +331,38 @@ export async function returnToLeads(id) {
  * @param {Object} data - validated SaveOutcomeSchema data
  * @returns {Promise<{status: string}>}
  */
+/**
+ * Save the appointment outcome — meetings, products sold, signed decision.
+ * Computes the resulting status server-side via appointmentStatusService.js;
+ * the client never sends status directly.
+ *
+ * LOCKING (added 23 Jul 2026, Mark's request):
+ *   - Once status is ClosedWon/ClosedLost, the whole appointment is locked —
+ *     the entire call is rejected rather than silently no-op'd, so the UI
+ *     gets a clear error instead of a save that looked like it worked.
+ *   - Individually, once a given meeting's persisted status is 'Seen' (held),
+ *     that meeting is locked — any incoming changes to its date/status/notes
+ *     are silently dropped rather than erroring, so a single saveOutcome call
+ *     can still legitimately touch a signed decision or a still-open later
+ *     meeting alongside an already-held one without failing the whole request.
+ *     Mirrors the "Mark Meeting Held" button on AppointmentDetail.jsx, which
+ *     is the only client-side path that sets a meeting to Seen in the first
+ *     place — this is defence-in-depth against a stale form re-submitting.
+ * @param {string} id
+ * @param {Object} data - validated SaveOutcomeSchema data
+ * @returns {Promise<{status: string}>}
+ */
 export async function saveOutcome(id, data) {
   const organisationId = resolveOrganisationId();
   const current = await executeQueryOne(
-    `SELECT status FROM Appointment WHERE id = @id AND organisationId = @organisationId`,
+    `SELECT status, meeting1Status AS "meeting1Status", meeting2Status AS "meeting2Status", meeting3Status AS "meeting3Status"
+     FROM Appointment WHERE id = @id AND organisationId = @organisationId`,
     { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
   if (!current) throw { status: 404, message: 'Appointment not found' };
+  if (current.status === 'ClosedWon' || current.status === 'ClosedLost') {
+    throw { status: 400, message: 'This appointment is closed and can no longer be edited.' };
+  }
 
   const newStatus = computeAppointmentStatus(current.status, {
     customerSigned: data.customerSigned,
@@ -345,6 +384,7 @@ export async function saveOutcome(id, data) {
   for (const meeting of data.meetings ?? []) {
     const n = meeting.number;
     if (![1, 2, 3].includes(n)) continue;
+    if (current[`meeting${n}Status`] === 'Seen') continue; // locked — already held, drop the edit
     setClauses.push(`meeting${n}Date = @meeting${n}Date`, `meeting${n}Status = @meeting${n}Status`, `meeting${n}Feedback = @meeting${n}Feedback`);
     params[`meeting${n}Date`]     = { type: sql.Date,            value: meeting.date || null };
     params[`meeting${n}Status`]   = { type: sql.NVarChar(50),    value: meeting.status || null };

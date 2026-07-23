@@ -1,0 +1,105 @@
+/**
+ * components/AuditLogList.jsx — NEW, 23 Jul 2026.
+ * Renders entries from GET /api/leads/:id/audit or /api/appointments/:id/audit
+ * (both backed by the same generic AuditLog table / auditService.listAuditLog()).
+ * Shared by LeadDetail.jsx (Audit Log) and AppointmentDetail.jsx (Change Log) —
+ * same shape, same "alternating row shading" request from Mark, no reason for
+ * two copies of the same list.
+ *
+ * Scope note: changeDetail on assign/reassign entries currently stores raw
+ * agentId/brokerId UUIDs (that's what the writing handlers were already
+ * passing in before this file existed), so those lines show the action label
+ * only rather than "Assigned to Thabo Molefe" — resolving ids to display
+ * names would mean joining User in every write path. Left as a follow-up;
+ * flagged rather than silently guessed at.
+ */
+
+import { format } from 'date-fns';
+
+const ACTION_LABELS = {
+  LeadCreated:                 'Lead created',
+  LeadAssigned:                'Lead assigned to an agent',
+  LeadReassigned:               'Lead reassigned to a different agent',
+  LeadUpdated:                 'Lead details updated',
+  LeadDeleted:                 'Lead deleted',
+  AppointmentCreated:          'Appointment booked',
+  AppointmentBrokerAssigned:   'Broker assigned',
+  AppointmentReassigned:       'Broker reassigned',
+  AppointmentReturnedToLeads:  'Returned to Leads',
+  AppointmentOutcomeSaved:     'Outcome updated',
+};
+
+const FIELD_LABELS = {
+  dateOfBirth: 'Date of Birth', email: 'Email', mobileNumber: 'Contact Number',
+  whatsappNumber: 'WhatsApp', universityAttended: 'University', yearOfAttendance: 'Year',
+  degreeAttained: 'Degree', occupation: 'Job Title', hospitalOrPractice: 'Hospital / Practice',
+  existingCover: 'Existing cover', policies: 'Current policies', medicalAid: 'Medical aid',
+  medicalAidProvider: 'Medical aid provider',
+};
+
+function describeEntry(entry) {
+  const label = ACTION_LABELS[entry.action] ?? entry.action;
+  const detail = entry.changeDetail;
+  if (!detail) return label;
+
+  if (entry.action === 'LeadUpdated') {
+    const changes = Object.entries(detail).map(([field, change]) => {
+      const fieldLabel = FIELD_LABELS[field] ?? field;
+      const from = change?.from ?? '—';
+      const to = change?.to ?? '—';
+      return `${fieldLabel}: ${from} → ${to}`;
+    });
+    return changes.length ? changes.join('; ') : label;
+  }
+
+  if (entry.action === 'AppointmentOutcomeSaved') {
+    const parts = [];
+    if (detail.customerSigned === true)  parts.push('Customer signed: Yes');
+    if (detail.customerSigned === false) parts.push('Customer signed: No');
+    for (const m of detail.meetings ?? []) {
+      if (m.status) parts.push(`Meeting ${m.number}: ${m.status}`);
+    }
+    if (detail.newStatus) parts.push(`Status → ${detail.newStatus}`);
+    return parts.length ? parts.join('; ') : label;
+  }
+
+  return label;
+}
+
+export default function AuditLogList({ entries, emptyLabel = 'No changes recorded yet.' }) {
+  if (!entries || entries.length === 0) {
+    return <p style={{ color: 'var(--mut)', fontSize: '0.875rem' }}>{emptyLabel}</p>;
+  }
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column' }}>
+      {entries.map((entry, i) => (
+        <div
+          key={entry.id}
+          style={{
+            padding: '8px 10px',
+            borderRadius: '6px',
+            // Alternating row shading, per Mark's request — even rows stay
+            // transparent, odd rows get a faint theme-driven tint so it
+            // still reads correctly on all four themes (light and dark).
+            background: i % 2 === 1 ? 'var(--panel2)' : 'transparent',
+          }}
+        >
+          <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', flexWrap: 'wrap' }}>
+            <span style={{ fontSize: '0.8125rem', color: 'var(--ink)', fontWeight: 500 }}>
+              {describeEntry(entry)}
+            </span>
+            <span style={{ fontSize: '0.75rem', color: 'var(--mut)', whiteSpace: 'nowrap' }}>
+              {format(new Date(entry.performedAt), 'd MMM yyyy, HH:mm')}
+            </span>
+          </div>
+          {entry.performedByName && (
+            <div style={{ fontSize: '0.75rem', color: 'var(--mut)', marginTop: '2px' }}>
+              by {entry.performedByName}
+            </div>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}

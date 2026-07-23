@@ -26,10 +26,14 @@ const MeetingStatus = z.enum(['Seen', 'Rescheduled', 'Cancelled']);
 
 /**
  * Booking a new appointment from Lead Detail. agentId is deliberately NOT
- * accepted here — the Agent on an Appointment is always the authenticated
- * user doing the booking (see middleware claims.oid in the route), never
- * client-supplied, matching the "Agent field is always read-only" rule
- * documented in both frontend files.
+ * accepted here — the Agent on an Appointment is always the Lead's own
+ * assignedAgentId, resolved server-side in appointmentService.createAppointment()
+ * from the Lead record, never client-supplied. This was changed 23 Jul 2026
+ * (Mark's request): previously it was the authenticated booking user's own
+ * JWT claim, which meant a Supervisor or Admin booking on an agent's behalf
+ * bumped the appointment onto their own name instead of the agent who
+ * actually owns the lead. The "Agent field is always read-only" rule in
+ * both frontend files still holds — only *who it's read from* changed.
  */
 export const CreateAppointmentSchema = z.object({
   leadId:                  z.string().uuid(),
@@ -89,7 +93,18 @@ export const AppointmentListQuerySchema = z.object({
 });
 
 export const BrokerMatchingQuerySchema = z.object({
-  region:   z.string().min(1),
-  products: z.union([z.string(), z.array(z.string())]).transform((v) => (Array.isArray(v) ? v : [v])),
-  leadId:   z.string().uuid().optional(),
+  region: z.string().min(1),
+  // GET /api/broker-matching?products=A,B sends a single comma-joined string
+  // (URLSearchParams coerces the client's array to one string; the "GET
+  // ...?products=A,B" contract in api/broker-matching/index.js's header
+  // comment was always the intended wire format). The previous version only
+  // handled the array case and wrapped a lone multi-product string as a
+  // single-element array — e.g. products=['A,B'] instead of ['A','B'] — so
+  // the SQL `p.name IN (@prod0)` never matched a real product name once more
+  // than one product was selected. Splits on comma for the string case;
+  // array input (e.g. a direct API call passing repeated params) still works.
+  products: z.union([z.string(), z.array(z.string())]).transform((v) =>
+    (Array.isArray(v) ? v : v.split(',')).map((p) => p.trim()).filter(Boolean)
+  ),
+  leadId: z.string().uuid().optional(),
 });

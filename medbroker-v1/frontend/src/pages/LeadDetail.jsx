@@ -34,7 +34,8 @@ import { leadsApi, appointmentsApi, brokerMatchingApi, ApiError } from '../servi
 import { formatDistanceToNow, format } from 'date-fns';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useRole, PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
-import { REGIONS } from '../constants/leadOptions.js';
+import { REGIONS, JOB_TITLES } from '../constants/leadOptions.js';
+import AuditLogList from '../components/AuditLogList.jsx';
 
 // ─── Status transition machine (mirrors server-side leadStatusService.js) ─────
 function computeNewStatus(currentStatus, outcome) {
@@ -99,11 +100,53 @@ function Field({ label, value, children }) {
   );
 }
 
+// Edit-mode counterpart to Field — same row shape, but the value slot
+// becomes an input/select/textarea when `editing` is true. Added 23 Jul
+// 2026 (Mark's request): LeadDetail previously rendered every Contact
+// Details/Education/Insurance field read-only even though the same fields
+// are editable on the Lead creation form. `type` selects the control:
+// 'text' | 'date' | 'number' | 'select' | 'textarea' | 'bool'.
+function EditableField({ label, editing, type = 'text', value, onChange, options }) {
+  const inputStyle = { border: '1px solid var(--line)', borderRadius: '6px', padding: '5px 8px', fontSize: '0.8125rem', fontFamily: 'inherit', textAlign: 'right', width: '60%', boxSizing: 'border-box' };
+
+  if (!editing) {
+    let display = value;
+    if (type === 'bool') display = value === true ? 'Yes' : value === false ? 'No' : '—';
+    if (type === 'date' && value) display = format(new Date(value), 'd MMM yyyy');
+    return <Field label={label} value={display} />;
+  }
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom:'1px solid var(--line)', fontSize: '0.875rem', gap: '12px' }}>
+      <span style={{ color:'var(--mut)', flexShrink: 0 }}>{label}</span>
+      {type === 'select' && (
+        <select style={inputStyle} value={value ?? ''} onChange={e => onChange(e.target.value)}>
+          <option value="">—</option>
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      )}
+      {type === 'bool' && (
+        <select style={inputStyle} value={value === null || value === undefined ? '' : value ? 'Yes' : 'No'} onChange={e => onChange(e.target.value === '' ? null : e.target.value === 'Yes')}>
+          <option value="">—</option>
+          <option value="Yes">Yes</option>
+          <option value="No">No</option>
+        </select>
+      )}
+      {type === 'textarea' && (
+        <textarea style={{ ...inputStyle, height: '48px', resize: 'vertical' }} value={value ?? ''} onChange={e => onChange(e.target.value)} />
+      )}
+      {(type === 'text' || type === 'date' || type === 'number') && (
+        <input type={type} style={inputStyle} value={value ?? ''} onChange={e => onChange(type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} />
+      )}
+    </div>
+  );
+}
+
 // Mirrors AppointmentDetail.jsx's StatusChip — same pill treatment, reusing
 // this file's own STATUS_COLOURS (Lead and Appointment have separate status sets).
 function StatusPill({ status }) {
   const sc = STATUS_COLOURS[status] ?? STATUS_COLOURS.Unassigned;
-  const label = status === 'InProgress' ? 'In Progress' : status === 'AppointmentScheduled' ? 'Appt Scheduled' : status;
+  const label = status === 'InProgress' ? 'In Progress' : status === 'AppointmentScheduled' ? 'Converted (to Appointment)' : status;
   return (
     <span style={{
       display: 'inline-block', padding: '2px 9px', borderRadius: '20px',
@@ -136,8 +179,9 @@ export default function LeadDetail() {
   const { id }   = useParams();
   const navigate = useNavigate();
   const { isMobile } = useWindowSize();
+  const { role, persona } = useRole();
 
-  const { data: lead, loading: leadLoading } = useFetch(() => leadsApi.get(id), [id]);
+  const { data: lead, loading: leadLoading, refetch: refetchLead } = useFetch(() => leadsApi.get(id), [id]);
   const baseLead = lead ?? {};
 
   // Real call history — GET /api/leads/:id/calls, added alongside an
@@ -145,6 +189,18 @@ export default function LeadDetail() {
   // "Recent Calls" only ever reflected whatever was logged in the
   // current browser session.
   const { data: callsData } = useFetch(() => leadsApi.listCalls(id), [id]);
+
+  // Audit Log — GET /api/leads/:id/audit, added 23 Jul 2026 alongside the
+  // editable-fields work below (every save through that form writes a
+  // LeadUpdated entry here).
+  const { data: auditData, refetch: refetchAudit } = useFetch(() => leadsApi.auditLog(id), [id]);
+  const auditEntries = auditData?.entries ?? [];
+
+  // Editable-fields permission — assigned Agent, Supervisor, or Admin/
+  // GlobalAdmin, matching the server-side check in leadHandlers.js exactly
+  // (this is a UX gate only; the real enforcement is server-side).
+  const isAdminRole = role === 'Admin' || role === 'GlobalAdmin';
+  const canEdit = isAdminRole || role === 'Supervisor' || (role === 'Agent' && baseLead.assignedAgentId === persona.id);
 
   // Local status override — reflects transitions immediately after an
   // action, before the next real fetch would otherwise pick them up.
@@ -156,6 +212,54 @@ export default function LeadDetail() {
   const [calls,            setCalls]             = useState([]);
   const [submitting,       setSubmitting]        = useState(false);
   const [submitError,      setSubmitError]       = useState('');
+
+  // Edit mode — Contact Details / Education / Insurance Information cards.
+  const [editing,     setEditing]     = useState(false);
+  const [editForm,    setEditForm]    = useState(null);
+  const [savingEdit,  setSavingEdit]  = useState(false);
+  const [editError,   setEditError]   = useState('');
+
+  function startEditing() {
+    setEditForm({
+      dateOfBirth: baseLead.dateOfBirth ? String(baseLead.dateOfBirth).slice(0, 10) : '',
+      email: baseLead.email ?? '', mobileNumber: baseLead.mobileNumber ?? '', whatsappNumber: baseLead.whatsappNumber ?? '',
+      occupation: baseLead.occupation ?? '', hospitalOrPractice: baseLead.hospitalOrPractice ?? '',
+      universityAttended: baseLead.universityAttended ?? '', yearOfAttendance: baseLead.yearOfAttendance ?? '',
+      degreeAttained: baseLead.degreeAttained ?? '',
+      existingCover: baseLead.existingCover ?? null, policies: baseLead.policies ?? '',
+      medicalAid: baseLead.medicalAid ?? null, medicalAidProvider: baseLead.medicalAidProvider ?? '',
+    });
+    setEditError('');
+    setEditing(true);
+  }
+
+  function setField(field, value) {
+    setEditForm(prev => ({ ...prev, [field]: value }));
+  }
+
+  async function handleSaveEdit() {
+    setSavingEdit(true);
+    setEditError('');
+    try {
+      // UpdateLeadSchema's fields are .optional() but not .nullable() — an
+      // absent key is skipped, but an explicit '' or null fails validation
+      // (dateOfBirth's date regex, existingCover/medicalAid's boolean type).
+      // Every field here starts as '' or null when unset, so strip both
+      // rather than sending them — same class of bug as LeadImport.jsx's
+      // stripEmpty(), found there the same way (submitting the real form).
+      const payload = Object.fromEntries(
+        Object.entries(editForm).filter(([, v]) => v !== '' && v !== null)
+      );
+      await leadsApi.update(id, payload);
+      setEditing(false);
+      refetchAudit();
+      await refetchLead();
+    } catch (err) {
+      setEditError(err instanceof ApiError ? err.message : 'Could not save changes. Please try again.');
+    } finally {
+      setSavingEdit(false);
+    }
+  }
 
   useEffect(() => {
     if (callsData?.calls) {
@@ -244,8 +348,11 @@ export default function LeadDetail() {
       {/* Conversion notice */}
       {isConverted && (
         <div style={{ background: 'color-mix(in srgb, #15803d 14%, var(--panel))', border: '1px solid color-mix(in srgb, #15803d 30%, var(--panel))', borderRadius: '6px', padding: '10px 14px', marginBottom: '16px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', fontSize: '0.875rem', color: '#15803d', flexWrap: 'wrap' }}>
-          <span>✅ <strong>Appointment booked.</strong> This lead has been converted and is now in the Appointments list.</span>
-          <button onClick={() => navigate('/appointments')} style={{ background:'var(--live)', color:'white', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap' }}>
+          <span>✅ <strong>Appointment booked.</strong> This lead is now Converted and stays visible here.</span>
+          <button
+            onClick={() => navigate(baseLead.appointmentId ? `/appointments/${baseLead.appointmentId}` : '/appointments')}
+            style={{ background:'var(--live)', color:'white', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+          >
             View in Appointments →
           </button>
         </div>
@@ -257,14 +364,23 @@ export default function LeadDetail() {
         <h1 style={{ fontSize: isMobile ? '1.25rem' : '1.5rem', fontWeight: 700, color:'var(--ink)', margin: 0 }}>
           {baseLead.title} {baseLead.firstName} {baseLead.lastName}
         </h1>
-        {!isConverted && !isClosed && (
-          <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            <button onClick={() => setShowCallForm(true)} style={btn.primary}>Log Call</button>
-            {canBook && (
-              <button onClick={() => setShowBookForm(true)} style={btn.secondary}>Book Appointment</button>
-            )}
-          </div>
-        )}
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          {canEdit && !editing && (
+            <button onClick={startEditing} style={btn.secondary}>Edit Details</button>
+          )}
+          {!isConverted && !isClosed && (
+            <>
+              {/* Hidden until the lead is assigned — logging a call against
+                  nobody's queue doesn't make sense (Mark's request). */}
+              {currentStatus !== 'Unassigned' && (
+                <button onClick={() => setShowCallForm(true)} style={btn.primary}>Log Call</button>
+              )}
+              {canBook && (
+                <button onClick={() => setShowBookForm(true)} style={btn.secondary}>Book Appointment</button>
+              )}
+            </>
+          )}
+        </div>
       </div>
 
       {/* Status transition hint */}
@@ -295,45 +411,59 @@ export default function LeadDetail() {
         {/* Personal details */}
         <div style={cardStyle}>
           <div style={cardTitle}>Contact Details</div>
-          <Field label="Date of Birth">
-            {baseLead.dateOfBirth ? format(new Date(baseLead.dateOfBirth), 'd MMM yyyy') : '—'}
-          </Field>
-          <Field label="Email"           value={baseLead.email} />
-          <Field label="Contact Number"  value={baseLead.mobileNumber} />
-          <Field label="WhatsApp"        value={baseLead.whatsappNumber} />
-          <Field label="Job Title"       value={baseLead.occupation} />
-          <Field label="Hospital / Practice" value={baseLead.hospitalOrPractice} />
+          <EditableField label="Date of Birth" type="date" editing={editing} value={editing ? editForm.dateOfBirth : baseLead.dateOfBirth} onChange={v => setField('dateOfBirth', v)} />
+          <EditableField label="Email" editing={editing} value={editing ? editForm.email : baseLead.email} onChange={v => setField('email', v)} />
+          <EditableField label="Contact Number" editing={editing} value={editing ? editForm.mobileNumber : baseLead.mobileNumber} onChange={v => setField('mobileNumber', v)} />
+          <EditableField label="WhatsApp" editing={editing} value={editing ? editForm.whatsappNumber : baseLead.whatsappNumber} onChange={v => setField('whatsappNumber', v)} />
+          <EditableField label="Job Title" type="select" options={JOB_TITLES} editing={editing} value={editing ? editForm.occupation : baseLead.occupation} onChange={v => setField('occupation', v)} />
+          <EditableField label="Hospital / Practice" editing={editing} value={editing ? editForm.hospitalOrPractice : baseLead.hospitalOrPractice} onChange={v => setField('hospitalOrPractice', v)} />
         </div>
 
         {/* Education */}
         <div style={cardStyle}>
           <div style={cardTitle}>Education</div>
-          <Field label="University"  value={baseLead.universityAttended} />
-          <Field label="Year"        value={baseLead.yearOfAttendance} />
-          <Field label="Degree"      value={baseLead.degreeAttained} />
+          <EditableField label="University" editing={editing} value={editing ? editForm.universityAttended : baseLead.universityAttended} onChange={v => setField('universityAttended', v)} />
+          <EditableField label="Year" type="number" editing={editing} value={editing ? editForm.yearOfAttendance : baseLead.yearOfAttendance} onChange={v => setField('yearOfAttendance', v)} />
+          <EditableField label="Degree" editing={editing} value={editing ? editForm.degreeAttained : baseLead.degreeAttained} onChange={v => setField('degreeAttained', v)} />
         </div>
 
         {/* Insurance */}
         <div style={cardStyle}>
           <div style={cardTitle}>Insurance Information</div>
-          <Field label="Existing cover"      value={baseLead.existingCover === true ? 'Yes' : baseLead.existingCover === false ? 'No' : '—'} />
-          <Field label="Current policies"    value={baseLead.policies} />
-          <Field label="Medical aid"         value={baseLead.medicalAid === true ? 'Yes' : baseLead.medicalAid === false ? 'No' : '—'} />
-          <Field label="Medical aid provider" value={baseLead.medicalAidProvider} />
+          <EditableField label="Existing cover" type="bool" editing={editing} value={editing ? editForm.existingCover : baseLead.existingCover} onChange={v => setField('existingCover', v)} />
+          <EditableField label="Current policies" type="textarea" editing={editing} value={editing ? editForm.policies : baseLead.policies} onChange={v => setField('policies', v)} />
+          <EditableField label="Medical aid" type="bool" editing={editing} value={editing ? editForm.medicalAid : baseLead.medicalAid} onChange={v => setField('medicalAid', v)} />
+          <EditableField label="Medical aid provider" editing={editing} value={editing ? editForm.medicalAidProvider : baseLead.medicalAidProvider} onChange={v => setField('medicalAidProvider', v)} />
+          {editing && (
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginTop: '14px', paddingTop: '12px', borderTop: '1px solid var(--line)' }}>
+              <button onClick={handleSaveEdit} disabled={savingEdit} style={btn.primary}>
+                {savingEdit ? 'Saving…' : 'Save Changes'}
+              </button>
+              <button onClick={() => setEditing(false)} disabled={savingEdit} style={btn.ghost}>Cancel</button>
+            </div>
+          )}
+          {editError && <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.8125rem', marginTop: '10px' }}>{editError}</div>}
         </div>
 
         {/* Call history */}
         <div style={cardStyle}>
           <div style={cardTitle}>Call History ({calls.length})</div>
           {calls.length === 0 && <p style={{ color:'var(--mut)', fontSize: '0.875rem' }}>No call attempts yet.</p>}
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-            {calls.map(call => {
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {calls.map((call, i) => {
               const oc = OUTCOME_COLOURS[call.outcome] ?? OUTCOME_COLOURS.NoAnswer;
               const borderCol = call.outcome === 'CallbackRequested' ? 'color-mix(in srgb, #d97706 30%, var(--panel))'
                 : call.outcome === 'NotInterested' || call.outcome === 'WrongNumber' ? 'color-mix(in srgb, #dc2626 30%, var(--panel))'
                 : call.outcome === 'AppointmentScheduled' ? 'color-mix(in srgb, #7c3aed 30%, var(--panel))' : 'var(--line)';
               return (
-                <div key={call.id} style={{ borderLeft: `3px solid ${borderCol}`, paddingLeft: '10px' }}>
+                <div
+                  key={call.id}
+                  style={{
+                    borderLeft: `3px solid ${borderCol}`, padding: '8px 0 8px 10px',
+                    // Alternating row shading, per Mark's request.
+                    background: i % 2 === 1 ? 'var(--panel2)' : 'transparent',
+                  }}
+                >
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <span style={{ ...badge(oc.bg, oc.text) }}>
                       {call.label ?? OUTCOME_LABELS[call.outcome] ?? call.outcome}
@@ -352,6 +482,12 @@ export default function LeadDetail() {
               );
             })}
           </div>
+        </div>
+
+        {/* Audit log */}
+        <div style={cardStyle}>
+          <div style={cardTitle}>Audit Log ({auditEntries.length})</div>
+          <AuditLogList entries={auditEntries} emptyLabel="No changes recorded yet." />
         </div>
       </div>
 

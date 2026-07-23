@@ -176,9 +176,11 @@ export async function getLeadById(id) {
        l.medicalAidProvider AS "medicalAidProvider",
        ${SOURCE_LABEL_SELECT} AS "sourceLabel",
        l.linkedEventId AS "linkedEventId", l.pipelineStatus AS "pipelineStatus",
-       l.assignedAgentId AS "assignedAgentId", l.createdAt AS "createdAt", l.updatedAt AS "updatedAt"
+       l.assignedAgentId AS "assignedAgentId", l.createdAt AS "createdAt", l.updatedAt AS "updatedAt",
+       ap.id AS "appointmentId"
      FROM Lead l
      ${SOURCE_JOINS}
+     LEFT JOIN Appointment ap ON ap.leadId = l.id
      WHERE l.id = @id AND l.deletedAt IS NULL AND l.organisationId = @organisationId`,
     {
       id: { type: sql.UniqueIdentifier, value: id },
@@ -244,6 +246,60 @@ export async function createLead(data, createdById) {
   );
 
   return newId;
+}
+
+// Columns updateLead() is allowed to touch — deliberately the exact set
+// LeadDetail.jsx renders as editable Field rows (Contact Details, Education,
+// Insurance Information), not the full UpdateLeadSchema surface. title/
+// firstName/lastName sit in the page header rather than a Field row and stay
+// read-only for now; idNumber isn't displayed on this page at all. Both are
+// already declared on UpdateLeadSchema so widening this later is additive,
+// not a redesign — just add the column here and a field on the page.
+const UPDATE_LEAD_COLUMNS = {
+  dateOfBirth:        { col: 'dateOfBirth',        type: sql.Date },
+  email:               { col: 'email',               type: sql.NVarChar(255) },
+  mobileNumber:        { col: 'mobileNumber',        type: sql.NVarChar(20) },
+  whatsappNumber:      { col: 'whatsappNumber',      type: sql.NVarChar(20) },
+  universityAttended:  { col: 'universityAttended',  type: sql.NVarChar(200) },
+  yearOfAttendance:    { col: 'yearOfAttendance',    type: sql.Int },
+  degreeAttained:      { col: 'degreeAttained',      type: sql.NVarChar(200) },
+  occupation:          { col: 'occupation',          type: sql.NVarChar(200) },
+  hospitalOrPractice:  { col: 'hospitalOrPractice',  type: sql.NVarChar(300) },
+  existingCover:       { col: 'existingCover',       type: sql.Bit },
+  policies:            { col: 'policies',            type: sql.NVarChar(500) },
+  medicalAid:          { col: 'medicalAid',          type: sql.Bit },
+  medicalAidProvider:  { col: 'medicalAidProvider',  type: sql.NVarChar(200) },
+};
+
+/**
+ * Update the editable fields on an existing lead. Only columns present as
+ * keys on `data` are touched — a partial patch, not a full overwrite —
+ * matching UpdateLeadSchema.partial() semantics on the caller side.
+ * @param {string} leadId
+ * @param {Object} data - validated (partial) UpdateLeadSchema data, restricted
+ *   by the caller to UPDATE_LEAD_COLUMNS' keys
+ * @returns {Promise<boolean>} false if nothing was provided to update
+ */
+export async function updateLead(leadId, data) {
+  const setClauses = [];
+  const params = {
+    leadId:         { type: sql.UniqueIdentifier, value: leadId },
+    organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+  };
+
+  for (const [field, { col, type }] of Object.entries(UPDATE_LEAD_COLUMNS)) {
+    if (data[field] === undefined) continue;
+    setClauses.push(`${col} = @${field}`);
+    params[field] = { type, value: data[field] };
+  }
+  if (setClauses.length === 0) return false;
+
+  await executeQuery(
+    `UPDATE Lead SET ${setClauses.join(', ')}, updatedAt = NOW()
+     WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
+    params
+  );
+  return true;
 }
 
 /**

@@ -12,11 +12,13 @@
  *   PUT  /api/appointments/:id/reassign
  *   PUT  /api/appointments/:id/return
  *   POST /api/appointments/:id/outcome
+ *   GET  /api/appointments/:id/audit
  */
 
 import {
   handleAppointmentsCollection, handleAppointmentById, handleAppointmentAssign,
   handleAppointmentReassign, handleAppointmentReturn, handleAppointmentOutcome,
+  handleAppointmentAudit,
 } from '../api-lib/handlers/appointmentHandlers.js';
 import { applyCors, parseSlug } from '../api-lib/http/helpers.js';
 
@@ -25,6 +27,7 @@ const SUB_ROUTES = {
   reassign: handleAppointmentReassign,
   return:   handleAppointmentReturn,
   outcome:  handleAppointmentOutcome,
+  audit:    handleAppointmentAudit,
 };
 
 export default async function handler(req, res) {
