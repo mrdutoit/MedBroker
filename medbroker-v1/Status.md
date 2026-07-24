@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 23 July 2026 (session 10)
+Last updated: 23 July 2026 (session 10, amended + verified)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -899,9 +899,35 @@ These decisions caused rework when changed — preserve them in every session:
 Priority: Mark needs to apply §44 (per-product policy value tracking —
 AppointmentProduct.policyValue, captured on Appointment Outcome, fed back
 into Reports.jsx/BrokerDetail.jsx's Policy Value KPIs which had been
-dropped in §42/§43 for having no real data — see §44). New migration:
-008_add_appointment_product_value.sql — run against Neon like every other
-migration in this list.
+dropped in §42/§43 for having no real data — see §44). AMENDED before
+Mark ever applied it — see the amendment note at the end of §44 — with a
+real bug fix in getAgentDetailReport() found via a screenshot of
+AgentDetail.jsx showing misleading cross-agent call data. RESOLVED same
+session: Mark ran the verification query directly and confirmed the
+underlying KPI zeros were correct all along (Steve Madden genuinely had
+no CallAttempt/Appointment rows under his own id) — the only real bug was
+the cross-agent display issue, now fixed. Re-download reportService.js
+specifically if the original §44 zip was already pulled. New migration:
+008_add_appointment_product_value.sql — run against Neon like every
+other migration in this list.
+
+STILL OPEN, not resolved this session — Mark asked whether the
+new policyValue migration could also backfill financial values onto
+EXISTING AppointmentProduct rows (historical products sold before this
+column existed). Answered directly: no live database access exists here
+and never has this whole build — every "database interaction" in this
+project has been generating SQL migration files for Mark to run himself
+against his own Neon instance, never a live connection to see actual row
+data. Real historical policy values were never captured anywhere, so
+there's no source of truth to backfill FROM — a migration can only set
+what's already known. Two real paths forward if Mark wants existing rows
+populated: (1) he supplies actual historical figures from wherever they
+do exist (memory, a spreadsheet, another system) in a structured form,
+and an accurate import migration gets written from that; (2) he wants
+placeholder/synthetic test values just to see the Reports charts non-
+empty, clearly flagged as fake data, not real. Left as NULL for now
+(the original migration's default) pending his answer — no invented
+numbers went in without confirming which path he wants.
 
 RESOLVED — §37's root-cause theory for the blank Lead Detail page was
 confirmed correct by Mark directly: he'd forgotten to run the pending
@@ -3070,7 +3096,38 @@ BUILT:
 BUILD VERIFICATION: full Vite build clean, Vitest suite unchanged and
 passing (45 tests).
 
-MIGRATION — straightforward overwrite:
+AMENDED before Mark ever applied this delivery — while testing §43's
+AgentDetail.jsx against live data (screenshot: agent "Steve Madden", 2
+leads assigned, every call/appointment KPI showing 0, yet Recent Lead
+Activity showed a "No Answer" call against one of his leads), found and
+fixed a real bug in getAgentDetailReport()'s Recent Lead Activity query:
+the LATERAL subquery finding each lead's most recent call was scoped only
+by leadId, not by agentId — so it surfaced the most recent call ANY agent
+ever made on that lead, including a prior agent's from before a
+reassignment. A lead keeps its full call history across reassignment
+(nothing transfers or deletes past CallAttempt rows — same principle as
+Appointment.agentId staying with whoever originally booked it, §35), so
+this wasn't wrong data exactly, but showing an activity the CURRENTLY
+VIEWED agent never personally performed, on their own detail page, is
+genuinely misleading and worth calling a bug. Fixed: the subquery now
+filters WHERE agentId = @agentId too. Checked the rest of reportService.js
+for the same pattern (every other LATERAL/LIMIT-1 subquery) — this was
+the only instance; getReportSummary()'s pipeline-bucketing LATERAL is
+correctly unscoped by agent on purpose (a lead's most recent appointment
+for pipeline classification doesn't depend on which agent handled it),
+and BrokerDetail's recentAppointments products subquery is scoped by
+appointmentId off an already broker-scoped base row, no equivalent risk.
+
+RESOLVED — Mark ran the verification query directly: Steve Madden has
+zero CallAttempt/Appointment rows under his own id. Confirmed the KPI
+zeros were correct all along, not a bug — the only real bug was the
+Recent Lead Activity display misattributing a prior agent's call, which
+is what got fixed above. The Agent report is behaving correctly; nothing
+further needed here.
+
+MIGRATION — straightforward overwrite (file list unchanged from the
+original §44 delivery — reportService.js is the only file this amendment
+touches, and it was already in that list):
   api-lib/models/appointment.js
   api-lib/services/appointmentService.js
   api-lib/services/reportService.js
@@ -3079,7 +3136,9 @@ MIGRATION — straightforward overwrite:
   src/pages/AppointmentDetail.jsx
   src/pages/BrokerDetail.jsx
   src/pages/Reports.jsx
-Plus this Status.md.
+Plus this Status.md. If Mark already downloaded the original §44 zip
+before this amendment, re-download reportService.js specifically — every
+other file in that delivery is unchanged.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
