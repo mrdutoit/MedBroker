@@ -95,7 +95,13 @@ export default function BrokerDetail() {
   }
 
   const { meta, kpi, productsSold, meetingSummary, recentAppointments } = data;
-  const maxProducts = Math.max(...productsSold.map(p => p.count), 1);
+  // Bar width must scale with value, not count — count only tells you how
+  // many times a product was sold, not how much it was worth. With every
+  // product sold exactly once (as in early test data), every bar computed
+  // to the same 100% width regardless of value, which is what Mark
+  // spotted from a screenshot: R3,833 (TFSA) rendering the same length as
+  // R15,000,000 (Life Insurance). Fixed 23 Jul 2026.
+  const maxProductValue = Math.max(...productsSold.map(p => p.value), 1);
 
   return (
     <div style={{ padding: isMobile ? '12px' : '24px' }}>
@@ -166,7 +172,7 @@ export default function BrokerDetail() {
                 </span>
               </div>
               <div style={s.barTrack}>
-                <div style={{ ...s.barFill, background: PRODUCT_COLOURS[i % PRODUCT_COLOURS.length], width: `${(p.count / maxProducts) * 100}%` }} />
+                <div style={{ ...s.barFill, background: PRODUCT_COLOURS[i % PRODUCT_COLOURS.length], width: `${p.value > 0 ? Math.max(2, (p.value / maxProductValue) * 100) : 0}%` }} />
               </div>
             </div>
           ))}

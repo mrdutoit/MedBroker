@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 23 July 2026 (session 10, amended + verified)
+Last updated: 23 July 2026 (session 11)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -896,20 +896,29 @@ These decisions caused rework when changed — preserve them in every session:
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Mark needs to apply §44 (per-product policy value tracking —
-AppointmentProduct.policyValue, captured on Appointment Outcome, fed back
-into Reports.jsx/BrokerDetail.jsx's Policy Value KPIs which had been
-dropped in §42/§43 for having no real data — see §44). AMENDED before
-Mark ever applied it — see the amendment note at the end of §44 — with a
-real bug fix in getAgentDetailReport() found via a screenshot of
-AgentDetail.jsx showing misleading cross-agent call data. RESOLVED same
-session: Mark ran the verification query directly and confirmed the
-underlying KPI zeros were correct all along (Steve Madden genuinely had
-no CallAttempt/Appointment rows under his own id) — the only real bug was
-the cross-agent display issue, now fixed. Re-download reportService.js
-specifically if the original §44 zip was already pulled. New migration:
-008_add_appointment_product_value.sql — run against Neon like every
-other migration in this list.
+Priority: Mark needs to apply the Products Sold bar-chart fix on
+BrokerDetail.jsx — found via a live screenshot after §44 was applied and
+tested with real data (Mark manually populated policyValue on a handful
+of AppointmentProduct rows via the SQL Editor, per the earlier walkthrough,
+then noticed every bar rendered the same length regardless of value).
+Root cause: the bar width was computed from maxProducts, itself derived
+from p.count (how many times each product was sold), not p.value — with
+every product sold exactly once in his test data, every bar computed to
+count/maxCount = 1/1 = 100%, completely independent of the R-value shown
+next to it. R3,833 (TFSA) rendered the same length as R15,000,000 (Life
+Insurance). This was a real bug in §44's own build, not a data issue —
+caught by Mark's own careful reading of the chart, not by testing on this
+end (no way to visually inspect a rendered chart from here without a
+screenshot). Fixed: bars now scale off value with a small visibility
+floor so a captured-but-small value still shows a sliver rather than
+nothing, and a genuinely uncaptured value (0/null) shows no bar at all —
+distinguishing "small" from "not yet entered". Single file:
+src/pages/BrokerDetail.jsx. No new migration.
+
+CONFIRMED APPLIED AND LIVE — §44 itself (per-product policy value
+tracking) is done: migration run, feature capturing values on new
+appointment outcomes, and Mark has already used the SQL Editor to backfill
+values on existing rows per the walkthrough given earlier this session.
 
 STILL OPEN, not resolved this session — Mark asked whether the
 new policyValue migration could also backfill financial values onto
