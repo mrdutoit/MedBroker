@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 23 July 2026 (session 11)
+Last updated: 23 July 2026 (session 11, updated)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -896,24 +896,35 @@ These decisions caused rework when changed — preserve them in every session:
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Mark needs to apply the Products Sold bar-chart fix on
-BrokerDetail.jsx — found via a live screenshot after §44 was applied and
-tested with real data (Mark manually populated policyValue on a handful
-of AppointmentProduct rows via the SQL Editor, per the earlier walkthrough,
-then noticed every bar rendered the same length regardless of value).
-Root cause: the bar width was computed from maxProducts, itself derived
-from p.count (how many times each product was sold), not p.value — with
-every product sold exactly once in his test data, every bar computed to
-count/maxCount = 1/1 = 100%, completely independent of the R-value shown
-next to it. R3,833 (TFSA) rendered the same length as R15,000,000 (Life
-Insurance). This was a real bug in §44's own build, not a data issue —
-caught by Mark's own careful reading of the chart, not by testing on this
-end (no way to visually inspect a rendered chart from here without a
-screenshot). Fixed: bars now scale off value with a small visibility
-floor so a captured-but-small value still shows a sliver rather than
-nothing, and a genuinely uncaptured value (0/null) shows no bar at all —
-distinguishing "small" from "not yet entered". Single file:
-src/pages/BrokerDetail.jsx. No new migration.
+Priority: Mark needs to apply two bundled changes to BrokerDetail.jsx —
+neither has been applied yet, and this delivery includes both together:
+
+1. Products Sold bar-chart fix — found via a live screenshot after §44
+   was applied and tested with real data (Mark manually populated
+   policyValue on a handful of AppointmentProduct rows via the SQL
+   Editor, per the earlier walkthrough, then noticed every bar rendered
+   the same length regardless of value). Root cause: the bar width was
+   computed from maxProducts, itself derived from p.count (how many
+   times each product was sold), not p.value — with every product sold
+   exactly once in his test data, every bar computed to
+   count/maxCount = 1/1 = 100%, completely independent of the R-value
+   shown next to it. R3,833 (TFSA) rendered the same length as
+   R15,000,000 (Life Insurance). Real bug in §44's own build, not a data
+   issue — caught by Mark's own careful reading of the chart. Fixed: bars
+   now scale off value with a small visibility floor so a captured-but-
+   small value still shows a sliver rather than nothing, and a genuinely
+   uncaptured value (0/null) shows no bar at all.
+
+2. Total Value column added to the Recent Appointments table — sums
+   policyValue across all products sold on each appointment. Scalar
+   subquery in reportService.js, same fan-out-safe pattern already used
+   elsewhere in that file (a direct JOIN to AppointmentProduct here would
+   have risked the same silent count-inflation problem already avoided
+   in getBrokerReport()/getReportSummary() — kept consistent rather than
+   reintroducing the risk for convenience).
+
+Files: api-lib/services/reportService.js, src/pages/BrokerDetail.jsx.
+No new migration for either.
 
 CONFIRMED APPLIED AND LIVE — §44 itself (per-product policy value
 tracking) is done: migration run, feature capturing values on new

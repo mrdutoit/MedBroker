@@ -200,10 +200,10 @@ export default function BrokerDetail() {
         {recentAppointments.length === 0 ? (
           <p style={{ padding: '16px', color: 'var(--mut)', fontSize: '0.875rem' }}>No appointments yet.</p>
         ) : (
-        <table style={{ ...s.table, minWidth: '600px' }}>
+        <table style={{ ...s.table, minWidth: '680px' }}>
           <thead>
             <tr>
-              {['Lead','Portfolio','1st Meeting','2nd Meeting','Signed','Products'].map(h => (
+              {['Lead','Portfolio','1st Meeting','2nd Meeting','Signed','Products','Total Value'].map(h => (
                 <th key={h} style={s.th}>{h}</th>
               ))}
             </tr>
@@ -227,6 +227,9 @@ export default function BrokerDetail() {
                   <td style={s.td}><SignedBadge  signed={a.signed} /></td>
                   <td style={{ ...s.td, fontSize: '0.8125rem', color:'var(--mut)' }}>
                     {a.products.length ? a.products.join(', ') : '—'}
+                  </td>
+                  <td style={{ ...s.td, fontSize: '0.8125rem', fontWeight: 600, color: a.totalValue > 0 ? '#15803d' : 'var(--mut)' }}>
+                    {a.totalValue > 0 ? `R${a.totalValue.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : '—'}
                   </td>
                 </tr>
               );

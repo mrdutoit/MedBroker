@@ -417,7 +417,9 @@ export async function getBrokerDetailReport(brokerId, period, scope) {
        a.id, l.firstName AS "firstName", l.lastName AS "lastName", pf.name AS "portfolio",
        a.meeting1Status AS "m1", a.meeting2Status AS "m2", a.customerSigned AS "signed",
        (SELECT COALESCE(array_agg(p2.name), ARRAY[]::text[]) FROM AppointmentProduct ap2
-        JOIN Product p2 ON p2.id = ap2.productId WHERE ap2.appointmentId = a.id) AS "products"
+        JOIN Product p2 ON p2.id = ap2.productId WHERE ap2.appointmentId = a.id) AS "products",
+       (SELECT COALESCE(SUM(ap3.policyValue), 0) FROM AppointmentProduct ap3
+        WHERE ap3.appointmentId = a.id) AS "totalValue"
      FROM Appointment a
      JOIN Lead l ON l.id = a.leadId
      JOIN Portfolio pf ON pf.id = a.portfolioId
@@ -432,7 +434,7 @@ export async function getBrokerDetailReport(brokerId, period, scope) {
     kpi, productsSold, meetingSummary,
     recentAppointments: recentRows.map(r => ({
       id: r.id, name: `${r.firstName} ${r.lastName}`, portfolio: r.portfolio,
-      m1: r.m1, m2: r.m2, signed: r.signed, products: r.products,
+      m1: r.m1, m2: r.m2, signed: r.signed, products: r.products, totalValue: Number(r.totalValue),
     })),
   };
 }
