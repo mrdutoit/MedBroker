@@ -11,7 +11,7 @@
 
 import { executeQuery, executeQueryOne, sql } from './db.js';
 import { computeAppointmentStatus } from './appointmentStatusService.js';
-import { getActiveUserById } from './userService.js';
+import { getActiveUserById, resolvePortfolioIds } from './userService.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
 // ── Shared SELECT fragments ─────────────────────────────────────────────────
@@ -19,6 +19,13 @@ import { resolveOrganisationId } from '../context/tenant.js';
 const APPOINTMENT_SELECT = `
   a.id, a.status, a.agentId AS "agentId", a.brokerId AS "brokerId",
   a.portfolioId AS "portfolioId", p.name AS "portfolio",
+  -- Full portfolio set (§45) — always includes the primary above, kept in
+  -- sync by syncAppointmentPortfolios() at write time so this is always
+  -- the complete answer, not a partial list needing a union with
+  -- "portfolio" separately.
+  (SELECT COALESCE(array_agg(p2.name ORDER BY p2.name), ARRAY[]::text[])
+   FROM AppointmentPortfolio ap2 JOIN Portfolio p2 ON p2.id = ap2.portfolioId
+   WHERE ap2.appointmentId = a.id) AS "portfolios",
   a.firstAppointmentDate AS "firstAppointmentDate",
   a.firstAppointmentTime AS "firstAppointmentTime",
   a.firstAppointmentAddress AS "firstAppointmentAddress",
@@ -191,10 +198,34 @@ export async function getAppointmentById(id) {
  * @param {Object} data - validated CreateAppointmentSchema data
  * @returns {Promise<string>} new appointment id
  */
+// Replace-all pattern — simplest correct match for a checkbox UI where the
+// full desired set is sent on every save. Mirrors syncLeadPortfolios()/
+// syncUserPortfolios() exactly.
+async function syncAppointmentPortfolios(appointmentId, portfolioIds) {
+  await executeQuery(`DELETE FROM AppointmentPortfolio WHERE appointmentId = @appointmentId`, {
+    appointmentId: { type: sql.UniqueIdentifier, value: appointmentId },
+  });
+  for (const portfolioId of portfolioIds) {
+    await executeQuery(
+      `INSERT INTO AppointmentPortfolio (id, appointmentId, portfolioId) VALUES (@id, @appointmentId, @portfolioId)`,
+      {
+        id:            { type: sql.UniqueIdentifier, value: crypto.randomUUID() },
+        appointmentId: { type: sql.UniqueIdentifier, value: appointmentId },
+        portfolioId:   { type: sql.UniqueIdentifier, value: portfolioId },
+      }
+    );
+  }
+}
+
 export async function createAppointment(data) {
   const organisationId = resolveOrganisationId();
-  const portfolioId = await resolvePortfolioId(data.portfolio);
-  if (!portfolioId) throw { status: 400, message: `Unknown portfolio: ${data.portfolio}` };
+  // Changed 23 Jul 2026 (§45, Mark's request) — data.portfolios is now an
+  // array (min 1, enforced by CreateAppointmentSchema). portfolioId (the
+  // Appointment column) becomes the PRIMARY portfolio — the first one
+  // selected — while the full set goes into AppointmentPortfolio below.
+  const portfolioIds = await resolvePortfolioIds(data.portfolios);
+  if (portfolioIds.length === 0) throw { status: 400, message: `Unknown portfolio: ${data.portfolios.join(', ')}` };
+  const portfolioId = portfolioIds[0];
 
   const lead = await executeQueryOne(
     `SELECT assignedAgentId AS "assignedAgentId" FROM Lead
@@ -238,6 +269,11 @@ export async function createAppointment(data) {
       currentInsurer:          { type: sql.NVarChar(200),     value: data.currentInsurer ?? null },
     }
   );
+
+  // Full portfolio set — always includes the primary set above, kept in
+  // sync deliberately rather than left as a partial list that needs
+  // unioning with portfolioId at read time.
+  await syncAppointmentPortfolios(newId, portfolioIds);
 
   // Side effect matching the documented design: the Lead is now "in" an
   // appointment, so it moves out of the Leads list (LeadList.jsx explicitly

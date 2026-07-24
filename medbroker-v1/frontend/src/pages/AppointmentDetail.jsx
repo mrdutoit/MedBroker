@@ -59,7 +59,7 @@ import AuditLogList                           from '../components/AuditLogList.j
 // safe, complete shape to start from.
 const EMPTY_APPOINTMENT = {
   id: '', leadId: '', leadName: '', occupation: '', mobile: '', currentInsurer: '',
-  portfolio: '', source: '', productsInterested: [],
+  portfolio: '', portfolios: [], source: '', productsInterested: [],
   status: '', firstDate: '', firstTime: '', address: '', brokerName: '', agentName: '',
   brokerSwitch: false, customerSigned: null, productsSold: [],
   meetings: [
@@ -517,6 +517,7 @@ export default function AppointmentDetail() {
       mobile:         apptData.leadMobile,
       currentInsurer: apptData.currentInsurer,
       portfolio:      apptData.portfolio,
+      portfolios:     apptData.portfolios ?? (apptData.portfolio ? [apptData.portfolio] : []),
       source:         apptData.sourceLabel ?? '—',
       productsInterested: apptData.productsInterestedIn ?? [],
       status:         apptData.status,
@@ -578,7 +579,14 @@ export default function AppointmentDetail() {
   const firstMeetingComplete  = heldMeetingNums.has(1);
   const secondMeetingComplete = heldMeetingNums.has(2);
 
-  const productsForPortfolio = PRODUCTS_BY_PORTFOLIO[appt.portfolio === 'Discovery' ? 'disc' : 'mm'] ?? [];
+  // Changed 23 Jul 2026 (§45) — was scoped to appt.portfolio (the primary
+  // only). An appointment can now cover more than one portfolio, so
+  // Products Sold needs the union across all of them — otherwise a
+  // product genuinely sold from a non-primary portfolio would never even
+  // appear as a checkbox to record it against.
+  const productsForPortfolio = appt.portfolios.flatMap(name =>
+    PRODUCTS_BY_PORTFOLIO[name === 'Discovery' ? 'disc' : 'mm'] ?? []
+  );
 
   function handleMeetingChange(meetingNumber, field, value) {
     setAppt(prev => ({
@@ -788,7 +796,11 @@ export default function AppointmentDetail() {
         <div style={s.card}>
           <div style={s.cardTitle}>Appointment Details</div>
           <FieldRow label="Status"><StatusChip status={appt.status} /></FieldRow>
-          <FieldRow label="Portfolio"><PortfolioPill portfolio={appt.portfolio} /></FieldRow>
+          <FieldRow label="Portfolio">
+            <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+              {appt.portfolios.length ? appt.portfolios.map(p => <PortfolioPill key={p} portfolio={p} />) : <PortfolioPill portfolio={appt.portfolio} />}
+            </div>
+          </FieldRow>
           <FieldRow label="First appt date">{formatDate(appt.firstDate)} · {formatTime(appt.firstTime)}</FieldRow>
           <FieldRow label="Address">{appt.address}</FieldRow>
           <FieldRow label="Broker">{appt.brokerName}</FieldRow>

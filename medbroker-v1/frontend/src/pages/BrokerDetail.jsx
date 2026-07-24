@@ -210,9 +210,10 @@ export default function BrokerDetail() {
           </thead>
           <tbody>
             {recentAppointments.map(a => {
-              const pm = a.portfolio === 'Discovery'
+              const pillMeta = (name) => name === 'Discovery'
                 ? { bg: 'color-mix(in srgb, #1d4ed8 12%, var(--panel))', colour: '#3b82f6' }
                 : { bg: 'color-mix(in srgb, #7c3aed 12%, var(--panel))', colour: '#a78bfa' };
+              const portfolioList = a.portfolios?.length ? a.portfolios : [a.portfolio];
               return (
                 <tr key={a.id} style={s.tr}
                   onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
@@ -220,7 +221,12 @@ export default function BrokerDetail() {
                 >
                   <td style={{ ...s.td, fontWeight: 500 }}>{a.name}</td>
                   <td style={s.td}>
-                    <span style={{ ...s.badge, background: pm.bg, color: pm.colour, fontSize: '0.6875rem' }}>{a.portfolio}</span>
+                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
+                      {portfolioList.map(p => {
+                        const pm = pillMeta(p);
+                        return <span key={p} style={{ ...s.badge, background: pm.bg, color: pm.colour, fontSize: '0.6875rem' }}>{p}</span>;
+                      })}
+                    </div>
                   </td>
                   <td style={s.td}><MeetingBadge status={a.m1} /></td>
                   <td style={s.td}><MeetingBadge status={a.m2} /></td>

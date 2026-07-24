@@ -425,6 +425,18 @@ CREATE TABLE IF NOT EXISTS Appointment (
     status                      VARCHAR(50)     NOT NULL DEFAULT 'Unassigned',
     agentId                     UUID            NOT NULL,
     brokerId                    UUID            NULL,
+    -- 23 Jul 2026 (Mark's request, see Status.md §45): a single
+    -- appointment can now cover products from more than one portfolio —
+    -- a broker discussing both Discovery and Money & Medicine products in
+    -- one meeting is a real scenario, not an edge case, especially since
+    -- brokers themselves aren't limited to one portfolio (§41's whole
+    -- premise). This column stays NOT NULL and becomes the PRIMARY
+    -- portfolio (first one selected at booking, kept for anything that
+    -- only needs a single value) rather than going fully vestigial the
+    -- way Lead.portfolioId/User.portfolioId did — Appointment's booking
+    -- flow always has at least one portfolio chosen, so there's no
+    -- "unknown yet" case to accommodate the way there was for Lead. The
+    -- full set lives in the new AppointmentPortfolio table below.
     portfolioId                 UUID            NOT NULL,
 
     firstAppointmentDate        DATE            NOT NULL,
@@ -478,6 +490,24 @@ CREATE TABLE IF NOT EXISTS Appointment (
     CONSTRAINT CK_Appointment_M1Status  CHECK (meeting1Status IS NULL OR meeting1Status IN ('Seen', 'Rescheduled', 'Cancelled')),
     CONSTRAINT CK_Appointment_M2Status  CHECK (meeting2Status IS NULL OR meeting2Status IN ('Seen', 'Rescheduled', 'Cancelled')),
     CONSTRAINT CK_Appointment_M3Status  CHECK (meeting3Status IS NULL OR meeting3Status IN ('Seen', 'Rescheduled', 'Cancelled'))
+);
+
+-- Many-to-many, mirrors UserPortfolio/LeadPortfolio (23 Jul 2026, Mark's
+-- request — see Status.md §45). Appointment.portfolioId above remains the
+-- PRIMARY portfolio; this table holds the FULL set an appointment covers.
+-- The primary is always also present here (kept in sync by
+-- syncAppointmentPortfolios() in appointmentService.js) — so this table is
+-- always the complete answer to "which portfolios", never a partial one
+-- that needs unioning with the column separately.
+CREATE TABLE IF NOT EXISTS AppointmentPortfolio (
+    id            UUID            NOT NULL DEFAULT gen_random_uuid(),
+    appointmentId UUID            NOT NULL,
+    portfolioId   UUID            NOT NULL,
+    createdAt     TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    CONSTRAINT PK_AppointmentPortfolio           PRIMARY KEY (id),
+    CONSTRAINT FK_AppointmentPortfolio_Appt      FOREIGN KEY (appointmentId) REFERENCES Appointment(id),
+    CONSTRAINT FK_AppointmentPortfolio_Portfolio FOREIGN KEY (portfolioId)   REFERENCES Portfolio(id),
+    CONSTRAINT UQ_AppointmentPortfolio           UNIQUE (appointmentId, portfolioId)
 );
 
 CREATE INDEX IF NOT EXISTS IX_Appointment_BrokerDate

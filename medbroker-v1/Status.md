@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 23 July 2026 (session 11, updated)
+Last updated: 23 July 2026 (session 12)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -896,40 +896,18 @@ These decisions caused rework when changed — preserve them in every session:
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Mark needs to apply two bundled changes to BrokerDetail.jsx —
-neither has been applied yet, and this delivery includes both together:
+Priority: Mark needs to apply §45 — three items from testing the Book
+Appointment flow: (1) multi-portfolio appointments (was single-select,
+same limitation Lead/User already had before §41 — see §45 for the full
+design), (2) Confirm Booking now disabled until required fields are
+actually filled in rather than click-then-discover, (3) canBook checks
+the Lead's assignedAgentId directly rather than inferring it from the
+status string. New migration:
+009_add_appointment_portfolio_multi.sql — run against Neon like every
+other migration in this list.
 
-1. Products Sold bar-chart fix — found via a live screenshot after §44
-   was applied and tested with real data (Mark manually populated
-   policyValue on a handful of AppointmentProduct rows via the SQL
-   Editor, per the earlier walkthrough, then noticed every bar rendered
-   the same length regardless of value). Root cause: the bar width was
-   computed from maxProducts, itself derived from p.count (how many
-   times each product was sold), not p.value — with every product sold
-   exactly once in his test data, every bar computed to
-   count/maxCount = 1/1 = 100%, completely independent of the R-value
-   shown next to it. R3,833 (TFSA) rendered the same length as
-   R15,000,000 (Life Insurance). Real bug in §44's own build, not a data
-   issue — caught by Mark's own careful reading of the chart. Fixed: bars
-   now scale off value with a small visibility floor so a captured-but-
-   small value still shows a sliver rather than nothing, and a genuinely
-   uncaptured value (0/null) shows no bar at all.
-
-2. Total Value column added to the Recent Appointments table — sums
-   policyValue across all products sold on each appointment. Scalar
-   subquery in reportService.js, same fan-out-safe pattern already used
-   elsewhere in that file (a direct JOIN to AppointmentProduct here would
-   have risked the same silent count-inflation problem already avoided
-   in getBrokerReport()/getReportSummary() — kept consistent rather than
-   reintroducing the risk for convenience).
-
-Files: api-lib/services/reportService.js, src/pages/BrokerDetail.jsx.
-No new migration for either.
-
-CONFIRMED APPLIED AND LIVE — §44 itself (per-product policy value
-tracking) is done: migration run, feature capturing values on new
-appointment outcomes, and Mark has already used the SQL Editor to backfill
-values on existing rows per the walkthrough given earlier this session.
+CONFIRMED APPLIED — the previous delivery (Products Sold bar-chart fix +
+Recent Appointments Total Value column on BrokerDetail.jsx) is live.
 
 STILL OPEN, not resolved this session — Mark asked whether the
 new policyValue migration could also backfill financial values onto
@@ -3159,6 +3137,99 @@ touches, and it was already in that list):
 Plus this Status.md. If Mark already downloaded the original §44 zip
 before this amendment, re-download reportService.js specifically — every
 other file in that delivery is unchanged.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+45. MULTI-PORTFOLIO APPOINTMENTS, PLUS TWO BOOKING-FORM FIXES — 23 July 2026 (session 12)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Three items from testing the Book Appointment flow, via a screenshot of
+the modal mid-booking.
+
+1. PORTFOLIO WAS SINGLE-SELECT ON THE BOOKING FORM. Mark: "I can only
+   select one portfolio at a time." This turned out to matter beyond the
+   form itself — a broker legitimately discussing and selling products
+   from BOTH Discovery and Money & Medicine in one meeting is real, not
+   an edge case (that's the whole premise §41 already established for
+   brokers themselves not being limited to one portfolio). If the
+   Appointment itself could only hold one, the Products Sold checklist
+   during Outcome would never even offer the second portfolio's products
+   to record against — a real functional gap, not just a form UX one.
+
+   Made Appointment genuinely multi-portfolio, mirroring the same
+   UserPortfolio/LeadPortfolio pattern already established:
+   - New AppointmentPortfolio junction table (migration
+     009_add_appointment_portfolio_multi.sql, backfills every existing
+     appointment's single portfolioId into it). Unlike Lead.portfolioId/
+     User.portfolioId, Appointment.portfolioId stays NOT NULL and becomes
+     the PRIMARY portfolio (first one selected at booking) rather than
+     going fully vestigial — booking always has at least one portfolio
+     chosen, so there's no "unknown yet" case to accommodate the way
+     there was for Lead.
+   - CreateAppointmentSchema.portfolio (string) -> portfolios (array,
+     min 1). createAppointment() resolves the full set via
+     resolvePortfolioIds() (already shared from userService.js, not
+     duplicated), sets the primary column to the first one, and syncs the
+     complete set via new syncAppointmentPortfolios().
+   - APPOINTMENT_SELECT (shared by list and detail queries) gains a
+     portfolios array aggregation alongside the existing single
+     "portfolio" (primary) — kept for anything not yet touched, not
+     removed.
+   - BookAppointmentModal: portfolio changed from radio buttons to
+     checkboxes. Products offered now union across every selected
+     portfolio, not just one. Pre-fill now seeds from every portfolio
+     already tagged on the Lead, not just when there's exactly one
+     unambiguous choice.
+   - AppointmentDetail.jsx: Products Sold now offers the union across all
+     of an appointment's portfolios (was scoped to the primary only —
+     this was the actual functional gap, not just the booking form).
+     Portfolio display shows multiple pills.
+   - AppointmentList.jsx: portfolio FILTER fixed to check membership in
+     the full set, not equality against the primary — an appointment
+     tagged Discovery+M&M with Discovery as primary would have been
+     wrongly excluded from an M&M filter before this fix. Portfolio
+     badges (both desktop table instances) show multiple pills.
+   - BrokerDetail.jsx's Recent Appointments table and its backing query
+     in reportService.js: same primary-only gap, same fix — full
+     portfolio set now returned and rendered as multiple pills.
+
+2. CONFIRM BOOKING DID NOTHING VISIBLE WITHOUT A BROKER SELECTED. Traced
+   this precisely rather than guessing: validation was already correct —
+   "Select a broker" genuinely rendered, visible in Mark's own
+   screenshot — but as a small inline error beneath the broker list, easy
+   to miss if that section had scrolled past. Fixed by making it
+   impossible to reach in the first place: Confirm Booking is now
+   disabled until portfolio, broker, date, and time are all actually set,
+   not just reactively erroring after a click. The inline fieldErrors
+   stay too, as a fallback for anyone tabbing through fields.
+
+3. "THIS LEAD HAS NO ASSIGNED AGENT" AFTER FILLING OUT THE WHOLE FORM.
+   The error itself was correct server-side behaviour (an appointment's
+   agent is sourced from the Lead's own assignedAgentId — nothing to
+   source it from if that's empty), but reaching it only after completing
+   portfolio, products, region, broker search, broker selection, date,
+   time, address, and insurer is a bad way to discover a lead isn't ready
+   to book. canBook now checks baseLead.assignedAgentId directly instead
+   of inferring it from the pipeline status string (Assigned/InProgress
+   is SUPPOSED to imply an agent is set, but checking the actual field is
+   strictly safer than trusting that invariant always holds, and costs
+   nothing extra) — the Book Appointment button itself won't show if
+   there's genuinely no agent to book against.
+
+BUILD VERIFICATION: full Vite build clean, Vitest suite unchanged and
+passing (45 tests).
+
+MIGRATION — straightforward overwrite:
+  api-lib/models/appointment.js
+  api-lib/services/appointmentService.js
+  api-lib/services/reportService.js
+  db/schema.postgres.sql
+  db/migrations/009_add_appointment_portfolio_multi.sql (NEW)
+  src/pages/AppointmentDetail.jsx
+  src/pages/AppointmentList.jsx
+  src/pages/BrokerDetail.jsx
+  src/pages/LeadDetail.jsx
+Plus this Status.md.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

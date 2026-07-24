@@ -415,6 +415,11 @@ export async function getBrokerDetailReport(brokerId, period, scope) {
   const recentRows = await executeQuery(
     `SELECT
        a.id, l.firstName AS "firstName", l.lastName AS "lastName", pf.name AS "portfolio",
+       -- Full portfolio set (§45) — was only the primary via the JOIN
+       -- above, same gap AppointmentList.jsx's filter had before this fix.
+       (SELECT COALESCE(array_agg(p4.name ORDER BY p4.name), ARRAY[]::text[])
+        FROM AppointmentPortfolio ap4 JOIN Portfolio p4 ON p4.id = ap4.portfolioId
+        WHERE ap4.appointmentId = a.id) AS "portfolios",
        a.meeting1Status AS "m1", a.meeting2Status AS "m2", a.customerSigned AS "signed",
        (SELECT COALESCE(array_agg(p2.name), ARRAY[]::text[]) FROM AppointmentProduct ap2
         JOIN Product p2 ON p2.id = ap2.productId WHERE ap2.appointmentId = a.id) AS "products",
@@ -433,7 +438,7 @@ export async function getBrokerDetailReport(brokerId, period, scope) {
     meta: { name: meta.name, region: meta.region, portfolios: meta.portfolios },
     kpi, productsSold, meetingSummary,
     recentAppointments: recentRows.map(r => ({
-      id: r.id, name: `${r.firstName} ${r.lastName}`, portfolio: r.portfolio,
+      id: r.id, name: `${r.firstName} ${r.lastName}`, portfolio: r.portfolio, portfolios: r.portfolios,
       m1: r.m1, m2: r.m2, signed: r.signed, products: r.products, totalValue: Number(r.totalValue),
     })),
   };

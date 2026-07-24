@@ -38,7 +38,12 @@ const MeetingStatus = z.enum(['Seen', 'Rescheduled', 'Cancelled']);
 export const CreateAppointmentSchema = z.object({
   leadId:                  z.string().uuid(),
   brokerId:                z.string().uuid().optional(), // omitted -> status stays Unassigned
-  portfolio:                z.string().min(1), // portfolio NAME, resolved server-side — matches Users API convention
+  // Changed 23 Jul 2026 from a single portfolio name to an array (Mark's
+  // request, §45) — an appointment can now cover more than one portfolio.
+  // Always at least one — unlike Lead's portfolios (optional, a lead can
+  // exist with none known yet), booking an appointment always means at
+  // least one portfolio was actually discussed.
+  portfolios:              z.array(z.string()).min(1, 'Select at least one portfolio'),
   firstAppointmentDate:    z.string().date('Must be a valid date (YYYY-MM-DD)'),
   firstAppointmentTime:    z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/, 'Must be a valid time (HH:mm)'),
   firstAppointmentAddress: z.string().max(500).optional(),

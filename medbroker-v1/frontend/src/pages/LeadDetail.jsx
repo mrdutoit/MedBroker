@@ -210,7 +210,15 @@ export default function LeadDetail() {
   const isConverted = currentStatus === 'AppointmentScheduled';
   const isClosed    = currentStatus === 'Closed';
   // Book Appointment only available for active, assigned/in-progress leads
-  const canBook     = currentStatus === 'Assigned' || currentStatus === 'InProgress';
+  // — AND only if the lead genuinely has an assigned agent, checked
+  // directly rather than inferred from the status string. Added 23 Jul
+  // 2026: Mark hit "This lead has no assigned agent" from the server
+  // after filling out the entire booking form, which the status-only
+  // check should have prevented reaching in the first place — Assigned/
+  // InProgress is SUPPOSED to imply an agent is set, but checking the
+  // actual field directly is a strictly safer guard than trusting that
+  // invariant always holds, and costs nothing extra to check.
+  const canBook     = (currentStatus === 'Assigned' || currentStatus === 'InProgress') && !!baseLead.assignedAgentId;
 
   // Editable-fields permission — assigned Agent, Supervisor, or Admin/
   // GlobalAdmin, matching the server-side check in leadHandlers.js exactly
@@ -724,15 +732,14 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
     ghost:   { background: 'none', color:'var(--mut)', border: '1px solid var(--line)', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
   };
 
-  // Book Appointment is still single-select — one appointment is always
-  // for one portfolio, that structural fact hasn't changed even though
-  // the Lead itself can now be tagged with several (§41). Pre-fill only
-  // when there's exactly one unambiguous choice on the Lead; if it's
-  // tagged with more than one (or none), leave this blank so the booker
-  // picks explicitly rather than guessing which one this appointment is
-  // for.
+  // Changed 23 Jul 2026 (§45, Mark's request) — Book Appointment is no
+  // longer single-select. A broker discussing both Discovery and Money &
+  // Medicine products in one meeting is real, not an edge case — brokers
+  // themselves aren't limited to one portfolio (§41's whole premise), so
+  // an appointment shouldn't be either. Pre-fills from every portfolio
+  // already tagged on the Lead (still fully editable here).
   const [region,       setRegion]       = useState('');
-  const [portfolio,    setPortfolio]    = useState(lead.portfolios?.length === 1 ? lead.portfolios[0] : '');
+  const [portfolios,   setPortfolios]   = useState(lead.portfolios ?? []);
   const [products,     setProducts]     = useState([]);
   const [searched,     setSearched]     = useState(false);
   const [searching,    setSearching]    = useState(false);
@@ -749,12 +756,36 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
   const [submitting,       setSubmitting]      = useState(false);
   const [submitError,      setSubmitError]     = useState('');
 
-  const portfolioId = portfolio === 'Discovery' ? 'disc' : portfolio === 'Money and Medicine' ? 'mm' : null;
-  const availableProducts = portfolioId ? (PRODUCTS_BY_PORTFOLIO[portfolioId] ?? []) : [];
+  // Added 23 Jul 2026, Mark's request — the button was always clickable;
+  // clicking it with missing fields only showed a small inline error
+  // (e.g. "Select a broker" beneath the broker list), easy to miss if
+  // that section had scrolled out of view. Proactively disabling is a
+  // clearer signal than a click-then-discover error, though the inline
+  // fieldErrors below are kept too (still useful if someone tabs through
+  // fields without noticing what's outstanding).
+  const isFormValid = !!brokerId && !!date && !!time && portfolios.length > 0;
+
+  // Products available now union across every selected portfolio, not
+  // just one — the whole point of allowing more than one portfolio here
+  // is being able to record interest in products from both.
+  const availableProducts = portfolios.flatMap((name) => {
+    const key = name === 'Discovery' ? 'disc' : name === 'Money and Medicine' ? 'mm' : null;
+    return key ? (PRODUCTS_BY_PORTFOLIO[key] ?? []) : [];
+  });
 
   function togglePortfolio(name) {
-    setPortfolio((p) => (p === name ? '' : name));
-    setProducts([]);
+    setPortfolios((prev) => {
+      const next = prev.includes(name) ? prev.filter((p) => p !== name) : [...prev, name];
+      // Drop any selected product that's no longer offered once its
+      // portfolio is deselected — same reasoning as the previous single-
+      // select version resetting products on every portfolio change.
+      const stillAvailable = next.flatMap((n) => {
+        const key = n === 'Discovery' ? 'disc' : n === 'Money and Medicine' ? 'mm' : null;
+        return key ? (PRODUCTS_BY_PORTFOLIO[key] ?? []) : [];
+      });
+      setProducts((prods) => prods.filter((p) => stillAvailable.includes(p)));
+      return next;
+    });
     setSearched(false);
     setBrokers([]);
     setBrokerId('');
@@ -783,10 +814,10 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
 
   async function handleConfirmBooking() {
     const errors = {};
-    if (!brokerId)      errors.broker = 'Select a broker';
-    if (!date)           errors.date = 'Required';
-    if (!time)           errors.time = 'Required';
-    if (!portfolio)      errors.portfolio = 'Required';
+    if (!brokerId)         errors.broker = 'Select a broker';
+    if (!date)             errors.date = 'Required';
+    if (!time)             errors.time = 'Required';
+    if (portfolios.length === 0) errors.portfolios = 'Select at least one portfolio';
     if (Object.keys(errors).length) { setFieldErrors(errors); return; }
 
     setSubmitting(true);
@@ -795,7 +826,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
       await appointmentsApi.create({
         leadId: lead.id,
         brokerId,
-        portfolio,
+        portfolios,
         firstAppointmentDate: date,
         firstAppointmentTime: time,
         firstAppointmentAddress: address || undefined,
@@ -829,16 +860,16 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
           <label style={labelStyle}>Portfolio *</label>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
             {PORTFOLIOS.map((p) => (
-              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', padding: '6px 12px', border: `1px solid ${portfolio === p.name ? 'var(--accent)' : 'var(--line)'}`, borderRadius: '6px', fontSize: '0.8125rem', background: portfolio === p.name ? 'color-mix(in srgb, var(--accent) 10%, var(--panel))' : 'var(--panel)' }}>
-                <input type="radio" checked={portfolio === p.name} onChange={() => togglePortfolio(p.name)} style={{ accentColor: 'var(--accent)' }} />
+              <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', padding: '6px 12px', border: `1px solid ${portfolios.includes(p.name) ? 'var(--accent)' : 'var(--line)'}`, borderRadius: '6px', fontSize: '0.8125rem', background: portfolios.includes(p.name) ? 'color-mix(in srgb, var(--accent) 10%, var(--panel))' : 'var(--panel)' }}>
+                <input type="checkbox" checked={portfolios.includes(p.name)} onChange={() => togglePortfolio(p.name)} style={{ accentColor: 'var(--accent)' }} />
                 {p.name}
               </label>
             ))}
           </div>
-          {fieldErrors.portfolio && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.portfolio}</div>}
+          {fieldErrors.portfolios && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.portfolios}</div>}
         </div>
 
-        {portfolio && (
+        {portfolios.length > 0 && (
           <div style={{ marginBottom: '10px' }}>
             <label style={labelStyle}>Products the client is interested in</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
@@ -927,7 +958,12 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
 
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={btn.ghost} disabled={submitting}>Cancel</button>
-          <button onClick={handleConfirmBooking} style={{ ...btn.primary, opacity: submitting ? 0.6 : 1 }} disabled={submitting}>
+          <button
+            onClick={handleConfirmBooking}
+            style={{ ...btn.primary, opacity: (submitting || !isFormValid) ? 0.5 : 1 }}
+            disabled={submitting || !isFormValid}
+            title={!isFormValid ? 'Select a portfolio, broker, date and time before confirming' : undefined}
+          >
             {submitting ? 'Booking…' : 'Confirm Booking'}
           </button>
         </div>

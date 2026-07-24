@@ -352,6 +352,10 @@ export default function AppointmentList() {
     leadEmail:   a.leadEmail,
     occupation:  a.occupation,
     portfolio:   a.portfolio === 'Money and Medicine' ? 'M&M' : a.portfolio,
+    // Full set (§45) — an appointment can now cover more than one
+    // portfolio; filtering needs to check membership here, not just
+    // equality against the primary above.
+    portfolios:  (a.portfolios ?? [a.portfolio]).map(p => p === 'Money and Medicine' ? 'M&M' : p),
     source:      a.sourceLabel ?? '—',
     status:      a.status,
     brokerCode:  a.brokerId ?? '',   // repurposed to hold the real id — see note below
@@ -389,7 +393,7 @@ export default function AppointmentList() {
     if (statusFilter !== 'All' && statusFilter !== 'Today' && statusFilter !== 'Active' && statusFilter !== 'Closed'
         && a.status !== statusFilter)                                              return false;
     if (sourceFilter    && a.source    !== sourceFilter)    return false;
-    if (portfolioFilter && a.portfolio !== portfolioFilter) return false;
+    if (portfolioFilter && !a.portfolios.includes(portfolioFilter)) return false;
     if (brokerFilter    && a.brokerCode !== brokerFilter)   return false;
     if (search) {
       const q = search.toLowerCase();
@@ -458,7 +462,7 @@ export default function AppointmentList() {
                     </div>
                     <div style={{ fontSize: '0.75rem', color:'var(--mut)' }}>{a.leadEmail}</div>
                   </td>
-                  <td style={s.td}><PortfolioBadge portfolio={a.portfolio} /></td>
+                  <td style={s.td}><div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>{a.portfolios.map(p => <PortfolioBadge key={p} portfolio={p} />)}</div></td>
                   <td style={{ ...s.td, fontSize: '0.75rem', color:'var(--mut)', maxWidth: '130px' }}>{a.source}</td>
                   <td style={s.td}>
                     <span style={{ ...s.badge, background: sm.bg, color: sm.colour, border: `1px solid ${sm.border}` }}>
@@ -732,7 +736,7 @@ export default function AppointmentList() {
                         onMouseLeave={e => e.currentTarget.style.background = ''}>
                         <td style={{ ...s.td, fontWeight: 500 }}>{a.leadName}</td>
                         <td style={{ ...s.td, fontSize: '0.8125rem' }}>{a.occupation}</td>
-                        <td style={s.td}><PortfolioBadge portfolio={a.portfolio} /></td>
+                        <td style={s.td}><div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>{a.portfolios.map(p => <PortfolioBadge key={p} portfolio={p} />)}</div></td>
                         <td style={{ ...s.td, fontWeight: 500 }}>{a.date}</td>
                         <td style={{ ...s.td, fontSize: '0.8125rem', color:'var(--mut)' }}>{a.region}</td>
                         <td style={{ ...s.td, fontSize: '0.75rem', color:'var(--mut)' }}>{a.source}</td>
