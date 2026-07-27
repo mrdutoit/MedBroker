@@ -6,12 +6,13 @@
  * same shape, same "alternating row shading" request from Mark, no reason for
  * two copies of the same list.
  *
- * Scope note: changeDetail on assign/reassign entries currently stores raw
- * agentId/brokerId UUIDs (that's what the writing handlers were already
- * passing in before this file existed), so those lines show the action label
- * only rather than "Assigned to Thabo Molefe" — resolving ids to display
- * names would mean joining User in every write path. Left as a follow-up;
- * flagged rather than silently guessed at.
+ * FIXED 24 Jul 2026 (Mark's request): assign/reassign entries now show the
+ * resolved display name ("Lead assigned to Thabo Molefe"), not just the
+ * label — the writing handlers (leadHandlers.js, appointmentHandlers.js)
+ * now resolve agentId/brokerId to a name via userService.getUserDisplayNameById()
+ * at write time and store both id and name in changeDetail. Older entries
+ * written before this fix only have the raw id, so describeEntry() falls
+ * back to the generic action label for those rather than showing "undefined".
  */
 
 import { format } from 'date-fns';
@@ -42,6 +43,33 @@ function describeEntry(entry) {
   const label = ACTION_LABELS[entry.action] ?? entry.action;
   const detail = entry.changeDetail;
   if (!detail) return label;
+
+  if (entry.action === 'LeadAssigned') {
+    return detail.newAgentName ? `Lead assigned to ${detail.newAgentName}` : label;
+  }
+
+  if (entry.action === 'LeadReassigned') {
+    if (detail.newAgentName && detail.previousAgentName) {
+      return `Lead reassigned from ${detail.previousAgentName} to ${detail.newAgentName}`;
+    }
+    if (detail.newAgentName) return `Lead reassigned to ${detail.newAgentName}`;
+    return label;
+  }
+
+  if (entry.action === 'AppointmentBrokerAssigned') {
+    return detail.brokerName ? `Broker assigned: ${detail.brokerName}` : label;
+  }
+
+  if (entry.action === 'AppointmentReassigned') {
+    const parts = [];
+    if (detail.brokerName) {
+      parts.push(detail.previousBrokerName
+        ? `Broker reassigned from ${detail.previousBrokerName} to ${detail.brokerName}`
+        : `Broker reassigned to ${detail.brokerName}`);
+    }
+    if (detail.agentName) parts.push(`Agent reassigned to ${detail.agentName}`);
+    return parts.length ? parts.join('; ') : label;
+  }
 
   if (entry.action === 'LeadUpdated') {
     const format = (v) => {

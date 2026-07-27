@@ -54,6 +54,38 @@ const APPOINTMENT_JOINS = `
   LEFT JOIN Event ev                ON l.linkedEventId = ev.id
   LEFT JOIN MedicalSubscription ms  ON l.linkedSubscriptionId = ms.id`;
 
+/**
+ * True if brokerId already has ANOTHER Appointment at the exact same
+ * date+time — Mark's request, 24 Jul 2026: prevent double-booking a
+ * broker. Checked regardless of the existing appointment's status
+ * (including closed ones) — a slot that broker was in a meeting for is
+ * a genuine conflict at that exact date+time regardless of how that
+ * earlier meeting turned out. excludeAppointmentId lets reassignment
+ * check against everything EXCEPT the appointment being modified itself.
+ * @param {string} brokerId
+ * @param {string} date - 'YYYY-MM-DD'
+ * @param {string} time - 'HH:mm' or 'HH:mm:ss'
+ * @param {string} [excludeAppointmentId]
+ * @returns {Promise<boolean>}
+ */
+export async function hasBrokerConflict(brokerId, date, time, excludeAppointmentId = null) {
+  const row = await executeQueryOne(
+    `SELECT id FROM Appointment
+     WHERE brokerId = @brokerId AND firstAppointmentDate = @date AND firstAppointmentTime = @time
+       AND organisationId = @organisationId
+       ${excludeAppointmentId ? 'AND id != @excludeId' : ''}
+     LIMIT 1`,
+    {
+      brokerId:       { type: sql.UniqueIdentifier, value: brokerId },
+      date:           { type: sql.Date, value: date },
+      time:           { type: sql.NVarChar(8), value: time },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+      ...(excludeAppointmentId ? { excludeId: { type: sql.UniqueIdentifier, value: excludeAppointmentId } } : {}),
+    }
+  );
+  return !!row;
+}
+
 export async function resolvePortfolioId(name) {
   const row = await executeQueryOne(`SELECT id FROM Portfolio WHERE name = @name`, {
     name: { type: sql.NVarChar(200), value: name },
@@ -239,6 +271,14 @@ export async function createAppointment(data) {
   if (data.brokerId) {
     const broker = await getActiveUserById(data.brokerId);
     if (!broker) throw { status: 400, message: 'brokerId is not an active user in this organisation' };
+
+    // Mark's request, 24 Jul 2026 — reject a booking that would
+    // double-book this broker at the exact same date+time as an
+    // existing appointment.
+    const conflict = await hasBrokerConflict(data.brokerId, data.firstAppointmentDate, data.firstAppointmentTime);
+    if (conflict) {
+      throw { status: 409, message: 'This broker already has an appointment booked at that date and time. Choose a different time or broker.' };
+    }
   }
 
   const newId = crypto.randomUUID();
@@ -324,6 +364,23 @@ export async function reassignAppointment(id, data) {
     if (data.brokerId) {
       const broker = await getActiveUserById(data.brokerId);
       if (!broker) throw { status: 400, message: 'reassign: brokerId is not an active user in this organisation' };
+
+      // Same conflict check as createAppointment() — the appointment's
+      // own date/time doesn't change on a broker reassignment, so check
+      // the NEW broker's schedule against the EXISTING slot, excluding
+      // this appointment itself (it will legitimately hold that slot
+      // for the incoming broker once this update lands).
+      const current = await executeQueryOne(
+        `SELECT firstAppointmentDate AS "firstAppointmentDate", firstAppointmentTime AS "firstAppointmentTime"
+         FROM Appointment WHERE id = @id AND organisationId = @organisationId`,
+        { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } }
+      );
+      if (current) {
+        const conflict = await hasBrokerConflict(data.brokerId, current.firstAppointmentDate, current.firstAppointmentTime, id);
+        if (conflict) {
+          throw { status: 409, message: 'This broker already has another appointment at this date and time.' };
+        }
+      }
     }
     setClauses.push('brokerId = @brokerId');
     params.brokerId = { type: sql.UniqueIdentifier, value: data.brokerId };

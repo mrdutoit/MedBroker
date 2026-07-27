@@ -800,7 +800,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
     setSearchError('');
     setSearched(false);
     try {
-      const result = await brokerMatchingApi.findBrokers({ region, products });
+      const result = await brokerMatchingApi.findBrokers({ region, products, date, time });
       setBrokers(result?.brokers ?? []);
       setDegradedMode(!!result?.degradedMode);
       setSearched(true);
@@ -894,11 +894,29 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
           </select>
         </div>
 
+        {/* Moved above the search button, 24 Jul 2026 (Mark's request) —
+            checking broker "availability" without knowing when doesn't
+            mean anything. The backend now requires date+time on this
+            search too (BrokerMatchingQuerySchema), so this isn't just a
+            UI nicety. */}
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+          <div>
+            <label style={labelStyle}>Date *</label>
+            <input type="date" style={inputStyle} value={date} onChange={(e) => { setDate(e.target.value); setSearched(false); }} />
+            {fieldErrors.date && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.date}</div>}
+          </div>
+          <div>
+            <label style={labelStyle}>Time *</label>
+            <input type="time" style={inputStyle} value={time} onChange={(e) => { setTime(e.target.value); setSearched(false); }} />
+            {fieldErrors.time && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.time}</div>}
+          </div>
+        </div>
+
         <button
           type="button"
           onClick={handleFindBrokers}
-          disabled={!region || products.length === 0 || searching}
-          style={{ ...btn.primary, opacity: (!region || products.length === 0 || searching) ? 0.5 : 1, marginBottom: '14px', width: '100%' }}
+          disabled={!region || !date || !time || products.length === 0 || searching}
+          style={{ ...btn.primary, opacity: (!region || !date || !time || products.length === 0 || searching) ? 0.5 : 1, marginBottom: '14px', width: '100%' }}
         >
           {searching ? 'Searching…' : 'Find available brokers'}
         </button>
@@ -916,7 +934,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
             )}
             {brokers.length === 0 && (
               <div style={{ fontSize: '0.8125rem', color:'var(--mut)', padding: '10px 0' }}>
-                No brokers match this region and product combination yet.
+                No brokers match this region, product, and time combination — try a different time, or a broker already booked then may still be free at another slot.
               </div>
             )}
             {brokers.map((b, i) => (
@@ -933,18 +951,6 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
-          <div>
-            <label style={labelStyle}>Date *</label>
-            <input type="date" style={inputStyle} value={date} onChange={(e) => setDate(e.target.value)} />
-            {fieldErrors.date && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.date}</div>}
-          </div>
-          <div>
-            <label style={labelStyle}>Time *</label>
-            <input type="time" style={inputStyle} value={time} onChange={(e) => setTime(e.target.value)} />
-            {fieldErrors.time && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.time}</div>}
-          </div>
-        </div>
         <div style={{ marginBottom: '10px' }}>
           <label style={labelStyle}>Address</label>
           <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="123 Rivonia Rd, Sandton" />

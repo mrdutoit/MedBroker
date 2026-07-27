@@ -118,13 +118,23 @@ export default function PortalDashboard() {
             {events.map((ev, i) => {
               const attendanceType = ev.attended ? (ev.rsvp ? 'rsvp' : 'walkin') : 'registered';
               const meta = ATTENDANCE_META[attendanceType];
+              // Only an already-confirmed attendance is safe to make
+              // clickable — checkinProspect() is idempotent for a REPEAT
+              // visit, so revisiting just re-shows the banner. Clicking a
+              // 'registered' (not yet checked in) row would otherwise
+              // silently trigger a real check-in as a side effect of
+              // browsing the dashboard, which isn't the ask and would be
+              // a real bug — those rows stay static.
+              const clickable = ev.attended;
               return (
                 <div
                   key={ev.eventId}
+                  onClick={clickable ? () => navigate(`/portal/checkin/${ev.checkinToken}`) : undefined}
                   style={{
                     display: 'flex', justifyContent: 'space-between', alignItems: 'center',
                     padding: '10px 0',
                     borderBottom: i < events.length - 1 ? '1px solid var(--line)' : 'none',
+                    cursor: clickable ? 'pointer' : 'default',
                   }}
                 >
                   <div>

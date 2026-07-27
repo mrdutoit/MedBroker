@@ -7,6 +7,17 @@
  *   Step 3 — Rank: brokers with confirmed Calendly slots first, then by
  *            fewest upcoming appointments (most available broker first)
  *
+ * UPDATED 24 Jul 2026 (Mark's request): date/time are now REQUIRED
+ * parameters, not optional — a broker "availability" search without
+ * knowing when doesn't mean anything. Step 1's filter also now excludes
+ * any broker who already has an Appointment at that exact date+time —
+ * showing an already-double-booked broker as a "match" would be actively
+ * wrong, not just an unhelpful ranking. createAppointment()/
+ * reassignAppointment() (appointmentService.js) enforce the same
+ * conflict rule server-side at the actual booking step too, so this
+ * can't be bypassed by calling the API directly instead of going through
+ * this search first.
+ *
  * Degraded mode: if Calendly is unreachable OR unconfigured, returns
  * brokers in ranked order without availability confirmation, and sets
  * degradedMode: true — the agent then picks manually. This demo has no
@@ -83,9 +94,15 @@ async function getCalendlyAvailability(calendlyEventTypeUri) {
  * @param {string[]} options.products
  * @returns {Promise<{ brokers: Array, degradedMode: boolean }>}
  */
-export async function findMatchingBrokers({ region, products }) {
+export async function findMatchingBrokers({ region, products, date, time }) {
   if (!region) throw { status: 400, message: 'region is required for broker matching' };
   if (!products || products.length === 0) throw { status: 400, message: 'at least one product is required for broker matching' };
+  // Mark's request, 24 Jul 2026 — a broker "availability" search is
+  // meaningless without knowing WHEN. Required now, not optional, so the
+  // frontend's disabled-until-set button is backed by a real server-side
+  // rule rather than only a client-side convenience.
+  if (!date) throw { status: 400, message: 'date is required for broker matching' };
+  if (!time) throw { status: 400, message: 'time is required for broker matching' };
 
   const productPlaceholders = products.map((_, i) => `@prod${i}`).join(',');
   const productParams = Object.fromEntries(
@@ -115,8 +132,25 @@ export async function findMatchingBrokers({ region, products }) {
           WHERE bp.brokerId = b.id
             AND p.name IN (${productPlaceholders || "''"})
        )
+       -- Excludes a broker already double-booked at this exact
+       -- date+time — presenting them as a "match" here would be wrong,
+       -- not just unhelpful; createAppointment()/reassignAppointment()
+       -- also enforce this server-side at booking time regardless.
+       AND NOT EXISTS (
+         SELECT 1 FROM Appointment ap2
+          WHERE ap2.brokerId = b.id
+            AND ap2.firstAppointmentDate = @date
+            AND ap2.firstAppointmentTime = @time
+            AND ap2.organisationId = @organisationId
+       )
      ORDER BY "upcomingAppointments" ASC`,
-    { region: { type: sql.NVarChar(100), value: region }, organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() }, ...productParams }
+    {
+      region:         { type: sql.NVarChar(100), value: region },
+      date:           { type: sql.Date, value: date },
+      time:           { type: sql.NVarChar(8), value: time },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+      ...productParams,
+    }
   );
 
   if (eligibleBrokers.length === 0) return { brokers: [], degradedMode: false };

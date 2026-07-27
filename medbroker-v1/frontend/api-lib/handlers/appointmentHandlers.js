@@ -10,7 +10,7 @@ import {
   listAppointments, createAppointment, getAppointmentById, assignBroker,
   reassignAppointment, returnToLeads, saveOutcome,
 } from '../services/appointmentService.js';
-import { getDirectReportIds, isSupervisorOnly, isAgentOnly } from '../services/userService.js';
+import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById } from '../services/userService.js';
 import { writeAuditLog, clientIp, listAuditLog } from '../services/auditService.js';
 import {
   CreateAppointmentSchema, AppointmentListQuerySchema, AssignBrokerSchema,
@@ -139,7 +139,10 @@ export async function handleAppointmentAssign(req, res, id) {
       entityId: id,
       action: 'AppointmentBrokerAssigned',
       performedById: claims.oid,
-      changeDetail: { brokerId: parsed.data.brokerId },
+      changeDetail: {
+        brokerId: parsed.data.brokerId,
+        brokerName: await getUserDisplayNameById(parsed.data.brokerId),
+      },
       ipAddress: clientIp(req),
     });
 
@@ -181,7 +184,13 @@ export async function handleAppointmentReassign(req, res, id) {
       entityId: id,
       action: 'AppointmentReassigned',
       performedById: claims.oid,
-      changeDetail: { previousBrokerId: existing.brokerId, ...parsed.data },
+      changeDetail: {
+        previousBrokerId: existing.brokerId,
+        previousBrokerName: existing.brokerId ? await getUserDisplayNameById(existing.brokerId) : null,
+        ...parsed.data,
+        ...(parsed.data.brokerId ? { brokerName: await getUserDisplayNameById(parsed.data.brokerId) } : {}),
+        ...(parsed.data.agentId ? { agentName: await getUserDisplayNameById(parsed.data.agentId) } : {}),
+      },
       ipAddress: clientIp(req),
     });
 

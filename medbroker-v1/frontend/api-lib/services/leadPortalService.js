@@ -278,7 +278,7 @@ export async function getPortalEvents(leadId) {
   return executeQuery(
     `SELECT
        e.id AS "eventId", e.name AS "eventName", e.eventDate AS "eventDate",
-       e.university, e.venue,
+       e.university, e.venue, e.checkinToken AS "checkinToken",
        ea.rsvp, ea.attended, ea.attendedAt AS "attendedAt"
      FROM EventAttendee ea
      JOIN Event e ON ea.eventId = e.id

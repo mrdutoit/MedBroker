@@ -292,6 +292,28 @@ export async function getActiveUserById(id) {
 }
 
 /**
+ * Resolve a user's display name for writing into an AuditLog changeDetail
+ * blob — Mark's request, 24 Jul 2026: "Lead assigned to an agent" entries
+ * should say who, not just store the raw agentId. Deliberately NOT
+ * filtered by isActive (unlike getActiveUserById above) — an audit entry
+ * is a historical record, and a user who's since been deactivated should
+ * still show their real name rather than silently going blank.
+ * @param {string} id
+ * @returns {Promise<string|null>}
+ */
+export async function getUserDisplayNameById(id) {
+  const row = await executeQueryOne(
+    `SELECT displayName AS "displayName" FROM "User"
+     WHERE id = @id AND deletedAt IS NULL AND organisationId = @organisationId`,
+    {
+      id:             { type: sql.UniqueIdentifier, value: id },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+  return row?.displayName ?? null;
+}
+
+/**
  * All active, non-deleted direct-report user ids for a supervisor.
  * Used to scope Supervisor (without Admin) to their team plus unassigned
  * records — the A1 finding: "Supervisor must never get unrestricted

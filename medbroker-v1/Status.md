@@ -3897,6 +3897,115 @@ Plus this Status.md.
 
 
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+51. FIVE-ITEM TESTING FEEDBACK BATCH — 24 Jul 2026 (session 13, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's list from live testing. Confirmed one, fixed four real bugs/gaps.
+
+1. CONFIRMED (no code change) — every path that results in an
+   EventAttendee row goes through the same match-or-create-Lead logic
+   (leadService.findDuplicate/createLead), enforced by
+   FK_EventAttendee_Lead. No way to attend without a backing Lead.
+
+2. NO-SHOW TIMING FIXED. EventDetail.jsx's "No-shows" ticker/filter
+   previously showed the moment someone was added (rsvp=true,
+   attended=false) regardless of event status — a manually-added
+   attendee read as a no-show instantly. Now gated on
+   event.status === 'Closed': before that, the identical underlying
+   count reads "Not Checked In" in a neutral colour instead of red
+   "No-shows". No schema/backend change — this was always a client-side
+   derived label, not a stored value, so retroactively correct for every
+   event automatically.
+
+3. "YOUR EVENTS" CLICK-THROUGH FIXED — REAL BUG, CONFIRMED. The list
+   built in §50 had no onClick at all; confirmed by reading the code, not
+   guessed. leadPortalService.getPortalEvents() now also selects
+   checkinToken (it wasn't being returned at all). PortalDashboard.jsx
+   rows are now clickable — but ONLY when attended=true. A 'registered'
+   (RSVP'd, not yet checked in) row deliberately stays static: navigating
+   THAT one to /portal/checkin/:checkinToken would silently trigger a
+   real check-in as a side effect of browsing the dashboard, which is a
+   different bug, not a fix. Reuses PortalCheckinConfirm.jsx entirely —
+   checkinProspect() is idempotent for a repeat visit, so revisiting just
+   re-shows the correct banner, no new page needed.
+
+4. AUDIT LOG NAMES ADDED. New userService.getUserDisplayNameById() —
+   deliberately NOT filtered by isActive (unlike getActiveUserById) since
+   this is for historical display: a deactivated user's past actions
+   should still show their real name. Wired into LeadAssigned/
+   LeadReassigned (leadHandlers.js) AND, since it's the identical gap,
+   AppointmentBrokerAssigned/AppointmentReassigned (appointmentHandlers.js)
+   too — Mark only asked about the Lead case but the fix was the same one
+   line of reasoning applied twice. AuditLogList.jsx's describeEntry() now
+   renders "Lead assigned to Thabo Molefe" / "Broker reassigned from X to
+   Y" when the name is present, falling back to the generic action label
+   for entries written before this fix (they only have the raw id stored,
+   not the name — never renders "undefined").
+
+5. BROKER DOUBLE-BOOKING PREVENTION + DATE/TIME-GATED SEARCH. Confirmed
+   the bug exactly as described: "Find available brokers"' disabled
+   condition only checked region+products, and findMatchingBrokers()
+   never accepted date/time as parameters at all — there was no way for
+   it to have checked for conflicts, this wasn't a partial implementation
+   that broke, it was never built.
+     - New appointmentService.hasBrokerConflict(brokerId, date, time,
+       excludeAppointmentId?) — true if that broker already has ANOTHER
+       Appointment at the exact date+time, checked regardless of that
+       other appointment's status (even a Closed one represents a real
+       slot that broker was in a meeting for).
+     - Wired into createAppointment() (409 on conflict) AND
+       reassignAppointment() (409 if the NEW broker conflicts with the
+       appointment's EXISTING date/time — reassignment doesn't change
+       date/time, so checks the new broker against the current slot,
+       excluding the appointment being modified itself).
+     - brokerMatchingService.findMatchingBrokers() — date/time are now
+       REQUIRED parameters (400 if missing), and the eligibility query
+       gained a NOT EXISTS clause excluding any broker already booked at
+       that exact date+time — showing an already-conflicting broker as a
+       "match" would be actively wrong, not just an unhelpful ranking.
+       BrokerMatchingQuerySchema (models/appointment.js) updated to match.
+     - LeadDetail.jsx's Book Appointment modal: Date/Time fields moved
+       ABOVE the "Find available brokers" button (were below it,
+       alongside Address). Button's disabled condition now includes
+       !date || !time. Changing date or time after an initial search
+       invalidates it (setSearched(false), same pattern already used for
+       region changes) rather than leaving stale results on screen.
+       handleFindBrokers() now sends date/time to the search.
+
+VERIFIED against a fresh local Postgres instance (new database, full
+schema.postgres.sql applied clean, confirmed Portfolio/Product ARE
+seeded by the schema itself — Region is not, seeded manually for this
+test): 12 checks — findMatchingBrokers rejects a call with no date/time;
+both test brokers returned before any booking; booking broker A at a
+slot succeeds; booking broker A again at the SAME slot for a different
+lead correctly 409s; booking broker B (different broker, same slot)
+succeeds; a subsequent search for that exact slot returns zero brokers
+(both now taken); a search for a DIFFERENT time still returns both;
+reassigning broker B's appointment onto broker A is correctly rejected
+(A already holds that slot); hasBrokerConflict correctly excludes the
+appointment being checked against itself and correctly finds the
+conflict when not excluded; audit log entry for a reassignment stores
+and returns the resolved agent name; getPortalEvents returns a real
+checkinToken. Full Vite build clean and the existing 45-test Vitest
+suite unaffected throughout.
+
+MIGRATION — no schema change, all logic:
+  src/pages/EventDetail.jsx                (no-show status-gated)
+  api-lib/services/leadPortalService.js     (checkinToken added to getPortalEvents)
+  src/pages/portal/PortalDashboard.jsx      (rows clickable when attended)
+  api-lib/services/userService.js           (getUserDisplayNameById added)
+  api-lib/handlers/leadHandlers.js          (agent names in audit log)
+  api-lib/handlers/appointmentHandlers.js   (broker/agent names in audit log)
+  src/components/AuditLogList.jsx           (renders resolved names, safe fallback)
+  api-lib/services/appointmentService.js    (hasBrokerConflict added + wired in)
+  api-lib/services/brokerMatchingService.js (date/time required, conflict exclusion)
+  api-lib/models/appointment.js             (BrokerMatchingQuerySchema requires date/time)
+  src/pages/LeadDetail.jsx                  (modal reordered, button gated, search invalidation)
+Plus this Status.md.
+
+
+
 If picking up a pending item from Section 5, reference it by name.
 e.g. "I want to work on the Appointments API build."
 

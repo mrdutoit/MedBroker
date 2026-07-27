@@ -7,7 +7,7 @@
 
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
 import { listLeads, createLead, listSources, getLeadById, updateLead, deleteLead, assignLead, reopenLead, logCallAttempt, listCallAttempts } from '../services/leadService.js';
-import { getDirectReportIds, isSupervisorOnly, isAgentOnly } from '../services/userService.js';
+import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById } from '../services/userService.js';
 import { writeAuditLog, clientIp, listAuditLog } from '../services/auditService.js';
 import { CreateLeadSchema, UpdateLeadSchema, LeadListQuerySchema, AssignLeadSchema, CallAttemptSchema } from '../models/lead.js';
 import { isUuid } from '../http/helpers.js';
@@ -299,7 +299,12 @@ export async function handleLeadAssign(req, res, id) {
       entityId: id,
       action: previousAgentId ? 'LeadReassigned' : 'LeadAssigned',
       performedById: claims.oid,
-      changeDetail: { previousAgentId, newAgentId: parsed.data.agentId },
+      changeDetail: {
+        previousAgentId,
+        previousAgentName: previousAgentId ? await getUserDisplayNameById(previousAgentId) : null,
+        newAgentId: parsed.data.agentId,
+        newAgentName: await getUserDisplayNameById(parsed.data.agentId),
+      },
       ipAddress: clientIp(req),
     });
 

@@ -120,5 +120,11 @@ export const BrokerMatchingQuerySchema = z.object({
   products: z.union([z.string(), z.array(z.string())]).transform((v) =>
     (Array.isArray(v) ? v : v.split(',')).map((p) => p.trim()).filter(Boolean)
   ),
+  // Required, not optional — Mark's request, 24 Jul 2026: checking broker
+  // "availability" without knowing when is meaningless, and the results
+  // now actively exclude a broker already booked at this exact slot
+  // (findMatchingBrokers), so the search itself depends on having both.
+  date: z.string().date('Must be a valid date (YYYY-MM-DD)'),
+  time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/, 'Must be a valid time (HH:mm)'),
   leadId: z.string().uuid().optional(),
 });

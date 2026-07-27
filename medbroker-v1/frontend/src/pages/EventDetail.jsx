@@ -305,6 +305,14 @@ export default function EventDetail() {
   );
   if (!event) return <div style={{ padding: '24px', color: 'var(--mut)' }}>Event not found.</div>;
 
+  // "No-show" only means something once the event is over — before that,
+  // someone who RSVP'd but hasn't checked in yet might still show up.
+  // Mark's explicit ask: don't brand a manually-added attendee (or anyone
+  // else) a no-show the moment they're added while the event is still
+  // Draft/Active — only once Closed does an unconfirmed RSVP become one.
+  const isClosed = event.status === 'Closed';
+  const pendingCheckinLabel = isClosed ? 'No-shows' : 'Not Checked In';
+
   const filtered = attendees.filter(a => {
     if (attendeeFilter === 'rsvp')     return a.rsvp;
     if (attendeeFilter === 'walkin')   return !a.rsvp && a.attended;
@@ -363,7 +371,7 @@ export default function EventDetail() {
           { label: 'RSVPs',           value: event.rsvpCount,      colour: 'var(--accent)' },
           { label: 'Attended',        value: event.attendedCount,  colour: '#15803d' },
           { label: 'Walk-ins',        value: event.walkinCount,    colour: '#db2777' },
-          { label: 'No-shows',        value: Math.max(noShows, 0), colour: '#dc2626' },
+          { label: pendingCheckinLabel, value: Math.max(noShows, 0), colour: isClosed ? '#dc2626' : 'var(--mut)' },
           { label: 'Attendance rate', value: `${attendancePct}%`,  colour: '#0891b2' },
         ].map(c => (
           <div key={c.label} style={s.metricCard}>
@@ -400,7 +408,7 @@ export default function EventDetail() {
         <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
           <h2 style={{ fontSize: '1rem', fontWeight: 600, margin: 0 }}>Attendees</h2>
           <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-            {[['all','All'],['attended','Attended'],['rsvp','RSVP'],['walkin','Walk-in'],['noshow','No-show']].map(([key, label]) => (
+            {[['all','All'],['attended','Attended'],['rsvp','RSVP'],['walkin','Walk-in'],['noshow',pendingCheckinLabel]].map(([key, label]) => (
               <button key={key} onClick={() => setAttendeeFilter(key)} style={{
                 padding: '4px 10px', borderRadius: '20px', cursor: 'pointer',
                 fontSize: '0.75rem', fontWeight: 500, border: '1px solid',
