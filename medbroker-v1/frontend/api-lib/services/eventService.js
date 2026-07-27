@@ -245,3 +245,32 @@ export async function setAttendeeAttendance(eventId, attendeeId, attended) {
   );
   return !!row;
 }
+
+/**
+ * Remove an attendee from an event — Mark's request, 24 Jul 2026.
+ * Soft-deletes the EventAttendee row only (deletedAt), same convention
+ * as every other entity in this app — the underlying Lead is untouched:
+ * this removes them from THIS event's attendee list, it does not delete
+ * the person's Lead record, which may have other associations (assigned
+ * to an agent, other events, a portal account). Already-excluded from
+ * every other query via `deletedAt IS NULL` (listEventAttendees,
+ * getEventById's aggregate counts, getPortalEvents), so a deleted row
+ * simply stops appearing everywhere at once, no extra bookkeeping needed.
+ * @param {string} eventId
+ * @param {string} attendeeId
+ * @returns {Promise<boolean>} false if no matching row (wrong event/id, or already deleted)
+ */
+export async function deleteAttendee(eventId, attendeeId) {
+  const row = await executeQueryOne(
+    `UPDATE EventAttendee
+     SET deletedAt = NOW()
+     WHERE id = @attendeeId AND eventId = @eventId AND organisationId = @organisationId AND deletedAt IS NULL
+     RETURNING id`,
+    {
+      attendeeId:     { type: sql.UniqueIdentifier, value: attendeeId },
+      eventId:        { type: sql.UniqueIdentifier, value: eventId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+  return !!row;
+}

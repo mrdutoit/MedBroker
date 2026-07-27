@@ -4006,6 +4006,62 @@ Plus this Status.md.
 
 
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+52. TWO MINOR FIXES — 24 Jul 2026 (session 13, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. PORTAL REGISTRATION — LOGIN PROMPT MOVED TO TOP. "Already registered?
+   Log in" was at the bottom of PortalRegister.jsx, below the entire
+   registration form — someone who'd already registered had to scroll
+   past every field before finding out they didn't need to. Moved to
+   directly under the event title/subtitle, before the form starts.
+
+2. DELETE ATTENDEE, EVENT DOMAIN. New capability, same soft-delete
+   convention as everything else in this app (deletedAt, not a hard
+   DELETE) — removing an attendee from THIS event's list does NOT touch
+   their underlying Lead record, which may have other associations
+   (assigned to an agent, other events, a portal account). Confirmed
+   directly in testing that the Lead's own deletedAt stays NULL after
+   removing them from the event.
+     - eventService.deleteAttendee(eventId, attendeeId) — soft-deletes
+       the EventAttendee row. Already excluded everywhere via the
+       existing `deletedAt IS NULL` filters (listEventAttendees,
+       getEventById's aggregate counts, getPortalEvents) — no extra
+       bookkeeping needed, a deleted row just stops appearing everywhere
+       at once.
+     - New DELETE /api/events/:id/attendees/:attendeeId
+       (handleEventAttendeeDelete, Admin/Supervisor/GlobalAdmin only,
+       same MANAGE_ROLES gate as Add Attendee/status changes). Writes
+       AttendeeRemoved to AuditLog. events-router.js gained a 3-segment
+       route case (distinct from the existing 2-segment POST /attendees
+       for adding, and the 4-segment PUT .../attendance for toggling).
+     - EventDetail.jsx's attendee table gained a "Remove" column
+       (Admin/Supervisor/GlobalAdmin only), red-styled to signal it's
+       destructive, gated behind a window.confirm() that explicitly says
+       this doesn't delete their Lead record — no custom confirm-modal
+       component exists anywhere in this codebase yet, so a native
+       confirm is the right-sized choice here rather than building one
+       for a single-row action.
+
+VERIFIED against a fresh local Postgres instance: 7 checks — attendee
+visible before delete; Agent role correctly rejected (403); Admin delete
+succeeds; attendee gone from both the attendee list AND the event's
+rsvpCount aggregate immediately after; re-deleting an already-removed
+attendee correctly 404s (not a silent no-op); the underlying Lead
+record's own deletedAt confirmed still NULL. Full Vite build clean and
+the existing 45-test Vitest suite unaffected.
+
+MIGRATION — no schema change:
+  src/pages/portal/PortalRegister.jsx   (login prompt relocated)
+  api-lib/services/eventService.js      (deleteAttendee added)
+  api-lib/handlers/eventHandlers.js     (handleEventAttendeeDelete added)
+  api/events-router.js                  (delete route added)
+  src/services/api.js                   (eventsApi.deleteAttendee added)
+  src/pages/EventDetail.jsx             (Remove column + confirm added)
+Plus this Status.md.
+
+
+
 If picking up a pending item from Section 5, reference it by name.
 e.g. "I want to work on the Appointments API build."
 

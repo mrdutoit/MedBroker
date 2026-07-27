@@ -213,6 +213,7 @@ export default function EventDetail() {
   const [statusError, setStatusError] = useState('');
   const [showAddAttendee, setShowAddAttendee] = useState(false);
   const [togglingId, setTogglingId] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   const regUrl = event ? `${window.location.origin}/portal/register/${event.qrToken}` : '';
   // Deliberately a DIFFERENT URL/token from regUrl above — see
@@ -293,6 +294,23 @@ export default function EventDetail() {
       setStatusError(err.message ?? 'Could not update attendance.');
     } finally {
       setTogglingId(null);
+    }
+  }
+
+  async function handleDeleteAttendee(attendee) {
+    // Only removes them from THIS event's attendee list — their Lead
+    // record is untouched (may have other associations elsewhere).
+    if (!window.confirm(`Remove ${attendee.name} from this event's attendee list? This does not delete their Lead record.`)) {
+      return;
+    }
+    setDeletingId(attendee.id);
+    try {
+      await eventsApi.deleteAttendee(id, attendee.id);
+      await refetch();
+    } catch (err) {
+      setStatusError(err.message ?? 'Could not remove attendee.');
+    } finally {
+      setDeletingId(null);
     }
   }
 
@@ -424,8 +442,8 @@ export default function EventDetail() {
         <table style={{ ...s.table, minWidth: '700px' }}>
           <thead>
             <tr>
-              {['Name','Email','Occupation','RSVP','Attended','Registered'].map(h => (
-                <th key={h} style={s.th}>{h}</th>
+              {['Name','Email','Occupation','RSVP','Attended','Registered', canManage ? '' : null].filter(h => h !== null).map(h => (
+                <th key={h || 'actions'} style={s.th}>{h}</th>
               ))}
             </tr>
           </thead>
@@ -453,10 +471,21 @@ export default function EventDetail() {
                 <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>
                   {format(new Date(a.registeredAt), 'd MMM HH:mm')}
                 </td>
+                {canManage && (
+                  <td style={s.td}>
+                    <button
+                      onClick={() => handleDeleteAttendee(a)}
+                      disabled={deletingId === a.id}
+                      style={{ ...s.secondaryBtn, padding: '3px 10px', fontSize: '0.75rem', color: '#dc2626', borderColor: 'color-mix(in srgb, #dc2626 30%, var(--panel))' }}
+                    >
+                      {deletingId === a.id ? 'Removing…' : 'Remove'}
+                    </button>
+                  </td>
+                )}
               </tr>
             ))}
             {filtered.length === 0 && (
-              <tr><td colSpan={6} style={{ textAlign: 'center', padding: '24px', color:'var(--mut)' }}>
+              <tr><td colSpan={canManage ? 7 : 6} style={{ textAlign: 'center', padding: '24px', color:'var(--mut)' }}>
                 No attendees match this filter.
               </td></tr>
             )}

@@ -73,6 +73,10 @@ export default function PortalRegister() {
       subtitle={[event.university, format(new Date(event.eventDate), 'd MMMM yyyy'), event.venue].filter(Boolean).join(' · ')}
       width="440px"
     >
+      <p style={{ fontSize: '0.8125rem', color: 'var(--mut)', textAlign: 'center', marginBottom: '16px' }}>
+        Already registered? <Link to="/portal/login" style={{ color: 'var(--accent)' }}>Log in</Link>
+      </p>
+
       {error && <div style={{ ...s.errorBox, marginBottom: '16px' }}>{error}</div>}
 
       <form onSubmit={handleSubmit}>
@@ -143,10 +147,6 @@ export default function PortalRegister() {
           {loading ? 'Registering…' : 'Register'}
         </button>
       </form>
-
-      <p style={{ fontSize: '0.8125rem', color: 'var(--mut)', textAlign: 'center', marginTop: '16px' }}>
-        Already registered? <Link to="/portal/login" style={{ color: 'var(--accent)' }}>Log in</Link>
-      </p>
     </PortalCard>
   );
 }

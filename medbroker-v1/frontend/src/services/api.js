@@ -261,6 +261,8 @@ export const eventsApi = {
   addAttendee:  (id, data)            => request(`/events/${id}/attendees`, { method: 'POST', body: JSON.stringify(data) }),
   setAttendance: (id, attendeeId, attended) =>
     request(`/events/${id}/attendees/${attendeeId}/attendance`, { method: 'PUT', body: JSON.stringify({ attended }) }),
+  deleteAttendee: (id, attendeeId) =>
+    request(`/events/${id}/attendees/${attendeeId}`, { method: 'DELETE' }),
 };
 
 // ─── Users ────────────────────────────────────────────────────────────────────

@@ -9,7 +9,7 @@
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
 import {
   listEvents, getEventById, createEvent, updateEventStatus,
-  listEventAttendees, getEventReport, addAttendee, setAttendeeAttendance,
+  listEventAttendees, getEventReport, addAttendee, setAttendeeAttendance, deleteAttendee,
 } from '../services/eventService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
 import { CreateEventSchema, UpdateEventStatusSchema, AddAttendeeSchema, SetAttendanceSchema } from '../models/event.js';
@@ -243,6 +243,44 @@ export async function handleEventAttendeeAttendance(req, res, id, attendeeId) {
       return res.status(status).json(body);
     }
     console.error('events/[id]/attendees/[attendeeId]/attendance error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** DELETE /api/events/:id/attendees/:attendeeId */
+export async function handleEventAttendeeDelete(req, res, id, attendeeId) {
+  if (req.method !== 'DELETE') {
+    res.setHeader('Allow', 'DELETE, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, MANAGE_ROLES);
+
+    if (!isUuid(id) || !isUuid(attendeeId)) {
+      return res.status(400).json({ error: 'Invalid ID format' });
+    }
+
+    const deleted = await deleteAttendee(id, attendeeId);
+    if (!deleted) return res.status(404).json({ error: 'Attendee not found on this event' });
+
+    await writeAuditLog({
+      entityType: 'EventAttendee',
+      entityId: attendeeId,
+      action: 'AttendeeRemoved',
+      performedById: claims.oid,
+      changeDetail: { eventId: id },
+      ipAddress: clientIp(req),
+    });
+
+    return res.status(200).json({ ok: true });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('events/[id]/attendees/[attendeeId] delete error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
