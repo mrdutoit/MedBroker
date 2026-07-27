@@ -253,10 +253,11 @@ export const brokerMatchingApi = {
 // ─── Events ───────────────────────────────────────────────────────────────────
 
 export const eventsApi = {
-  list:   ()     => request('/events'),
-  get:    (id)   => request(`/events/${id}`),
-  create: (data) => request('/events', { method: 'POST', body: JSON.stringify(data) }),
-  report: (id)   => request(`/events/${id}/report`),
+  list:         ()             => request('/events'),
+  get:          (id)           => request(`/events/${id}`),
+  create:       (data)         => request('/events', { method: 'POST', body: JSON.stringify(data) }),
+  updateStatus: (id, status)   => request(`/events/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
+  report:       (id)           => request(`/events/${id}/report`),
 };
 
 // ─── Users ────────────────────────────────────────────────────────────────────

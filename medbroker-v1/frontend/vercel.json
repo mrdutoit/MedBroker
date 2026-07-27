@@ -10,6 +10,7 @@
     { "source": "/api/flags/:slug*",        "destination": "/api/flags-router?slug=:slug*" },
     { "source": "/api/appointments/:slug*", "destination": "/api/appointments-router?slug=:slug*" },
     { "source": "/api/reports/:slug*",      "destination": "/api/reports-router?slug=:slug*" },
+    { "source": "/api/events/:slug*",       "destination": "/api/events-router?slug=:slug*" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "headers": [

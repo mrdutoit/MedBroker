@@ -3233,6 +3233,133 @@ Plus this Status.md.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+46. EVENTS DOMAIN GIVEN A REAL BACKEND — PREREQUISITE FOR LEAD PORTAL — 24 Jul 2026 (session 13)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Scoped as the Lead Portal (§27) — a prospect-facing QR registration + venue
+check-in feature. Before building it, Mark asked the right sequencing
+question: does Events need a real backend first? Checked directly rather
+than assumed — confirmed EventList.jsx/EventDetail.jsx had been fully mock
+since first built, no api-lib/api files for Events existed at all,
+eventsApi in api.js called endpoints that were never implemented. This
+session built that prerequisite. The Portal itself (registration + check-in
+against a real Event.qrToken) is next, not started here.
+
+LEAD PORTAL SCOPE DECIDED WITH MARK (for when that build starts):
+  - v1 prospect capabilities: view own appointment status + assigned
+    broker's display name + edit own contact details. Medical aid/existing
+    cover/ID number stay out of v1 — deferred to the existing (unbuilt)
+    POPIA SAR flow rather than building ad hoc partial access.
+  - Auth: separate LeadPortalAccount identity (own table, own JWT signing
+    secret/claims), not an extension of User/staff roles.
+  - Lives in the same Vite app under new /portal/* routes, own
+    ProspectAuthContext — not a second deployment.
+  - QR's actual purpose, clarified directly by Mark after an initial
+    misread: NOT in-app scanning to register (a phone camera opening the
+    URL directly already handles that, and the URL is equally shareable
+    via WhatsApp/email — no QR-specific code needed for registration
+    itself). The QR is for VENUE CHECK-IN — a self-service flow where an
+    already-registered, already-logged-in attendee scans the SAME event
+    QR (Event.qrToken, already unique, already exists — no new
+    barcode-generation needed) from inside the portal to confirm they've
+    arrived. Maps directly onto EventAttendee.attended/attendedAt, both
+    already in schema and never wired to anything until now.
+  - Six-persona review already run on this scope (Kai/Priya/Jordan/David/
+    Sam/Alex) — no blockers found, see the review table from this
+    session's chat if picked up in a fresh conversation without it.
+
+WHAT SHIPPED THIS SESSION (Events domain only):
+  No schema migration — Event and EventAttendee already had everything
+  needed (qrToken, status, rsvp/attended/attendedAt/popiConsent). This is
+  the first backend built against them.
+
+  - api-lib/models/event.js (NEW) — CreateEventSchema, UpdateEventStatusSchema,
+    and ALLOWED_STATUS_TRANSITIONS (Draft -> Active|Cancelled,
+    Active -> Closed|Cancelled, Closed/Cancelled terminal) — the single
+    source of truth for valid transitions, enforced server-side.
+  - api-lib/services/eventService.js (NEW) — listEvents/getEventById
+    (rsvpCount/attendedCount/walkinCount aggregated via LEFT JOIN + GROUP BY
+    on Event's own PK, no fan-out risk), createEvent (always Draft),
+    updateEventStatus (validates against ALLOWED_STATUS_TRANSITIONS,
+    returns a structured not_found/invalid_transition result rather than
+    throwing), listEventAttendees, getEventReport (summary + attendee list,
+    for client-side CSV export — no server-side file generation).
+  - api-lib/handlers/eventHandlers.js (NEW) — GET routes open to all five
+    roles (matches App.jsx's existing nav gating — Events has no role
+    restriction beyond the events.enabled flag, unlike Reports); create/
+    status-change restricted to Admin/Supervisor/GlobalAdmin, same gating
+    as Lead creation. Writes EventCreated/EventStatusChanged to AuditLog.
+  - api/events-router.js (NEW) + vercel.json — new /api/events/:slug*
+    rewrite, same dispatcher pattern as every other domain (§29/§30).
+    10th deployed function — 2 of headroom left under the Hobby 12 cap,
+    flagged during scoping, not yet a blocker.
+  - src/services/api.js — eventsApi.updateStatus added (list/get/create/
+    report already existed as stubs calling endpoints that didn't exist).
+  - EventList.jsx — real create (was a fake setTimeout), real list with
+    real aggregates. Create Event gated to Admin/Supervisor/GlobalAdmin
+    (view remains open to all roles). Events always create as Draft — an
+    explicit Activate step from the detail page, not a status field on
+    the create form.
+  - EventDetail.jsx — real event + attendee list. Status transition
+    buttons (Activate/Close/Cancel) driven by a small NEXT_STATUS_ACTIONS
+    map mirroring ALLOWED_STATUS_TRANSITIONS — kept as a separate frontend
+    copy rather than importing api-lib into the Vite bundle (api-lib is
+    deliberately excluded from the frontend build, §24.2). QR code is now
+    a REAL scannable image (new qrcode dependency, client-side
+    QRCode.toDataURL()) encoding `${origin}/portal/register/:qrToken` —
+    replaces the old decorative placeholder SVG. Download PNG now
+    downloads the real generated image. New Share via WhatsApp (wa.me
+    link) and Share via Email (mailto:) buttons on the QR modal, per
+    Mark's ask that registration not be gated to a physical scan at the
+    event — the link is the same either way, nothing QR-specific needed
+    for sharing it. Download Report generates a real CSV client-side from
+    GET /api/events/:id/report.
+  - package.json — qrcode ^1.5.4 added.
+
+REAL BUG FOUND BY TESTING AGAINST REAL POSTGRES, NOT REVIEW: the initial
+rsvpCount aggregate counted every non-deleted EventAttendee row regardless
+of the rsvp column's value — so a walk-in (attended=true, rsvp=false)
+was incorrectly inflating rsvpCount. Caught by a seeded-data test
+(2 RSVPs + 1 walk-in, expected rsvpCount=2, got 3) before this ever shipped.
+Fixed: rsvpCount's FILTER clause now requires rsvp = TRUE explicitly.
+
+VERIFIED against a real local Postgres 16 instance (schema.postgres.sql
+run clean, confirmed cumulative through §45 — AppointmentPortfolio,
+ReturnedToLeads, policyValue all present, so no separate migration replay
+needed for a fresh install): 19 checks against the full event lifecycle
+via the actual handler functions (create as Draft, list, get detail with
+qrToken present, Draft->Closed rejected, Draft->Active succeeds,
+Active->Active rejected as a non-listed transition, Active->Closed
+succeeds, Closed->Cancelled rejected as terminal, report shape, Agent
+create rejected 403, unknown id 404, malformed id 400, missing required
+field 400), plus 6 further checks with seeded Lead/EventAttendee rows
+confirming the rsvpCount/attendedCount/walkinCount math after the fix
+(2/1/1 as expected) and the attendee list's name concatenation. Full Vite
+production build clean both before and after (1375 modules, zero errors)
+and the existing 45-test Vitest suite unaffected.
+
+NEXT: the Lead Portal itself — LeadPortalAccount migration, registration
+flow (GET /api/portal/events/:qrToken, POST /api/portal/register), login,
+GET/PUT /api/portal/me, POST /api/portal/checkin, and the four new
+frontend routes (/portal/register/:qrToken, /portal/login,
+/portal/dashboard, /portal/check-in) — scope already agreed above, not
+re-litigated when this is picked up.
+
+MIGRATION — straightforward add, no deletions:
+  api-lib/models/event.js                (NEW)
+  api-lib/services/eventService.js       (NEW)
+  api-lib/handlers/eventHandlers.js      (NEW)
+  api/events-router.js                   (NEW)
+  vercel.json
+  src/services/api.js
+  package.json
+  package-lock.json
+  src/pages/EventList.jsx
+  src/pages/EventDetail.jsx
+Plus this Status.md.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 HOW TO START A NEW CHAT
 1. Start a new conversation in the MedBroker project

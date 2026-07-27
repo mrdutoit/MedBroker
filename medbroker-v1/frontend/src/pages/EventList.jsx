@@ -2,8 +2,11 @@
  * pages/EventList.jsx
  * University events management — create events, view attendance, download QR codes.
  *
- * Style: migrated from local const s to shared tokens.js (s, imported).
- * All business logic and mock data unchanged.
+ * Rewired to real data, 24 Jul 2026 — the first backend this domain has
+ * ever had. Role behaviour matches the pre-existing App.jsx nav gating
+ * (Events visible to all five roles behind the events.enabled flag);
+ * Create Event is restricted to Admin/Supervisor/GlobalAdmin, matching the
+ * same gating already used for Lead creation.
  */
 
 import { useState } from 'react';
@@ -11,33 +14,9 @@ import { useNavigate } from 'react-router-dom';
 import { format, isPast } from 'date-fns';
 import { s } from '../styles/tokens.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
-
-const MOCK_EVENTS = [
-  {
-    id: '1', name: 'Wits Medical School Career Fair 2026',
-    university: 'University of the Witwatersrand', eventDate: '2026-06-15',
-    venue: 'Wits Great Hall, Braamfontein', status: 'Active',
-    rsvpCount: 142, attendedCount: 118, walkinCount: 23,
-  },
-  {
-    id: '2', name: 'UCT Faculty of Health Sciences Expo',
-    university: 'University of Cape Town', eventDate: '2026-07-03',
-    venue: 'UCT Health Sciences Faculty Centre', status: 'Active',
-    rsvpCount: 89, attendedCount: 0, walkinCount: 0,
-  },
-  {
-    id: '3', name: 'UP Medical Students Association Networking',
-    university: 'University of Pretoria', eventDate: '2026-05-02',
-    venue: 'Hatfield Campus, Pretoria', status: 'Closed',
-    rsvpCount: 67, attendedCount: 54, walkinCount: 11,
-  },
-  {
-    id: '4', name: 'UKZN Medicine & Health Careers Day',
-    university: 'University of KwaZulu-Natal', eventDate: '2026-08-20',
-    venue: 'Howard College, Durban', status: 'Draft',
-    rsvpCount: 0, attendedCount: 0, walkinCount: 0,
-  },
-];
+import { useFetch } from '../hooks/useFetch.js';
+import { useRole } from '../context/RoleContext.jsx';
+import { eventsApi } from '../services/api.js';
 
 const STATUS_STYLE = {
   Draft:     { bg: 'var(--panel2)', text: 'var(--mut)', border: 'var(--line)' },
@@ -49,105 +28,134 @@ const STATUS_STYLE = {
 export default function EventList() {
   const navigate = useNavigate();
   const { isMobile } = useWindowSize();
-  const [showCreate, setShowCreate] = useState(false);
-  const [form, setForm] = useState({ name: '', university: '', venue: '', eventDate: '' });
-  const [creating, setCreating] = useState(false);
+  const { role } = useRole();
+  const isAdmin      = role === 'Admin' || role === 'GlobalAdmin';
+  const isSupervisor = role === 'Supervisor';
+  const canManage    = isAdmin || isSupervisor;
 
-  function handleCreate(e) {
+  const { data, loading, error, refetch } = useFetch(() => eventsApi.list());
+  const events = data?.events ?? [];
+
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({ name: '', university: '', venue: '', eventDate: '', description: '' });
+  const [creating, setCreating] = useState(false);
+  const [createError, setCreateError] = useState('');
+
+  async function handleCreate(e) {
     e.preventDefault();
     setCreating(true);
-    setTimeout(() => {
-      setCreating(false);
+    setCreateError('');
+    try {
+      await eventsApi.create(form);
       setShowCreate(false);
-      setForm({ name: '', university: '', venue: '', eventDate: '' });
-    }, 1000);
+      setForm({ name: '', university: '', venue: '', eventDate: '', description: '' });
+      await refetch();
+    } catch (err) {
+      setCreateError(err.message ?? 'Could not create event. Please try again.');
+    } finally {
+      setCreating(false);
+    }
   }
 
   return (
     <div style={{ padding: isMobile ? '12px' : '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h1 style={{ fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)', margin: 0 }}>Events</h1>
-        <button onClick={() => setShowCreate(true)} style={s.primaryBtn}>+ Create Event</button>
+        {canManage && (
+          <button onClick={() => setShowCreate(true)} style={s.primaryBtn}>+ Create Event</button>
+        )}
       </div>
 
-      {/* Summary metrics */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '12px', marginBottom: '20px' }}>
-        {[
-          { label: 'Total events',   value: MOCK_EVENTS.length },
-          { label: 'Active',         value: MOCK_EVENTS.filter(e => e.status === 'Active').length },
-          { label: 'Total RSVPs',    value: MOCK_EVENTS.reduce((a, e) => a + e.rsvpCount, 0) },
-          { label: 'Total attended', value: MOCK_EVENTS.reduce((a, e) => a + e.attendedCount + e.walkinCount, 0) },
-        ].map(c => (
-          <div key={c.label} style={s.metricCard}>
-            <div style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{c.label}</div>
-            <div style={{ fontSize: '1.875rem', fontWeight: 700, color:'var(--ink)' }}>{c.value}</div>
+      {loading && <p style={{ color: 'var(--mut)', fontSize: '0.875rem' }}>Loading events…</p>}
+      {error && (
+        <div style={{ ...s.errorBox, marginBottom: '16px' }}>
+          Could not load events: {error.message}
+        </div>
+      )}
+
+      {!loading && !error && (
+        <>
+          {/* Summary metrics */}
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '12px', marginBottom: '20px' }}>
+            {[
+              { label: 'Total events',   value: events.length },
+              { label: 'Active',         value: events.filter(e => e.status === 'Active').length },
+              { label: 'Total RSVPs',    value: events.reduce((a, e) => a + e.rsvpCount, 0) },
+              { label: 'Total attended', value: events.reduce((a, e) => a + e.attendedCount + e.walkinCount, 0) },
+            ].map(c => (
+              <div key={c.label} style={s.metricCard}>
+                <div style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{c.label}</div>
+                <div style={{ fontSize: '1.875rem', fontWeight: 700, color:'var(--ink)' }}>{c.value}</div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      {/* Events grid */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(340px, 1fr))', gap: '14px' }}>
-        {MOCK_EVENTS.map(event => {
-          const ss = STATUS_STYLE[event.status] ?? STATUS_STYLE.Draft;
-          const pastEvent = isPast(new Date(event.eventDate));
-          const attendanceRate = event.rsvpCount > 0
-            ? Math.round((event.attendedCount / event.rsvpCount) * 100)
-            : 0;
+          {/* Events grid */}
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(340px, 1fr))', gap: '14px' }}>
+            {events.map(event => {
+              const ss = STATUS_STYLE[event.status] ?? STATUS_STYLE.Draft;
+              const pastEvent = isPast(new Date(event.eventDate));
+              const attendanceRate = event.rsvpCount > 0
+                ? Math.round((event.attendedCount / event.rsvpCount) * 100)
+                : 0;
 
-          return (
-            <div key={event.id} style={{
-              background:'var(--panel)', border: '1px solid var(--line)',
-              borderRadius: '10px', padding: '18px 20px',
-            }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
-                <span style={{ ...s.badge, background: ss.bg, color: ss.text, border: `1px solid ${ss.border}` }}>
-                  {event.status}
-                </span>
-                <span style={{ fontSize: '0.8125rem', color:pastEvent ? 'var(--mut)' : 'var(--ink)', fontWeight: 500 }}>
-                  {format(new Date(event.eventDate), 'd MMM yyyy')}
-                </span>
-              </div>
+              return (
+                <div key={event.id} style={{
+                  background:'var(--panel)', border: '1px solid var(--line)',
+                  borderRadius: '10px', padding: '18px 20px',
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '10px' }}>
+                    <span style={{ ...s.badge, background: ss.bg, color: ss.text, border: `1px solid ${ss.border}` }}>
+                      {event.status}
+                    </span>
+                    <span style={{ fontSize: '0.8125rem', color:pastEvent ? 'var(--mut)' : 'var(--ink)', fontWeight: 500 }}>
+                      {format(new Date(event.eventDate), 'd MMM yyyy')}
+                    </span>
+                  </div>
 
-              <h3 style={{ fontSize: '0.9375rem', fontWeight: 600, color:'var(--ink)', margin: '0 0 4px', lineHeight: 1.35 }}>{event.name}</h3>
-              <p style={{ fontSize: '0.8125rem', color:'var(--mut)', margin: '0 0 12px' }}>{event.university}</p>
-              <p style={{ fontSize: '0.75rem', color:'var(--mut)', margin: '0 0 14px' }}>📍 {event.venue}</p>
+                  <h3 style={{ fontSize: '0.9375rem', fontWeight: 600, color:'var(--ink)', margin: '0 0 4px', lineHeight: 1.35 }}>{event.name}</h3>
+                  {event.university && <p style={{ fontSize: '0.8125rem', color:'var(--mut)', margin: '0 0 12px' }}>{event.university}</p>}
+                  {event.venue && <p style={{ fontSize: '0.75rem', color:'var(--mut)', margin: '0 0 14px' }}>📍 {event.venue}</p>}
 
-              {event.status !== 'Draft' && (
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '14px' }}>
-                  {[
-                    { label: 'RSVPs',    value: event.rsvpCount },
-                    { label: 'Attended', value: event.attendedCount + event.walkinCount },
-                    { label: 'Walk-ins', value: event.walkinCount },
-                  ].map(stat => (
-                    <div key={stat.label} style={{ background:'var(--panel2)', borderRadius: '6px', padding: '8px', textAlign: 'center' }}>
-                      <div style={{ fontSize: '1.125rem', fontWeight: 700, color:'var(--ink)' }}>{stat.value}</div>
-                      <div style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{stat.label}</div>
+                  {event.status !== 'Draft' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '8px', marginBottom: '14px' }}>
+                      {[
+                        { label: 'RSVPs',    value: event.rsvpCount },
+                        { label: 'Attended', value: event.attendedCount + event.walkinCount },
+                        { label: 'Walk-ins', value: event.walkinCount },
+                      ].map(stat => (
+                        <div key={stat.label} style={{ background:'var(--panel2)', borderRadius: '6px', padding: '8px', textAlign: 'center' }}>
+                          <div style={{ fontSize: '1.125rem', fontWeight: 700, color:'var(--ink)' }}>{stat.value}</div>
+                          <div style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.04em' }}>{stat.label}</div>
+                        </div>
+                      ))}
                     </div>
-                  ))}
-                </div>
-              )}
+                  )}
 
-              {event.status === 'Closed' && event.rsvpCount > 0 && (
-                <div style={{ marginBottom: '14px' }}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
-                    <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>Attendance rate</span>
-                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#15803d' }}>{attendanceRate}%</span>
-                  </div>
-                  <div style={{ background: 'var(--panel2)', borderRadius: '4px', height: '6px' }}>
-                    <div style={{ background: '#10b981', width: `${attendanceRate}%`, height: '100%', borderRadius: '4px' }} />
+                  {event.status === 'Closed' && event.rsvpCount > 0 && (
+                    <div style={{ marginBottom: '14px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                        <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>Attendance rate</span>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 600, color: '#15803d' }}>{attendanceRate}%</span>
+                      </div>
+                      <div style={{ background: 'var(--panel2)', borderRadius: '4px', height: '6px' }}>
+                        <div style={{ background: '#10b981', width: `${attendanceRate}%`, height: '100%', borderRadius: '4px' }} />
+                      </div>
+                    </div>
+                  )}
+
+                  <div style={{ display: 'flex', gap: '6px' }}>
+                    <button onClick={() => navigate(`/events/${event.id}`)} style={s.secondaryBtn}>View details</button>
                   </div>
                 </div>
-              )}
-
-              <div style={{ display: 'flex', gap: '6px' }}>
-                <button onClick={() => navigate(`/events/${event.id}`)} style={s.secondaryBtn}>View details</button>
-                {event.status === 'Active'  && <button style={s.secondaryBtn}>Download QR</button>}
-                {event.status === 'Closed' && <button style={s.secondaryBtn}>Download report</button>}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+              );
+            })}
+            {events.length === 0 && (
+              <p style={{ color: 'var(--mut)', fontSize: '0.875rem' }}>No events yet.</p>
+            )}
+          </div>
+        </>
+      )}
 
       {/* Create event modal */}
       {showCreate && (
@@ -161,10 +169,11 @@ export default function EventList() {
                 </svg>
               </button>
             </div>
+            {createError && <div style={{ ...s.errorBox, marginBottom: '12px' }}>{createError}</div>}
             <form onSubmit={handleCreate}>
               {[
                 { key: 'name',       label: 'Event Name *',  type: 'text', placeholder: 'Wits Medical School Career Fair' },
-                { key: 'university', label: 'University *',  type: 'text', placeholder: 'University of the Witwatersrand' },
+                { key: 'university', label: 'University',    type: 'text', placeholder: 'University of the Witwatersrand' },
                 { key: 'venue',      label: 'Venue',         type: 'text', placeholder: 'Great Hall, Braamfontein' },
                 { key: 'eventDate',  label: 'Event Date *',  type: 'date', placeholder: '' },
               ].map(field => (
@@ -180,6 +189,9 @@ export default function EventList() {
                   />
                 </div>
               ))}
+              <p style={{ ...s.formHint, marginBottom: '14px' }}>
+                Created as Draft — activate it from the event's detail page once it's ready to accept registrations.
+              </p>
               <div style={s.modalFooter}>
                 <button type="button" onClick={() => setShowCreate(false)} style={{ ...s.secondaryBtn, background: 'none', border: 'none' }}>
                   Cancel
