@@ -3658,6 +3658,152 @@ ENVIRONMENT VARIABLE NEEDED IN VERCEL BEFORE THIS WORKS IN PRODUCTION:
   JWT_SIGNING_SECRET was (see that variable's own setup notes) — this one
   just needs to be a DIFFERENT value.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+48. TWO SEPARATE QR CODES + WALK-IN ATTENDANCE — 24 Jul 2026 (session 13, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's clarification of the intended registration/RSVP vs attendance
+flow surfaced two real problems with §47's original design: (1) qrToken
+was doing double duty — shared before the event for registration, but
+also the SAME token would have confirmed attendance, meaning anyone who
+ever received the share link could "check in" from anywhere with no
+proof they were at the venue; (2) checkinProspect() rejected outright
+anyone with no prior RSVP — meaning walk-ins, despite WALK-INS already
+being a ticker/filter on EventDetail.jsx, had never actually been
+reachable through ANY path (Add Attendee always hardcoded rsvp=TRUE too).
+
+MARK'S EXPLICIT DESIGN DECISIONS THIS SESSION:
+  - Two separate tokens, not one dual-purpose one. No cross-event RSVP
+    reuse — if the same person attends a genuinely different event, that
+    goes through a different email/new Lead, full stop; the "logged in,
+    scan a different event's REGISTRATION link" flow proposed earlier
+    this session was explicitly declined, not built.
+  - Attendance QR stays a single static code for the event's duration —
+    no rotation/regeneration built.
+  - A walk-in (scans the attendance code, was never registered) gets a
+    real attendance record with rsvp=FALSE, not rejected — and the
+    landing page shows a GREEN "RSVP Attendance" banner for a real
+    registrant vs a PINK "Walk-In Attendance" banner otherwise.
+  - Someone with NO portal account at all scanning the attendance code
+    gets a quick on-the-spot signup right there (same required fields as
+    every other Lead-creation path — "quick" means fewer steps, not
+    fewer fields) rather than being turned away to find staff.
+
+SCHEMA: Event.checkinToken (NEW column, UUID UNIQUE, same
+gen_random_uuid() default pattern as qrToken) — schema.postgres.sql
+updated + migration 011_add_event_checkin_token.sql for the live Neon
+instance. Verified the ALTER backfills a genuine unique value per
+existing row (gen_random_uuid() is volatile, not a shared stored
+default) — confirmed directly against both existing test events.
+
+BACKEND:
+  - eventService.js — EVENT_SELECT now also returns checkinToken (staff
+    UI needs both tokens).
+  - models/leadPortal.js — PortalCheckinSchema's field renamed
+    qrToken -> checkinToken (breaking change to that endpoint's request
+    shape, applied directly rather than versioned — nothing in
+    production depends on the old shape yet). New PortalWalkInSchema —
+    identical required-field set to PortalRegisterSchema, keyed by
+    checkinToken instead of qrToken.
+  - leadPortalService.js — new getEventForCheckin(checkinToken) (parallel
+    to getEventForRegistration, separate lookup by the new column).
+    checkinProspect() rewritten: an EventAttendee match still just flips
+    attended/attendedAt (idempotent), but NO match now INSERTS a walk-in
+    row (rsvp=FALSE, attended=TRUE, popiConsent=TRUE — inherited from
+    them already being an authenticated portal user) against their
+    EXISTING leadId, rather than throwing not_registered. New
+    walkInCheckin(checkinToken, data, passwordHash) for the no-account
+    case — calls registerProspect() for the actual Lead/
+    LeadPortalAccount creation (no duplicated logic), then inserts the
+    same walk-in-shaped EventAttendee row directly.
+  - portalHandlers.js — handlePortalCheckin now returns
+    { ok, alreadyCheckedIn, attendanceType: 'rsvp'|'walkin' } instead of
+    just { ok, alreadyCheckedIn } — this is what drives the banner
+    colour on the frontend. New handlePortalCheckinEventLookup (GET
+    /api/portal/checkin-events/:checkinToken, public — deliberately does
+    NOT apply isRegistrationWindowOpen()/qrTokenExpiryHours, since that
+    config bounds the pre-event REGISTRATION window, not attendance on
+    the day — already gated on status==='Active' regardless). New
+    handlePortalWalkIn (POST /api/portal/walkin, public).
+  - api/portal-router.js — routes added for checkin-events lookup and
+    walkin; no new deployed function (both live inside the same
+    portal-router.js — still 11 total, 1 of Hobby-cap headroom left).
+
+FRONTEND:
+  - New pages/portal/PortalCheckinConfirm.jsx at the NEW route
+    /portal/checkin/:checkinToken — the URL the attendance QR actually
+    encodes, reachable directly by a phone camera app (same pattern as
+    registration) or via the in-app scanner navigating here after
+    decoding a scan. Public route (not gated behind
+    PortalProtectedRoute) — has to work for a walk-in with no account at
+    all. Two entirely different bodies: already-authenticated ->
+    auto-confirms on mount, shows the green/pink banner per
+    attendanceType; not authenticated -> the on-the-spot signup form,
+    same fields as PortalRegister.jsx, submits to the new walkIn() call.
+  - pages/portal/PortalCheckIn.jsx (the in-app scanner) simplified to a
+    thin wrapper — decodes the scan, extracts checkinToken, navigates to
+    the confirm page above rather than duplicating the confirm/walk-in
+    logic in two places.
+  - services/portalApi.js — checkin() now sends { checkinToken } not
+    { qrToken }; new getCheckinEvent() and walkIn().
+  - context/ProspectAuthContext.jsx — new walkInAndLogin().
+  - EventDetail.jsx (staff side) — existing button relabelled "Show
+    Registration QR" (was "Show QR Code"); new "Show Attendance QR"
+    button + separate modal rendering event.checkinToken as its own real
+    QRCode.toDataURL() image, encoding /portal/checkin/:checkinToken.
+    Deliberately NO WhatsApp/Email share buttons on this one — Download
+    PNG only, with copy explicitly telling staff not to share the link,
+    since sharing it would recreate the exact gap having a separate
+    token was meant to close. WALK-INS ticker and the attendance-bar
+    walk-in segment recoloured from violet (#8b5cf6/#7c3aed) to pink
+    (#db2777) to match the new banner language.
+
+REAL BUG CAUGHT DURING VERIFICATION, NOT A NEW ONE INTRODUCED: the first
+test run's "already checked in" and "duplicate walk-in" assertions
+failed — turned out to be an already-locked test account (isLocked=TRUE)
+left over from an EARLIER session's lockout-threshold test that was never
+reset, plus re-run contamination from re-executing the same script twice
+against the same test rows. Neither was a defect in this session's code —
+confirmed by resetting the lockout flag and re-running with fresh unique
+data, at which point everything passed cleanly. Documenting this so it
+doesn't look like a shipped bug if this file is read out of context later.
+
+VERIFIED against the same local Postgres instance: 18 checks — the
+registration qrToken correctly rejected by the checkin-event lookup (the
+two token spaces really are separate, not just cosmetically renamed); a
+real registrant re-scanning the attendance code is idempotent and
+reports attendanceType:'rsvp'; a logged-in prospect with NO RSVP for this
+specific event checks in successfully as a walk-in under their EXISTING
+identity rather than being rejected, idempotent on a second scan; a
+completely fresh person with no account signs up on the spot via
+walkIn(), receives a token, and the resulting EventAttendee row is
+confirmed directly in the database to have rsvp=false/attended=true;
+re-walking-in with the same email 409s (can't create a second account);
+the WALK-INS ticker aggregate reflects the new rows. Full Vite build
+clean and the existing 45-test Vitest suite unaffected throughout.
+
+NEXT: nothing queued. This closes out the registration/RSVP vs
+attendance distinction Mark asked to clarify, plus the walk-in gap it
+surfaced.
+
+MIGRATION — straightforward add, no deletions:
+  db/schema.postgres.sql                        (Event.checkinToken column added)
+  db/migrations/011_add_event_checkin_token.sql (NEW)
+  api-lib/services/eventService.js              (checkinToken added to EVENT_SELECT)
+  api-lib/models/leadPortal.js                  (PortalCheckinSchema field renamed, PortalWalkInSchema added)
+  api-lib/services/leadPortalService.js         (getEventForCheckin added, checkinProspect rewritten, walkInCheckin added)
+  api-lib/handlers/portalHandlers.js            (handlePortalCheckin updated, handlePortalCheckinEventLookup + handlePortalWalkIn added)
+  api/portal-router.js                          (new routes added)
+  src/services/portalApi.js                     (checkin renamed param, getCheckinEvent + walkIn added)
+  src/context/ProspectAuthContext.jsx           (walkInAndLogin added)
+  src/pages/portal/PortalCheckinConfirm.jsx     (NEW)
+  src/pages/portal/PortalCheckIn.jsx             (simplified to thin scanner)
+  src/pages/EventDetail.jsx                      (Show Attendance QR modal added, labels/colours updated)
+  src/App.jsx                                     (PortalCheckinConfirm route added)
+Plus this Status.md.
+
+
+
 If picking up a pending item from Section 5, reference it by name.
 e.g. "I want to work on the Appointments API build."
 

@@ -21,7 +21,7 @@ import { findDuplicate, createLead } from './leadService.js';
 const EVENT_SELECT = `
   SELECT
     e.id, e.name, e.description, e.eventDate AS "eventDate", e.venue,
-    e.university, e.status, e.qrToken AS "qrToken",
+    e.university, e.status, e.qrToken AS "qrToken", e.checkinToken AS "checkinToken",
     e.createdById AS "createdById", cb.displayName AS "createdByName",
     e.createdAt AS "createdAt",
     COUNT(ea.id) FILTER (WHERE ea.deletedAt IS NULL AND ea.rsvp = TRUE)                         AS "rsvpCount",

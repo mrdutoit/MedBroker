@@ -48,6 +48,7 @@ const PortalActivate  = lazy(() => import('./pages/portal/PortalActivate.jsx'));
 const PortalLogin     = lazy(() => import('./pages/portal/PortalLogin.jsx'));
 const PortalDashboard = lazy(() => import('./pages/portal/PortalDashboard.jsx'));
 const PortalCheckIn   = lazy(() => import('./pages/portal/PortalCheckIn.jsx'));
+const PortalCheckinConfirm = lazy(() => import('./pages/portal/PortalCheckinConfirm.jsx'));
 
 // ─── Nav section label ─────────────────────────────────────────────────────────
 const SECTION = {
@@ -445,6 +446,7 @@ function PortalApp() {
           <Route path="login" element={<PortalLogin />} />
           <Route path="dashboard" element={<PortalProtectedRoute><PortalDashboard /></PortalProtectedRoute>} />
           <Route path="check-in" element={<PortalProtectedRoute><PortalCheckIn /></PortalProtectedRoute>} />
+          <Route path="checkin/:checkinToken" element={<PortalCheckinConfirm />} />
           <Route path="*" element={<Navigate to="login" replace />} />
         </Routes>
       </Suspense>

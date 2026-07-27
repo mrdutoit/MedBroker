@@ -36,6 +36,22 @@ export function ProspectAuthProvider({ children }) {
     }
   }, []);
 
+  const walkInAndLogin = useCallback(async (checkinToken, profileData, password) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await portalApi.walkIn({ checkinToken, ...profileData, password });
+      portalAuthStore.setPortalSession(data.token);
+      setIsAuthenticated(true);
+      return data;
+    } catch (err) {
+      setError(err.message ?? 'Could not check you in');
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
   const activateAccount = useCallback(async (email, dateOfBirth, password) => {
     setLoading(true);
     setError(null);
@@ -74,7 +90,7 @@ export function ProspectAuthProvider({ children }) {
   }, []);
 
   return (
-    <ProspectAuthContext.Provider value={{ isAuthenticated, registerAndLogin, activateAccount, login, logout, loading, error, setError }}>
+    <ProspectAuthContext.Provider value={{ isAuthenticated, registerAndLogin, activateAccount, walkInAndLogin, login, logout, loading, error, setError }}>
       {children}
     </ProspectAuthContext.Provider>
   );

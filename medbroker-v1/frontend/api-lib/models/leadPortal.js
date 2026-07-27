@@ -41,8 +41,36 @@ export const PortalUpdateMeSchema = z.object({
   mobileNumber: saMobile.optional(),
 });
 
+// Renamed field 24 Jul 2026 — check-in now uses Event.checkinToken, a
+// separate token from the registration qrToken (see models/event.js's
+// header, api/schema for why). A "confirm attendance" call from an
+// already-logged-in prospect always uses this shape.
 export const PortalCheckinSchema = z.object({
-  qrToken: z.string().uuid('Invalid event code'),
+  checkinToken: z.string().uuid('Invalid check-in code'),
+});
+
+/**
+ * Walk-in: someone with NO portal account at all scans the attendance QR.
+ * Same required-field shape as PortalRegisterSchema (this still creates a
+ * real Lead + LeadPortalAccount, not a lightweight stub — "quick" means
+ * fewer steps, not fewer required fields, matching every other
+ * Lead-creation path in this app), keyed by checkinToken instead of
+ * qrToken. The resulting EventAttendee row gets rsvp=false — they never
+ * pre-registered, this only confirms they were physically at the venue.
+ */
+export const PortalWalkInSchema = z.object({
+  checkinToken: z.string().uuid('Invalid check-in code'),
+  title:        Title,
+  firstName:    z.string().min(1, 'First name is required').max(100),
+  lastName:     z.string().min(1, 'Last name is required').max(100),
+  dateOfBirth:  z.string().date('Must be a valid date (YYYY-MM-DD)'),
+  email:        z.string().email('Must be a valid email address').max(255),
+  mobileNumber: saMobile,
+  occupation:   JobTitle,
+  password:     z.string().min(12, 'Password must be at least 12 characters'),
+  popiConsent:  z.literal(true, {
+    errorMap: () => ({ message: 'You must consent to your details being captured to check in' }),
+  }),
 });
 
 /**

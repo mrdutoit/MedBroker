@@ -70,11 +70,13 @@ async function request(path, options = {}) {
 }
 
 export const portalApi = {
-  getEvent:  (qrToken)       => request(`/portal/events/${qrToken}`, { skipAuth: true }),
-  register:  (data)          => request('/portal/register', { method: 'POST', skipAuth: true, body: JSON.stringify(data) }),
-  activate:  (data)          => request('/portal/activate', { method: 'POST', skipAuth: true, body: JSON.stringify(data) }),
-  login:     (email, password) => request('/portal/login', { method: 'POST', skipAuth: true, body: JSON.stringify({ email, password }) }),
-  getMe:     ()               => request('/portal/me'),
-  updateMe:  (data)           => request('/portal/me', { method: 'PUT', body: JSON.stringify(data) }),
-  checkin:   (qrToken)        => request('/portal/checkin', { method: 'POST', body: JSON.stringify({ qrToken }) }),
+  getEvent:        (qrToken)       => request(`/portal/events/${qrToken}`, { skipAuth: true }),
+  register:        (data)          => request('/portal/register', { method: 'POST', skipAuth: true, body: JSON.stringify(data) }),
+  activate:        (data)          => request('/portal/activate', { method: 'POST', skipAuth: true, body: JSON.stringify(data) }),
+  getCheckinEvent: (checkinToken)  => request(`/portal/checkin-events/${checkinToken}`, { skipAuth: true }),
+  walkIn:          (data)          => request('/portal/walkin', { method: 'POST', skipAuth: true, body: JSON.stringify(data) }),
+  login:           (email, password) => request('/portal/login', { method: 'POST', skipAuth: true, body: JSON.stringify({ email, password }) }),
+  getMe:           ()               => request('/portal/me'),
+  updateMe:        (data)           => request('/portal/me', { method: 'PUT', body: JSON.stringify(data) }),
+  checkin:         (checkinToken)   => request('/portal/checkin', { method: 'POST', body: JSON.stringify({ checkinToken }) }),
 };

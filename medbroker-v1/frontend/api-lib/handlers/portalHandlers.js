@@ -6,15 +6,15 @@ import { validatePortalToken, portalAuthErrorResponse } from '../middleware/port
 import { hashPassword, verifyPassword, signJwt } from '../services/authService.js';
 import { config } from '../config.js';
 import {
-  getEventForRegistration, isRegistrationWindowOpen,
+  getEventForRegistration, getEventForCheckin, isRegistrationWindowOpen,
   getPortalAccountByEmail, recordPortalLoginSuccess, recordPortalLoginFailure,
-  registerProspectForEvent, getPortalProfile, updatePortalProfile, checkinProspect,
-  activatePortalAccount,
+  registerProspectForEvent, getPortalProfile, updatePortalProfile,
+  checkinProspect, walkInCheckin, activatePortalAccount,
 } from '../services/leadPortalService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
 import {
   PortalRegisterSchema, PortalLoginSchema, PortalUpdateMeSchema, PortalCheckinSchema,
-  PortalActivateSchema,
+  PortalActivateSchema, PortalWalkInSchema,
 } from '../models/leadPortal.js';
 
 function issuePortalToken(account) {
@@ -45,6 +45,32 @@ export async function handlePortalEventLookup(req, res, qrToken) {
     });
   } catch (err) {
     console.error('portal/events/[qrToken] error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** GET /api/portal/checkin-events/:checkinToken — public, unauthenticated */
+export async function handlePortalCheckinEventLookup(req, res, checkinToken) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    const event = await getEventForCheckin(checkinToken);
+    if (!event) return res.status(404).json({ error: 'This check-in code is not valid.' });
+    if (event.status !== 'Active') {
+      return res.status(400).json({ error: 'This event is not currently open for check-in.' });
+    }
+    // No registration-window check here deliberately — qrTokenExpiryHours
+    // bounds how long the pre-event REGISTRATION link stays open; the
+    // attendance code is only ever meant to be used during the live event
+    // (already gated on status === 'Active' above), so that concept
+    // doesn't apply to this lookup.
+    return res.status(200).json({
+      event: { id: event.id, name: event.name, eventDate: event.eventDate, university: event.university, venue: event.venue },
+    });
+  } catch (err) {
+    console.error('portal/checkin-events/[checkinToken] error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
@@ -217,7 +243,44 @@ export async function handlePortalMe(req, res) {
   }
 }
 
-/** POST /api/portal/checkin */
+/** POST /api/portal/walkin — public, unauthenticated on-the-spot check-in */
+export async function handlePortalWalkIn(req, res) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    if (!config.portalAuth.jwtSigningSecret) {
+      return res.status(500).json({ error: 'PORTAL_JWT_SIGNING_SECRET is not configured on the server' });
+    }
+
+    const parsed = PortalWalkInSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { checkinToken, password, ...profileData } = parsed.data;
+
+    const passwordHash = await hashPassword(password);
+    const result = await walkInCheckin(checkinToken, profileData, passwordHash);
+
+    await writeAuditLog({
+      entityType: 'EventAttendee',
+      entityId: result.leadId,
+      action: 'PortalWalkInCheckedIn',
+      performedById: result.leadId,
+      changeDetail: { actor: 'portal-self-service', eventName: result.eventName, createdNewLead: result.createdNewLead },
+      ipAddress: clientIp(req),
+    });
+
+    const token = issuePortalToken(result);
+    return res.status(201).json({ token, attendanceType: 'walkin' });
+
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('portal/walkin error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** POST /api/portal/checkin — already-authenticated prospect confirms attendance */
 export async function handlePortalCheckin(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST, OPTIONS');
@@ -229,13 +292,12 @@ export async function handlePortalCheckin(req, res) {
     const parsed = PortalCheckinSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    const result = await checkinProspect(claims.leadId, parsed.data.qrToken);
+    const result = await checkinProspect(claims.leadId, parsed.data.checkinToken);
 
     if (!result.ok) {
       const messages = {
-        event_not_found:  'This event code is not valid.',
+        event_not_found:  'This check-in code is not valid.',
         event_not_active: 'This event is not currently open for check-in.',
-        not_registered:   "You haven't registered for this event yet.",
       };
       return res.status(400).json({ error: messages[result.error] ?? 'Could not check you in.' });
     }
@@ -244,14 +306,14 @@ export async function handlePortalCheckin(req, res) {
       await writeAuditLog({
         entityType: 'EventAttendee',
         entityId: claims.leadId,
-        action: 'PortalCheckedIn',
+        action: result.attendanceType === 'walkin' ? 'PortalWalkInCheckedIn' : 'PortalCheckedIn',
         performedById: claims.leadId,
         changeDetail: { actor: 'portal-self-service', eventName: result.eventName },
         ipAddress: clientIp(req),
       });
     }
 
-    return res.status(200).json({ ok: true, alreadyCheckedIn: result.alreadyCheckedIn });
+    return res.status(200).json({ ok: true, alreadyCheckedIn: result.alreadyCheckedIn, attendanceType: result.attendanceType });
 
   } catch (err) {
     if (err.status) {

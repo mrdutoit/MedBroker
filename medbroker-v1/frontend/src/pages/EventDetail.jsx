@@ -207,12 +207,20 @@ export default function EventDetail() {
   const [attendeeFilter, setAttendeeFilter] = useState('all');
   const [showQr, setShowQr] = useState(false);
   const [qrDataUrl, setQrDataUrl] = useState('');
+  const [showAttendanceQr, setShowAttendanceQr] = useState(false);
+  const [attendanceQrDataUrl, setAttendanceQrDataUrl] = useState('');
   const [statusChanging, setStatusChanging] = useState(false);
   const [statusError, setStatusError] = useState('');
   const [showAddAttendee, setShowAddAttendee] = useState(false);
   const [togglingId, setTogglingId] = useState(null);
 
   const regUrl = event ? `${window.location.origin}/portal/register/${event.qrToken}` : '';
+  // Deliberately a DIFFERENT URL/token from regUrl above — see
+  // Event.checkinToken's schema comment for why sharing a single token
+  // between pre-event registration and on-the-day attendance would be a
+  // real gap (anyone who ever received the registration link could
+  // "check in" from anywhere, no proof they were at the venue).
+  const checkinUrl = event ? `${window.location.origin}/portal/checkin/${event.checkinToken}` : '';
 
   useEffect(() => {
     if (!showQr || !regUrl) return;
@@ -220,6 +228,13 @@ export default function EventDetail() {
       .then(setQrDataUrl)
       .catch(() => setQrDataUrl(''));
   }, [showQr, regUrl]);
+
+  useEffect(() => {
+    if (!showAttendanceQr || !checkinUrl) return;
+    QRCode.toDataURL(checkinUrl, { width: 320, margin: 2 })
+      .then(setAttendanceQrDataUrl)
+      .catch(() => setAttendanceQrDataUrl(''));
+  }, [showAttendanceQr, checkinUrl]);
 
   async function handleStatusChange(newStatus) {
     setStatusChanging(true);
@@ -239,6 +254,14 @@ export default function EventDetail() {
     const a = document.createElement('a');
     a.href = qrDataUrl;
     a.download = `${event.name.replace(/[^a-z0-9]+/gi, '-')}-qr.png`;
+    a.click();
+  }
+
+  function handleDownloadAttendancePng() {
+    if (!attendanceQrDataUrl) return;
+    const a = document.createElement('a');
+    a.href = attendanceQrDataUrl;
+    a.download = `${event.name.replace(/[^a-z0-9]+/gi, '-')}-attendance-qr.png`;
     a.click();
   }
 
@@ -310,7 +333,10 @@ export default function EventDetail() {
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {event.status === 'Active' && (
-            <button onClick={() => setShowQr(true)} style={s.primaryBtn}>Show QR Code</button>
+            <button onClick={() => setShowQr(true)} style={s.primaryBtn}>Show Registration QR</button>
+          )}
+          {event.status === 'Active' && (
+            <button onClick={() => setShowAttendanceQr(true)} style={s.secondaryBtn}>Show Attendance QR</button>
           )}
           {canManage && event.status === 'Active' && (
             <button onClick={() => setShowAddAttendee(true)} style={s.secondaryBtn}>+ Add Attendee</button>
@@ -336,7 +362,7 @@ export default function EventDetail() {
         {[
           { label: 'RSVPs',           value: event.rsvpCount,      colour: 'var(--accent)' },
           { label: 'Attended',        value: event.attendedCount,  colour: '#15803d' },
-          { label: 'Walk-ins',        value: event.walkinCount,    colour: '#7c3aed' },
+          { label: 'Walk-ins',        value: event.walkinCount,    colour: '#db2777' },
           { label: 'No-shows',        value: Math.max(noShows, 0), colour: '#dc2626' },
           { label: 'Attendance rate', value: `${attendancePct}%`,  colour: '#0891b2' },
         ].map(c => (
@@ -359,12 +385,12 @@ export default function EventDetail() {
           <div style={{ background: 'var(--panel2)', borderRadius: '6px', height: '10px', overflow: 'hidden' }}>
             <div style={{ display: 'flex', height: '100%' }}>
               <div style={{ background: '#10b981', width: `${Math.round((event.attendedCount / event.rsvpCount) * 100)}%` }} />
-              <div style={{ background: '#8b5cf6', width: `${Math.round((event.walkinCount  / event.rsvpCount) * 100)}%` }} />
+              <div style={{ background: '#db2777', width: `${Math.round((event.walkinCount  / event.rsvpCount) * 100)}%` }} />
             </div>
           </div>
           <div style={{ display: 'flex', gap: '16px', marginTop: '6px' }}>
             <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}><span style={{ color: '#10b981' }}>■</span> RSVP attended</span>
-            <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}><span style={{ color: '#8b5cf6' }}>■</span> Walk-ins</span>
+            <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}><span style={{ color: '#db2777' }}>■</span> Walk-ins</span>
           </div>
         </div>
       )}
@@ -430,12 +456,12 @@ export default function EventDetail() {
         </table>
       </div>
 
-      {/* QR code modal */}
+      {/* Registration QR modal */}
       {showQr && (
         <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) setShowQr(false); }}>
           <div style={{ ...s.modal, width: '420px', textAlign: 'center' }}>
             <div style={s.modalHeader}>
-              <h2 style={s.modalTitle}>Event QR Code</h2>
+              <h2 style={s.modalTitle}>Registration QR Code</h2>
               <button onClick={() => setShowQr(false)} style={s.closeBtn}>
                 <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="16" height="16">
                   <path d="M3 3l10 10M13 3L3 13"/>
@@ -447,7 +473,7 @@ export default function EventDetail() {
                 ? <img src={qrDataUrl} width={160} height={160} alt="Event registration QR code" />
                 : <div style={{ width: 160, height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', fontSize: '0.75rem' }}>Generating…</div>}
             </div>
-            <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '4px' }}>Prospects scan this to register</p>
+            <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '4px' }}>Prospects scan this beforehand to register and RSVP</p>
             <p style={{ fontSize: '0.75rem', color:'var(--mut)', wordBreak: 'break-all', marginBottom: '16px' }}>{regUrl}</p>
             <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '10px' }}>
               <button onClick={handleDownloadPng} disabled={!qrDataUrl} style={s.primaryBtn}>Download PNG</button>
@@ -455,6 +481,40 @@ export default function EventDetail() {
               <button onClick={shareEmail} style={s.secondaryBtn}>Share via Email</button>
             </div>
             <button onClick={() => setShowQr(false)} style={s.secondaryBtn}>Close</button>
+          </div>
+        </div>
+      )}
+
+      {/* Attendance QR modal — deliberately NO share buttons. This code is
+          only ever meant to exist at the venue on the day; sharing it the
+          way the registration QR is shared would recreate the exact gap
+          having a separate token was meant to close. */}
+      {showAttendanceQr && (
+        <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) setShowAttendanceQr(false); }}>
+          <div style={{ ...s.modal, width: '420px', textAlign: 'center' }}>
+            <div style={s.modalHeader}>
+              <h2 style={s.modalTitle}>Attendance QR Code</h2>
+              <button onClick={() => setShowAttendanceQr(false)} style={s.closeBtn}>
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="16" height="16">
+                  <path d="M3 3l10 10M13 3L3 13"/>
+                </svg>
+              </button>
+            </div>
+            <div style={{ background:'#ffffff', border: '1px solid var(--line)', borderRadius: '8px', padding: '24px', marginBottom: '14px', display: 'inline-block' }}>
+              {attendanceQrDataUrl
+                ? <img src={attendanceQrDataUrl} width={160} height={160} alt="Event attendance QR code" />
+                : <div style={{ width: 160, height: 160, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#888', fontSize: '0.75rem' }}>Generating…</div>}
+            </div>
+            <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '4px' }}>
+              Display this at the venue only — attendees scan it on the day to confirm they're here
+            </p>
+            <p style={{ fontSize: '0.75rem', color:'var(--mut)', marginBottom: '16px' }}>
+              Don't share this link — printing/displaying it at the venue is the intended use
+            </p>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'center', flexWrap: 'wrap', marginBottom: '10px' }}>
+              <button onClick={handleDownloadAttendancePng} disabled={!attendanceQrDataUrl} style={s.primaryBtn}>Download PNG</button>
+            </div>
+            <button onClick={() => setShowAttendanceQr(false)} style={s.secondaryBtn}>Close</button>
           </div>
         </div>
       )}

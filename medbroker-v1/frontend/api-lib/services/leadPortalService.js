@@ -2,8 +2,12 @@
  * services/leadPortalService.js — NEW, 24 Jul 2026.
  * Self-service backend for prospects/attendees — registration (matches or
  * creates a Lead, the same dedup as eventService.addAttendee), login,
- * own-profile view/edit, and venue check-in against the same Event.qrToken
- * the staff-facing QR modal already renders.
+ * own-profile view/edit, and venue check-in — against Event.checkinToken,
+ * a SEPARATE token from the registration qrToken (Mark's explicit
+ * requirement, added same day as this file — see models/event.js's
+ * header for why: qrToken gets shared before the event, so using it for
+ * attendance too would mean anyone who ever received that link could
+ * "check in" from anywhere with no proof they were at the venue).
  *
  * Lead.createdById is nullable with an FK to "User" — a self-registered
  * Lead has no staff actor, so this passes null through rather than
@@ -30,6 +34,26 @@ export async function getEventForRegistration(qrToken) {
      WHERE qrToken = @qrToken AND deletedAt IS NULL AND organisationId = @organisationId`,
     {
       qrToken:        { type: sql.UniqueIdentifier, value: qrToken },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+}
+
+/**
+ * Same shape as getEventForRegistration but keyed on the SEPARATE
+ * checkinToken — used by the attendance-confirmation landing page
+ * (/portal/checkin/:checkinToken) and the walk-in signup flow.
+ * @param {string} checkinToken
+ * @returns {Promise<Object|null>}
+ */
+export async function getEventForCheckin(checkinToken) {
+  return executeQueryOne(
+    `SELECT id, name, eventDate AS "eventDate", university, venue, status,
+            createdAt AS "createdAt"
+     FROM Event
+     WHERE checkinToken = @checkinToken AND deletedAt IS NULL AND organisationId = @organisationId`,
+    {
+      checkinToken:   { type: sql.UniqueIdentifier, value: checkinToken },
       organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
     }
   );
@@ -356,34 +380,86 @@ export async function activatePortalAccount(email, dateOfBirth, passwordHash) {
 // ── Check-in ─────────────────────────────────────────────────────────────
 
 /**
- * Confirms attendance for the event whose QR was just scanned — the
- * self-service equivalent of eventService.setAttendeeAttendance(), same
- * columns. Rejects if the prospect never RSVP'd for this event (matches
- * Mark's own framing: "mark that attendee as present... if they have
- * RSVP'ed"). Idempotent if already checked in.
+ * Confirms attendance for the event whose ATTENDANCE code was just
+ * scanned (an already-authenticated prospect) — same columns as
+ * eventService.setAttendeeAttendance(). No longer rejects someone with no
+ * prior EventAttendee row (that was the original behaviour — changed
+ * 24 Jul 2026, Mark's explicit walk-in requirement): if they never
+ * RSVP'd for THIS event, this creates a walk-in row (rsvp=false) for
+ * their existing, already-authenticated Lead identity rather than
+ * turning them away. Idempotent if already checked in either way.
  * @param {string} leadId
- * @param {string} qrToken
- * @returns {Promise<{ok: true, alreadyCheckedIn: boolean} | {ok: false, error: string}>}
+ * @param {string} checkinToken
+ * @returns {Promise<{ok: true, alreadyCheckedIn: boolean, attendanceType: 'rsvp'|'walkin', eventName: string} | {ok: false, error: string}>}
  */
-export async function checkinProspect(leadId, qrToken) {
-  const event = await getEventForRegistration(qrToken);
+export async function checkinProspect(leadId, checkinToken) {
+  const event = await getEventForCheckin(checkinToken);
   if (!event) return { ok: false, error: 'event_not_found' };
   if (event.status !== 'Active') return { ok: false, error: 'event_not_active' };
 
   const attendee = await executeQueryOne(
-    `SELECT id, attended FROM EventAttendee
+    `SELECT id, rsvp, attended FROM EventAttendee
      WHERE eventId = @eventId AND leadId = @leadId AND deletedAt IS NULL`,
     {
       eventId: { type: sql.UniqueIdentifier, value: event.id },
       leadId:  { type: sql.UniqueIdentifier, value: leadId },
     }
   );
-  if (!attendee) return { ok: false, error: 'not_registered' };
-  if (attendee.attended) return { ok: true, alreadyCheckedIn: true };
+
+  if (attendee) {
+    const attendanceType = attendee.rsvp ? 'rsvp' : 'walkin';
+    if (attendee.attended) return { ok: true, alreadyCheckedIn: true, attendanceType, eventName: event.name };
+    await executeQuery(
+      `UPDATE EventAttendee SET attended = TRUE, attendedAt = NOW() WHERE id = @id`,
+      { id: { type: sql.UniqueIdentifier, value: attendee.id } }
+    );
+    return { ok: true, alreadyCheckedIn: false, attendanceType, eventName: event.name };
+  }
+
+  // No EventAttendee row for THIS event — a walk-in under their existing,
+  // already-authenticated Lead identity (not a new Lead: "treated as a
+  // new Lead" applies to someone with NO account at all — walkInCheckin
+  // below — not to a real, already-logged-in person).
+  await executeQuery(
+    `INSERT INTO EventAttendee (id, organisationId, eventId, leadId, rsvp, attended, attendedAt, popiConsent, registeredAt)
+     VALUES (gen_random_uuid(), @organisationId, @eventId, @leadId, FALSE, TRUE, NOW(), TRUE, NOW())`,
+    {
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+      eventId:        { type: sql.UniqueIdentifier, value: event.id },
+      leadId:         { type: sql.UniqueIdentifier, value: leadId },
+    }
+  );
+  return { ok: true, alreadyCheckedIn: false, attendanceType: 'walkin', eventName: event.name };
+}
+
+/**
+ * Walk-in with NO portal account at all — on-the-spot signup at the
+ * attendance-QR landing page. Reuses registerProspect() for the actual
+ * Lead/LeadPortalAccount creation (same required fields, same dedup —
+ * "quick" means fewer steps, not a lighter-weight record), then inserts
+ * the EventAttendee row directly with rsvp=false — they never
+ * pre-registered, this only confirms they were physically at the venue.
+ * @param {string} checkinToken
+ * @param {Object} data - validated PortalWalkInSchema data (minus checkinToken)
+ * @param {string} passwordHash
+ * @returns {Promise<{leadId: string, portalAccountId: string, createdNewLead: boolean, eventName: string}>}
+ */
+export async function walkInCheckin(checkinToken, data, passwordHash) {
+  const event = await getEventForCheckin(checkinToken);
+  if (!event) throw { status: 404, message: 'This check-in code is not valid.' };
+  if (event.status !== 'Active') throw { status: 400, message: 'This event is not currently open for check-in.' };
+
+  const result = await registerProspect(data, passwordHash); // throws 409 if an account already exists for this email
 
   await executeQuery(
-    `UPDATE EventAttendee SET attended = TRUE, attendedAt = NOW() WHERE id = @id`,
-    { id: { type: sql.UniqueIdentifier, value: attendee.id } }
+    `INSERT INTO EventAttendee (id, organisationId, eventId, leadId, rsvp, attended, attendedAt, popiConsent, registeredAt)
+     VALUES (gen_random_uuid(), @organisationId, @eventId, @leadId, FALSE, TRUE, NOW(), TRUE, NOW())`,
+    {
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+      eventId:        { type: sql.UniqueIdentifier, value: event.id },
+      leadId:         { type: sql.UniqueIdentifier, value: result.leadId },
+    }
   );
-  return { ok: true, alreadyCheckedIn: false, eventName: event.name };
+
+  return { ...result, eventName: event.name };
 }

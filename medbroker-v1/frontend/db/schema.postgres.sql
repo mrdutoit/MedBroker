@@ -232,15 +232,25 @@ CREATE TABLE IF NOT EXISTS Event (
     university      VARCHAR(200)    NULL,
     status          VARCHAR(50)     NOT NULL DEFAULT 'Draft',
     qrToken         UUID            NOT NULL DEFAULT gen_random_uuid(),
+    -- Deliberately a SEPARATE token from qrToken (24 Jul 2026, Mark's
+    -- explicit requirement) — qrToken is meant to be shared before the
+    -- event (WhatsApp/email, printed collateral) for registration/RSVP;
+    -- if attendance confirmation used that SAME token, anyone who ever
+    -- received the share link could "check in" from anywhere, with no
+    -- proof they were ever at the venue. checkinToken is display/print
+    -- only on the staff side (EventDetail.jsx's "Show Attendance QR" —
+    -- no WhatsApp/Email buttons, unlike the registration QR modal).
+    checkinToken    UUID            NOT NULL DEFAULT gen_random_uuid(),
     createdById     UUID            NULL,
     createdAt       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updatedAt       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     deletedAt       TIMESTAMPTZ     NULL,
-    CONSTRAINT PK_Event         PRIMARY KEY (id),
-    CONSTRAINT UQ_Event_QrToken UNIQUE (qrToken),
-    CONSTRAINT FK_Event_Org     FOREIGN KEY (organisationId) REFERENCES Organisation(id),
-    CONSTRAINT FK_Event_Creator FOREIGN KEY (createdById) REFERENCES "User"(id),
-    CONSTRAINT CK_Event_Status  CHECK (status IN ('Draft', 'Active', 'Closed', 'Cancelled'))
+    CONSTRAINT PK_Event              PRIMARY KEY (id),
+    CONSTRAINT UQ_Event_QrToken      UNIQUE (qrToken),
+    CONSTRAINT UQ_Event_CheckinToken UNIQUE (checkinToken),
+    CONSTRAINT FK_Event_Org          FOREIGN KEY (organisationId) REFERENCES Organisation(id),
+    CONSTRAINT FK_Event_Creator      FOREIGN KEY (createdById) REFERENCES "User"(id),
+    CONSTRAINT CK_Event_Status       CHECK (status IN ('Draft', 'Active', 'Closed', 'Cancelled'))
 );
 
 -- =============================================================================
