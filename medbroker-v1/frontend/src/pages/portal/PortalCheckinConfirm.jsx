@@ -141,6 +141,9 @@ export default function PortalCheckinConfirm() {
 
   return (
     <PortalCard title={`Check in — ${event.name}`} subtitle={subtitle} width="440px">
+      <p style={{ fontSize: '0.8125rem', color: 'var(--mut)', textAlign: 'center', marginBottom: '8px' }}>
+        Already have an account? <Link to="/portal/login" style={{ color: 'var(--accent)' }}>Log in</Link>, then scan again.
+      </p>
       <p style={{ fontSize: '0.8125rem', color: 'var(--mut)', textAlign: 'center', marginBottom: '16px' }}>
         Didn't register beforehand? Quick details and you're checked in.
       </p>
@@ -215,10 +218,6 @@ export default function PortalCheckinConfirm() {
           {loading ? 'Checking in…' : 'Check In'}
         </button>
       </form>
-
-      <p style={{ fontSize: '0.8125rem', color: 'var(--mut)', textAlign: 'center', marginTop: '16px' }}>
-        Already have an account? <Link to="/portal/login" style={{ color: 'var(--accent)' }}>Log in</Link>, then scan again.
-      </p>
     </PortalCard>
   );
 }

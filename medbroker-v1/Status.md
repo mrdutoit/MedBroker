@@ -4062,6 +4062,25 @@ Plus this Status.md.
 
 
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+53. LOGIN PROMPT MOVED TO TOP ON THE CHECK-IN LANDING PAGE TOO — 24 Jul 2026 (session 13, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Same fix as §52's PortalRegister.jsx change, applied to the walk-in signup
+section of PortalCheckinConfirm.jsx (the unauthenticated path on the
+attendance landing page, /portal/checkin/:checkinToken) — "Already have
+an account? Log in, then scan again." was below the entire walk-in form,
+now sits right under the subtitle, before the form starts. Pure UI
+reordering, no logic touched — confirmed via diff against GitHub that
+this is the only change. Build clean, existing 45-test suite unaffected;
+no Postgres verification needed for a text-position change.
+
+MIGRATION — single file:
+  src/pages/portal/PortalCheckinConfirm.jsx
+Plus this Status.md.
+
+
+
 If picking up a pending item from Section 5, reference it by name.
 e.g. "I want to work on the Appointments API build."
 
