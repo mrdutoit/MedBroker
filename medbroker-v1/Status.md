@@ -3429,5 +3429,187 @@ HOW TO START A NEW CHAT
 4. Claude will confirm.
 5. Give your task.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+47. LEAD PORTAL BUILT — SELF-SERVICE REGISTRATION + VENUE CHECK-IN — 24 Jul 2026 (session 13, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The prospect-facing side of §27/§46's scope, built against the real
+Events domain from earlier this session. Four new frontend routes, six
+new backend endpoints, one new table.
+
+DATA MODEL:
+  - LeadPortalAccount (new, in schema.postgres.sql AND migration
+    010_add_lead_portal_account.sql for Mark's live Neon instance —
+    confirmed 010 is the correct next-free number, 009 being §45's last):
+    id, leadId (UNIQUE FK -> Lead), email (UNIQUE), passwordHash,
+    passwordSetAt, failedLoginAttempts, isLocked, timestamps. Same
+    local-auth shape as "User" minus passwordMustChange/rotation — a
+    staff policy concern, not applicable to a prospect's own account.
+
+AUTH — STRUCTURALLY SEPARATE FROM STAFF, NOT JUST POLICY-SEPARATE:
+  - New config.portalAuth.jwtSigningSecret (env PORTAL_JWT_SIGNING_SECRET)
+    — a DIFFERENT secret from staff's JWT_SIGNING_SECRET, not a shared one
+    with a different claim. Verified directly this session: a portal
+    token thrown at staff middleware/auth.js's validateToken() is
+    rejected, and a staff-shaped token (right claims, wrong secret) thrown
+    at the new middleware/portalAuth.js is rejected too. Two keys makes
+    cross-use structurally impossible, not just something requireRole()
+    happens to catch.
+  - middleware/portalAuth.js — verifies against the portal secret, checks
+    a type:'portal' claim as defense in depth on top of that, re-checks
+    the account isn't locked/deleted since the token was issued (same
+    principle as staff's getActiveUserById re-check). No x-demo-user-id
+    header-bypass fallback — a prospect always needs a real token.
+  - Portal login lockout uses a fixed threshold (5 attempts), not routed
+    through SystemConfig the way staff's passwordLockoutAttempts is — a
+    prospect account's blast radius is one person's own record, much
+    smaller than a staff account's, so a simple fixed default seemed
+    reasonable rather than plumbing another admin-configurable setting
+    through for it. Easy to revisit if this should be configurable too.
+
+REGISTRATION WINDOW — A PREVIOUSLY DEAD FIELD NOW WIRED UP, INTERPRETATION
+FLAGGED FOR MARK TO CONFIRM: SystemConfig.qrTokenExpiryHours has existed
+since the password-policy work (default 720 = 30 days) but nothing ever
+read it. This session wired it into GET /api/portal/events/:qrToken and
+POST /api/portal/register — both now reject once the window's closed.
+No prior code established what "expiry" means here, so this is an
+inference, not a confirmed spec: implemented as hours since Event.createdAt
+(a registration-campaign window), NOT relative to eventDate. A 30-day
+default reads more sensibly as "how long the link stays open after being
+created" than tied to eventDate, which can be scheduled arbitrarily far in
+advance — but flag it if that's wrong, it's a one-line change
+(isRegistrationWindowOpen() in leadPortalService.js).
+
+ENDPOINTS (api/portal-router.js, new vercel.json rewrite — 11th deployed
+function, 1 of headroom left under the Hobby 12-function cap):
+  GET  /api/portal/events/:qrToken   event context for registration page (public)
+  POST /api/portal/register           create account + auto-register for
+                                       the scanned event, returns portal JWT (public)
+  POST /api/portal/login               email + password, returns portal JWT (public)
+  GET  /api/portal/me                  own profile: contact details +
+                                       most recent appointment status +
+                                       assigned broker's DISPLAY NAME ONLY
+                                       (not their contact details — least
+                                       privilege, broker reaches out, not
+                                       the reverse) (portal JWT)
+  PUT  /api/portal/me                  update own email/mobileNumber —
+                                       writes through to Lead directly so
+                                       staff always see current contact
+                                       info; keeps LeadPortalAccount.email
+                                       in step so login never silently
+                                       diverges from displayed contact
+                                       email (portal JWT)
+  POST /api/portal/checkin             confirms attendance for the
+                                       scanned event — rejects if never
+                                       RSVP'd ("you haven't registered"),
+                                       idempotent if already checked in
+                                       (portal JWT)
+
+Registration reuses the exact same resolve-or-create-Lead flow as §46's
+Add Attendee (leadService.findDuplicate then createLead if no match) —
+Lead.createdById passed as null (column is nullable with an FK to "User";
+a self-registered Lead genuinely has no staff actor). AuditLog entries for
+portal-driven actions (PortalRegistration/PortalProfileUpdated/
+PortalCheckedIn) use the Lead's own id as performedById, since that column
+has no FK constraint at all — documented as a self-service actor in
+changeDetail rather than left looking like a User id.
+
+FRONTEND — completely separate provider tree, not nested under the staff
+app's RoleProvider/FlagProvider/AuthProvider:
+  - services/portalAuthStore.js + services/portalApi.js — own sessionStorage
+    key (medbroker.portal.session, vs staff's medbroker.session), own
+    request client. Deliberately not reusing services/api.js — that
+    attaches the STAFF token; reusing it here would mean a prospect's
+    requests carry whatever staff token happens to be in the same browser.
+  - context/ProspectAuthContext.jsx — same shape as AuthContext.jsx,
+    parallel not nested.
+  - components/PortalCard.jsx — shared centred-card shell, same visual
+    language as Login.jsx (ThemeProvider wraps both branches of App.jsx,
+    so the CSS-variable theme system applies equally to the portal).
+  - pages/portal/PortalRegister.jsx (/portal/register/:qrToken) — same
+    required fields as Add Attendee/CreateLeadSchema, plus password +
+    confirm password + a REAL popiConsent checkbox (this one is the
+    person themselves consenting, unlike Add Attendee's staff attestation).
+  - pages/portal/PortalLogin.jsx (/portal/login).
+  - pages/portal/PortalDashboard.jsx (/portal/dashboard) — appointment
+    status (mapped through a friendlier label set than the raw enum),
+    broker's name if assigned, edit-own-contact-details panel, link to
+    check-in.
+  - pages/portal/PortalCheckIn.jsx (/portal/check-in) — html5-qrcode
+    camera scanner (not the native BarcodeDetector API — confirmed
+    earlier this session that it doesn't work on iOS Safari/any iOS
+    browser, which rules it out given the prospect base is largely
+    iPhones). Scans the SAME Event.qrToken already rendered in
+    EventDetail.jsx's staff QR modal — extracts the token from the scanned
+    URL, calls checkin. Explicit permission-denied state, not a silent
+    failure (Sam/Frontend's flag from the six-persona review two sessions
+    back).
+  - package.json — html5-qrcode ^2.3.8 added (qrcode, for generating the
+    QR image, was already added in §46).
+
+APP.JSX RESTRUCTURING — the one genuinely structural change: BrowserRouter
+previously only mounted AFTER the staff login check passed (AuthGate
+returned <Login/> directly, no router involved, before routing to
+anything). That meant /portal/* could never be reached by an
+unauthenticated prospect — the staff Login page would render regardless
+of URL. Fixed by moving BrowserRouter to the top of App() with a
+top-level <Routes> branching /portal/* (own ProspectAuthProvider tree,
+no staff auth/role/flag context at all) from /* (unchanged staff
+AuthProvider -> RoleProvider -> FlagProvider -> AuthGate chain, now
+just missing its own BrowserRouter since one already wraps everything).
+PortalProtectedRoute gates /dashboard and /check-in on
+useProspectAuth().isAuthenticated, redirecting to /portal/login.
+
+VERIFIED against the same local Postgres instance, 35 checks across three
+scripts: full registration/login/profile/check-in lifecycle (event lookup,
+duplicate-email rejection on register, missing-consent rejection, profile
+read/update, wrong-password rejection, check-in idempotency); the security
+boundary specifically — a portal token rejected by staff validateToken(),
+a staff-shaped token rejected by validatePortalToken(); check-in against
+an event never registered for correctly rejected; 5-failed-attempt
+lockout (401 x4, then 423, and correct password still rejected once
+locked); registration-window expiry (backdated Event.createdAt + a
+1-hour SystemConfig threshold correctly blocks both the event lookup and
+registration, reset afterward). Full Vite build clean (1408 modules, up
+from 1375) and the existing 45-test Vitest suite unaffected throughout.
+
+NEXT: nothing queued — this closes out the Lead Portal work scoped back
+in §27/§46. Natural next candidates, not yet discussed with Mark: staff
+visibility into portal accounts (e.g. an indicator on LeadDetail.jsx that
+a lead has registered their own portal account), or a "resend registration
+link" affordance for staff. Neither requested yet — don't build ahead of
+being asked.
+
+MIGRATION — straightforward add, no deletions:
+  db/schema.postgres.sql                       (LeadPortalAccount table added)
+  db/migrations/010_add_lead_portal_account.sql (NEW)
+  api-lib/config.js                            (portalAuth section added)
+  api-lib/models/leadPortal.js                 (NEW)
+  api-lib/services/leadPortalService.js        (NEW)
+  api-lib/middleware/portalAuth.js             (NEW)
+  api-lib/handlers/portalHandlers.js           (NEW)
+  api/portal-router.js                         (NEW)
+  vercel.json
+  src/services/portalAuthStore.js              (NEW)
+  src/services/portalApi.js                    (NEW)
+  src/context/ProspectAuthContext.jsx          (NEW)
+  src/components/PortalCard.jsx                (NEW)
+  src/pages/portal/PortalRegister.jsx          (NEW)
+  src/pages/portal/PortalLogin.jsx             (NEW)
+  src/pages/portal/PortalDashboard.jsx         (NEW)
+  src/pages/portal/PortalCheckIn.jsx           (NEW)
+  src/App.jsx                                   (BrowserRouter moved to top level, /portal/* branch added)
+  package.json                                  (html5-qrcode added)
+Plus this Status.md.
+
+ENVIRONMENT VARIABLE NEEDED IN VERCEL BEFORE THIS WORKS IN PRODUCTION:
+  PORTAL_JWT_SIGNING_SECRET — a separate base64 secret from
+  JWT_SIGNING_SECRET, not reused. Generate the same way the original
+  JWT_SIGNING_SECRET was (see that variable's own setup notes) — this one
+  just needs to be a DIFFERENT value.
+
 If picking up a pending item from Section 5, reference it by name.
 e.g. "I want to work on the Appointments API build."
+
+
+

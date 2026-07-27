@@ -15,6 +15,7 @@ import { RoleProvider, useRole, PERSONAS } from './context/RoleContext.jsx';
 import { FlagProvider, useFlags }           from './context/FlagContext.jsx';
 import { ThemeProvider, useTheme }          from './context/ThemeContext.jsx';
 import { AuthProvider, useAuth }            from './context/AuthContext.jsx';
+import { ProspectAuthProvider, useProspectAuth } from './context/ProspectAuthContext.jsx';
 import { apiMode }                          from './services/api.js';
 import { useWindowSize }                     from './hooks/useWindowSize.js';
 import { Logo }                              from './components/Logo.jsx';
@@ -38,6 +39,14 @@ const Tasks             = lazy(() => import('./pages/Tasks.jsx'));
 const SingleSignOn      = lazy(() => import('./pages/SingleSignOn.jsx'));
 const FeatureFlags      = lazy(() => import('./pages/FeatureFlags.jsx'));
 const Settings          = lazy(() => import('./pages/Settings.jsx'));
+
+// Lead Portal — self-service prospect routes, completely separate provider
+// tree from the staff app below (own auth, no RoleProvider/FlagProvider —
+// neither concept applies to a prospect). Lazy-loaded same as the rest.
+const PortalRegister  = lazy(() => import('./pages/portal/PortalRegister.jsx'));
+const PortalLogin     = lazy(() => import('./pages/portal/PortalLogin.jsx'));
+const PortalDashboard = lazy(() => import('./pages/portal/PortalDashboard.jsx'));
+const PortalCheckIn   = lazy(() => import('./pages/portal/PortalCheckIn.jsx'));
 
 // ─── Nav section label ─────────────────────────────────────────────────────────
 const SECTION = {
@@ -403,24 +412,58 @@ function AuthGate() {
     return <Login />;
   }
 
+  return <AppLayoutWrapper />;
+}
+
+function StaffApp() {
   return (
-    <BrowserRouter>
-      <AppLayoutWrapper />
-    </BrowserRouter>
+    <AuthProvider>
+      <RoleProvider>
+        <FlagProvider>
+          <AuthGate />
+        </FlagProvider>
+      </RoleProvider>
+    </AuthProvider>
+  );
+}
+
+// ─── Lead Portal — separate provider tree, no staff auth/role/flag concepts ────
+function PortalProtectedRoute({ children }) {
+  const { isAuthenticated } = useProspectAuth();
+  if (!isAuthenticated) return <Navigate to="/portal/login" replace />;
+  return children;
+}
+
+function PortalApp() {
+  return (
+    <ProspectAuthProvider>
+      <Suspense fallback={<div style={{ padding: '24px', textAlign: 'center', color: 'var(--mut)' }}>Loading…</div>}>
+        <Routes>
+          <Route path="register/:qrToken" element={<PortalRegister />} />
+          <Route path="login" element={<PortalLogin />} />
+          <Route path="dashboard" element={<PortalProtectedRoute><PortalDashboard /></PortalProtectedRoute>} />
+          <Route path="check-in" element={<PortalProtectedRoute><PortalCheckIn /></PortalProtectedRoute>} />
+          <Route path="*" element={<Navigate to="login" replace />} />
+        </Routes>
+      </Suspense>
+    </ProspectAuthProvider>
   );
 }
 
 // ─── Root ──────────────────────────────────────────────────────────────────────
+// BrowserRouter lives here now (moved out of AuthGate) — /portal/* has to be
+// reachable by an unauthenticated prospect before the staff Login gate below
+// it ever runs, which requires routing to exist above both branches, not
+// only inside the staff one.
 export default function App() {
   return (
     <ThemeProvider>
-      <AuthProvider>
-        <RoleProvider>
-          <FlagProvider>
-            <AuthGate />
-          </FlagProvider>
-        </RoleProvider>
-      </AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/portal/*" element={<PortalApp />} />
+          <Route path="/*" element={<StaffApp />} />
+        </Routes>
+      </BrowserRouter>
     </ThemeProvider>
   );
 }

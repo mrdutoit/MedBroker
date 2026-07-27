@@ -571,6 +571,32 @@ CREATE TABLE IF NOT EXISTS EventAttendee (
     CONSTRAINT UQ_EventAttendee       UNIQUE (eventId, leadId)
 );
 
+-- Lead Portal — 24 Jul 2026. Self-service identity for a prospect/attendee,
+-- deliberately NOT an extension of "User" (staff roles) — different
+-- security posture entirely (public self-registration vs internal staff),
+-- own JWT signing secret (see api-lib/config.js portalAuth), so a portal
+-- token can never be replayed against a staff route or vice versa.
+-- passwordMustChange/rotation deliberately omitted — that's a staff policy
+-- concern (see "User"), not applicable to a prospect's own account.
+CREATE TABLE IF NOT EXISTS LeadPortalAccount (
+    id                  UUID            NOT NULL DEFAULT gen_random_uuid(),
+    organisationId      UUID            NOT NULL DEFAULT 'D0000000-0000-0000-0000-000000000001',
+    leadId              UUID            NOT NULL,
+    email               VARCHAR(255)    NOT NULL,
+    passwordHash        TEXT            NOT NULL,
+    passwordSetAt       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    failedLoginAttempts INT             NOT NULL DEFAULT 0,
+    isLocked            BOOLEAN         NOT NULL DEFAULT FALSE,
+    createdAt           TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updatedAt           TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    deletedAt           TIMESTAMPTZ     NULL,
+    CONSTRAINT PK_LeadPortalAccount       PRIMARY KEY (id),
+    CONSTRAINT FK_LeadPortalAccount_Org   FOREIGN KEY (organisationId) REFERENCES Organisation(id),
+    CONSTRAINT FK_LeadPortalAccount_Lead  FOREIGN KEY (leadId) REFERENCES Lead(id),
+    CONSTRAINT UQ_LeadPortalAccount_Lead  UNIQUE (leadId),
+    CONSTRAINT UQ_LeadPortalAccount_Email UNIQUE (email)
+);
+
 -- =============================================================================
 -- SECTION 12 — NOTIFICATIONS
 -- =============================================================================

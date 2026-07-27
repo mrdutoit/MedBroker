@@ -39,6 +39,15 @@ export const config = {
     bootstrapSecret:  optional('BOOTSTRAP_SECRET'),
   },
 
+  // Lead Portal auth (services/leadPortalService.js) — deliberately a
+  // SEPARATE secret from localAuth above, not a shared one with a
+  // different claim shape. A prospect token must never verify against a
+  // staff route (or vice versa) even if someone tried — two different
+  // keys makes that structurally impossible, not just policy-enforced.
+  portalAuth: {
+    jwtSigningSecret: optional('PORTAL_JWT_SIGNING_SECRET'),
+  },
+
   // Optional — broker matching (services/brokerMatchingService.js) runs
   // correctly in degraded mode (ranks by fewest upcoming appointments,
   // no live slot confirmation) with this entirely unset. Only needed if a
