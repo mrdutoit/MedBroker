@@ -49,7 +49,7 @@ export default function PortalRegister() {
     }
     try {
       const { confirmPassword, ...profileData } = form;
-      await registerAndLogin(qrToken, profileData, form.password);
+      await registerAndLogin(qrToken, { ...profileData, popiConsent }, form.password);
       navigate('/portal/dashboard', { replace: true });
     } catch {
       // error already set on context
