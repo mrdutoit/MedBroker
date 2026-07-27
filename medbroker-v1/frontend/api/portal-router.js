@@ -7,6 +7,7 @@
  * Routes:
  *   GET  /api/portal/events/:qrToken   event context for registration page (public)
  *   POST /api/portal/register           create account + register for event (public)
+ *   POST /api/portal/activate           claim portal access for an existing Lead, no event needed (public)
  *   POST /api/portal/login               email + password (public)
  *   GET  /api/portal/me                  own profile (portal JWT)
  *   PUT  /api/portal/me                  update own contact details (portal JWT)
@@ -14,7 +15,7 @@
  */
 import {
   handlePortalEventLookup, handlePortalRegister, handlePortalLogin,
-  handlePortalMe, handlePortalCheckin,
+  handlePortalMe, handlePortalCheckin, handlePortalActivate,
 } from '../api-lib/handlers/portalHandlers.js';
 import { applyCors, parseSlug } from '../api-lib/http/helpers.js';
 
@@ -25,6 +26,7 @@ export default async function handler(req, res) {
 
   if (segments.length === 2 && segments[0] === 'events') return handlePortalEventLookup(req, res, segments[1]);
   if (segments.length === 1 && segments[0] === 'register') return handlePortalRegister(req, res);
+  if (segments.length === 1 && segments[0] === 'activate') return handlePortalActivate(req, res);
   if (segments.length === 1 && segments[0] === 'login')    return handlePortalLogin(req, res);
   if (segments.length === 1 && segments[0] === 'me')       return handlePortalMe(req, res);
   if (segments.length === 1 && segments[0] === 'checkin')  return handlePortalCheckin(req, res);

@@ -44,6 +44,7 @@ const Settings          = lazy(() => import('./pages/Settings.jsx'));
 // tree from the staff app below (own auth, no RoleProvider/FlagProvider —
 // neither concept applies to a prospect). Lazy-loaded same as the rest.
 const PortalRegister  = lazy(() => import('./pages/portal/PortalRegister.jsx'));
+const PortalActivate  = lazy(() => import('./pages/portal/PortalActivate.jsx'));
 const PortalLogin     = lazy(() => import('./pages/portal/PortalLogin.jsx'));
 const PortalDashboard = lazy(() => import('./pages/portal/PortalDashboard.jsx'));
 const PortalCheckIn   = lazy(() => import('./pages/portal/PortalCheckIn.jsx'));
@@ -440,6 +441,7 @@ function PortalApp() {
       <Suspense fallback={<div style={{ padding: '24px', textAlign: 'center', color: 'var(--mut)' }}>Loading…</div>}>
         <Routes>
           <Route path="register/:qrToken" element={<PortalRegister />} />
+          <Route path="activate" element={<PortalActivate />} />
           <Route path="login" element={<PortalLogin />} />
           <Route path="dashboard" element={<PortalProtectedRoute><PortalDashboard /></PortalProtectedRoute>} />
           <Route path="check-in" element={<PortalProtectedRoute><PortalCheckIn /></PortalProtectedRoute>} />

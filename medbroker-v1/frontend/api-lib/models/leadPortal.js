@@ -44,3 +44,18 @@ export const PortalUpdateMeSchema = z.object({
 export const PortalCheckinSchema = z.object({
   qrToken: z.string().uuid('Invalid event code'),
 });
+
+/**
+ * Claim portal access for an EXISTING Lead outside of any event context —
+ * the gap Mark found: registration was entirely event-anchored, so a
+ * manually-added attendee (Add Attendee, see models/event.js) had no way
+ * to get portal access once no event was currently active. Verified by
+ * email + dateOfBirth matching an EXISTING Lead exactly — deliberately
+ * does NOT create a new Lead on no match (that would let anyone
+ * self-register a "ghost" lead with no staff record behind it).
+ */
+export const PortalActivateSchema = z.object({
+  email:       z.string().email('Must be a valid email address'),
+  dateOfBirth: z.string().date('Must be a valid date (YYYY-MM-DD)'),
+  password:    z.string().min(12, 'Password must be at least 12 characters'),
+});

@@ -3573,12 +3573,62 @@ locked); registration-window expiry (backdated Event.createdAt + a
 registration, reset afterward). Full Vite build clean (1408 modules, up
 from 1375) and the existing 45-test Vitest suite unaffected throughout.
 
-NEXT: nothing queued — this closes out the Lead Portal work scoped back
-in §27/§46. Natural next candidates, not yet discussed with Mark: staff
-visibility into portal accounts (e.g. an indicator on LeadDetail.jsx that
-a lead has registered their own portal account), or a "resend registration
-link" affordance for staff. Neither requested yet — don't build ahead of
-being asked.
+NEXT: nothing queued beyond the follow-up below — this closes out the Lead
+Portal work scoped back in §27/§46.
+
+FOLLOW-UP, SAME SESSION — a real gap Mark found testing this: registration
+(POST /api/portal/register) is entirely event-anchored — it only exists
+at /portal/register/:qrToken. A manually-added attendee (§46's Add
+Attendee — creates a Lead + EventAttendee, no LeadPortalAccount) had no
+way to get portal access once no event was currently active. Re-using an
+active event's registration link technically already worked (it matches
+by email, doesn't require the Lead to be new) but wasn't a real fix —
+nothing to reuse once every event's closed.
+
+Fix: new POST /api/portal/activate + /portal/activate page, no qrToken
+needed at all. Verifies email + dateOfBirth against an EXISTING Lead —
+deliberately never creates a new one on a miss, since that would let
+anyone self-register a "ghost" lead with no staff record behind it. Both
+"no Lead matches at all" and "matched a Lead but the DOB is wrong" return
+the exact same generic message — verified directly this session that the
+two failure paths are indistinguishable, so this can't be used to
+enumerate which emails exist in the system. Belt-and-braces duplicate
+check by leadId as well as by email (a Lead could in principle already
+have an account under a different email if it changed outside the normal
+updatePortalProfile flow that keeps the two in step). Linked from
+PortalLogin.jsx ("Registered by a broker or agent but don't have an
+account yet?").
+
+FLAGGED, NOT FIXED THIS SESSION: neither /register nor /activate have any
+rate limiting — there's no rate-limiting infrastructure anywhere in this
+backend at all, confirmed by search this session. /activate matters more
+here since it's an identity-probing surface (email + DOB guessing), even
+though the blast radius if guessed correctly is narrow (contact info +
+appointment status, not medical/financial data, per the narrow-v1 scope).
+Grouping this with the already-deferred WAF/Cloudflare Pro deployment-
+phase item rather than bolting on an ineffective in-process limiter now —
+real IP/account rate limiting needs the Cloudflare layer to do properly
+in a serverless deployment anyway.
+
+VERIFIED against the same local Postgres instance: 6 further checks — a
+Lead seeded with no portal account (simulating Add Attendee's output),
+wrong DOB rejected generically, a wholly nonexistent email rejected with
+the byte-for-byte SAME error (the enumeration-resistance check), correct
+email+DOB succeeds and returns a token, re-activating the same email
+correctly 409s, and the newly-set password logs in immediately after.
+Full Vite build clean and the existing 45-test Vitest suite unaffected.
+
+MIGRATION ADDITIONS — on top of §47's file list above:
+  api-lib/models/leadPortal.js                 (PortalActivateSchema added)
+  api-lib/services/leadPortalService.js        (activatePortalAccount, getPortalAccountByLeadId added)
+  api-lib/handlers/portalHandlers.js           (handlePortalActivate added)
+  api/portal-router.js                         (activate route added)
+  src/services/portalApi.js                    (activate added)
+  src/context/ProspectAuthContext.jsx          (activateAccount added)
+  src/pages/portal/PortalActivate.jsx          (NEW)
+  src/pages/portal/PortalLogin.jsx             (link to /portal/activate added)
+  src/App.jsx                                   (PortalActivate route added)
+
 
 MIGRATION — straightforward add, no deletions:
   db/schema.postgres.sql                       (LeadPortalAccount table added)

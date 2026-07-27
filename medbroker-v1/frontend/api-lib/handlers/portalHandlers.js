@@ -9,10 +9,12 @@ import {
   getEventForRegistration, isRegistrationWindowOpen,
   getPortalAccountByEmail, recordPortalLoginSuccess, recordPortalLoginFailure,
   registerProspectForEvent, getPortalProfile, updatePortalProfile, checkinProspect,
+  activatePortalAccount,
 } from '../services/leadPortalService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
 import {
   PortalRegisterSchema, PortalLoginSchema, PortalUpdateMeSchema, PortalCheckinSchema,
+  PortalActivateSchema,
 } from '../models/leadPortal.js';
 
 function issuePortalToken(account) {
@@ -90,6 +92,43 @@ export async function handlePortalRegister(req, res) {
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
     console.error('portal/register error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** POST /api/portal/activate — claim portal access for an existing Lead, no event needed */
+export async function handlePortalActivate(req, res) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    if (!config.portalAuth.jwtSigningSecret) {
+      return res.status(500).json({ error: 'PORTAL_JWT_SIGNING_SECRET is not configured on the server' });
+    }
+
+    const parsed = PortalActivateSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { email, dateOfBirth, password } = parsed.data;
+
+    const passwordHash = await hashPassword(password);
+    const result = await activatePortalAccount(email, dateOfBirth, passwordHash);
+
+    await writeAuditLog({
+      entityType: 'Lead',
+      entityId: result.leadId,
+      action: 'PortalAccountActivated',
+      performedById: result.leadId,
+      changeDetail: { actor: 'portal-self-service' },
+      ipAddress: clientIp(req),
+    });
+
+    const token = issuePortalToken(result);
+    return res.status(201).json({ token });
+
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    console.error('portal/activate error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

@@ -2,7 +2,7 @@
  * pages/portal/PortalLogin.jsx — NEW, 24 Jul 2026.
  */
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 import { PortalCard } from '../../components/PortalCard.jsx';
 import { useProspectAuth } from '../../context/ProspectAuthContext.jsx';
 import { s } from '../../styles/tokens.js';
@@ -61,6 +61,10 @@ export default function PortalLogin() {
           {loading ? 'Signing in…' : 'Log in'}
         </button>
       </form>
+      <p style={{ fontSize: '0.8125rem', color: 'var(--mut)', textAlign: 'center', marginTop: '16px' }}>
+        Registered by a broker or agent but don't have an account yet?{' '}
+        <Link to="/portal/activate" style={{ color: 'var(--accent)' }}>Activate your account</Link>
+      </p>
     </PortalCard>
   );
 }

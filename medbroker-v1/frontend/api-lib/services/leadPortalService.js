@@ -281,6 +281,78 @@ export async function updatePortalProfile(leadId, data) {
   return true;
 }
 
+// ── Claim access for an existing Lead, outside any event context ───────────
+
+export async function getPortalAccountByLeadId(leadId) {
+  return executeQueryOne(
+    `SELECT id FROM LeadPortalAccount WHERE leadId = @leadId AND deletedAt IS NULL`,
+    { leadId: { type: sql.UniqueIdentifier, value: leadId } }
+  );
+}
+
+/**
+ * The fix for the gap Mark found: a manually-added attendee (Add
+ * Attendee, no portal account created) had no way to get portal access
+ * once no event was currently active — registerProspect() above is
+ * entirely event-anchored. This matches an EXISTING Lead by email AND
+ * dateOfBirth (both must match exactly) and creates the missing
+ * LeadPortalAccount for it. Deliberately never creates a new Lead on a
+ * miss — returns the same generic failure either way (no match at all,
+ * or matched but wrong DOB) so this can't be used to enumerate which
+ * emails exist in the system.
+ * @param {string} email
+ * @param {string} dateOfBirth - 'YYYY-MM-DD'
+ * @param {string} passwordHash
+ * @returns {Promise<{leadId: string, portalAccountId: string}>}
+ */
+export async function activatePortalAccount(email, dateOfBirth, passwordHash) {
+  const existingAccount = await getPortalAccountByEmail(email);
+  if (existingAccount) {
+    throw { status: 409, message: 'An account already exists for this email — log in instead.' };
+  }
+
+  const lead = await executeQueryOne(
+    `SELECT id FROM Lead
+     WHERE email = @email AND dateOfBirth = @dateOfBirth
+       AND deletedAt IS NULL AND organisationId = @organisationId`,
+    {
+      email:          { type: sql.NVarChar(255), value: email },
+      dateOfBirth:    { type: sql.Date, value: dateOfBirth },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+  // Generic failure either way — no match, or matched a different Lead's
+  // DOB — so this endpoint can't be used to confirm a given email exists.
+  if (!lead) {
+    throw { status: 401, message: "We couldn't verify those details. Check your email and date of birth match what you registered with, or contact your broker." };
+  }
+
+  // A Lead could theoretically already have an account under a DIFFERENT
+  // email if they've since changed their contact email elsewhere without
+  // going through the portal — belt-and-braces check by leadId as well as
+  // by email above (updatePortalProfile keeps these in step in the normal
+  // flow, but this path doesn't assume that's the only way an account
+  // could exist).
+  const existingByLead = await getPortalAccountByLeadId(lead.id);
+  if (existingByLead) {
+    throw { status: 409, message: 'An account already exists for this Lead — log in instead.' };
+  }
+
+  const account = await executeQueryOne(
+    `INSERT INTO LeadPortalAccount (id, organisationId, leadId, email, passwordHash, passwordSetAt)
+     VALUES (gen_random_uuid(), @organisationId, @leadId, @email, @passwordHash, NOW())
+     RETURNING id`,
+    {
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+      leadId:         { type: sql.UniqueIdentifier, value: lead.id },
+      email:          { type: sql.NVarChar(255), value: email },
+      passwordHash:   { type: sql.NVarChar(sql.MAX), value: passwordHash },
+    }
+  );
+
+  return { leadId: lead.id, portalAccountId: account.id };
+}
+
 // ── Check-in ─────────────────────────────────────────────────────────────
 
 /**
