@@ -30,7 +30,7 @@
 
 import { z } from 'zod';
 
-const saMobile = z.string()
+export const saMobile = z.string()
   .regex(/^(\+27|0)[6-8]\d{8}$/, 'Mobile number must be a valid South African number');
 
 const saIdNumber = z.string()

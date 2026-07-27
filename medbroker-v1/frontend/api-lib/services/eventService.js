@@ -16,6 +16,7 @@
 import { executeQuery, executeQueryOne, sql } from './db.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 import { ALLOWED_STATUS_TRANSITIONS } from '../models/event.js';
+import { findDuplicate, createLead } from './leadService.js';
 
 const EVENT_SELECT = `
   SELECT
@@ -159,4 +160,88 @@ export async function getEventReport(eventId) {
   if (!event) return null;
   const attendees = await listEventAttendees(eventId);
   return { event, attendees };
+}
+
+/**
+ * Manually register an attendee for an event — resolves to an existing
+ * Lead (same dedup as everywhere else: idNumberHash then email, via
+ * leadService.findDuplicate) or creates a new one, tagged with
+ * linkedEventId + leadSource='EventAttendance'. Idempotent against a
+ * second add for the same (eventId, leadId) — returns the existing
+ * EventAttendee row rather than erroring or duplicating it.
+ * @param {string} eventId
+ * @param {Object} data - validated AddAttendeeSchema data
+ * @param {string} performedById - staff user adding this attendee
+ * @returns {Promise<{attendeeId: string, leadId: string, createdNewLead: boolean, alreadyRegistered: boolean}>}
+ */
+export async function addAttendee(eventId, data, performedById) {
+  let leadId = await findDuplicate(data.email, null);
+  let createdNewLead = false;
+
+  if (!leadId) {
+    leadId = await createLead(
+      {
+        title: data.title,
+        firstName: data.firstName,
+        lastName: data.lastName,
+        dateOfBirth: data.dateOfBirth,
+        email: data.email,
+        mobileNumber: data.mobileNumber,
+        occupation: data.occupation,
+        linkedEventId: eventId,
+        leadSource: 'EventAttendance',
+      },
+      performedById
+    );
+    createdNewLead = true;
+  }
+
+  const existing = await executeQueryOne(
+    `SELECT id FROM EventAttendee WHERE eventId = @eventId AND leadId = @leadId AND deletedAt IS NULL`,
+    {
+      eventId: { type: sql.UniqueIdentifier, value: eventId },
+      leadId:  { type: sql.UniqueIdentifier, value: leadId },
+    }
+  );
+  if (existing) {
+    return { attendeeId: existing.id, leadId, createdNewLead, alreadyRegistered: true };
+  }
+
+  const row = await executeQueryOne(
+    `INSERT INTO EventAttendee (id, organisationId, eventId, leadId, rsvp, attended, attendedAt, popiConsent, registeredAt)
+     VALUES (gen_random_uuid(), @organisationId, @eventId, @leadId, TRUE, @attended,
+             CASE WHEN @attended THEN NOW() ELSE NULL END, TRUE, NOW())
+     RETURNING id`,
+    {
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+      eventId:        { type: sql.UniqueIdentifier, value: eventId },
+      leadId:         { type: sql.UniqueIdentifier, value: leadId },
+      attended:       { type: sql.Bit, value: data.attended ?? false },
+    }
+  );
+  return { attendeeId: row.id, leadId, createdNewLead, alreadyRegistered: false };
+}
+
+/**
+ * Toggle an attendee's checked-in status — the manual equivalent of what
+ * the future Lead Portal's self-check-in will do to the same column.
+ * @param {string} eventId
+ * @param {string} attendeeId
+ * @param {boolean} attended
+ * @returns {Promise<boolean>} false if no matching row (wrong event/id, or deleted)
+ */
+export async function setAttendeeAttendance(eventId, attendeeId, attended) {
+  const row = await executeQueryOne(
+    `UPDATE EventAttendee
+     SET attended = @attended, attendedAt = CASE WHEN @attended THEN NOW() ELSE NULL END
+     WHERE id = @attendeeId AND eventId = @eventId AND organisationId = @organisationId AND deletedAt IS NULL
+     RETURNING id`,
+    {
+      attended:       { type: sql.Bit, value: attended },
+      attendeeId:     { type: sql.UniqueIdentifier, value: attendeeId },
+      eventId:        { type: sql.UniqueIdentifier, value: eventId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+  return !!row;
 }

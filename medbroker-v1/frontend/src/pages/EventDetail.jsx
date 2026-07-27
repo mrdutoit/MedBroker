@@ -21,14 +21,17 @@ import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch } from '../hooks/useFetch.js';
 import { useRole } from '../context/RoleContext.jsx';
 import { eventsApi } from '../services/api.js';
+import { TITLES, JOB_TITLES } from '../constants/leadOptions.js';
 
 // Mirrors ALLOWED_STATUS_TRANSITIONS in api-lib/models/event.js — kept as a
 // small, separate copy rather than importing backend code into the Vite
 // bundle (api-lib is deliberately excluded from the frontend build, see
 // Status.md §24.2). Update both together if transitions ever change.
 const NEXT_STATUS_ACTIONS = {
-  Draft:  [{ status: 'Active',    label: 'Activate Event' }, { status: 'Cancelled', label: 'Cancel Event' }],
-  Active: [{ status: 'Closed',    label: 'Close Event' },     { status: 'Cancelled', label: 'Cancel Event' }],
+  Draft:     [{ status: 'Active',    label: 'Activate Event' },  { status: 'Cancelled', label: 'Cancel Event' }],
+  Active:    [{ status: 'Closed',    label: 'Close Event' },      { status: 'Cancelled', label: 'Cancel Event' }],
+  Closed:    [{ status: 'Active',    label: 'Reopen Event' }],
+  Cancelled: [{ status: 'Draft',     label: 'Reactivate as Draft' }],
 };
 
 function YesNo({ value }) {
@@ -56,6 +59,138 @@ function toCsv(event, attendees) {
   return [header, ...rows].map(r => r.map(esc).join(',')).join('\n');
 }
 
+function AddAttendeeModal({ eventId, onClose, onSaved }) {
+  const [form, setForm] = useState({
+    title: '', firstName: '', lastName: '', dateOfBirth: '',
+    email: '', mobileNumber: '', occupation: '', attended: false,
+  });
+  const [popiConsentConfirmed, setPopiConsentConfirmed] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const [result, setResult] = useState(null);
+
+  async function handleSubmit(e) {
+    e.preventDefault();
+    setSaving(true);
+    setError('');
+    try {
+      const res = await eventsApi.addAttendee(eventId, { ...form, popiConsentConfirmed });
+      setResult(res);
+      await onSaved?.();
+    } catch (err) {
+      setError(err.message ?? 'Could not add attendee.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  const set = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
+
+  return (
+    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ ...s.modal, width: '440px' }}>
+        <div style={s.modalHeader}>
+          <h2 style={s.modalTitle}>Add Attendee</h2>
+          <button onClick={onClose} style={s.closeBtn}>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="16" height="16">
+              <path d="M3 3l10 10M13 3L3 13"/>
+            </svg>
+          </button>
+        </div>
+
+        {result ? (
+          <>
+            <div style={{ ...s.noticeSuccess, marginBottom: '14px' }}>
+              {result.alreadyRegistered
+                ? 'This person is already registered for this event.'
+                : result.createdNewLead
+                  ? 'Attendee added — a new Lead record was created and linked to this event.'
+                  : 'Attendee added — matched to an existing Lead record.'}
+            </div>
+            <div style={s.modalFooter}>
+              <button onClick={onClose} style={s.primaryBtn}>Done</button>
+            </div>
+          </>
+        ) : (
+          <form onSubmit={handleSubmit}>
+            {error && <div style={{ ...s.errorBox, marginBottom: '12px' }}>{error}</div>}
+
+            <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr', gap: '10px', marginBottom: '12px' }}>
+              <div>
+                <label style={s.formLabel}>Title *</label>
+                <select value={form.title} onChange={set('title')} style={s.select} required>
+                  <option value="">–</option>
+                  {TITLES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={s.formLabel}>First Name *</label>
+                <input value={form.firstName} onChange={set('firstName')} style={s.formInput} required />
+              </div>
+              <div>
+                <label style={s.formLabel}>Last Name *</label>
+                <input value={form.lastName} onChange={set('lastName')} style={s.formInput} required />
+              </div>
+            </div>
+
+            <div style={s.formGroup}>
+              <label style={s.formLabel}>Date of Birth *</label>
+              <input type="date" value={form.dateOfBirth} onChange={set('dateOfBirth')} style={s.formInput} required />
+            </div>
+            <div style={s.formGroup}>
+              <label style={s.formLabel}>Email *</label>
+              <input type="email" value={form.email} onChange={set('email')} style={s.formInput} required />
+            </div>
+            <div style={s.formGroup}>
+              <label style={s.formLabel}>Mobile Number *</label>
+              <input value={form.mobileNumber} onChange={set('mobileNumber')} style={s.formInput} placeholder="0821234567" required />
+            </div>
+            <div style={s.formGroup}>
+              <label style={s.formLabel}>Job Title *</label>
+              <select value={form.occupation} onChange={set('occupation')} style={s.select} required>
+                <option value="">Select…</option>
+                {JOB_TITLES.map(j => <option key={j} value={j}>{j}</option>)}
+              </select>
+            </div>
+            <div style={{ ...s.formGroup, display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <input
+                type="checkbox"
+                id="attended-now"
+                checked={form.attended}
+                onChange={e => setForm(f => ({ ...f, attended: e.target.checked }))}
+              />
+              <label htmlFor="attended-now" style={{ fontSize: '0.8125rem', color: 'var(--ink)' }}>
+                Mark as attended now (they're here at the venue)
+              </label>
+            </div>
+            <div style={{ ...s.formGroup, display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
+              <input
+                type="checkbox"
+                id="popi-consent"
+                checked={popiConsentConfirmed}
+                onChange={e => setPopiConsentConfirmed(e.target.checked)}
+                style={{ marginTop: '3px' }}
+              />
+              <label htmlFor="popi-consent" style={{ fontSize: '0.8125rem', color: 'var(--ink)' }}>
+                I confirm this person has given POPIA consent to have their details captured. *
+              </label>
+            </div>
+
+            <div style={s.modalFooter}>
+              <button type="button" onClick={onClose} style={{ ...s.secondaryBtn, background: 'none', border: 'none' }}>
+                Cancel
+              </button>
+              <button type="submit" disabled={saving || !popiConsentConfirmed} style={s.primaryBtn}>
+                {saving ? 'Adding…' : 'Add Attendee'}
+              </button>
+            </div>
+          </form>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function EventDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -74,6 +209,8 @@ export default function EventDetail() {
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [statusChanging, setStatusChanging] = useState(false);
   const [statusError, setStatusError] = useState('');
+  const [showAddAttendee, setShowAddAttendee] = useState(false);
+  const [togglingId, setTogglingId] = useState(null);
 
   const regUrl = event ? `${window.location.origin}/portal/register/${event.qrToken}` : '';
 
@@ -124,6 +261,18 @@ export default function EventDetail() {
     window.location.href = `mailto:?subject=${encodeURIComponent(`Register for ${event.name}`)}&body=${encodeURIComponent(`You're invited — register here: ${regUrl}`)}`;
   }
 
+  async function handleToggleAttendance(attendee) {
+    setTogglingId(attendee.id);
+    try {
+      await eventsApi.setAttendance(id, attendee.id, !attendee.attended);
+      await refetch();
+    } catch (err) {
+      setStatusError(err.message ?? 'Could not update attendance.');
+    } finally {
+      setTogglingId(null);
+    }
+  }
+
   if (loading) return <div style={{ padding: '24px', color: 'var(--mut)' }}>Loading event…</div>;
   if (error) return (
     <div style={{ padding: '24px' }}>
@@ -162,6 +311,9 @@ export default function EventDetail() {
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
           {event.status === 'Active' && (
             <button onClick={() => setShowQr(true)} style={s.primaryBtn}>Show QR Code</button>
+          )}
+          {canManage && event.status === 'Active' && (
+            <button onClick={() => setShowAddAttendee(true)} style={s.secondaryBtn}>+ Add Attendee</button>
           )}
           <button onClick={handleDownloadReport} style={s.secondaryBtn}>Download Report</button>
           {canManage && nextActions.map(a => (
@@ -250,7 +402,20 @@ export default function EventDetail() {
                 <td style={{ ...s.td, color:'var(--mut)' }}>{a.email}</td>
                 <td style={s.td}>{a.occupation ?? '—'}</td>
                 <td style={s.td}><YesNo value={a.rsvp} /></td>
-                <td style={s.td}><YesNo value={a.attended} /></td>
+                <td style={s.td}>
+                  {canManage ? (
+                    <button
+                      onClick={() => handleToggleAttendance(a)}
+                      disabled={togglingId === a.id}
+                      style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+                      title={a.attended ? 'Click to mark not attended' : 'Click to check in'}
+                    >
+                      <YesNo value={a.attended} />
+                    </button>
+                  ) : (
+                    <YesNo value={a.attended} />
+                  )}
+                </td>
                 <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>
                   {format(new Date(a.registeredAt), 'd MMM HH:mm')}
                 </td>
@@ -292,6 +457,14 @@ export default function EventDetail() {
             <button onClick={() => setShowQr(false)} style={s.secondaryBtn}>Close</button>
           </div>
         </div>
+      )}
+
+      {showAddAttendee && (
+        <AddAttendeeModal
+          eventId={id}
+          onClose={() => setShowAddAttendee(false)}
+          onSaved={refetch}
+        />
       )}
     </div>
   );

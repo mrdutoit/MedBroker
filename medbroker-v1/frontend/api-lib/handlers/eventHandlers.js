@@ -9,10 +9,10 @@
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
 import {
   listEvents, getEventById, createEvent, updateEventStatus,
-  listEventAttendees, getEventReport,
+  listEventAttendees, getEventReport, addAttendee, setAttendeeAttendance,
 } from '../services/eventService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
-import { CreateEventSchema, UpdateEventStatusSchema } from '../models/event.js';
+import { CreateEventSchema, UpdateEventStatusSchema, AddAttendeeSchema, SetAttendanceSchema } from '../models/event.js';
 import { isUuid } from '../http/helpers.js';
 
 const VIEW_ROLES   = ['Agent', 'Broker', 'Supervisor', 'Admin', 'GlobalAdmin'];
@@ -159,6 +159,90 @@ export async function handleEventReport(req, res, id) {
       return res.status(status).json(body);
     }
     console.error('events/[id]/report error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** POST /api/events/:id/attendees — manual "Add Attendee" */
+export async function handleEventAttendees(req, res, id) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, MANAGE_ROLES);
+
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid event ID format' });
+
+    const parsed = AddAttendeeSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const event = await getEventById(id);
+    if (!event) return res.status(404).json({ error: 'Event not found' });
+    if (event.status !== 'Active') {
+      return res.status(400).json({ error: `Attendees can only be added to an Active event (this event is ${event.status}).` });
+    }
+
+    const result = await addAttendee(id, parsed.data, claims.oid);
+
+    await writeAuditLog({
+      entityType: 'Event',
+      entityId: id,
+      action: 'AttendeeAdded',
+      performedById: claims.oid,
+      changeDetail: { leadId: result.leadId, createdNewLead: result.createdNewLead, alreadyRegistered: result.alreadyRegistered },
+      ipAddress: clientIp(req),
+    });
+
+    return res.status(result.alreadyRegistered ? 200 : 201).json(result);
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('events/[id]/attendees error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** PUT /api/events/:id/attendees/:attendeeId/attendance */
+export async function handleEventAttendeeAttendance(req, res, id, attendeeId) {
+  if (req.method !== 'PUT') {
+    res.setHeader('Allow', 'PUT, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, MANAGE_ROLES);
+
+    if (!isUuid(id) || !isUuid(attendeeId)) {
+      return res.status(400).json({ error: 'Invalid ID format' });
+    }
+
+    const parsed = SetAttendanceSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const updated = await setAttendeeAttendance(id, attendeeId, parsed.data.attended);
+    if (!updated) return res.status(404).json({ error: 'Attendee not found on this event' });
+
+    await writeAuditLog({
+      entityType: 'EventAttendee',
+      entityId: attendeeId,
+      action: parsed.data.attended ? 'AttendeeCheckedIn' : 'AttendeeCheckInReverted',
+      performedById: claims.oid,
+      ipAddress: clientIp(req),
+    });
+
+    return res.status(200).json({ ok: true });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('events/[id]/attendees/[attendeeId]/attendance error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

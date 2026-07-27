@@ -253,11 +253,14 @@ export const brokerMatchingApi = {
 // ─── Events ───────────────────────────────────────────────────────────────────
 
 export const eventsApi = {
-  list:         ()             => request('/events'),
-  get:          (id)           => request(`/events/${id}`),
-  create:       (data)         => request('/events', { method: 'POST', body: JSON.stringify(data) }),
-  updateStatus: (id, status)   => request(`/events/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
-  report:       (id)           => request(`/events/${id}/report`),
+  list:         ()                    => request('/events'),
+  get:          (id)                  => request(`/events/${id}`),
+  create:       (data)                => request('/events', { method: 'POST', body: JSON.stringify(data) }),
+  updateStatus: (id, status)          => request(`/events/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
+  report:       (id)                  => request(`/events/${id}/report`),
+  addAttendee:  (id, data)            => request(`/events/${id}/attendees`, { method: 'POST', body: JSON.stringify(data) }),
+  setAttendance: (id, attendeeId, attended) =>
+    request(`/events/${id}/attendees/${attendeeId}/attendance`, { method: 'PUT', body: JSON.stringify({ attended }) }),
 };
 
 // ─── Users ────────────────────────────────────────────────────────────────────

@@ -3345,8 +3345,68 @@ frontend routes (/portal/register/:qrToken, /portal/login,
 /portal/dashboard, /portal/check-in) — scope already agreed above, not
 re-litigated when this is picked up.
 
-MIGRATION — straightforward add, no deletions:
+FOLLOW-UP, SAME SESSION — two real gaps found by Mark testing the delivery:
+there was no way to add attendees at all (nothing populates EventAttendee
+until the Portal is built), and Closed/Cancelled were hard terminal states
+with no way back from an accidental status change.
+
+  1. STATUS RECOVERY. ALLOWED_STATUS_TRANSITIONS (api-lib/models/event.js)
+     changed from Closed/Cancelled being terminal to: Closed -> Active
+     (Reopen Event) and Cancelled -> Draft (Reactivate as Draft). An
+     Event's status is a lifecycle position, not a data-integrity lock the
+     way Appointment's ClosedWon/ClosedLost is — mistakes should be
+     correctable. EventDetail.jsx's NEXT_STATUS_ACTIONS map (the frontend's
+     own copy, kept in sync manually per the existing comment) updated to
+     match and expose the new buttons.
+
+  2. MANUAL ADD ATTENDEE. New AddAttendeeSchema (api-lib/models/event.js) —
+     same required fields as CreateLeadSchema (title/firstName/lastName/
+     dateOfBirth/email/mobileNumber/occupation), reusing Title/JobTitle/
+     saMobile directly from models/lead.js rather than redeclaring them
+     (saMobile is now exported from lead.js — the only change to that
+     file). New eventService.addAttendee(): resolves an existing Lead via
+     leadService.findDuplicate() (same email/idNumber dedup as everywhere
+     else) or creates one via leadService.createLead() with
+     linkedEventId + leadSource='EventAttendance'; then creates the
+     EventAttendee row — idempotent if that Lead is already registered for
+     this event (returns alreadyRegistered:true rather than erroring or
+     duplicating). Gated to an Active event only, same reasoning as the
+     future Portal registration flow. popiConsentConfirmed is a hard
+     z.literal(true) gate — staff adding someone on their own behalf did
+     not get consent through a self-service form the way Portal
+     registration will, so this is an explicit staff attestation, not an
+     assumed default. New POST /api/events/:id/attendees
+     (handleEventAttendees, Admin/Supervisor/GlobalAdmin only) + a new
+     Add Attendee modal on EventDetail.jsx (title/name/DOB/email/mobile/
+     job-title fields identical to LeadImport.jsx's Manual Entry tab,
+     plus an "attended now" checkbox and the consent confirmation).
+
+  3. MANUAL CHECK-IN TOGGLE. New eventService.setAttendeeAttendance() +
+     PUT /api/events/:id/attendees/:attendeeId/attendance
+     (handleEventAttendeeAttendance) — flips attended/attendedAt directly,
+     same column the future Portal self-check-in will write to. The
+     Attended Yes/No badge in EventDetail.jsx's attendee table is now a
+     click-to-toggle button for Admin/Supervisor/GlobalAdmin (read-only
+     display for other roles) — gives Mark a way to exercise the full
+     attendance lifecycle manually before the Portal exists, and doubles
+     as a real feature for staff checking someone in without the Portal
+     (weak venue connectivity, attendee without a smartphone, etc.).
+
+VERIFIED against the same local Postgres instance: 18 further checks —
+Closed->Active reopen, Active->Cancelled, Cancelled->Draft reactivate,
+add-attendee rejected on a Draft event, add-attendee succeeds on Active
+and creates a new Lead, re-adding the same email returns alreadyRegistered
+without a duplicate Lead, missing popiConsentConfirmed rejected 400,
+attendance toggle on/off with attendedAt set/cleared correctly each way,
+Agent blocked from adding attendees (403). Full Vite build clean (1375
+modules, same count — no new page-level chunk, EventDetail.jsx grew from
+33.5kB to 38.4kB) and the existing 45-test Vitest suite unaffected.
+
+MIGRATION — straightforward add, no deletions (supersedes this session's
+earlier file list — these are the same files, now with the follow-up
+included, not a separate delta to apply after):
   api-lib/models/event.js                (NEW)
+  api-lib/models/lead.js                 (saMobile now exported — only change)
   api-lib/services/eventService.js       (NEW)
   api-lib/handlers/eventHandlers.js      (NEW)
   api/events-router.js                   (NEW)
