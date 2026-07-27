@@ -26,15 +26,11 @@ import { PortalCard } from '../../components/PortalCard.jsx';
 import { useProspectAuth } from '../../context/ProspectAuthContext.jsx';
 import { portalApi } from '../../services/portalApi.js';
 import { TITLES, JOB_TITLES } from '../../constants/leadOptions.js';
+import { ATTENDANCE_META } from '../../constants/portalAttendance.js';
 import { s } from '../../styles/tokens.js';
 
-const BANNER = {
-  rsvp:   { bg: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d', border: 'color-mix(in srgb, #15803d 30%, var(--panel))', label: 'RSVP Attendance' },
-  walkin: { bg: 'color-mix(in srgb, #db2777 14%, var(--panel))', color: '#db2777', border: 'color-mix(in srgb, #db2777 30%, var(--panel))', label: 'Walk-In Attendance' },
-};
-
 function AttendanceBanner({ attendanceType, alreadyCheckedIn }) {
-  const meta = BANNER[attendanceType] ?? BANNER.walkin;
+  const meta = ATTENDANCE_META[attendanceType] ?? ATTENDANCE_META.walkin;
   return (
     <div style={{
       background: meta.bg, color: meta.color, border: `1px solid ${meta.border}`,

@@ -7,8 +7,10 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
+import { format } from 'date-fns';
 import { useProspectAuth } from '../../context/ProspectAuthContext.jsx';
 import { portalApi } from '../../services/portalApi.js';
+import { ATTENDANCE_META } from '../../constants/portalAttendance.js';
 import { s } from '../../styles/tokens.js';
 
 const STATUS_LABEL = {
@@ -25,6 +27,7 @@ export default function PortalDashboard() {
   const navigate = useNavigate();
   const { logout } = useProspectAuth();
   const [profile, setProfile] = useState(null);
+  const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
 
@@ -39,6 +42,7 @@ export default function PortalDashboard() {
     portalApi.getMe()
       .then(data => {
         setProfile(data.profile);
+        setEvents(data.events ?? []);
         setForm({ email: data.profile.email ?? '', mobileNumber: data.profile.mobileNumber ?? '' });
       })
       .catch(err => setLoadError(err.message ?? 'Could not load your profile.'))
@@ -105,6 +109,40 @@ export default function PortalDashboard() {
             Check in to an event
           </Link>
         </div>
+
+        {events.length > 0 && (
+          <div style={{ ...s.card, marginBottom: '16px' }}>
+            <div style={{ fontSize: '0.75rem', color: 'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '10px' }}>
+              Your Events
+            </div>
+            {events.map((ev, i) => {
+              const attendanceType = ev.attended ? (ev.rsvp ? 'rsvp' : 'walkin') : 'registered';
+              const meta = ATTENDANCE_META[attendanceType];
+              return (
+                <div
+                  key={ev.eventId}
+                  style={{
+                    display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                    padding: '10px 0',
+                    borderBottom: i < events.length - 1 ? '1px solid var(--line)' : 'none',
+                  }}
+                >
+                  <div>
+                    <div style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--ink)' }}>{ev.eventName}</div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--mut)' }}>{format(new Date(ev.eventDate), 'd MMM yyyy')}</div>
+                  </div>
+                  <span style={{
+                    display: 'inline-block', padding: '3px 10px', borderRadius: '20px',
+                    fontSize: '0.6875rem', fontWeight: 600, whiteSpace: 'nowrap',
+                    background: meta.bg, color: meta.color, border: `1px solid ${meta.border}`,
+                  }}>
+                    {meta.label}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         <div style={s.card}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>

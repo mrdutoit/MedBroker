@@ -3804,6 +3804,99 @@ Plus this Status.md.
 
 
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+49. IN-APP SCANNER "STUCK BROWSER" BUG FIXED — 24 Jul 2026 (session 13, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Real bug Mark hit testing §48 live: after scanning the attendance QR via
+the in-app scanner, the browser appeared to freeze until manually
+refreshed — at which point the correct result (already saved server-side)
+showed up fine. Root cause: the post-scan hand-off used React Router's
+client-side navigate(), which doesn't tear down the page's JS context —
+so html5-qrcode's camera stream (known to not always fully release on
+some browsers, iOS Safari especially) kept running underneath the
+confirmation page, which never got the chance to repaint. The check-in
+itself was never broken, only the UI reflecting it.
+
+Fix, pages/portal/PortalCheckIn.jsx only: swapped the post-scan hand-off
+from navigate() to a genuine full-page navigation
+(window.location.href) — the browser's own document-teardown on a real
+navigation reliably releases the camera stream, rather than depending on
+the library's stop() to do it. Also fixed a related issue found while
+in there: stop() was being called twice (once on scan success, once
+again on unmount) — a known way to put this library into a bad state —
+now guarded so it only ever fires once, and capped at 800ms so a hung
+stop() can't block the hand-off either. Added a "Code found — confirming
+your attendance…" transitional state so the scanner view doesn't sit
+silently blank during the brief window between scan and navigation.
+
+VERIFIED: full Vite build clean, existing 45-test Vitest suite
+unaffected. This is a frontend-only navigation-timing fix — no backend
+logic changed, so no new Postgres verification needed beyond what §48
+already covered.
+
+MIGRATION: single file, no schema/backend change:
+  src/pages/portal/PortalCheckIn.jsx
+Plus this Status.md.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+50. "YOUR EVENTS" ADDED TO PORTAL DASHBOARD — 24 Jul 2026 (session 13, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's ask: surface which events a prospect has checked in for directly
+on the dashboard, with the same green (RSVP)/pink (walk-in) language
+already used on the check-in confirmation page — without needing to
+re-scan an event's code to see it. This is a real, already-possible case,
+not a hypothetical: checkinProspect() (§48) already lets an
+already-authenticated Lead pick up a SECOND event's walk-in attendance
+under their existing identity, so more than one EventAttendee row per
+Lead already happens in practice.
+
+  - leadPortalService.js — new getPortalEvents(leadId): every
+    EventAttendee row for this Lead, joined to Event for name/date/
+    university/venue, ordered most recent event first.
+  - portalHandlers.js — GET /api/portal/me's response gains an `events`
+    array alongside `profile` (PUT /me's response unchanged — contact-
+    detail edits don't affect event history, no need to refetch it there).
+  - New src/constants/portalAttendance.js — ATTENDANCE_META, the single
+    source for the rsvp/walkin/registered colour+label combination, used
+    by BOTH PortalCheckinConfirm.jsx (refactored to import it rather than
+    keep its own local copy) and the new dashboard section — avoids the
+    two drifting apart. Added a third state, 'registered' (neutral grey,
+    not green or pink), for an event they've RSVP'd to but not yet
+    checked into — Mark's ask specifically covered the checked-in case,
+    this fills the obvious adjacent gap so the list isn't misleading for
+    upcoming events.
+  - PortalDashboard.jsx — new "Your Events" card, between appointment
+    status and the check-in button: each event as a row with a compact
+    pill (same colours as the full banner, just badge-sized for a list)
+    showing rsvp / walkin / registered.
+
+VERIFIED against the same local Postgres instance: 8 checks — a walk-in
+attendee's event list correctly shows rsvp:false/attended:true for their
+walk-in event; a genuine registrant's list shows rsvp:true/attended:true
+for the same event under their own account — confirming the query
+correctly scopes to the CALLING lead's own attendance record, not the
+event's aggregate state. Full Vite build clean and the existing 45-test
+Vitest suite unaffected.
+
+Also included in this delivery: the scanner navigation fix from earlier
+this turn (PortalCheckIn.jsx) — not yet applied at the time this was
+written, bundled together rather than as a second separate zip.
+
+MIGRATION — no schema change, frontend + two backend files:
+  api-lib/services/leadPortalService.js   (getPortalEvents added)
+  api-lib/handlers/portalHandlers.js      (events array added to GET /me)
+  src/constants/portalAttendance.js       (NEW)
+  src/pages/portal/PortalCheckinConfirm.jsx (refactored to use shared ATTENDANCE_META)
+  src/pages/portal/PortalDashboard.jsx    (Your Events section added)
+  src/pages/portal/PortalCheckIn.jsx      (scanner navigation fix, from earlier this turn)
+Plus this Status.md.
+
+
+
 If picking up a pending item from Section 5, reference it by name.
 e.g. "I want to work on the Appointments API build."
 

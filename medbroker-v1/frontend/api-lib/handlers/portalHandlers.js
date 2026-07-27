@@ -8,7 +8,7 @@ import { config } from '../config.js';
 import {
   getEventForRegistration, getEventForCheckin, isRegistrationWindowOpen,
   getPortalAccountByEmail, recordPortalLoginSuccess, recordPortalLoginFailure,
-  registerProspectForEvent, getPortalProfile, updatePortalProfile,
+  registerProspectForEvent, getPortalProfile, getPortalEvents, updatePortalProfile,
   checkinProspect, walkInCheckin, activatePortalAccount,
 } from '../services/leadPortalService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
@@ -207,7 +207,8 @@ export async function handlePortalMe(req, res) {
     if (req.method === 'GET') {
       const profile = await getPortalProfile(claims.leadId);
       if (!profile) return res.status(404).json({ error: 'Profile not found' });
-      return res.status(200).json({ profile });
+      const events = await getPortalEvents(claims.leadId);
+      return res.status(200).json({ profile, events });
     }
 
     if (req.method === 'PUT') {

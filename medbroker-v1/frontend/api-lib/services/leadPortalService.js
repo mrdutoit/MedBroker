@@ -263,6 +263,32 @@ export async function getPortalProfile(leadId) {
 }
 
 /**
+ * Every event this Lead has an EventAttendee row for — surfaces on the
+ * dashboard (Mark's ask, 24 Jul 2026) so a returning prospect can see
+ * their RSVP/walk-in status per event without re-scanning each one's
+ * attendance code. A Lead having more than one row here is a real,
+ * already-supported case: checkinProspect() creates a walk-in row for a
+ * SECOND event under an already-authenticated Lead's existing identity
+ * (§48) — the "no cross-event reuse" rule only applies to fresh
+ * registration, not to an already-logged-in person's walk-in check-in.
+ * @param {string} leadId
+ * @returns {Promise<Array>} [{ eventId, eventName, eventDate, university, venue, rsvp, attended, attendedAt }]
+ */
+export async function getPortalEvents(leadId) {
+  return executeQuery(
+    `SELECT
+       e.id AS "eventId", e.name AS "eventName", e.eventDate AS "eventDate",
+       e.university, e.venue,
+       ea.rsvp, ea.attended, ea.attendedAt AS "attendedAt"
+     FROM EventAttendee ea
+     JOIN Event e ON ea.eventId = e.id
+     WHERE ea.leadId = @leadId AND ea.deletedAt IS NULL
+     ORDER BY e.eventDate DESC`,
+    { leadId: { type: sql.UniqueIdentifier, value: leadId } }
+  );
+}
+
+/**
  * Update own contact details — writes through to Lead directly (not a
  * separate portal-only copy), so staff always see current contact info
  * rather than it silently diverging from what the prospect can see/edit.
