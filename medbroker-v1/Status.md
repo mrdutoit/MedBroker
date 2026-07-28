@@ -4396,6 +4396,50 @@ MIGRATION — logic only, no schema change:
 Plus this Status.md.
 
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+59. TASK DUE-DATE BUG — "OVERDUE 9129D" — 28 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark caught this in testing within minutes of the §58 delivery: created
+two manual tasks due 31 Jul 2026 (3 days out), both showed "Overdue
+9129d". Root-caused, not guessed — reproduced the exact number in the
+sandbox before touching any code (see below).
+
+CAUSE: taskHandlers.js's shapeTask() (§56) formatted dueDate/createdAt via
+String(row.dueAt).slice(0, 10). pg returns TIMESTAMPTZ columns as native
+JS Date objects, not strings — String(dateObj) calls .toString(), which
+reads "Fri Jul 31 2026 00:00:00 GMT+0000 (...)". Slicing the first 10
+characters gives "Fri Jul 31" — no year. Tasks.jsx then does
+new Date("Fri Jul 31") to compute the overdue badge, and V8 silently
+defaults a year-less date string to 2001. 31 Jul 2026 vs 31 Jul 2001 is
+~9,129 days — exactly the number on screen. Confirmed by reproducing the
+whole chain in the sandbox with node -e before writing the fix, not
+assumed from the symptom alone.
+
+FIX: shapeTask() now uses a small toDateOnly() helper —
+value.toISOString().slice(0, 10) when it's a Date object, falling back to
+new Date(value) for defensiveness. Matches the pattern leadHandlers.js's
+dateOfBirth handling already used correctly — checked the rest of the
+codebase for the same anti-pattern (grep for String(...).slice(0, *10))
+before treating this as isolated: it was. dateFormat.js's formatDate() and
+LeadDetail.jsx's dateOfBirth slicing look similar but are frontend code
+operating on values already received via a JSON API response — safe,
+since JSON.stringify() already calls .toISOString() on any Date object
+crossing that boundary. Only backend code stringifying a raw pg result
+directly, before JSON serialization, can hit this. Documented as a new
+CRITICAL IMPLEMENTATION RULE in Project_Context.md §8 so it doesn't
+recur in a future list/detail endpoint.
+
+VERIFIED: reproduced the exact bug and confirmed the fix with a standalone
+node script before and after (3 days, not 9129, on the same input); full
+Vite build clean; existing 45-test Vitest suite unaffected; taskHandlers.js
+passes node --check and an ESM import smoke test.
+
+MIGRATION — one file, logic only:
+  frontend/api-lib/handlers/taskHandlers.js (shapeTask() date fix)
+Plus this Status.md and Project_Context.md.
+
+
 
 If picking up a pending item from Section 5, reference it by name.
 e.g. "I want to work on the Appointments API build."

@@ -34,6 +34,25 @@ function isAdminRole(roles) {
  * the frontend's pre-existing contract exactly.
  * @param {Object} row
  */
+/**
+ * Postgres TIMESTAMPTZ/DATE columns come back from pg as native JS Date
+ * objects, not strings — String(dateObj) calls .toString(), which reads
+ * like "Fri Jul 31 2026 00:00:00 GMT+0000 (...)" and has NO YEAR in its
+ * first 10 characters ("Fri Jul 31"). Re-parsed on the frontend via
+ * new Date(...), a year-less date string silently defaults to 2001 in V8
+ * — which is exactly the bug Mark caught: a task due 31 Jul 2026 showed
+ * as "Overdue 9129d" because it was being compared against 31 Jul 2001.
+ * .toISOString() is the fix — matches the pattern already used correctly
+ * elsewhere (leadHandlers.js's dateOfBirth). Handles either shape
+ * defensively (a Date object, or an already-correct ISO string) since
+ * nothing here guarantees the pg driver's return shape won't ever change.
+ */
+function toDateOnly(value) {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+}
+
 function shapeTask(row) {
   const linkedLead = row.linkedLeadId
     ? [row.linkedLeadTitle, row.linkedLeadFirstName, row.linkedLeadLastName].filter(Boolean).join(' ')
@@ -51,8 +70,8 @@ function shapeTask(row) {
     assignedTo:        row.assignedToName,
     assignedToId:      row.assignedToId,
     assignedToRole:    row.assignedToRole,
-    dueDate:           row.dueAt ? String(row.dueAt).slice(0, 10) : null,
-    createdAt:         row.createdAt ? String(row.createdAt).slice(0, 10) : null,
+    dueDate:           toDateOnly(row.dueAt),
+    createdAt:         toDateOnly(row.createdAt),
     source:            row.type === 'Manual' ? 'manual' : 'system',
   };
 }

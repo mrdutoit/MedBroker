@@ -663,6 +663,23 @@ COLOR-MIX() IN JSX STYLE OBJECTS — must always be a quoted string:
   The third form (nested quotes) is a syntax error esbuild catches at build time.
   Always run npm run build in the sandbox before handing over any modified file.
 
+BACKEND DATE SERIALIZATION — String(dateObj) silently corrupts the year
+(found and fixed 28 Jul 2026, §59): pg returns TIMESTAMPTZ/DATE columns as
+native JS Date objects, not strings. String(dateObj) calls .toString(),
+producing "Fri Jul 31 2026 00:00:00 GMT+0000 (...)" — slicing the first 10
+characters for a date-only string gives "Fri Jul 31" with NO YEAR. If that
+ever gets re-parsed on the frontend via new Date(...), V8 silently
+defaults the missing year to 2001 — a ~25-year error that showed up as
+Tasks.jsx displaying "Overdue 9129d" on a task due in 3 days. Always call
+.toISOString().slice(0, 10) on a raw Date object from a query result, not
+String(...).slice(0, 10) — leadHandlers.js's dateOfBirth already did this
+correctly; taskHandlers.js's shapeTask() didn't, until §59. This only
+bites backend code serializing a raw pg result directly — frontend code
+slicing a value already received via a JSON API response (e.g.
+dateFormat.js's formatDate(), LeadDetail.jsx's dateOfBirth handling) is
+safe, since JSON.stringify() already correctly calls .toJSON()/
+.toISOString() on any Date object before it ever reaches the frontend.
+
 SELECT ELEMENTS — color required; colorScheme is theme-driven, not inline:
   Browser OS defaults (black text on white) override theme colours on <select>
   without explicit CSS. Every select must have color: 'var(--ink)' — set in
