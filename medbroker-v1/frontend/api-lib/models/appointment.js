@@ -99,6 +99,7 @@ export const AppointmentListQuerySchema = z.object({
   status:     AppointmentStatus.optional(),
   brokerId:   z.string().uuid().optional(),
   agentId:    z.string().uuid().optional(),
+  leadId:     z.string().uuid().optional(),
   portfolio:  z.string().optional(),
   source:     z.string().max(300).optional(),
   search:     z.string().max(100).optional(),

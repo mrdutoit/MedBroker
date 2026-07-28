@@ -1,8 +1,15 @@
 /**
  * services/appointmentService.js — NEW.
  * Business logic and data access for the Appointment entity — the "active
- * deal", 1:1 child of Lead (UNIQUE leadId), matching AppointmentDetail.jsx's
- * own header comment describing it as analogous to a Salesforce Opportunity.
+ * deal", analogous to a Salesforce Opportunity. One-to-many child of Lead
+ * (UQ_Appointment_LeadId dropped in 005_drop_appointment_lead_unique.sql —
+ * see Status.md §35): a Lead may accumulate multiple Appointment rows over
+ * time (e.g. a Closed Lost attempt followed by a Reopen and a second
+ * booking), all preserved for history rather than overwritten. leadService.
+ * getLeadById() surfaces only the MOST RECENT one (LATERAL join) for the
+ * Lead Detail conversion banner; listAppointments's leadId filter (below)
+ * is how the full set for one Lead is retrieved — see LeadDetail.jsx's
+ * "Appointment History" card.
  *
  * Scope: the ASSIGN model only — see models/appointment.js header for why
  * the CLAIM model (broker self-serve + token economy) is deliberately not
@@ -144,7 +151,7 @@ async function syncAppointmentProducts(appointmentId, productsWithValues) {
  * @param {string[]} [filters.supervisorAgentIds] - A1-style Supervisor scoping,
  *   set by the route handler, same pattern as leadService.listLeads().
  */
-export async function listAppointments({ status, brokerId, agentId, portfolio, source, search, page, pageSize, supervisorAgentIds }) {
+export async function listAppointments({ status, brokerId, agentId, leadId, portfolio, source, search, page, pageSize, supervisorAgentIds }) {
   const offset = (page - 1) * pageSize;
   let whereClause = 'WHERE a.organisationId = @organisationId';
   const params = { organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } };
@@ -152,6 +159,15 @@ export async function listAppointments({ status, brokerId, agentId, portfolio, s
   if (status) {
     whereClause += ' AND a.status = @status';
     params.status = { type: sql.NVarChar(50), value: status };
+  }
+  if (leadId) {
+    // Every Appointment for one Lead — the one-to-many history view
+    // (LeadDetail.jsx's "Appointment History" card), not a single-row
+    // lookup. Composes with the role-scoping filters below exactly like
+    // every other filter here (ANDed), so an Agent/Broker/Supervisor still
+    // only sees the leadId's appointments that are also theirs to see.
+    whereClause += ' AND a.leadId = @leadId';
+    params.leadId = { type: sql.UniqueIdentifier, value: leadId };
   }
   if (brokerId) {
     whereClause += ' AND a.brokerId = @brokerId';

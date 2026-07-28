@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 23 July 2026 (session 12)
+Last updated: 28 July 2026 (session 14)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -896,145 +896,54 @@ These decisions caused rework when changed — preserve them in every session:
 0. NEXT ACTION  (update this block at the end of every session)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Priority: Mark needs to apply §45 — three items from testing the Book
-Appointment flow: (1) multi-portfolio appointments (was single-select,
-same limitation Lead/User already had before §41 — see §45 for the full
-design), (2) Confirm Booking now disabled until required fields are
-actually filled in rather than click-then-discover, (3) canBook checks
-the Lead's assignedAgentId directly rather than inferring it from the
-status string. New migration:
-009_add_appointment_portfolio_multi.sql — run against Neon like every
-other migration in this list.
+CORRECTED 28 July 2026 (session 14) — this block had gone stale across
+sessions 12 and 13 (still describing §45's multi-portfolio-appointments
+work as the open priority, after it was actually delivered in §45 itself,
+and after §46-§53 built the entire Events domain + Lead Portal on top).
+Per §34/§28's own warning: treat this block as something to actually
+rewrite at the end of every session, not assume still correct.
 
-CONFIRMED APPLIED — the previous delivery (Products Sold bar-chart fix +
-Recent Appointments Total Value column on BrokerDetail.jsx) is live.
+CURRENT REALITY, session 14 start: the demo stack (frontend/api/ +
+frontend/api-lib/ against Neon Postgres — see the STANDING BUILD PATTERN
+note at the top of Project_Context.md) has Auth (local + Entra dual-mode),
+Leads, Appointments (assign model), Reports, Users, Flags/Config, and the
+Events + Lead Portal domain (self-service registration, venue check-in,
+dual QR codes, in-app scanner) all built and wired to real data. Sections
+3, 4, and 5 below are PRE-MIGRATION HISTORY (Azure-only planning, written
+before the 21-22 July pivot to build against Postgres/Vercel first) — they
+describe Appointments/Reports/Users/Flags as not-yet-built, which is no
+longer true. Left in place as a record of the original plan rather than
+deleted; do not treat their "NOT YET BUILT" language as current.
 
-STILL OPEN, not resolved this session — Mark asked whether the
-new policyValue migration could also backfill financial values onto
-EXISTING AppointmentProduct rows (historical products sold before this
-column existed). Answered directly: no live database access exists here
-and never has this whole build — every "database interaction" in this
-project has been generating SQL migration files for Mark to run himself
-against his own Neon instance, never a live connection to see actual row
-data. Real historical policy values were never captured anywhere, so
-there's no source of truth to backfill FROM — a migration can only set
-what's already known. Two real paths forward if Mark wants existing rows
-populated: (1) he supplies actual historical figures from wherever they
-do exist (memory, a spreadsheet, another system) in a structured form,
-and an accurate import migration gets written from that; (2) he wants
-placeholder/synthetic test values just to see the Reports charts non-
-empty, clearly flagged as fake data, not real. Left as NULL for now
-(the original migration's default) pending his answer — no invented
-numbers went in without confirming which path he wants.
+THIS SESSION (14, 28 Jul 2026): built §54 — Appointment History card on
+LeadDetail.jsx (leadId filter added to listAppointments, surfaces every
+Appointment linked to a Lead rather than just the most recent one). See
+§54 for full detail.
 
-RESOLVED — §37's root-cause theory for the blank Lead Detail page was
-confirmed correct by Mark directly: he'd forgotten to run the pending
-migrations. Migrations 002 through 006 are now presumed run and working
-(Lead Detail loads correctly per his confirmation) — the escalated
-MIGRATIONS PENDING warning from §37 can stand down; the general lesson
-(check useFetch error states, don't let fetch failures render silently)
-stays as a permanent pattern, documented in Project_Context.md.
+GENUINELY OPEN ITEMS (accurate as of session 14):
+  - Task backend — Tasks.jsx UI complete, server-side generation not built.
+  - Token economy (Stripe) — claim model works, payment provider not wired.
+  - Excel/JSON lead data importer — flagged since §34, still unscoped.
+  - Deployment-phase security — A5/A6, E1/E2/E3/E5, WAF (Cloudflare Pro),
+    pen test, POPIA operator agreements — parked for go-live, not blocking
+    demo work. Full list in §5 (still accurate — this is genuinely
+    deployment-phase, not stale).
+  - Email notifications — flag exists, Azure Communication Services not
+    configured.
+  - POPIA SAR endpoint — flag exists, admin endpoint not built.
+  - npm run lint still can't run at all (missing eslint.config.js, flagged
+    §34, still not fixed).
 
-THEN: Reports (backend + wiring) — still the only remaining page on mock
-data, deferred again this session. IMPORTANT, per Mark's explicit
-instruction in §33: build Reports (and anything after it) WITHOUT the
-preview/mock-fallback pattern from the start — no MOCK_* constants, no
-PREVIEW_MODE branching, just real data from the moment the backend exists.
-Then the queued prospect-facing Lead Portal (§27), and the Excel/JSON data
-take-on importer flagged in §34 — still deliberately out of scope, still
-needs its own scoping session.
-
-IMPORTANT — read §28 in full before touching Reports or anything else
-that touches api/leads/ or api/appointments/: at the start of an earlier
-session, several fixes had reverted on GitHub for reasons still unknown —
-GlobalAdmin missing again on three Lead routes, api/leads/sources.js
-missing entirely, api/leads/[id]/calls.js reverted to its old POST-only
-state. Given this, treat every future delivery's file list as something to
-actually re-verify against a fresh hydration at the START of the next
-session, not assumed still correct from a prior session's confirmation.
-§34 also found Status.md/Project_Context.md themselves had gone stale on
-GitHub (18 June in the repo vs the far more current project-knowledge
-copy) — confirm that's been corrected; if this document is showing 18 June
-again when you read this, the same thing happened twice and is worth
-investigating properly rather than just re-pushing again.
-
-MIGRATIONS — ✅ RESOLVED §38. Confirmed directly by Mark: he'd forgotten to
-run the pending migrations; running them fixed the blank Lead Detail page,
-matching §37's theory exactly. All of 002 through 006 presumed run as of
-§38. Keeping this entry as a record rather than deleting it — the pattern
-(migrations documented and delivered but not confirmed run for multiple
-sessions) is worth remembering even though this specific instance is
-closed. New migrations going forward should still get an explicit
-confirmation from Mark rather than assumed.
-
-Before starting Appointments (now done — keeping this for the next
-similar build): read Status.md §25 in full — four real bugs were found
-there by testing (not by review) that are worth having front of mind for
-the exact same failure modes recurring: (1) GlobalAdmin missing from
-requireRole() allow-lists on new routes — check every new route
-explicitly includes it, don't assume; (2) empty-string form fields sent
-instead of omitted breaking Zod .optional() validation — apply
-stripEmpty() (already exists in LeadImport.jsx, reusable) to any new
-create/update payload with optional fields; (3) HTML datetime-local
-inputs need z.string().datetime({ local: true }), not the bare default.
-
-The Azure-target Appointments API build (previously the top priority here,
-§4 + §5) is superseded FOR NOW by building against the demo stack first,
-per Mark's 21 July direction — build once against Postgres/Vercel,
-lift-and-shift to Azure SQL/Functions only when a real customer needs the
-production deployment. Don't build the same API twice in parallel.
-
-⚠ CRITICAL — READ BEFORE TOUCHING functions/leads.js, services/leadService.js,
-OR middleware/auth.js ON THE AZURE SIDE:
-This session found that the A1–A4 security fixes this file documents below
-as complete (18 June session) are NOT actually present in the hydrated
-GitHub source — see §21.2 for the full finding. Verify against GitHub
-before assuming any of A1–A4 are live in the Azure codebase; do not trust
-this document's "COMPLETE AS OF 18 JUNE" claim below without checking the
-actual files first.
-
-FRONTEND UI/UX FIXES — COMPLETE AS OF 18 JUNE 2026
-  AppAdmin flag-gating, LeadDetail/AppointmentDetail full-width layout, the
-  Second/Third meeting create-flow, Portfolio pills, and the theme-aware
-  date-picker fix are all in and Vite-build-verified. Does not change the
-  Appointments API priority above — this was a parallel UI fix pass, not a
-  replacement for it. Full detail in §2 (18 Jun frontend session).
-
-SECURITY HARDENING — A1-A4 FIXED AS OF 18 JUNE 2026
-  Supervisor team-scoping, deactivated-user enforcement, and AuditLog writes
-  are now live on the Leads domain (functions/leads.js, services/leadService.js,
-  middleware/auth.js, services/auditService.js). When building the Appointments
-  API, reuse this exact pattern from day one rather than re-deriving it:
-    - Supervisor (without Admin) scoped via isDirectReport() / a
-      supervisorScopeId-style filter — never org-wide by default.
-    - Target user validation via getActiveUserById() before assigning broker/agent.
-    - writeAuditLog() on every create/assign/reassign/return/outcome action.
-  Full findings (including what's still parked — A5/A6/E1-E5) are in
-  docs/security/MedBroker_Security_Code_Review_Findings.docx §5.
-
-DARK THEME SWEEP — COMPLETE AS OF 13 JUNE 2026
-  All 15 pages pass a full Vite production build (1294 modules, zero errors).
-  No hardcoded light-mode hex remains. All colour-mix() values are correctly
-  quoted. All <select> elements have color set (colorScheme corrected 18 Jun —
-  see §6; no longer set inline, now theme-driven via themes.css).
-
-SKILLS TO UPDATE (prompts ready — paste into "Creating personalised AI skills"):
-  ⬜ app-builder.skill — add: color-mix() quoting rule; <select> colorScheme
-     rule; QR code white container rule; Vite build gate before handover;
-     detail pages must not have maxWidth constraint.
-  ⬜ code-nodejs skill — add: JSX CSS function quoting rule; build-verify
-     before handover.
-
-KNOWN HOUSEKEEPING (non-blocking, no build impact):
-  - Stray files in repo: frontend/src/pages/Status.md and frontend/main.jsx
-  - docs/ folder referenced in context files did not exist in repo — partially
-    resolved 18 Jun: a real .docx now exists for docs/security/
-    MedBroker_Security_Code_Review_Findings.docx (commit it on next push);
-    docs/delivery/MedBroker_Delivery_MultiTenancy_Playbook.docx still unconfirmed
-  - User avatar and theme preference persist in sessionStorage only until
-    Users API is built
-
-
+PERMANENT PATTERNS worth re-reading before touching adjacent code (still
+valid, not stale):
+  - §28: GlobalAdmin missing from requireRole() allow-lists is a recurring
+    real bug on new routes — check every new route explicitly includes it.
+  - §25: empty-string optional fields breaking Zod .optional() — apply
+    stripEmpty() to new create/update payloads.
+  - §25: HTML datetime-local inputs need z.string().datetime({ local: true }).
+  - Client hides, server enforces — every permission/lock boundary in this
+    app follows this split (§35's edit-lock, Reopen, etc.); new gates
+    should too.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 21. DEMO BACKEND (Vercel + Neon) — added 21 July 2026
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -4080,6 +3989,78 @@ MIGRATION — single file:
 Plus this Status.md.
 
 
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+54. APPOINTMENT HISTORY ON LEAD DETAIL — 28 Jul 2026 (session 14)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark asked directly: is there a way to show all Appointments linked to a
+specific Lead — surfacing the one-to-many Lead:Appointment relationship
+established back in §35? There wasn't. leadService.getLeadById() only
+ever resolves the single MOST RECENT appointment (LATERAL join, built for
+the conversion banner's lock/reopen logic), and listAppointments() had no
+leadId filter at all — no route existed to ask for "every appointment for
+this lead." Worse than just a missing feature: the only visible link to
+appointment history on LeadDetail — the conversion banner's "View in
+Appointments" button — disappears entirely once isConverted goes false,
+which happens on Reopen. So a lead that had a Closed Lost appointment,
+got reopened, and is now back InProgress shows NO trace of that earlier
+appointment anywhere on the page, even though the row still exists in the
+database exactly as §35 intended it to (preserved, not deleted).
+
+Built:
+  - listAppointments() (api-lib/services/appointmentService.js) gained a
+    leadId filter, ANDed into the WHERE clause the same way every other
+    filter here is — composes correctly with the existing Agent/Broker/
+    Supervisor role-scoping (an Agent viewing a lead's history still only
+    sees appointments that are also theirs under the existing scoping,
+    a Supervisor still scoped to direct reports, etc. — no new scoping
+    logic needed, the existing filters just stack).
+  - AppointmentListQuerySchema (api-lib/models/appointment.js) —
+    leadId: z.string().uuid().optional() added.
+  - Fixed appointmentService.js's header comment, which still described
+    Appointment as "1:1 child of Lead (UNIQUE leadId)" — stale since §35
+    dropped that constraint over a month ago. Now documents the real
+    one-to-many relationship and points to this card as where the full
+    set is surfaced.
+  - LeadDetail.jsx: new "Appointment History" card, fetched via
+    appointmentsApi.list({ leadId: id, pageSize: 50 }) and sorted
+    client-side by createdAt descending (most recent booking first).
+    Deliberately NOT gated on isConverted, unlike the conversion banner —
+    this card stays visible whether the lead is currently converted,
+    reopened, or closed, which is the whole point. Each row shows a status
+    chip (APPT_STATUS_META, imported from styles/tokens.js — first use of
+    that export in this file; LeadDetail previously had its own separate
+    STATUS_COLOURS for Lead statuses only), portfolio(s), broker name, and
+    date; row-click navigates to /appointments/:id, matching the existing
+    row-click pattern already used on AppointmentList.jsx (§38).
+  - Card placed between Call History and Audit Log in the existing
+    two-column grid — no layout restructuring elsewhere on the page.
+
+NOT changed: leadService.getLeadById()'s single-most-recent resolution is
+untouched and still correct for its own purpose — the conversion banner
+needs exactly one appointment's status to reason about the lock/reopen
+gate. This is a second, independent path to the full set, not a
+replacement for the first.
+
+Also corrected this file's own §0 NEXT ACTION block, which had gone stale
+across sessions 12-13 (see §0 for detail) — flagged to Mark at the start
+of this session before any build work started.
+
+VERIFIED: full Vite production build clean (1,411 modules, zero errors);
+existing 45-test Vitest suite unaffected (45 passed, 0 failed); both
+edited api-lib files pass node --check and an ESM import smoke test
+(appointmentService.js requires DATABASE_URL at import time as always —
+confirmed clean with a dummy value; no live DB connection available in
+this sandbox, same limitation as every prior session — this was a query/
+schema change verified by inspection and by the existing test suite, not
+by a live Postgres run).
+
+MIGRATION — no schema change, query filter + one UI card only:
+  frontend/api-lib/models/appointment.js        (leadId added to AppointmentListQuerySchema)
+  frontend/api-lib/services/appointmentService.js  (leadId filter in listAppointments; header comment fixed)
+  frontend/src/pages/LeadDetail.jsx             (Appointment History card; APPT_STATUS_META import; appointmentHistory fetch)
+Plus this Status.md.
 
 If picking up a pending item from Section 5, reference it by name.
 e.g. "I want to work on the Appointments API build."

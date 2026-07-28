@@ -228,6 +228,13 @@ LEAD ↔ APPOINTMENT CARDINALITY — ONE-TO-MANY (changed 23 Jul 2026, §35):
   AppointmentList.jsx needed no change for this: it already lists
   Appointment rows, not leads deduplicated by lead, so a lead with two
   appointments over time correctly shows as two separate rows there.
+  FULL SET NOW SURFACED (added 28 Jul 2026, §54): listAppointments() gained
+  a leadId filter and LeadDetail.jsx gained an "Appointment History" card
+  showing every Appointment row for the lead, not just the most recent —
+  deliberately independent of isConverted, since the conversion banner
+  (and its single View in Appointments link) disappears on Reopen, which
+  had been silently hiding a reopened lead's prior appointment(s) entirely.
+  See Status.md §54.
 
 LEAD LOCK / REOPEN (added 23 Jul 2026, §35):
   A Lead is locked from editing (PUT /api/leads/:id rejected server-side,

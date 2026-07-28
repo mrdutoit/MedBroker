@@ -36,6 +36,7 @@ import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useRole, PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
 import { REGIONS, JOB_TITLES } from '../constants/leadOptions.js';
 import AuditLogList from '../components/AuditLogList.jsx';
+import { APPT_STATUS_META } from '../styles/tokens.js';
 
 // ─── Status transition machine (mirrors server-side leadStatusService.js) ─────
 function computeNewStatus(currentStatus, outcome) {
@@ -195,6 +196,21 @@ export default function LeadDetail() {
   // LeadUpdated entry here).
   const { data: auditData, refetch: refetchAudit } = useFetch(() => leadsApi.auditLog(id), [id]);
   const auditEntries = auditData?.entries ?? [];
+
+  // Appointment History — GET /api/appointments?leadId=:id. A Lead has been
+  // one-to-many with Appointment since §35 (a Closed Lost attempt followed
+  // by Reopen + a second booking leaves two rows, both real history) but
+  // until now LeadDetail only ever showed the single most recent one (the
+  // conversion banner's "View in Appointments" link, driven by
+  // baseLead.appointmentId from leadService's LATERAL join) — and that
+  // banner disappears entirely once a lead is reopened, taking the only
+  // link to its appointment history with it. This card is independent of
+  // isConverted for exactly that reason — the history stays visible
+  // whether the lead is currently converted, reopened, or closed.
+  const { data: apptHistoryData } = useFetch(() => appointmentsApi.list({ leadId: id, pageSize: 50 }), [id]);
+  const appointmentHistory = (apptHistoryData?.appointments ?? [])
+    .slice()
+    .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
   // Local status override — reflects transitions immediately after an
   // action, before the next real fetch would otherwise pick them up.
@@ -615,6 +631,46 @@ export default function LeadDetail() {
                       Callback: {format(new Date(call.callbackDateTime), 'd MMM yyyy HH:mm')}
                     </p>
                   )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Appointment History — every Appointment linked to this Lead
+            (one-to-many since §35: a Closed Lost attempt followed by
+            Reopen + a second booking leaves two rows, both real history).
+            Deliberately NOT gated on isConverted — the conversion banner
+            above (and its single "View in Appointments" link) disappears
+            once a lead is reopened, which previously took the only visible
+            link to appointment history with it. This card stays visible
+            regardless of the lead's current status. */}
+        <div style={cardStyle}>
+          <div style={cardTitle}>Appointment History ({appointmentHistory.length})</div>
+          {appointmentHistory.length === 0 && <p style={{ color:'var(--mut)', fontSize: '0.875rem' }}>No appointments booked yet.</p>}
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            {appointmentHistory.map((appt, i) => {
+              const meta = APPT_STATUS_META[appt.status] ?? { colour: 'var(--mut)', bg: 'var(--panel2)', border: 'var(--line)', label: appt.status };
+              const portfolios = appt.portfolios?.length ? appt.portfolios.join(', ') : (appt.portfolio ?? '—');
+              return (
+                <div
+                  key={appt.id}
+                  onClick={() => navigate(`/appointments/${appt.id}`)}
+                  style={{
+                    borderLeft: `3px solid ${meta.border}`, padding: '8px 10px',
+                    background: i % 2 === 1 ? 'var(--panel2)' : 'transparent',
+                    cursor: 'pointer',
+                  }}
+                >
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ ...badge(meta.bg, meta.colour) }}>{meta.label}</span>
+                    <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>
+                      {appt.firstAppointmentDate ? format(new Date(appt.firstAppointmentDate), 'd MMM yyyy') : '—'}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '0.813rem', color:'var(--mut)', marginTop: '4px' }}>
+                    {portfolios}{appt.brokerName ? ` · ${appt.brokerName}` : ''}
+                  </p>
                 </div>
               );
             })}
