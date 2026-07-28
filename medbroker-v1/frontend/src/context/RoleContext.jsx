@@ -95,6 +95,8 @@ export function RoleProvider({ children }) {
       displayName: user.displayName,
       initials: initialsFrom(user.displayName),
       role: user.role,
+      email: user.email,
+      avatarColour: user.avatarColour,
     };
     setRole = () => {}; // no-op — role comes from the real logged-in user
   } else {

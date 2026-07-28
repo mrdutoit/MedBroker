@@ -19,6 +19,7 @@ import { ProspectAuthProvider, useProspectAuth } from './context/ProspectAuthCon
 import { apiMode }                          from './services/api.js';
 import { useWindowSize }                     from './hooks/useWindowSize.js';
 import { Logo }                              from './components/Logo.jsx';
+import { avatarColourValue }                 from './constants/avatarOptions.js';
 import Login                                 from './pages/Login.jsx';
 
 import LeadList        from './pages/LeadList.jsx';
@@ -281,7 +282,7 @@ function AppLayout({ children }) {
           <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '4px 6px' }}>
             <div style={{
               width: '30px', height: '30px', borderRadius: '50%', flexShrink: 0,
-              background: 'linear-gradient(135deg, var(--accent), var(--accent2))',
+              background: avatarColourValue(persona.avatarColour),
               color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center',
               fontSize: '0.6875rem', fontWeight: 700,
             }}>

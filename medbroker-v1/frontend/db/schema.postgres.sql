@@ -152,6 +152,13 @@ CREATE TABLE IF NOT EXISTS "User" (
     passwordMustChange      BOOLEAN         NOT NULL DEFAULT FALSE,
     failedLoginAttempts     INT             NOT NULL DEFAULT 0,
     isLocked                BOOLEAN         NOT NULL DEFAULT FALSE,
+    -- v2.6 (28 July 2026, demo schema only — see migrations/012): self-service
+    -- profile preferences Settings.jsx has always had UI for but could only
+    -- persist to sessionStorage until now. Store the short id (e.g. 'grad',
+    -- 'linen'), not the rendered CSS — frontend resolves id -> value.
+    themePreference         VARCHAR(20)     NOT NULL DEFAULT 'linen',
+    avatarColour            VARCHAR(20)     NOT NULL DEFAULT 'grad',
+    timezone                VARCHAR(50)     NOT NULL DEFAULT 'Africa/Johannesburg',
     createdAt               TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updatedAt               TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     deletedAt               TIMESTAMPTZ     NULL,

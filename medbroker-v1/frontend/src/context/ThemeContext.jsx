@@ -19,6 +19,7 @@ export const THEMES = [
 ];
 
 const THEME_IDS = THEMES.map(t => t.id);
+export { THEME_IDS };
 const DEFAULT_THEME = 'linen';
 const THEME_STORAGE_KEY = 'medbroker.theme';
 

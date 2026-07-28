@@ -528,7 +528,8 @@ medbroker-v1/
 │   │   │   ├── AppointmentDetail.jsx   ReassignBrokerModal (agent editable, 23 Jul 2026)
 │   │   │   │                           ReturnToLeadsModal (red destructive confirm)
 │   │   │   ├── Reports.jsx             Recharts charts (BarChart, ResponsiveContainer)
-│   │   │   ├── Settings.jsx            NEW — theme picker (live), profile, avatar stub
+│   │   │   ├── Settings.jsx            theme picker (live), profile, avatar colour —
+│   │   │   │                           all real (PUT /users/me, §55); photo upload stub
 │   │   │   │                           Route: /settings — all roles
 │   │   │   ├── AgentDetail.jsx
 │   │   │   ├── BrokerDetail.jsx
@@ -643,10 +644,15 @@ THEMECONTEXT IMPORT:
   const { theme, setTheme, themes } = useTheme();
   THEMES is an array: [{ id, name, mood, swatch:[c1,c2] }, ...]
 
-AVATAR / PROFILE PERSISTENCE:
-  Settings.jsx Save Changes button writes displayName and avatarColour to
-  sessionStorage (mb_displayName, mb_avatarColour). Resets on browser close.
-  Persistent storage across sessions requires the Users API (pending).
+AVATAR / PROFILE PERSISTENCE (updated 28 Jul 2026, §55):
+  Settings.jsx Save Changes button now PUTs displayName/avatarColour/
+  timezone to PUT /api/users/me (self-service — see §55) in demo mode, and
+  patches the cached session via AuthContext's updateUser() so the sidebar
+  avatar and displayName update immediately. Theme applies instantly on
+  click as before and now also persists immediately in demo mode. The
+  non-demo (Entra) branch is unchanged — still sessionStorage-only,
+  because RoleContext doesn't yet derive a real identity there (see its
+  header comment) — collapses to the same real-backend path once that lands.
 
 COLOR-MIX() IN JSX STYLE OBJECTS — must always be a quoted string:
   CSS function values are not valid JavaScript — they must appear as strings.
@@ -818,10 +824,13 @@ Dark theme sweep (13 Jun 2026):
   colours are the intentional exception — fixed semantic colours for cross-theme
   recognisability.
 
-Settings Save Changes (13 Jun 2026):
-  Theme applies live with no save step (correct UX — instant preview). Display
-  name and avatar colour require explicit Save. Values written to sessionStorage
-  until Users API is built. The dirty-state guard prevents accidental saves.
+Settings Save Changes (13 Jun 2026; backend wired 28 Jul 2026, §55):
+  Theme applies live with no save step (correct UX — instant preview), and
+  in demo mode now also persists immediately (fire-and-forget) rather than
+  waiting on the Save button. Display name, avatar colour, and timezone
+  still require explicit Save — now PUT /api/users/me in demo mode, real
+  sessionStorage only in the not-yet-wired Entra branch. The dirty-state
+  guard prevents accidental saves.
 
 BrokerDetail / AgentDetail layouts (13 Jun 2026):
   maxWidth: '960px' removed. Both pages now use full available width, consistent
@@ -1059,10 +1068,14 @@ COLOUR SWEEP — completed 13 June 2026:
   onMouseEnter/Leave anti-pattern fixed across all 7 affected pages.
   See §8 CRITICAL IMPLEMENTATION RULES for the correct patterns.
 
-SETTINGS PAGE (/settings — all roles):
+SETTINGS PAGE (/settings — all roles; backend wired 28 Jul 2026, §55):
   Three sections: Appearance (live theme picker), Profile (name/email/role),
-  Avatar (accent colour picker; photo upload is a stub pending Users API).
-  Theme choice saved to sessionStorage; Users API will persist it server-side.
+  Avatar (accent colour picker; photo upload is a deliberate stub — real
+  file/blob storage is separate, larger scope, not the Users API gap it
+  used to be). Theme/name/avatar colour/timezone now persist server-side
+  in demo mode via PUT /api/users/me (self-service — separate route from
+  UserAdmin.jsx's Admin-only PUT /api/users/:id). Entra branch still
+  sessionStorage-only pending RoleContext deriving a real identity there.
 
 RECHARTS — added to package.json (^2.12.7):
   Used in Reports.jsx for BarChart / ResponsiveContainer.

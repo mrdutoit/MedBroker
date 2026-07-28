@@ -5,9 +5,9 @@
  */
 
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
-import { listUsers, createUserFull, listSupervisors, getUserForAdmin, updateUserFull } from '../services/userService.js';
+import { listUsers, createUserFull, listSupervisors, getUserForAdmin, updateUserFull, getOwnProfile, updateOwnProfile } from '../services/userService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
-import { CreateUserSchema, UserListQuerySchema, UpdateUserSchema } from '../models/user.js';
+import { CreateUserSchema, UserListQuerySchema, UpdateUserSchema, UpdateOwnProfileSchema } from '../models/user.js';
 import { isUuid } from '../http/helpers.js';
 
 /** GET (list) + POST (create) /api/users */
@@ -66,6 +66,59 @@ export async function handleUsersCollection(req, res) {
       return res.status(status).json(body);
     }
     console.error('users/index error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * GET + PUT /api/users/me — self-service profile (Settings.jsx). Every
+ * authenticated role reaches this, deliberately no requireRole() gate —
+ * unlike handleUserById below (Admin/GlobalAdmin editing SOMEONE ELSE),
+ * this always operates on claims.oid, the caller's own row, never on an id
+ * taken from the request. That's what makes "no role gate" safe here: an
+ * Agent can freely GET/PUT this route, but there is no way to reach any
+ * row but their own through it — UpdateOwnProfileSchema also can't accept
+ * role/isActive/portfolios, so even a self-edit can't smuggle in an
+ * elevation, on top of the id already being fixed server-side.
+ */
+export async function handleUserMe(req, res) {
+  try {
+    const claims = await validateToken(req);
+
+    if (req.method === 'GET') {
+      const profile = await getOwnProfile(claims.oid);
+      if (!profile) return res.status(404).json({ error: 'User not found' });
+      return res.status(200).json(profile);
+    }
+
+    if (req.method === 'PUT') {
+      const parsed = UpdateOwnProfileSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+      await updateOwnProfile(claims.oid, parsed.data);
+
+      await writeAuditLog({
+        entityType: 'User',
+        entityId: claims.oid,
+        action: 'ProfileUpdated',
+        performedById: claims.oid,
+        changeDetail: parsed.data,
+        ipAddress: clientIp(req),
+      });
+
+      const updated = await getOwnProfile(claims.oid);
+      return res.status(200).json(updated);
+    }
+
+    res.setHeader('Allow', 'GET, PUT, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('users/me error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

@@ -274,7 +274,8 @@ export const usersApi = {
     ).toString();
     return request(`/users${qs ? `?${qs}` : ''}`);
   },
-  me:     ()     => request('/users/me'),
+  me:       ()     => request('/users/me'),
+  updateMe: (data) => request('/users/me', { method: 'PUT', body: JSON.stringify(data) }),
   get:    (id)   => request(`/users/${id}`),
   create: (data) => request('/users', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),

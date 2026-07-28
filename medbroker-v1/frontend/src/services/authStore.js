@@ -62,6 +62,20 @@ export function setSession(token, user) {
   persist();
 }
 
+/**
+ * Merge a partial update into the cached user — used after a self-service
+ * profile save (Settings.jsx) so persona.displayName/avatarColour/etc.
+ * reflect the change immediately app-wide, without forcing a re-login.
+ * No-op if there's no active session; callers should only invoke this
+ * while authenticated.
+ * @param {Object} patch
+ */
+export function updateUser(patch) {
+  if (!session) return;
+  session = { ...session, user: { ...session.user, ...patch } };
+  persist();
+}
+
 export function clearSession() {
   session = null;
   persist();

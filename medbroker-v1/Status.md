@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status
 ==================================================
-Last updated: 28 July 2026 (session 14)
+Last updated: 28 July 2026 (session 14, continued)
 Purpose: Current build state — paste into a new chat alongside Project_Context.md
 
 See Project_Context.md's "STANDING BUILD PATTERN" note at the top — as of
@@ -918,7 +918,9 @@ deleted; do not treat their "NOT YET BUILT" language as current.
 THIS SESSION (14, 28 Jul 2026): built §54 — Appointment History card on
 LeadDetail.jsx (leadId filter added to listAppointments, surfaces every
 Appointment linked to a Lead rather than just the most recent one). See
-§54 for full detail.
+§54 for full detail. Continued same session: built §55 — Settings wired to
+a real self-service backend (PUT /api/users/me, new User columns for
+theme/avatar/timezone). See §55 for full detail.
 
 GENUINELY OPEN ITEMS (accurate as of session 14):
   - Task backend — Tasks.jsx UI complete, server-side generation not built.
@@ -4061,9 +4063,124 @@ MIGRATION — no schema change, query filter + one UI card only:
   frontend/api-lib/services/appointmentService.js  (leadId filter in listAppointments; header comment fixed)
   frontend/src/pages/LeadDetail.jsx             (Appointment History card; APPT_STATUS_META import; appointmentHistory fetch)
 Plus this Status.md.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+55. SETTINGS WIRED TO A REAL SELF-SERVICE BACKEND — 28 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark asked to pick up Settings next, expecting it to be relatively simple.
+It wasn't quite — every preference on that page (theme, display name,
+avatar colour, timezone) was sessionStorage-only, and BOTH ThemeContext.jsx
+and Settings.jsx already carried their own "when a Users API exists, wire
+this up" comments. The Users API existing (§23) wasn't enough on its own:
+PUT /api/users/:id is Admin/GlobalAdmin-only, for editing SOMEONE ELSE —
+there was no route an ordinary user could call to edit themselves, and the
+User table had no columns for these preferences at all. Flagged this to
+Mark before building rather than quietly narrowing scope to whatever the
+existing route happened to support.
+
+Built:
+
+BACKEND
+  - Migration 012_add_user_profile_prefs.sql — adds themePreference,
+    avatarColour, timezone to "User" (VARCHAR ids — 'linen'/'grad'/etc. —
+    not raw CSS, matching how Portfolio/Product names travel elsewhere).
+    Mirrored into schema.postgres.sql for fresh databases.
+  - UpdateOwnProfileSchema (models/user.js) — deliberately a SEPARATE
+    schema from UpdateUserSchema, not a permissive subset of it. Only
+    displayName/avatarColour/themePreference/timezone are acceptable —
+    no role, isActive, or portfolios reachable through it at all, so a
+    self-edit can never smuggle in a privilege change even by accident.
+  - getOwnProfile() / updateOwnProfile() (userService.js) — a lighter,
+    separate pair from getUserForAdmin()/updateUserFull() (no supervisor/
+    portfolio/product joins Settings doesn't need).
+  - handleUserMe (userHandlers.js) — GET + PUT /api/users/me. Deliberately
+    NO requireRole() gate (every authenticated role reaches it), which is
+    safe specifically because it's hard-keyed to claims.oid server-side,
+    never to an id from the request — there's no way to reach any row but
+    your own through this handler no matter what's sent.
+  - users-router.js — routes 'me' ahead of the UUID branch (a real user id
+    is never the literal string "me").
+  - authHandlers.js's login response now carries avatarColour/
+    themePreference/timezone on the user object — no extra round trip
+    needed on login to have these available.
+  - getUserByEmailForLogin() SELECT extended to match.
+
+FRONTEND
+  - authStore.updateUser(patch) — merges a partial update into the cached
+    session user (and re-persists) without a full re-login.
+  - AuthContext exposes updateUser; also now consumes useTheme() (safe —
+    AuthProvider is a descendant of ThemeProvider in App.jsx's tree) so
+    login() applies the user's saved themePreference immediately on a
+    fresh login/new tab. A same-tab refresh was already covered without
+    this, by ThemeContext's own sessionStorage persistence.
+  - ThemeContext exports THEME_IDS so callers (AuthContext) can validate
+    an incoming theme id before applying it, rather than trusting it blind.
+  - RoleContext's demo-mode persona gains email and avatarColour (both
+    already on the real user object) — persona is the existing one-stop
+    place this file adapts "user" into for the rest of the app to consume.
+  - NEW constants/avatarOptions.js — AVATAR_OPTIONS + avatarColourValue(id)
+    moved out of Settings.jsx (which had them as a local-only const) so
+    App.jsx's sidebar avatar bubble can use the same id -> CSS lookup.
+  - App.jsx's sidebar avatar bubble now actually reflects the chosen
+    colour — it previously hardcoded the gradient unconditionally, a
+    pre-existing gap (not introduced this session) where the avatar
+    picker had no visible effect anywhere outside Settings' own preview
+    bubble even before this backend existed.
+  - Settings.jsx rewired: initial values come straight off useAuth().user
+    in demo mode (already loaded at login, no extra fetch); Save PUTs
+    displayName/avatarColour/timezone via usersApi.updateMe() then calls
+    updateUser() so the sidebar/persona reflect the change immediately;
+    theme swatch clicks keep applying instantly (unchanged UX) and now
+    also persist immediately in demo mode, fire-and-forget, matching that
+    same "instant" semantic rather than waiting on the Save button; email
+    field shows the real address in demo mode (still disabled — editing
+    email isn't built, matches the admin side per §23); avatar photo
+    upload is now an explicit disabled stub ("coming soon") rather than a
+    clickable no-op.
+  - The non-demo (Entra) branch is UNCHANGED, still sessionStorage-only —
+    not because no backend exists for it (api.js's header notes preview/
+    mock mode was removed entirely 22 Jul; the same frontend/api/ backend
+    answers both auth modes), but because RoleContext's Entra branch
+    doesn't yet derive a real identity from decoded MSAL claims (its own
+    header still flags that as not wired) — there is no real user id to
+    save a profile against there yet. Collapses to the same real-backend
+    path automatically once that lands.
+
+DELIBERATELY NOT BUILT: real avatar photo upload (file/blob storage is a
+separate, larger piece of scope — flagged to Mark up front, not silently
+descoped).
+
+VERIFIED: full Vite production build clean (1,412 modules, zero errors);
+existing 45-test Vitest suite unaffected; every edited/new backend file
+(models/user.js, services/userService.js, handlers/userHandlers.js,
+handlers/authHandlers.js, api/users-router.js) passes node --check and an
+ESM import smoke test (userService.js/userHandlers.js/authHandlers.js
+require DATABASE_URL + JWT_SIGNING_SECRET at import time as always —
+confirmed clean with dummy values; no live DB connection available in this
+sandbox, same limitation as every prior session — this was verified by
+inspection and the existing test suite, not a live Postgres run).
+
+MIGRATION:
+  frontend/db/migrations/012_add_user_profile_prefs.sql (NEW)
+  frontend/db/schema.postgres.sql               (User table columns added)
+  frontend/api-lib/models/user.js               (UpdateOwnProfileSchema added)
+  frontend/api-lib/services/userService.js      (getOwnProfile/updateOwnProfile added; login SELECT extended)
+  frontend/api-lib/handlers/userHandlers.js     (handleUserMe added)
+  frontend/api-lib/handlers/authHandlers.js     (login response extended)
+  frontend/api/users-router.js                  (me route added)
+  frontend/src/services/api.js                  (usersApi.updateMe added)
+  frontend/src/services/authStore.js            (updateUser added)
+  frontend/src/context/AuthContext.jsx          (updateUser exposed; theme sync on login)
+  frontend/src/context/RoleContext.jsx          (persona.email/avatarColour added)
+  frontend/src/context/ThemeContext.jsx         (THEME_IDS exported)
+  frontend/src/constants/avatarOptions.js       (NEW)
+  frontend/src/App.jsx                          (sidebar avatar bubble wired)
+  frontend/src/pages/Settings.jsx               (real wiring)
+Plus this Status.md.
+
+
 
 If picking up a pending item from Section 5, reference it by name.
 e.g. "I want to work on the Appointments API build."
-
 
 

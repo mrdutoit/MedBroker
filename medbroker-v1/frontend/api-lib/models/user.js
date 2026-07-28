@@ -49,3 +49,20 @@ export const UserListQuerySchema = z.object({
   role:   CreatableRole.optional(),
   search: z.string().max(100).optional(),
 });
+
+// Self-service Settings.jsx fields only — deliberately separate from
+// UpdateUserSchema above, not a subset of it. UpdateUserSchema is the
+// Admin/GlobalAdmin-editing-someone-else shape (role, region, supervisor,
+// portfolios, isActive); this is the "editing my own profile" shape, used
+// by PUT /api/users/me (handleUserMe, no requireRole() — any authenticated
+// user reaches it, but only ever writes to their own row, keyed off
+// claims.oid server-side, never off an id in the request). Keeping these
+// two schemas separate — rather than making this a permissive subset of
+// UpdateUserSchema — is what stops a self-service save from ever being
+// able to smuggle in a role/isActive/portfolio change even by accident.
+export const UpdateOwnProfileSchema = z.object({
+  displayName:     z.string().min(1).max(200).optional(),
+  avatarColour:    z.enum(['grad', 'violet', 'cyan', 'green', 'amber']).optional(),
+  themePreference: z.enum(['linen', 'terra', 'midnight', 'ember']).optional(),
+  timezone:        z.enum(['Africa/Johannesburg', 'UTC', 'Europe/London', 'Europe/Amsterdam']).optional(),
+});

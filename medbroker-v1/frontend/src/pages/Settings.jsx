@@ -1,60 +1,123 @@
 /**
  * pages/Settings.jsx
  * Account preferences — available to every role.
- *   • Appearance: choose the design-system theme (applied live, saved to profile).
+ *   • Appearance: choose the design-system theme (applied live; saved to
+ *     the user's profile in demo mode — see below).
  *   • Profile: display name, email, role.
- *   • Avatar: initials with an accent choice (photo upload is a stub until the
- *     Users API exists; name/avatar persist locally for now).
+ *   • Avatar: initials with an accent colour choice. Photo upload is a
+ *     deliberate stub (Phase 2) — real file/blob storage is a separate
+ *     piece of scope, not bundled into this pass.
+ *
+ * BACKEND WIRING (added 28 Jul 2026, §55): previously every preference here
+ * — theme, display name, avatar colour, timezone — persisted to
+ * sessionStorage only, both here and in ThemeContext.jsx/dateFormat.js,
+ * each with a "when a Users API exists, wire this up" comment. It does now
+ * (PUT /api/users/me — self-service, separate from the Admin-only
+ * PUT /api/users/:id UserAdmin.jsx uses to edit OTHER people). In demo mode,
+ * initial values come straight off the authenticated session (useAuth().user
+ * — already carries these fields from login, no extra fetch needed) and
+ * saves go to the real backend, then patch the cached session via
+ * updateUser() so the rest of the app (sidebar avatar, displayName) reflects
+ * the change immediately.
+ *
+ * The non-demo (Entra) branch below is UNCHANGED, still sessionStorage-only
+ * — not because no backend exists (api.js's own header notes preview/mock
+ * mode was removed entirely on 22 July; the same frontend/api/ backend
+ * answers both auth modes), but because RoleContext.jsx's Entra branch
+ * doesn't yet derive persona/role from real decoded MSAL claims (its own
+ * header still flags that as "not yet wired") — there is no real logged-in
+ * user id to save a profile against there yet. Once that lands, this
+ * branch collapses to the same real-backend path as demo mode above.
  */
 
 import { useState }     from 'react';
 import { useRole }       from '../context/RoleContext.jsx';
+import { useAuth }       from '../context/AuthContext.jsx';
 import { useTheme }      from '../context/ThemeContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s, colors }     from '../styles/tokens.js';
+import { apiMode, usersApi, ApiError } from '../services/api.js';
+import { AVATAR_OPTIONS, avatarColourValue } from '../constants/avatarOptions.js';
 import { getUserTimezone, setUserTimezone, SUPPORTED_TIMEZONES } from '../utils/dateFormat.js';
-
-const AVATAR_OPTIONS = [
-  { id: 'grad',    value: 'linear-gradient(135deg, var(--accent), var(--accent2))' },
-  { id: 'violet',  value: '#7c3aed' },
-  { id: 'cyan',    value: '#0891b2' },
-  { id: 'green',   value: '#15803d' },
-  { id: 'amber',   value: '#d97706' },
-];
 
 export default function Settings() {
   const { persona }            = useRole();
+  const { user, updateUser }   = useAuth();
   const { theme, setTheme, themes } = useTheme();
   const { isMobile }           = useWindowSize();
+  const demoMode = apiMode.DEMO_MODE;
 
-  const [displayName, setDisplayName] = useState(persona.displayName);
-  const [avatar, setAvatar]           = useState(AVATAR_OPTIONS[0].value);
-  const [timezone, setTimezone]       = useState(getUserTimezone());
+  // Demo mode: real values off the authenticated session. Entra branch:
+  // RoleContext doesn't yet derive a real identity there (see its header) —
+  // same sessionStorage defaults as before this session.
+  const initialDisplayName = demoMode ? (user?.displayName ?? persona.displayName) : persona.displayName;
+  const initialAvatarId    = demoMode ? (user?.avatarColour ?? AVATAR_OPTIONS[0].id) : AVATAR_OPTIONS[0].id;
+  const initialTimezone    = demoMode ? (user?.timezone ?? getUserTimezone()) : getUserTimezone();
+
+  const [displayName, setDisplayName] = useState(initialDisplayName);
+  const [avatarId, setAvatarId]       = useState(initialAvatarId);
+  const [timezone, setTimezone]       = useState(initialTimezone);
 
   // Saved baseline — what was last committed
-  const [savedName,   setSavedName]   = useState(persona.displayName);
-  const [savedAvatar, setSavedAvatar] = useState(AVATAR_OPTIONS[0].value);
-  const [savedTimezone, setSavedTimezone] = useState(getUserTimezone());
+  const [savedName,     setSavedName]     = useState(initialDisplayName);
+  const [savedAvatarId, setSavedAvatarId] = useState(initialAvatarId);
+  const [savedTimezone, setSavedTimezone] = useState(initialTimezone);
   const [saveStatus,  setSaveStatus]  = useState(null); // null | 'saving' | 'saved'
+  const [saveError,   setSaveError]   = useState('');
 
-  const isDirty = displayName !== savedName || avatar !== savedAvatar || timezone !== savedTimezone;
+  const isDirty = displayName !== savedName || avatarId !== savedAvatarId || timezone !== savedTimezone;
 
-  function handleSave() {
+  async function handleSave() {
     if (!isDirty) return;
     setSaveStatus('saving');
-    // Persist to sessionStorage for now; Users API will replace this
+    setSaveError('');
+
+    if (demoMode) {
+      try {
+        const updated = await usersApi.updateMe({ displayName, avatarColour: avatarId, timezone });
+        updateUser(updated); // patches the cached session — sidebar/persona reflect this immediately
+        setUserTimezone(timezone); // dateFormat.js's own display helpers still read this locally
+        setSavedName(displayName);
+        setSavedAvatarId(avatarId);
+        setSavedTimezone(timezone);
+        setSaveStatus('saved');
+        setTimeout(() => setSaveStatus(null), 2500);
+      } catch (err) {
+        setSaveError(err instanceof ApiError ? err.message : 'Could not save your changes. Please try again.');
+        setSaveStatus(null);
+      }
+      return;
+    }
+
+    // Entra branch — unchanged, no real identity to save against yet
+    // (see the header comment above).
     try {
       sessionStorage.setItem('mb_displayName', displayName);
-      sessionStorage.setItem('mb_avatarColour', avatar);
+      sessionStorage.setItem('mb_avatarColour', avatarId);
     } catch (_) {}
     setUserTimezone(timezone);
     setTimeout(() => {
       setSavedName(displayName);
-      setSavedAvatar(avatar);
+      setSavedAvatarId(avatarId);
       setSavedTimezone(timezone);
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus(null), 2500);
     }, 400);
+  }
+
+  // Theme applies instantly on click regardless of the Save button (same UX
+  // as before) — in demo mode it now also persists immediately rather than
+  // waiting on the profile Save, matching that same "instant" semantic.
+  // Best-effort: a failed save here doesn't block the (already-applied)
+  // live theme change, since reverting the swatch after the fact would be
+  // more confusing than a preference that didn't quite make it to the server.
+  function handleThemeSelect(themeId) {
+    setTheme(themeId);
+    if (demoMode) {
+      usersApi.updateMe({ themePreference: themeId })
+        .then(updated => updateUser(updated))
+        .catch(err => console.error('Could not save theme preference:', err));
+    }
   }
 
   return (
@@ -80,7 +143,7 @@ export default function Settings() {
             return (
               <button
                 key={t.id}
-                onClick={() => setTheme(t.id)}
+                onClick={() => handleThemeSelect(t.id)}
                 style={{
                   textAlign: 'left', cursor: 'pointer', padding: 0, overflow: 'hidden',
                   background: colors.surface, fontFamily: 'inherit',
@@ -137,7 +200,8 @@ export default function Settings() {
           </div>
           <div style={s.formGroup}>
             <label style={s.formLabel}>Email</label>
-            <input style={{ ...s.formInput, opacity: 0.6 }} value="user@medbroker.co.za" disabled />
+            {/* Entra branch shows a placeholder — no real identity there yet (see header comment). */}
+            <input style={{ ...s.formInput, opacity: 0.6 }} value={demoMode ? (user?.email ?? '') : 'user@medbroker.co.za'} disabled />
           </div>
           <div style={s.formGroup}>
             <label style={s.formLabel}>Role</label>
@@ -152,30 +216,37 @@ export default function Settings() {
             <div style={{
               width: '62px', height: '62px', borderRadius: '50%', flexShrink: 0,
               display: 'grid', placeItems: 'center', color: '#fff',
-              fontSize: '1.3rem', fontWeight: 700, background: avatar,
+              fontSize: '1.3rem', fontWeight: 700, background: avatarColourValue(avatarId),
               boxShadow: '0 6px 18px -6px var(--glow)',
             }}>
               {persona.initials}
             </div>
             <div style={{ fontSize: '0.78rem', color: colors.ink500 }}>
-              Initials show until a photo is uploaded.<br />Pick an accent or upload an image.
+              Initials show until a photo is uploaded.<br />Pick an accent below.
             </div>
           </div>
           <div style={{ display: 'flex', gap: '8px', marginTop: '14px' }}>
             {AVATAR_OPTIONS.map(o => (
               <button
                 key={o.id}
-                onClick={() => setAvatar(o.value)}
+                onClick={() => setAvatarId(o.id)}
                 aria-label={`Avatar colour ${o.id}`}
                 style={{
                   width: '30px', height: '30px', borderRadius: '50%', cursor: 'pointer',
                   background: o.value, padding: 0,
-                  border: `2px solid ${avatar === o.value ? colors.ink : 'transparent'}`,
+                  border: `2px solid ${avatarId === o.id ? colors.ink : 'transparent'}`,
                 }}
               />
             ))}
           </div>
-          <button style={{ ...s.secondaryBtn, marginTop: '16px' }}>Upload photo</button>
+          {/* Photo upload — deliberate Phase 2 stub. Real file/blob storage
+              (Vercel Blob or equivalent) is a separate, larger piece of scope
+              than the colour/name/theme/timezone preferences this pass wires
+              up — disabled rather than a clickable no-op, so it doesn't look
+              like a live control that silently does nothing. */}
+          <button style={{ ...s.secondaryBtn, marginTop: '16px', opacity: 0.5, cursor: 'default' }} disabled title="Coming soon">
+            Upload photo — coming soon
+          </button>
         </div>
       </div>
 
@@ -201,9 +272,14 @@ export default function Settings() {
             ✓ Changes saved
           </span>
         )}
-        {isDirty && saveStatus === null && (
+        {isDirty && saveStatus === null && !saveError && (
           <span style={{ fontSize: '0.8125rem', color: colors.ink500 }}>
             You have unsaved changes
+          </span>
+        )}
+        {saveError && (
+          <span style={{ fontSize: '0.8125rem', color: colors.danger, fontWeight: 500 }}>
+            {saveError}
           </span>
         )}
       </div>

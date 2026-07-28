@@ -77,6 +77,66 @@ export async function getUserForAdmin(id) {
 }
 
 /**
+ * Own-profile shape for Settings.jsx — GET/PUT /api/users/me. Deliberately
+ * lighter than getUserForAdmin(): no supervisor/portfolio/product joins,
+ * since Settings only ever shows/edits displayName, avatarColour,
+ * themePreference, and timezone (plus the read-only email/role already
+ * carried by the auth session). Not reused for admin's UserAdmin.jsx views.
+ * @param {string} id
+ */
+export async function getOwnProfile(id) {
+  return executeQueryOne(
+    `SELECT id, displayName AS "displayName", email, role,
+            avatarColour AS "avatarColour", themePreference AS "themePreference",
+            timezone
+     FROM "User"
+     WHERE id = @id AND deletedAt IS NULL AND organisationId = @organisationId`,
+    {
+      id:             { type: sql.UniqueIdentifier, value: id },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+}
+
+/**
+ * Self-service profile update — PUT /api/users/me. Mirrors updateUserFull()'s
+ * dynamic-SET-clause pattern, but only ever the four fields
+ * UpdateOwnProfileSchema allows and only ever against `id`, which the
+ * handler derives from claims.oid, never from the request — a user cannot
+ * update anyone else's row through this function no matter what id is
+ * passed in, because the caller (handleUserMe) never passes anything but
+ * their own.
+ * @param {string} id
+ * @param {Object} data - validated UpdateOwnProfileSchema data
+ */
+export async function updateOwnProfile(id, data) {
+  const organisationId = resolveOrganisationId();
+  const setClauses = [];
+  const params = { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+
+  const fieldTypes = {
+    displayName:     sql.NVarChar(200),
+    avatarColour:    sql.NVarChar(20),
+    themePreference: sql.NVarChar(20),
+    timezone:        sql.NVarChar(50),
+  };
+  for (const [key, type] of Object.entries(fieldTypes)) {
+    if (data[key] !== undefined) {
+      setClauses.push(`${key} = @${key}`);
+      params[key] = { type, value: data[key] };
+    }
+  }
+
+  if (setClauses.length > 0) {
+    await executeQuery(
+      `UPDATE "User" SET ${setClauses.join(', ')}, updatedAt = NOW()
+       WHERE id = @id AND organisationId = @organisationId`,
+      params
+    );
+  }
+}
+
+/**
  * Active supervisors for the "Supervisor" dropdown in the create/edit modal.
  */
 export async function listSupervisors() {
@@ -366,7 +426,9 @@ export async function getUserByEmailForLogin(email) {
             passwordHash AS "passwordHash", passwordSetAt AS "passwordSetAt",
             passwordMustChange AS "passwordMustChange",
             failedLoginAttempts AS "failedLoginAttempts", isLocked AS "isLocked",
-            isActive AS "isActive"
+            isActive AS "isActive",
+            avatarColour AS "avatarColour", themePreference AS "themePreference",
+            timezone
      FROM "User"
      WHERE email = @email AND deletedAt IS NULL AND organisationId = @organisationId`,
     {
