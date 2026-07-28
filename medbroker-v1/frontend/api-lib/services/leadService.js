@@ -41,7 +41,7 @@ import { executeQuery, executeQueryOne, sql } from './db.js';
 import { encrypt, blindIndex } from './encryption.js';
 import { computeLeadStatus } from './leadStatusService.js';
 import { getActiveUserById, resolvePortfolioIds } from './userService.js';
-import { createTask } from './taskService.js';
+import { createTask, deleteTasksForEntity, reassignTasksForEntity } from './taskService.js';
 import { config } from '../config.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
@@ -428,6 +428,13 @@ export async function assignLead(leadId, agentId) {
     throw { status: 400, message: 'assignLead: target agentId is not an active user in this organisation' };
   }
 
+  // Fetched before the UPDATE below — the old value is needed to move any
+  // of this agent's open tasks for this lead over to the new one (§58).
+  const before = await executeQueryOne(
+    `SELECT assignedAgentId AS "assignedAgentId" FROM Lead WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
+    { leadId: { type: sql.UniqueIdentifier, value: leadId }, organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } }
+  );
+
   await executeQuery(
     `UPDATE Lead
      SET assignedAgentId = @agentId, pipelineStatus = 'Assigned', updatedAt = NOW()
@@ -438,6 +445,13 @@ export async function assignLead(leadId, agentId) {
       organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
     }
   );
+
+  // TASK CLEANUP (§58) — a callback task assigned to the old agent for
+  // this lead is still a real, valid task; it just needs a new owner.
+  await reassignTasksForEntity({
+    entityType: 'Lead', entityId: leadId,
+    oldAssigneeId: before?.assignedAgentId, newAssigneeId: agentId,
+  });
 }
 
 /**
@@ -545,6 +559,10 @@ export async function deleteLead(leadId) {
       organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
     }
   );
+
+  // TASK CLEANUP (§58) — nothing needs calling this lead back once it's
+  // gone. Only incomplete tasks; a completed one is just history.
+  await deleteTasksForEntity({ entityType: 'Lead', entityId: leadId });
 }
 
 /**

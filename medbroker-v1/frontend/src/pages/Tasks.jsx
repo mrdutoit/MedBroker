@@ -27,7 +27,10 @@
  *   POST   /api/tasks            Create manual task — Admin/Supervisor/GlobalAdmin only
  *   PATCH  /api/tasks/:id        isComplete: anyone who can see the task.
  *                                 Everything else: Admin/Supervisor/GlobalAdmin only
- *   DELETE /api/tasks/:id        Admin/GlobalAdmin only
+ *   DELETE /api/tasks/:id        Admin/GlobalAdmin only, manually created tasks only
+ *                                 (§58) — a system-generated task represents a real
+ *                                 pending action; it should be completed or reassigned,
+ *                                 not deleted. Enforced server-side, not just hidden here.
  */
 
 import { useState }      from 'react';
@@ -300,7 +303,7 @@ function NewTaskModal({ onClose, onSave, assignees }) {
 }
 
 // ─── Task row ───────────────────────────────────────────────────────────────────
-function TaskRow({ task, onToggle, isAdmin, isMobile, today }) {
+function TaskRow({ task, onToggle, onDelete, isAdmin, canDelete, isMobile, today }) {
   const [expanded, setExpanded] = useState(false);
   const due  = dueMeta(task.dueDate, task.done, today);
   const cat  = CATEGORY_META[task.category] ?? CATEGORY_META.manual;
@@ -428,6 +431,24 @@ function TaskRow({ task, onToggle, isAdmin, isMobile, today }) {
               <div style={{ fontSize: '0.8125rem', color:'var(--ink)', marginTop: '2px' }}>{task.createdAt}</div>
             </div>
           </div>
+          {/* Delete — manually created tasks only (§58): a system-generated
+              task represents a real pending action and should be completed
+              or reassigned, not deleted; the backend also enforces this,
+              this just keeps the control from appearing where it wouldn't
+              be allowed anyway. */}
+          {canDelete && task.source === 'manual' && (
+            <div style={{ marginTop: '10px', paddingTop: '10px', borderTop: '1px solid var(--line)' }}>
+              <button
+                onClick={e => { e.stopPropagation(); onDelete(task.id); }}
+                style={{
+                  background: 'none', border: 'none', cursor: 'pointer', padding: 0,
+                  fontSize: '0.75rem', fontWeight: 600, color: '#dc2626',
+                }}
+              >
+                Delete task
+              </button>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -442,6 +463,9 @@ export default function Tasks() {
 
   const isAdmin  = ['GlobalAdmin', 'Admin', 'Supervisor'].includes(role);
   const isBroker = role === 'Broker';
+  // Narrower than isAdmin — matches the API's own DELETE gate (Admin/
+  // GlobalAdmin only, not Supervisor; see taskHandlers.js).
+  const canDelete = ['GlobalAdmin', 'Admin'].includes(role);
 
   // Demo mode: real fetch. Role-scoping already happened server-side
   // (taskHandlers.js) — Agent/Broker only ever receive their own tasks,
@@ -491,6 +515,25 @@ export default function Tasks() {
       }
     } else {
       setMockTasks(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
+    }
+  }
+
+  // §58 — manually created tasks only, both here and enforced server-side
+  // in taskHandlers.js. window.confirm() matches the existing precedent
+  // set in EventDetail.jsx for this class of lower-stakes destructive
+  // action, rather than introducing a new confirm-modal pattern for a
+  // to-do item.
+  async function deleteTaskHandler(id) {
+    if (!window.confirm('Delete this task? This cannot be undone.')) return;
+    if (demoMode) {
+      try {
+        await tasksApi.remove(id);
+        refetchTasks();
+      } catch (err) {
+        console.error('Could not delete task:', err);
+      }
+    } else {
+      setMockTasks(prev => prev.filter(t => t.id !== id));
     }
   }
 
@@ -665,7 +708,9 @@ export default function Tasks() {
               key={task.id}
               task={task}
               onToggle={toggleDone}
+              onDelete={deleteTaskHandler}
               isAdmin={isAdmin}
+              canDelete={canDelete}
               isMobile={isMobile}
               today={today}
             />

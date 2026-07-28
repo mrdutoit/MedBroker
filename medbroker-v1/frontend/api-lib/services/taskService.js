@@ -167,3 +167,56 @@ export async function deleteTask(id) {
     { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } }
   );
 }
+
+// ── Cascade cleanup (§58) ───────────────────────────────────────────────────
+// Nothing kept a Task in sync with the Lead/Appointment it's about — a
+// reassignment left the task with the OLD owner, and a delete/return-to-
+// leads left it pointing at something no longer actionable. Both helpers
+// below only ever touch INCOMPLETE tasks; a completed one is just history
+// and is left alone regardless of what happens to its entity afterwards.
+
+/**
+ * Moves every incomplete task for one entity that's currently assigned to
+ * oldAssigneeId onto newAssigneeId — used when a Lead's agent or an
+ * Appointment's agent/broker changes. The task's need is still real, it
+ * just needs a new owner. A no-op if oldAssigneeId is missing or unchanged
+ * (nothing to move).
+ * @param {{entityType: string, entityId: string, oldAssigneeId?: string, newAssigneeId: string}} params
+ */
+export async function reassignTasksForEntity({ entityType, entityId, oldAssigneeId, newAssigneeId }) {
+  if (!oldAssigneeId || oldAssigneeId === newAssigneeId) return;
+  await executeQuery(
+    `UPDATE Task
+       SET assignedToId = @newAssigneeId, updatedAt = NOW()
+     WHERE entityType = @entityType AND entityId = @entityId
+       AND assignedToId = @oldAssigneeId AND isComplete = FALSE
+       AND organisationId = @organisationId`,
+    {
+      entityType:     { type: sql.NVarChar(50),     value: entityType },
+      entityId:       { type: sql.UniqueIdentifier, value: entityId },
+      oldAssigneeId:  { type: sql.UniqueIdentifier, value: oldAssigneeId },
+      newAssigneeId:  { type: sql.UniqueIdentifier, value: newAssigneeId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+}
+
+/**
+ * Hard-deletes every incomplete task for one entity — used when the
+ * entity is deleted (Lead POPIA erasure) or the reason for the task has
+ * otherwise evaporated (an Appointment returned to leads has nothing left
+ * to confirm/reschedule/record). Completed tasks are untouched.
+ * @param {{entityType: string, entityId: string}} params
+ */
+export async function deleteTasksForEntity({ entityType, entityId }) {
+  await executeQuery(
+    `DELETE FROM Task
+     WHERE entityType = @entityType AND entityId = @entityId
+       AND isComplete = FALSE AND organisationId = @organisationId`,
+    {
+      entityType:     { type: sql.NVarChar(50),     value: entityType },
+      entityId:       { type: sql.UniqueIdentifier, value: entityId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+}

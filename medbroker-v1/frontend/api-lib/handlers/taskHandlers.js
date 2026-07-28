@@ -188,6 +188,16 @@ export async function handleTaskById(req, res, id) {
       // always travels with Admin in this codebase's allow-lists.
       requireRole(claims, ['Admin', 'GlobalAdmin']);
 
+      // §58 — Mark's ask was specifically to delete MANUALLY created
+      // tasks. Deleting a system-generated one (Callback, Appointment,
+      // Reschedule, Outcome) would make a real pending action vanish with
+      // no record — those should be completed, reassigned, or left to the
+      // cascade cleanup in taskService.js (deleteTasksForEntity/
+      // reassignTasksForEntity), not deleted one at a time by hand.
+      if (existing.type !== 'Manual') {
+        return res.status(400).json({ error: 'Only manually created tasks can be deleted. System-generated tasks should be completed or reassigned instead.' });
+      }
+
       await deleteTask(id);
 
       await writeAuditLog({

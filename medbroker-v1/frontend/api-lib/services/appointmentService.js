@@ -19,7 +19,7 @@
 import { executeQuery, executeQueryOne, sql } from './db.js';
 import { computeAppointmentStatus } from './appointmentStatusService.js';
 import { getActiveUserById, resolvePortfolioIds } from './userService.js';
-import { createTask } from './taskService.js';
+import { createTask, deleteTasksForEntity, reassignTasksForEntity } from './taskService.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
 // ── Shared SELECT fragments ─────────────────────────────────────────────────
@@ -414,8 +414,22 @@ export async function assignBroker(id, brokerId) {
  * @param {{brokerId?: string, agentId?: string}} data
  */
 export async function reassignAppointment(id, data) {
+  const organisationId = resolveOrganisationId();
+
+  // Fetched once, upfront — both for the broker-conflict check below (was
+  // its own narrower query) and, new in §58, so old brokerId/agentId are
+  // known before they're overwritten, to move any of their open tasks for
+  // this appointment onto whoever takes over.
+  const before = await executeQueryOne(
+    `SELECT brokerId AS "brokerId", agentId AS "agentId",
+            firstAppointmentDate AS "firstAppointmentDate", firstAppointmentTime AS "firstAppointmentTime"
+     FROM Appointment WHERE id = @id AND organisationId = @organisationId`,
+    { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  if (!before) throw { status: 404, message: 'Appointment not found' };
+
   const setClauses = [];
-  const params = { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } };
+  const params = { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
 
   if (data.brokerId !== undefined) {
     if (data.brokerId) {
@@ -427,16 +441,9 @@ export async function reassignAppointment(id, data) {
       // the NEW broker's schedule against the EXISTING slot, excluding
       // this appointment itself (it will legitimately hold that slot
       // for the incoming broker once this update lands).
-      const current = await executeQueryOne(
-        `SELECT firstAppointmentDate AS "firstAppointmentDate", firstAppointmentTime AS "firstAppointmentTime"
-         FROM Appointment WHERE id = @id AND organisationId = @organisationId`,
-        { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } }
-      );
-      if (current) {
-        const conflict = await hasBrokerConflict(data.brokerId, current.firstAppointmentDate, current.firstAppointmentTime, id);
-        if (conflict) {
-          throw { status: 409, message: 'This broker already has another appointment at this date and time.' };
-        }
+      const conflict = await hasBrokerConflict(data.brokerId, before.firstAppointmentDate, before.firstAppointmentTime, id);
+      if (conflict) {
+        throw { status: 409, message: 'This broker already has another appointment at this date and time.' };
       }
     }
     setClauses.push('brokerId = @brokerId');
@@ -454,6 +461,19 @@ export async function reassignAppointment(id, data) {
     `UPDATE Appointment SET ${setClauses.join(', ')}, updatedAt = NOW() WHERE id = @id AND organisationId = @organisationId`,
     params
   );
+
+  // TASK CLEANUP (§58) — a Reschedule/Outcome task assigned to the old
+  // broker, or a Confirm-appointment task assigned to the old agent, is
+  // still real; it just needs to follow whoever took over. Only fires when
+  // the field is being SET to a real person, not cleared — reassign()
+  // clearing a broker back to null is a rarer edge left alone rather than
+  // guessed at here.
+  if (data.brokerId) {
+    await reassignTasksForEntity({ entityType: 'Appointment', entityId: id, oldAssigneeId: before.brokerId, newAssigneeId: data.brokerId });
+  }
+  if (data.agentId) {
+    await reassignTasksForEntity({ entityType: 'Appointment', entityId: id, oldAssigneeId: before.agentId, newAssigneeId: data.agentId });
+  }
 }
 
 /**
@@ -495,6 +515,16 @@ export async function returnToLeads(id) {
      WHERE id = @leadId AND organisationId = @organisationId`,
     { leadId: { type: sql.UniqueIdentifier, value: appt.leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
+
+  // TASK CLEANUP (§58) — the appointment is now locked/terminal, so any
+  // Confirm/Assign-broker/Reschedule/Outcome task tied to it has nothing
+  // left to confirm/reschedule/record. The Lead also loses its agent
+  // (assignedAgentId cleared above), so a Callback task tied to the Lead
+  // directly is equally moot — nobody currently owns this lead to act on
+  // it. Both deleted, not reassigned — unlike a reassignment, there's no
+  // "new owner" to hand these off to; the need itself is gone.
+  await deleteTasksForEntity({ entityType: 'Appointment', entityId: id });
+  await deleteTasksForEntity({ entityType: 'Lead', entityId: appt.leadId });
 }
 
 /**

@@ -922,7 +922,11 @@ Appointment linked to a Lead rather than just the most recent one). See
 a real self-service backend (PUT /api/users/me, new User columns for
 theme/avatar/timezone). See §55 for full detail. Continued further: built
 §57 — full Task backend (schema fix, REST API, all five generation rules
-wired into their real trigger points). See §57 for full detail.
+wired into their real trigger points). See §57 for full detail. Continued
+further still: built §58 — manual task deletion (UI + server-side
+Manual-type restriction) and cascade cleanup (tasks now reassign or
+delete themselves when their Lead/Appointment gets reassigned, deleted,
+or returned to leads — nothing did this before). See §58 for full detail.
 
 GENUINELY OPEN ITEMS (accurate as of session 14):
   - Notifications — narrowed scope agreed (§57): only the two synchronous
@@ -4301,6 +4305,94 @@ MIGRATION:
   frontend/api-lib/services/appointmentService.js (Confirm/Assign-broker + Reschedule/Outcome triggers)
   frontend/src/services/api.js                   (tasksApi added)
   frontend/src/pages/Tasks.jsx                   (real wiring)
+Plus this Status.md.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+58. MANUAL TASK DELETION + CASCADE CLEANUP — 28 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark asked two things: (1) can manually created tasks be deleted, and
+(2) is there anything that cleans up a task when its Lead or Appointment
+gets reassigned or deleted. Honest answer to (2) was no — §56/§57 built
+the five generation rules but nothing kept a task in sync with its entity
+afterwards. Both built this pass.
+
+PART 1 — MANUAL TASK DELETION:
+  DELETE /api/tasks/:id already existed (§56, per Tasks.jsx's own header
+  spec) but nothing in the UI called it. Added:
+  - A "Delete task" control in TaskRow's expanded panel — visible only to
+    Admin/GlobalAdmin (canDelete, narrower than isAdmin which also
+    includes Supervisor — matches the API's own gate) AND only for
+    task.source === 'manual'.
+  - window.confirm() guard, matching the existing precedent already set
+    in EventDetail.jsx for this class of lower-stakes destructive action,
+    rather than introducing a new confirm-modal pattern for a to-do item.
+  - Server-side restriction added on top of the existing role gate:
+    taskHandlers.js now rejects (400) an attempt to DELETE a
+    system-generated task (Callback/Appointment/Reschedule/Outcome),
+    regardless of role. Deleting a task that represents a real pending
+    business action would make it vanish with no record; those should be
+    completed or reassigned (or cleaned up by Part 2 below), not deleted
+    by hand. Enforced server-side, not just hidden in the UI — an Admin
+    hitting the API directly gets the same rejection.
+
+PART 2 — CASCADE CLEANUP (nothing existed before this):
+  Two new generic helpers in taskService.js, used by both Lead and
+  Appointment entity types rather than one bespoke function per call site:
+    reassignTasksForEntity({entityType, entityId, oldAssigneeId, newAssigneeId})
+      — moves every INCOMPLETE task currently assigned to the old owner
+      onto the new one. The task's need is still real, it just needs a
+      new owner.
+    deleteTasksForEntity({entityType, entityId})
+      — hard-deletes every INCOMPLETE task for that entity. Used when the
+      need has genuinely evaporated, not just changed hands.
+  Both leave COMPLETED tasks alone in every case — those are just history,
+  untouched regardless of what happens to their entity afterwards.
+
+  Wired into all four places an owner change or removal actually happens:
+  - leadService.deleteLead() — Lead soft-deleted (POPIA erasure) ->
+    deleteTasksForEntity('Lead', leadId). Nobody needs calling back a
+    lead that's gone.
+  - leadService.assignLead() — Lead reassigned to a new agent -> fetches
+    the OLD assignedAgentId first (wasn't fetched at all before this),
+    then reassignTasksForEntity('Lead', leadId, oldAgentId, newAgentId).
+  - appointmentService.reassignAppointment() — broker and/or agent
+    changed -> reassignTasksForEntity('Appointment', id, ...) for
+    whichever field actually changed (a Reschedule/Outcome task follows
+    a new broker; a Confirm-appointment task follows a new agent). The
+    function's existing narrow date/time-only lookup was widened into one
+    upfront query also carrying the OLD brokerId/agentId, reused for both
+    the pre-existing broker-conflict check and this. Deliberately only
+    fires when the field is being SET to a real person, not cleared —
+    reassign() clearing a broker back to null is a rarer edge left alone
+    rather than guessed at.
+  - appointmentService.returnToLeads() — the appointment locks
+    (ReturnedToLeads) and the Lead loses its agent (assignedAgentId
+    cleared) -> deleteTasksForEntity for BOTH the Appointment (nothing
+    left to confirm/reschedule/record) AND the Lead (nobody currently
+    owns it to act on a callback either). Deleted, not reassigned — unlike
+    a reassignment, there's no new owner to hand these off to.
+
+  NOT touched: reopenLead() — doesn't change assignedAgentId at all (same
+  agent throughout), so there's no stale ownership to clean up there.
+
+VERIFIED: full Vite production build clean (1,412 modules → now includes
+the delete control, zero errors); existing 45-test Vitest suite
+unaffected; every edited backend file (services/taskService.js,
+services/leadService.js, services/appointmentService.js,
+handlers/taskHandlers.js) passes node --check and an ESM import smoke test
+(same DATABASE_URL/JWT_SIGNING_SECRET dummy-value pattern as every prior
+session — no live DB connection available in this sandbox; the cascade
+logic was verified by inspection and against the existing test suite, not
+a live Postgres run).
+
+MIGRATION — logic only, no schema change:
+  frontend/api-lib/services/taskService.js        (reassignTasksForEntity/deleteTasksForEntity added)
+  frontend/api-lib/services/leadService.js        (deleteLead/assignLead cleanup)
+  frontend/api-lib/services/appointmentService.js (reassignAppointment/returnToLeads cleanup)
+  frontend/api-lib/handlers/taskHandlers.js       (DELETE restricted to Manual type)
+  frontend/src/pages/Tasks.jsx                    (delete control wired up)
 Plus this Status.md.
 
 
