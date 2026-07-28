@@ -1,12 +1,31 @@
 /**
  * pages/Notifications.jsx
- * In-app notification inbox. Notifications are created by server-side jobs
- * for: lead assignments, appointment assignments, appointment reminders,
- * callback reminders, rescheduling reminders, and lead auto-return events.
+ * In-app notification inbox.
+ *
+ * BACKEND WIRING (added 28 Jul 2026, §61): only two of the six types this
+ * file's own TYPE_ICON table lists are wired to a real backend —
+ * LeadAssigned (leadHandlers.js's assign handler) and AppointmentAssigned
+ * (appointmentService.assignBroker()), both synchronous, action-driven
+ * triggers. AppointmentReminder, CallbackReminder, LeadAutoReturned, and
+ * RescheduleReminder are all time-based and need a scheduled job — no
+ * Vercel Cron exists anywhere in this stack yet, so those stay
+ * unbuilt (see Status.md §61 for the full reasoning). The Entra branch
+ * (RoleContext doesn't yet derive a real identity there — see its header
+ * comment) still runs entirely on MOCK_NOTIFICATIONS below, covering all
+ * six types so the UI/UX can still be demonstrated end-to-end.
+ *
+ * Also fixed in passing: the unread-row background was a hardcoded
+ * rgba(239,246,255,0.3) — a light-mode-only blue tint that never adapted
+ * to Terra/Midnight/Ember, a violation of the INLINE COLOUR ANTI-PATTERN
+ * rule already documented in Project_Context.md §8. Now a themed
+ * color-mix(), matching every other tinted surface in this app.
  */
 
-import { useState } from 'react';
-import { s } from '../styles/tokens.js';
+import { useState }      from 'react';
+import { formatDistanceToNow } from 'date-fns';
+import { s }              from '../styles/tokens.js';
+import { apiMode, notificationsApi } from '../services/api.js';
+import { useFetch }       from '../hooks/useFetch.js';
 
 const MOCK_NOTIFICATIONS = [
   { id:1, type:'LeadAssigned',      title:'New lead assigned — Dr Priya Naidoo',            body:'Admin User assigned this lead to you. Anaesthesiologist · Netcare Sunninghill.', time:'2 min ago',    read:false },
@@ -27,8 +46,28 @@ const TYPE_ICON = {
 };
 
 export default function Notifications() {
-  const [tab,   setTab]   = useState('all');
-  const [items, setItems] = useState(MOCK_NOTIFICATIONS);
+  const demoMode = apiMode.DEMO_MODE;
+
+  // Demo mode: real fetch, always self-scoped server-side (see
+  // notificationHandlers.js) — no role/identity filtering needed here.
+  const { data, refetch } = useFetch(
+    () => demoMode ? notificationsApi.list() : Promise.resolve(null),
+    [demoMode]
+  );
+  // Entra branch keeps its own local, mutable copy of MOCK_NOTIFICATIONS
+  // so mark-read/mark-all-read still work with no backend behind them —
+  // unchanged behaviour from before this session.
+  const [mockItems, setMockItems] = useState(MOCK_NOTIFICATIONS);
+
+  const items = demoMode
+    ? (data?.notifications ?? []).map(n => ({
+        id: n.id, type: n.type, title: n.title, body: n.body,
+        time: formatDistanceToNow(new Date(n.createdAt), { addSuffix: true }),
+        read: n.isRead,
+      }))
+    : mockItems;
+
+  const [tab, setTab] = useState('all');
 
   const filtered = items.filter(n => {
     if (tab === 'unread')      return !n.read;
@@ -39,8 +78,33 @@ export default function Notifications() {
 
   const unreadCount = items.filter(n => !n.read).length;
 
-  function markAllRead() { setItems(prev => prev.map(n => ({ ...n, read: true }))); }
-  function markRead(id)  { setItems(prev => prev.map(n => n.id === id ? { ...n, read: true } : n)); }
+  async function markAllRead() {
+    if (demoMode) {
+      try {
+        await notificationsApi.markAllRead();
+        refetch();
+      } catch (err) {
+        console.error('Could not mark all notifications read:', err);
+      }
+    } else {
+      setMockItems(prev => prev.map(n => ({ ...n, read: true })));
+    }
+  }
+
+  async function markRead(id) {
+    if (demoMode) {
+      const n = items.find(x => x.id === id);
+      if (!n || n.read) return; // already read — matches the Entra branch's cursor:'default' no-op below
+      try {
+        await notificationsApi.markRead(id);
+        refetch();
+      } catch (err) {
+        console.error('Could not mark notification read:', err);
+      }
+    } else {
+      setMockItems(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    }
+  }
 
   return (
     <div style={{ ...s.page, maxWidth: '760px' }}>
@@ -91,7 +155,7 @@ export default function Notifications() {
               display: 'flex', gap: '12px', padding: '12px 0',
               borderBottom: i < filtered.length - 1 ? '1px solid var(--line)' : 'none',
               cursor: n.read ? 'default' : 'pointer',
-              background: n.read ? 'transparent' : 'rgba(239,246,255,0.3)',
+              background: n.read ? 'transparent' : 'color-mix(in srgb, var(--accent) 6%, var(--panel))',
               borderRadius: '4px',
             }}
           >

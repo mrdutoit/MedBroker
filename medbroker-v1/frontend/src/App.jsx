@@ -16,7 +16,7 @@ import { FlagProvider, useFlags }           from './context/FlagContext.jsx';
 import { ThemeProvider, useTheme }          from './context/ThemeContext.jsx';
 import { AuthProvider, useAuth }            from './context/AuthContext.jsx';
 import { ProspectAuthProvider, useProspectAuth } from './context/ProspectAuthContext.jsx';
-import { apiMode, tasksApi }                from './services/api.js';
+import { apiMode, tasksApi, notificationsApi } from './services/api.js';
 import { useWindowSize }                     from './hooks/useWindowSize.js';
 import { useFetch }                          from './hooks/useFetch.js';
 import { Logo }                              from './components/Logo.jsx';
@@ -123,9 +123,22 @@ function AppLayout({ children }) {
   // Section labels only rendered when at least one item beneath them is visible
   const showAdminSection = isAdminOrAbove;
 
-  // Unread notification count — in production fetched from GET /api/notifications?unread=true
-  // Matches the 4 unread items in MOCK_NOTIFICATIONS in Notifications.jsx
-  const [unreadCount] = useState(4);
+  // Unread notification count. Entra branch: unchanged, still the fixed
+  // mock value matching MOCK_NOTIFICATIONS' 4 unread items in
+  // Notifications.jsx. Demo mode (§61): real fetch, own notifications
+  // only (recipientId = self is the only scope notificationHandlers.js
+  // has — no admin/supervisor distinction the way Tasks needed). Same
+  // route-change refetch trade-off as the Tasks badge below — accepted
+  // there already, applied consistently here rather than leaving one
+  // real and one fake, which would read as more broken than both fake.
+  const [mockUnreadCount] = useState(4);
+  const { data: notifData } = useFetch(
+    () => demoMode ? notificationsApi.list() : Promise.resolve(null),
+    [demoMode, location.pathname]
+  );
+  const unreadCount = demoMode
+    ? (notifData?.notifications ?? []).filter(n => !n.isRead).length
+    : mockUnreadCount;
 
   // Real pending-task count (§60) — only Tasks has a real backend behind
   // it (Notifications above is still the mock count). Scoped to the

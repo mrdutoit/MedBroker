@@ -9,6 +9,7 @@ import { validateToken, requireRole, authErrorResponse } from '../middleware/aut
 import { listLeads, createLead, listSources, getLeadById, updateLead, deleteLead, assignLead, reopenLead, logCallAttempt, listCallAttempts } from '../services/leadService.js';
 import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById } from '../services/userService.js';
 import { writeAuditLog, clientIp, listAuditLog } from '../services/auditService.js';
+import { createNotification } from '../services/notificationService.js';
 import { CreateLeadSchema, UpdateLeadSchema, LeadListQuerySchema, AssignLeadSchema, CallAttemptSchema } from '../models/lead.js';
 import { isUuid } from '../http/helpers.js';
 
@@ -306,6 +307,25 @@ export async function handleLeadAssign(req, res, id) {
         newAgentName: await getUserDisplayNameById(parsed.data.agentId),
       },
       ipAddress: clientIp(req),
+    });
+
+    // NOTIFICATION (§61) — needs the performer's name ("Admin User
+    // assigned this lead to you"), which is only available here at the
+    // handler layer (claims.oid), not inside assignLead() itself — unlike
+    // AppointmentAssigned's notification, which needed no performer
+    // identity and so lives in appointmentService.assignBroker() instead.
+    // `lead` was already fetched above (getLeadById) for the supervisor-
+    // scoping check — reused here rather than re-queried.
+    const performedByName = await getUserDisplayNameById(claims.oid);
+    const leadName = [lead.title, lead.firstName, lead.lastName].filter(Boolean).join(' ');
+    const leadContext = [lead.occupation, lead.hospitalOrPractice].filter(Boolean).join(' · ');
+    await createNotification({
+      recipientId: parsed.data.agentId,
+      type:        'LeadAssigned',
+      title:       `New lead assigned — ${leadName}`,
+      body:        `${performedByName} assigned this lead to you.${leadContext ? ` ${leadContext}.` : ''}`,
+      entityType:  'Lead',
+      entityId:    id,
     });
 
     return res.status(200).json({ success: true });

@@ -13,6 +13,7 @@
     { "source": "/api/events/:slug*",       "destination": "/api/events-router?slug=:slug*" },
     { "source": "/api/portal/:slug*",       "destination": "/api/portal-router?slug=:slug*" },
     { "source": "/api/tasks/:slug*",        "destination": "/api/tasks-router?slug=:slug*" },
+    { "source": "/api/notifications/:slug*", "destination": "/api/notifications-router?slug=:slug*" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "headers": [

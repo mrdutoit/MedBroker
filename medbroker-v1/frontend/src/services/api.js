@@ -296,6 +296,14 @@ export const tasksApi = {
   remove: (id)       => request(`/tasks/${id}`, { method: 'DELETE' }),
 };
 
+// ─── Notifications (§61) ──────────────────────────────────────────────────────
+
+export const notificationsApi = {
+  list:         ()          => request('/notifications'),
+  markRead:     (id, isRead = true) => request(`/notifications/${id}`, { method: 'PATCH', body: JSON.stringify({ isRead }) }),
+  markAllRead:  ()          => request('/notifications/mark-all-read', { method: 'PATCH' }),
+};
+
 // ─── Feature flags ────────────────────────────────────────────────────────────
 
 export const flagsApi = {

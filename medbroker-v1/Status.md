@@ -915,24 +915,22 @@ describe Appointments/Reports/Users/Flags as not-yet-built, which is no
 longer true. Left in place as a record of the original plan rather than
 deleted; do not treat their "NOT YET BUILT" language as current.
 
-THIS SESSION (14, 28 Jul 2026): built §54 — Appointment History card on
-LeadDetail.jsx (leadId filter added to listAppointments, surfaces every
-Appointment linked to a Lead rather than just the most recent one). See
-§54 for full detail. Continued same session: built §55 — Settings wired to
-a real self-service backend (PUT /api/users/me, new User columns for
-theme/avatar/timezone). See §55 for full detail. Continued further: built
-§57 — full Task backend (schema fix, REST API, all five generation rules
-wired into their real trigger points). See §57 for full detail. Continued
-further still: built §58 — manual task deletion (UI + server-side
-Manual-type restriction) and cascade cleanup (tasks now reassign or
-delete themselves when their Lead/Appointment gets reassigned, deleted,
-or returned to leads — nothing did this before). See §58 for full detail.
+THIS SESSION (14, 28 Jul 2026) — built, in order:
+  §54 Appointment History card on LeadDetail.jsx
+  §55 Settings wired to a real self-service backend
+  §57 Full Task backend (schema fix, REST API, all five generation rules)
+  §58 Manual task deletion + cascade cleanup (reassign/delete on Lead/
+      Appointment reassignment or deletion — nothing did this before)
+  §59 Fixed the "Overdue 9129d" due-date bug Mark caught in testing
+  §60 Real Tasks sidebar badge (was previously absent entirely)
+  §61 Notifications backend, narrowed scope (LeadAssigned/
+      AppointmentAssigned only; reminders/auto-return parked on Cron)
+See each section for full detail.
 
-GENUINELY OPEN ITEMS (accurate as of session 14):
-  - Notifications — narrowed scope agreed (§57): only the two synchronous
-    trigger types (LeadAssigned, AppointmentAssigned) next; the three
-    time-based types (reminders, auto-return) need Vercel Cron, which
-    doesn't exist in this stack yet — parked until that's solved.
+GENUINELY OPEN ITEMS (accurate as of session 14, end):
+  - Notifications — three time-based types still parked (§61):
+    AppointmentReminder, CallbackReminder, LeadAutoReturned. All need a
+    scheduled job; no Vercel Cron exists in this stack yet.
   - Token economy (Stripe) — claim model works, payment provider not wired.
   - Excel/JSON lead data importer — flagged since §34, still unscoped.
   - Deployment-phase security — A5/A6, E1/E2/E3/E5, WAF (Cloudflare Pro),
@@ -4477,6 +4475,101 @@ confirmed no duplicate imports); existing 45-test Vitest suite unaffected.
 
 MIGRATION — one file, logic only:
   frontend/src/App.jsx (Tasks badge added)
+Plus this Status.md.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+61. NOTIFICATIONS BACKEND (NARROWED SCOPE) — 28 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Confirmed direction from the Tasks-vs-Notifications conversation: build
+the two synchronous, action-driven notification types now (LeadAssigned,
+AppointmentAssigned); park the three time-based types (AppointmentReminder,
+CallbackReminder, LeadAutoReturned) until the Vercel Cron question is
+solved — no scheduled-job infrastructure exists anywhere in this stack.
+
+NO MIGRATION NEEDED: unlike Task (§56, which needed a real schema fix),
+the Notification table was already correctly designed — entityType/
+entityId already nullable, no restrictive CHECK on type. Checked before
+assuming; genuinely nothing to fix here.
+
+BUILT — full REST API (api-lib/models/notification.js,
+services/notificationService.js, handlers/notificationHandlers.js,
+api/notifications-router.js, vercel.json rewrite):
+  GET /api/notifications, PATCH /api/notifications/mark-all-read,
+  PATCH /api/notifications/:id. Deliberately simpler than Task's API —
+  every route is always self-scoped (recipientId = the caller, full
+  stop), so there's no Agent/Broker/Supervisor/Admin role-scoping the way
+  Task needed, and no audit log writes — marking a notification read/
+  unread is UI bookkeeping, not a business-state change to a Lead/
+  Appointment/User the way the A4 audit gate is concerned with.
+  getNotificationById() is scoped to recipientId, not just id, so a user
+  gets 404 (not 403) trying to touch someone else's notification — doesn't
+  even reveal it exists for someone else.
+
+TRIGGERS — deliberately live in two different layers, not arbitrarily:
+  - AppointmentAssigned (appointmentService.assignBroker()): needs no
+    performer identity — MOCK_NOTIFICATIONS' own wording for this type
+    ("You have been assigned as broker...") never names who assigned it —
+    so it's entirely self-contained inside the service function, same
+    layer Task's generation rules already live in.
+  - LeadAssigned (leadHandlers.js's assign handler, not
+    leadService.assignLead()): MOCK_NOTIFICATIONS' wording for this type
+    DOES name the performer ("Admin User assigned this lead to you"),
+    and that identity (claims.oid) is only naturally available at the
+    handler layer, which already fetches display names for its own audit
+    log entry — reused rather than threading a new parameter into
+    assignLead()'s signature.
+  Small helper added to appointmentService.js: shortDateLabel() for the
+  "21 May" style date in the AppointmentAssigned body — deliberately NOT
+  String(dateValue), which was exactly the §59 bug (a raw pg Date
+  object's .toString() has no year). No downstream re-parsing happens
+  here — this is plain display text — but used .getUTCDate()/
+  .getUTCMonth() anyway rather than risk the same landmine twice.
+
+FRONTEND (Notifications.jsx): rewired to the real backend in demo mode —
+real fetch, real mark-read/mark-all-read via notificationsApi, "time ago"
+labels computed with formatDistanceToNow (date-fns, already used the same
+way in LeadList.jsx/LeadDetail.jsx — not a new dependency or pattern).
+The Entra branch's MOCK_NOTIFICATIONS interactivity is UNCHANGED, own
+local state, covering all six types so the UI/UX can still be
+demonstrated end-to-end even though only two are wired for real.
+
+BUG CAUGHT IN PASSING: the unread-row background was a hardcoded
+rgba(239,246,255,0.3) — a light-mode-only blue tint that never adapted to
+Terra/Midnight/Ember, a real violation of the INLINE COLOUR ANTI-PATTERN
+rule (Project_Context.md §8). Fixed to a themed color-mix(), matching
+every other tinted surface in this app.
+
+SIDEBAR BADGE PARITY (App.jsx): the Notifications sidebar badge was a
+hardcoded useState(4) (§0/pre-existing) — leaving it fake while the
+Notifications page itself now shows real data would read as MORE broken
+than before, not less, so wired it to real data in demo mode too, exactly
+mirroring the Tasks badge pattern from §60 (same route-change refetch
+trade-off, same reasoning, applied consistently rather than leaving one
+real and one fake). Entra branch unchanged — still the fixed mock value.
+
+VERIFIED: full Vite production build clean (1,412 modules, zero errors);
+existing 45-test Vitest suite unaffected; every new/edited backend file
+(models/notification.js, services/notificationService.js,
+handlers/notificationHandlers.js, api/notifications-router.js,
+services/appointmentService.js, handlers/leadHandlers.js) passes
+node --check and an ESM import smoke test (services requiring
+DATABASE_URL/JWT_SIGNING_SECRET at import time as always — confirmed
+clean with dummy values; no live DB connection available in this sandbox,
+same limitation as every prior session).
+
+MIGRATION — no schema change:
+  frontend/api-lib/models/notification.js       (NEW)
+  frontend/api-lib/services/notificationService.js (NEW)
+  frontend/api-lib/handlers/notificationHandlers.js (NEW)
+  frontend/api/notifications-router.js          (NEW)
+  frontend/vercel.json                          (notifications-router rewrite registered)
+  frontend/api-lib/services/appointmentService.js (AppointmentAssigned trigger)
+  frontend/api-lib/handlers/leadHandlers.js     (LeadAssigned trigger)
+  frontend/src/services/api.js                  (notificationsApi added)
+  frontend/src/pages/Notifications.jsx          (real wiring + dark-theme fix)
+  frontend/src/App.jsx                          (sidebar badge parity)
 Plus this Status.md.
 
 

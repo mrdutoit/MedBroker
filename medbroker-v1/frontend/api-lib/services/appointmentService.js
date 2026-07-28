@@ -20,6 +20,7 @@ import { executeQuery, executeQueryOne, sql } from './db.js';
 import { computeAppointmentStatus } from './appointmentStatusService.js';
 import { getActiveUserById, resolvePortfolioIds } from './userService.js';
 import { createTask, deleteTasksForEntity, reassignTasksForEntity } from './taskService.js';
+import { createNotification } from './notificationService.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
 // ── Shared SELECT fragments ─────────────────────────────────────────────────
@@ -391,9 +392,42 @@ export async function createAppointment(data) {
  * @param {string} id
  * @param {string} brokerId
  */
+const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * A short "21 May" style label for a notification body — deliberately not
+ * String(dateValue), which was exactly the bug in §59 (a raw pg Date
+ * object's .toString() has no year and derails downstream parsing).
+ * There's no downstream re-parsing here — this is plain display text —
+ * but .getUTCDate()/.getUTCMonth() is used anyway rather than risk the
+ * same landmine a second time. UTC methods specifically: this is a
+ * DATE-only column, and a DATE shouldn't shift by a day depending on the
+ * server process's local timezone.
+ */
+function shortDateLabel(dateValue) {
+  if (!dateValue) return null;
+  const d = dateValue instanceof Date ? dateValue : new Date(dateValue);
+  if (isNaN(d.getTime())) return null;
+  return `${d.getUTCDate()} ${MONTH_ABBR[d.getUTCMonth()]}`;
+}
+
 export async function assignBroker(id, brokerId) {
   const broker = await getActiveUserById(brokerId);
   if (!broker) throw { status: 400, message: 'assignBroker: brokerId is not an active user in this organisation' };
+
+  // Fetched before the update — needed for the AppointmentAssigned
+  // notification body below (§61), which doesn't need a performer name
+  // (unlike LeadAssigned's notification — see leadHandlers.js's assign
+  // handler) so it can live entirely in this service function, matching
+  // where Task's generation rules already live for the same reason.
+  const appt = await executeQueryOne(
+    `SELECT a.firstAppointmentDate AS "firstAppointmentDate", a.firstAppointmentTime AS "firstAppointmentTime",
+            l.title, l.firstName AS "firstName", l.lastName AS "lastName"
+     FROM Appointment a
+     LEFT JOIN Lead l ON a.leadId = l.id
+     WHERE a.id = @id AND a.organisationId = @organisationId`,
+    { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } }
+  );
 
   await executeQuery(
     `UPDATE Appointment SET brokerId = @brokerId, status = 'Assigned', updatedAt = NOW()
@@ -404,6 +438,20 @@ export async function assignBroker(id, brokerId) {
       organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
     }
   );
+
+  if (appt) {
+    const leadName = [appt.title, appt.firstName, appt.lastName].filter(Boolean).join(' ');
+    const dateLabel = shortDateLabel(appt.firstAppointmentDate);
+    const whenLabel = [dateLabel, appt.firstAppointmentTime].filter(Boolean).join(', ');
+    await createNotification({
+      recipientId: brokerId,
+      type:        'AppointmentAssigned',
+      title:       `New appointment assigned — ${leadName}`,
+      body:        `You have been assigned as broker for this appointment.${whenLabel ? ` First meeting: ${whenLabel}.` : ''}`,
+      entityType:  'Appointment',
+      entityId:    id,
+    });
+  }
 }
 
 /**
