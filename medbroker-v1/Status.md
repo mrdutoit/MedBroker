@@ -4440,6 +4440,46 @@ MIGRATION — one file, logic only:
 Plus this Status.md and Project_Context.md.
 
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+60. TASKS SIDEBAR BADGE — 28 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark asked whether Tasks shows a count indicator like Notifications does.
+Checked before answering rather than assumed: no, it didn't — and worth
+knowing, Notifications' "4" badge isn't real either, it's a hardcoded
+useState(4) in App.jsx matching MOCK_NOTIFICATIONS. Tasks now has a real
+one, since it has a real backend behind it and Notifications doesn't.
+
+BUILT: AppLayout (App.jsx) fetches the current user's own incomplete task
+count — tasksApi.list({ assignedToId: persona.id }), filtered to !done —
+and shows it as a badge on the Tasks nav item, same NavItem badge prop
+Notifications already uses. Deliberately scoped to assignedToId = self,
+not the role-scoped list GET /api/tasks otherwise returns for a
+Supervisor/Admin (self + reports, or everyone) — the badge means "tasks
+assigned to YOU", not "tasks you can see".
+
+Skipped entirely (no fetch at all) when tasks.enabled is off or there's
+no real backend to ask (Entra branch) — badge stays absent rather than
+showing a fake number the way Notifications does.
+
+REFRESH STRATEGY: refetched on every route change (useLocation().pathname
+as a useFetch dependency), not just once on mount. Deliberate trade-off,
+noted plainly rather than silently chosen: this means one extra small GET
+per navigation anywhere in the app, not just when leaving Tasks — but the
+query is cheap (IX_Task_AssignedTo is indexed on assignedToId, and a
+person's own task count is personal-scale, not the row counts Leads/
+Appointments can reach), and there's no polling/websocket infrastructure
+in this app to do it more precisely. Good enough for a sidebar badge; a
+completed task's count updates the moment you navigate away from Tasks.
+
+VERIFIED: full Vite production build clean (1,412 modules, zero errors,
+confirmed no duplicate imports); existing 45-test Vitest suite unaffected.
+
+MIGRATION — one file, logic only:
+  frontend/src/App.jsx (Tasks badge added)
+Plus this Status.md.
+
+
 
 If picking up a pending item from Section 5, reference it by name.
 e.g. "I want to work on the Appointments API build."

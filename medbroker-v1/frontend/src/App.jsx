@@ -9,15 +9,16 @@
  * Responsive — collapsible sidebar on mobile.
  */
 
-import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
 import { lazy, Suspense, useState } from 'react';
 import { RoleProvider, useRole, PERSONAS } from './context/RoleContext.jsx';
 import { FlagProvider, useFlags }           from './context/FlagContext.jsx';
 import { ThemeProvider, useTheme }          from './context/ThemeContext.jsx';
 import { AuthProvider, useAuth }            from './context/AuthContext.jsx';
 import { ProspectAuthProvider, useProspectAuth } from './context/ProspectAuthContext.jsx';
-import { apiMode }                          from './services/api.js';
+import { apiMode, tasksApi }                from './services/api.js';
 import { useWindowSize }                     from './hooks/useWindowSize.js';
+import { useFetch }                          from './hooks/useFetch.js';
 import { Logo }                              from './components/Logo.jsx';
 import { avatarColourValue }                 from './constants/avatarOptions.js';
 import Login                                 from './pages/Login.jsx';
@@ -104,6 +105,7 @@ function AppLayout({ children }) {
   const { theme, setTheme, themes } = useTheme();
   const { demoMode, logout }        = useAuth();
   const navigate                   = useNavigate();
+  const location                   = useLocation();
   const { isMobile, isTablet }     = useWindowSize();
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
@@ -124,6 +126,23 @@ function AppLayout({ children }) {
   // Unread notification count — in production fetched from GET /api/notifications?unread=true
   // Matches the 4 unread items in MOCK_NOTIFICATIONS in Notifications.jsx
   const [unreadCount] = useState(4);
+
+  // Real pending-task count (§60) — only Tasks has a real backend behind
+  // it (Notifications above is still the mock count). Scoped to the
+  // current user specifically (assignedToId), not the role-scoped list
+  // GET /api/tasks would otherwise return for a Supervisor/Admin — this
+  // badge means "tasks assigned to YOU", not "tasks you can see". Skipped
+  // entirely when the flag is off or there's no real backend to ask.
+  // Refetched on every route change rather than left to go stale after
+  // completing a task on the Tasks page and navigating elsewhere — the
+  // query is cheap (indexed on assignedToId, personal-scale row counts),
+  // so refetching on navigation is a reasonable trade for staying accurate
+  // without adding polling/websocket infrastructure this app doesn't have.
+  const { data: myTaskData } = useFetch(
+    () => (demoMode && showTasks && persona.id) ? tasksApi.list({ assignedToId: persona.id }) : Promise.resolve(null),
+    [demoMode, showTasks, persona.id, location.pathname]
+  );
+  const pendingTaskCount = (myTaskData?.tasks ?? []).filter(t => !t.done).length;
 
   function closeNav() { if (isMobile) setSidebarOpen(false); }
 
@@ -178,7 +197,7 @@ function AppLayout({ children }) {
 
           <div style={SECTION}>Productivity</div>
           <NavItem to="/notifications" label="Notifications" badge={unreadCount > 0 ? unreadCount : null} onClick={closeNav} />
-          {showTasks && <NavItem to="/tasks" label="Tasks" onClick={closeNav} />}
+          {showTasks && <NavItem to="/tasks" label="Tasks" badge={pendingTaskCount > 0 ? pendingTaskCount : null} onClick={closeNav} />}
 
           {/* Analytics — visible to all roles; self-service roles go to their own detail */}
           <div style={SECTION}>Analytics</div>
