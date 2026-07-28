@@ -925,12 +925,18 @@ THIS SESSION (14, 28 Jul 2026) — built, in order:
   §60 Real Tasks sidebar badge (was previously absent entirely)
   §61 Notifications backend, narrowed scope (LeadAssigned/
       AppointmentAssigned only; reminders/auto-return parked on Cron)
+  §62 Fixed a failed Vercel deploy — 13 serverless functions, one over
+      Hobby's 12 limit; folded broker-matching into appointments-router.js
 See each section for full detail.
 
 GENUINELY OPEN ITEMS (accurate as of session 14, end):
   - Notifications — three time-based types still parked (§61):
     AppointmentReminder, CallbackReminder, LeadAutoReturned. All need a
     scheduled job; no Vercel Cron exists in this stack yet.
+  - Vercel function count sits at exactly 12/12 (§62) — zero headroom.
+    Consolidating system-config.js into flags-router.js is the natural
+    next fold, before the next new domain needs its own top-level API
+    surface. Not done yet — Mark's call when to prioritise it.
   - Token economy (Stripe) — claim model works, payment provider not wired.
   - Excel/JSON lead data importer — flagged since §34, still unscoped.
   - Deployment-phase security — A5/A6, E1/E2/E3/E5, WAF (Cloudflare Pro),
@@ -4571,6 +4577,66 @@ MIGRATION — no schema change:
   frontend/src/pages/Notifications.jsx          (real wiring + dark-theme fix)
   frontend/src/App.jsx                          (sidebar badge parity)
 Plus this Status.md.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+62. VERCEL DEPLOY FAILED — 13 SERVERLESS FUNCTIONS, HOBBY LIMIT IS 12 — 28 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's deployment failed: "No more than 12 Serverless Functions can be
+added to a Deployment on the Hobby plan." Root-caused before fixing, not
+guessed — counted every file under frontend/api (not just the router
+files) and found 13, not the 12 I'd assumed:
+
+  find frontend/api -type f -name "*.js" | wc -l
+
+The 13th was api/broker-matching/index.js — a standalone GET endpoint
+(LeadDetail.jsx's Book Appointment broker search) that I'd missed in an
+earlier `-maxdepth 1` count, since it's nested one directory deeper than
+every other route file. §29 (22 July) already consolidated this exact
+problem once — 8 routers, down from ~20 files — but it didn't stay at 8:
+Reports/Events/Portal routers, health.js, system-config.js, and this
+nested broker-matching file grew it back to 11 over time, and this
+session's Tasks (§56) + Notifications (§61) additions took it to 13.
+
+FIX: folded broker-matching into appointments-router.js — a clean domain
+fit (it's appointment-adjacent logic, not really its own domain), added
+as a special first-segment case the same way users-router.js's /me and
+notifications-router.js's /mark-all-read already work (checked BEFORE
+the UUID-treating branch, since 'broker-matching' is never a valid
+appointment id). Logic itself unchanged from the original file —
+handleBrokerMatching() in appointmentHandlers.js is a straight move, not
+a rewrite. Frontend's brokerMatchingApi.findBrokers() now calls
+/api/appointments/broker-matching instead of /api/broker-matching — the
+one call site (LeadDetail.jsx's Book Appointment modal) needed no other
+change. Old api/broker-matching/ directory deleted.
+
+Back to exactly 12 — the deploy should succeed now. FLAGGED, not silently
+left: 12 is the ceiling itself, zero headroom. The next new domain
+needing its own top-level API surface will hit this again immediately
+unless something else gets folded first — system-config.js into
+flags-router.js is the natural next candidate (both are AppAdmin-tier
+system-settings concepts), not done this pass since it wasn't needed to
+fix the actual failure and Mark didn't ask for it — his call whether to
+do it now or wait.
+
+VERIFIED: full Vite production build clean (1,412 modules, zero errors);
+existing 45-test Vitest suite unaffected; appointmentHandlers.js and
+appointments-router.js pass node --check and an ESM import smoke test.
+Function count itself re-confirmed by direct find count after the fix
+(12, not 13) — this is the one thing in this whole session that's
+actually verifiable from the sandbox without a live deployment, since
+it's just counting files, not behaviour.
+
+MIGRATION — logic only, no schema change:
+  frontend/api-lib/handlers/appointmentHandlers.js (handleBrokerMatching added)
+  frontend/api/appointments-router.js            (broker-matching route added)
+  frontend/src/services/api.js                   (brokerMatchingApi path updated)
+  DELETE frontend/api/broker-matching/index.js    (folded in, no longer needed —
+                                                     delete the file/folder on GitHub too,
+                                                     not just add the new code, same
+                                                     warning §29 gave the first time)
+Plus this Status.md and Project_Context.md.
 
 
 

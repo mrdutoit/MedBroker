@@ -7,6 +7,7 @@
  * Routes:
  *   GET  /api/appointments
  *   POST /api/appointments
+ *   GET  /api/appointments/broker-matching
  *   GET  /api/appointments/:id
  *   PUT  /api/appointments/:id/assign
  *   PUT  /api/appointments/:id/reassign
@@ -18,7 +19,7 @@
 import {
   handleAppointmentsCollection, handleAppointmentById, handleAppointmentAssign,
   handleAppointmentReassign, handleAppointmentReturn, handleAppointmentOutcome,
-  handleAppointmentAudit,
+  handleAppointmentAudit, handleBrokerMatching,
 } from '../api-lib/handlers/appointmentHandlers.js';
 import { applyCors, parseSlug } from '../api-lib/http/helpers.js';
 
@@ -37,6 +38,13 @@ export default async function handler(req, res) {
 
   if (segments.length === 0) {
     return handleAppointmentsCollection(req, res);
+  }
+
+  // Must come before the UUID branch below — 'broker-matching' is never
+  // a valid appointment id (§62 — folded in from its own former standalone
+  // function to get back under Vercel Hobby's 12-function limit).
+  if (segments.length === 1 && segments[0] === 'broker-matching') {
+    return handleBrokerMatching(req, res);
   }
 
   if (segments.length === 1) {

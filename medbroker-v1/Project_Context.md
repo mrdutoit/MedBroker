@@ -1225,6 +1225,23 @@ supporting evidence from this project's own working [id].js usage
 throughout, but only a real deployment confirms it for certain). Full
 detail and exact file list in Status.md §29.
 
+HIT THE SAME CEILING AGAIN (28 Jul 2026, §62): the 8-router consolidation
+above didn't stay at 8 — Reports/Events/Portal routers, health.js,
+system-config.js, and a standalone api/broker-matching/index.js grew it
+back to 11 over time, and adding Tasks (§56) + Notifications (§61) pushed
+it to 13, one over the limit — the actual cause of a failed deployment
+Mark hit. Fixed by folding broker-matching into appointments-router.js
+(a GET route with no id prefix, added as a special first-segment case
+the same way users-router.js's /me and notifications-router.js's
+/mark-all-read already work) — back to exactly 12. Sitting exactly at the
+ceiling again, though, with zero headroom — worth consolidating something
+else (system-config.js into flags-router.js is the natural next fold)
+before the next new domain needs its own top-level API surface, or this
+recurs immediately. CHECK THE ACTUAL FUNCTION COUNT (find frontend/api
+-type f -name "*.js" | wc -l — not just the router files, nested ones
+like broker-matching/index.js count too) before adding any new top-level
+api/*.js file, not just when a deploy fails. Full detail in Status.md §62.
+
 FUNCTION CONSOLIDATION FIX (22 July 2026): §19/§29's bracket catch-all
 approach ([...slug].js) broke production immediately on deploy — Vercel
 doesn't recognize that file convention outside Next.js, confirmed by

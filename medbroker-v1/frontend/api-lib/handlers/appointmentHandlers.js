@@ -10,15 +10,57 @@ import {
   listAppointments, createAppointment, getAppointmentById, assignBroker,
   reassignAppointment, returnToLeads, saveOutcome,
 } from '../services/appointmentService.js';
+import { findMatchingBrokers } from '../services/brokerMatchingService.js';
 import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById } from '../services/userService.js';
 import { writeAuditLog, clientIp, listAuditLog } from '../services/auditService.js';
 import {
   CreateAppointmentSchema, AppointmentListQuerySchema, AssignBrokerSchema,
-  ReassignAppointmentSchema, SaveOutcomeSchema,
+  ReassignAppointmentSchema, SaveOutcomeSchema, BrokerMatchingQuerySchema,
 } from '../models/appointment.js';
 import { isUuid } from '../http/helpers.js';
 
 /** GET (list) + POST (create) /api/appointments */
+/**
+ * GET /api/appointments/broker-matching — Agent, Supervisor, Admin,
+ * GlobalAdmin. Called from LeadDetail.jsx's Book Appointment modal to
+ * populate the broker selection list before creating the appointment —
+ * this route only finds candidates, it doesn't book anything itself.
+ *
+ * MOVED HERE 28 Jul 2026 (§62) — was its own standalone file at
+ * api/broker-matching/index.js, which Vercel counts as a separate
+ * serverless function regardless of what vercel.json's rewrites do. That
+ * file plus Tasks (§56) and Notifications (§61) pushed the total to 13,
+ * one over Hobby's 12-function ceiling — the actual cause of the failed
+ * deployment Mark hit. Folded in here rather than into some other router,
+ * since this is squarely appointment-domain logic; logic itself is
+ * unchanged from the original file.
+ */
+export async function handleBrokerMatching(req, res) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Agent', 'Supervisor', 'Admin', 'GlobalAdmin']);
+
+    const parsed = BrokerMatchingQuerySchema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const result = await findMatchingBrokers(parsed.data);
+    return res.status(200).json(result);
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('appointments/broker-matching error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
 export async function handleAppointmentsCollection(req, res) {
   try {
     const claims = await validateToken(req);

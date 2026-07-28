@@ -247,7 +247,7 @@ export const appointmentsApi = {
 
 export const brokerMatchingApi = {
   findBrokers: (params) =>
-    request(`/broker-matching?${new URLSearchParams(params)}`),
+    request(`/appointments/broker-matching?${new URLSearchParams(params)}`),
 };
 
 // ─── Events ───────────────────────────────────────────────────────────────────
