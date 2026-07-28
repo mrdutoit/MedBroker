@@ -538,7 +538,7 @@ medbroker-v1/
 │   │   │   ├── FeatureFlags.jsx        GlobalAdmin only. tasks.enabled in Core tier.
 │   │   │   ├── SingleSignOn.jsx
 │   │   │   ├── Notifications.jsx
-│   │   │   ├── Tasks.jsx               Built + functional. Gated by tasks.enabled flag.
+│   │   │   ├── Tasks.jsx               Real backend (§57, 28 Jul). Gated by tasks.enabled flag.
 │   │   │   ├── EventList.jsx
 │   │   │   └── EventDetail.jsx
 │   │   ├── themes.css                  NEW — 4 design systems on CSS-variable contract:
@@ -806,8 +806,12 @@ autoReturnLeads.js: runs daily, idempotent.
   getDbClient() is a stub — must be implemented with actual DB client.
 
 tasks.enabled in Core tier (not Phase2): The Tasks page (Tasks.jsx) is fully
-  built with interactive checkboxes, tabs, due date badges, and metrics.
-  It is off by default but immediately functional when enabled.
+  built with interactive checkboxes, tabs, due date badges, and metrics —
+  and, as of 28 Jul 2026 (§57), backed by a real API (GET/POST /api/tasks,
+  PATCH/DELETE /api/tasks/:id) with all five generation rules wired into
+  their real trigger points in leadService/appointmentService. Still off
+  by default (flag lives in the database, unaffected by this delivery) but
+  fully functional end-to-end when enabled — not just UI-functional.
   Phase2 tier is reserved only for features not yet implemented in code.
 
 ReassignBrokerModal on AppointmentDetail: mirrored AssignBrokerModal

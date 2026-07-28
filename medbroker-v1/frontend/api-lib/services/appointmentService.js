@@ -19,6 +19,7 @@
 import { executeQuery, executeQueryOne, sql } from './db.js';
 import { computeAppointmentStatus } from './appointmentStatusService.js';
 import { getActiveUserById, resolvePortfolioIds } from './userService.js';
+import { createTask } from './taskService.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
 // ── Shared SELECT fragments ─────────────────────────────────────────────────
@@ -276,16 +277,23 @@ export async function createAppointment(data) {
   const portfolioId = portfolioIds[0];
 
   const lead = await executeQueryOne(
-    `SELECT assignedAgentId AS "assignedAgentId" FROM Lead
-     WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
+    `SELECT l.assignedAgentId AS "assignedAgentId", l.title, l.firstName AS "firstName", l.lastName AS "lastName",
+            ag.supervisorId AS "agentSupervisorId"
+     FROM Lead l
+     LEFT JOIN "User" ag ON l.assignedAgentId = ag.id
+     WHERE l.id = @leadId AND l.deletedAt IS NULL AND l.organisationId = @organisationId`,
     { leadId: { type: sql.UniqueIdentifier, value: data.leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
   if (!lead) throw { status: 404, message: 'Lead not found' };
   if (!lead.assignedAgentId) throw { status: 400, message: 'This lead has no assigned agent — assign it to an agent before booking an appointment' };
   const agentId = lead.assignedAgentId;
 
+  // Hoisted out of the if-block below (not just declared inside it) — the
+  // Confirm-appointment task rule further down needs broker.displayName
+  // when a broker was provided at booking time.
+  let broker = null;
   if (data.brokerId) {
-    const broker = await getActiveUserById(data.brokerId);
+    broker = await getActiveUserById(data.brokerId);
     if (!broker) throw { status: 400, message: 'brokerId is not an active user in this organisation' };
 
     // Mark's request, 24 Jul 2026 — reject a booking that would
@@ -339,6 +347,39 @@ export async function createAppointment(data) {
      WHERE id = @leadId AND organisationId = @organisationId`,
     { leadId: { type: sql.UniqueIdentifier, value: data.leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
+
+  // TASK GENERATION (§56), rules 2 and 5 of 5 — matches Tasks.jsx's own
+  // header spec. Both are outcomes of this same booking call, split on the
+  // same brokerId-present-or-absent branch that already decided `status`
+  // above, not two separate touchpoints:
+  //   "Appointment booked     -> Confirm appointment with [broker] — [date]"
+  //   "Appointment unassigned -> Assign broker — [lead name]"
+  const leadName = [lead.title, lead.firstName, lead.lastName].filter(Boolean).join(' ');
+  if (status === 'Assigned') {
+    await createTask({
+      assignedToId: agentId,
+      type:         'Appointment',
+      entityType:   'Appointment',
+      entityId:     newId,
+      title:        `Confirm appointment with ${broker.displayName} — ${data.firstAppointmentDate}`,
+      dueAt:        data.firstAppointmentDate,
+    });
+  } else {
+    // No broker chosen at booking — routed to the agent's Supervisor
+    // (assignBroker() is Supervisor/Admin/GlobalAdmin-only, see
+    // appointmentHandlers.js — an Agent couldn't act on this task even if
+    // it landed on them). Falls back to the agent themselves if they have
+    // no supervisorId set, since Task.assignedToId is NOT NULL — never
+    // left orphaned to nobody.
+    await createTask({
+      assignedToId: lead.agentSupervisorId ?? agentId,
+      type:         'Appointment',
+      entityType:   'Appointment',
+      entityId:     newId,
+      title:        `Assign broker — ${leadName}`,
+      dueAt:        data.firstAppointmentDate,
+    });
+  }
 
   return newId;
 }
@@ -493,7 +534,12 @@ export async function returnToLeads(id) {
 export async function saveOutcome(id, data) {
   const organisationId = resolveOrganisationId();
   const current = await executeQueryOne(
-    `SELECT status FROM Appointment WHERE id = @id AND organisationId = @organisationId`,
+    `SELECT a.status, a.brokerId AS "brokerId", a.leadId AS "leadId",
+            a.meeting1Status AS "meeting1Status", a.meeting2Status AS "meeting2Status", a.meeting3Status AS "meeting3Status",
+            l.title, l.firstName AS "firstName", l.lastName AS "lastName"
+     FROM Appointment a
+     LEFT JOIN Lead l ON a.leadId = l.id
+     WHERE a.id = @id AND a.organisationId = @organisationId`,
     { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
   if (!current) throw { status: 404, message: 'Appointment not found' };
@@ -528,6 +574,47 @@ export async function saveOutcome(id, data) {
   }
 
   await executeQuery(`UPDATE Appointment SET ${setClauses.join(', ')} WHERE id = @id AND organisationId = @organisationId`, params);
+
+  // TASK GENERATION (§56), rules 3 and 4 of 5 — matches Tasks.jsx's own
+  // header spec: "Meeting marked Rescheduled -> Reschedule [lead name]
+  // [nth] meeting" / "Meeting marked Seen -> Record outcome — [lead name]".
+  // Gated on a genuine TRANSITION into that status (compared against
+  // current.meetingNStatus fetched above), not merely "the payload
+  // contains this status" — otherwise re-saving an already-Rescheduled
+  // meeting would spawn a fresh task every time. Assigned to the broker
+  // (they're the one who was in the meeting) — skipped gracefully if this
+  // appointment somehow has no brokerId yet, rather than crashing on a
+  // NOT NULL violation.
+  if (current.brokerId) {
+    const leadName = [current.title, current.firstName, current.lastName].filter(Boolean).join(' ');
+    const NTH = { 1: 'first', 2: 'second', 3: 'third' };
+    for (const meeting of data.meetings ?? []) {
+      const n = meeting.number;
+      if (![1, 2, 3].includes(n)) continue;
+      const previousStatus = current[`meeting${n}Status`];
+      if (meeting.status === previousStatus) continue; // no real transition — nothing to generate
+
+      if (meeting.status === 'Rescheduled') {
+        await createTask({
+          assignedToId: current.brokerId,
+          type:         'Reschedule',
+          entityType:   'Appointment',
+          entityId:     id,
+          title:        `Reschedule ${leadName} ${NTH[n]} meeting`,
+          detail:       meeting.notes || null,
+        });
+      } else if (meeting.status === 'Seen') {
+        await createTask({
+          assignedToId: current.brokerId,
+          type:         'Outcome',
+          entityType:   'Appointment',
+          entityId:     id,
+          title:        `Record outcome — ${leadName}`,
+          detail:       meeting.notes || null,
+        });
+      }
+    }
+  }
 
   if (data.productsSold !== undefined) {
     const idMap = await resolveProductIdMap(data.productsSold.map(p => p.product));

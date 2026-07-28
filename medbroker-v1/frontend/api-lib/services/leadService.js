@@ -41,6 +41,7 @@ import { executeQuery, executeQueryOne, sql } from './db.js';
 import { encrypt, blindIndex } from './encryption.js';
 import { computeLeadStatus } from './leadStatusService.js';
 import { getActiveUserById, resolvePortfolioIds } from './userService.js';
+import { createTask } from './taskService.js';
 import { config } from '../config.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
@@ -465,7 +466,8 @@ export async function logCallAttempt(leadId, agentId, attemptData) {
   );
 
   const current = await executeQueryOne(
-    `SELECT pipelineStatus AS "pipelineStatus" FROM Lead WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
+    `SELECT pipelineStatus AS "pipelineStatus", title, firstName AS "firstName", lastName AS "lastName"
+     FROM Lead WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
     {
       leadId: { type: sql.UniqueIdentifier, value: leadId },
       organisationId: { type: sql.UniqueIdentifier, value: organisationId },
@@ -505,6 +507,26 @@ export async function logCallAttempt(leadId, agentId, attemptData) {
         organisationId: { type: sql.UniqueIdentifier, value: organisationId },
       }
     );
+  }
+
+  // TASK GENERATION (§56), rule 1 of 5 — matches Tasks.jsx's own header
+  // spec: "CallbackRequested outcome -> Call back [lead name] by
+  // [callbackDateTime]". Assigned to the same agent who logged the call
+  // (this lead's own assignedAgentId, i.e. the caller of this function) —
+  // not the Supervisor, unlike the "Assign broker" rule in
+  // appointmentService.createAppointment(), since following up on your
+  // own callback doesn't need anyone else's involvement.
+  if (current && attemptData.outcome === 'CallbackRequested') {
+    const leadName = [current.title, current.firstName, current.lastName].filter(Boolean).join(' ');
+    await createTask({
+      assignedToId: agentId,
+      type:         'Callback',
+      entityType:   'Lead',
+      entityId:     leadId,
+      title:        `Call back ${leadName}`,
+      detail:       attemptData.notes || null,
+      dueAt:        attemptData.callbackDateTime ?? null,
+    });
   }
 
   return { newPipelineStatus: newStatus, flaggedUncontactable };

@@ -12,6 +12,7 @@
     { "source": "/api/reports/:slug*",      "destination": "/api/reports-router?slug=:slug*" },
     { "source": "/api/events/:slug*",       "destination": "/api/events-router?slug=:slug*" },
     { "source": "/api/portal/:slug*",       "destination": "/api/portal-router?slug=:slug*" },
+    { "source": "/api/tasks/:slug*",        "destination": "/api/tasks-router?slug=:slug*" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "headers": [

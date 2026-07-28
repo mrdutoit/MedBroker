@@ -1,0 +1,216 @@
+/**
+ * api-lib/handlers/taskHandlers.js — NEW (§56).
+ *
+ * Role scoping mirrors the pattern already used for Leads/Appointments
+ * (see appointmentHandlers.js) rather than re-deriving it: Agent/Broker
+ * (without Supervisor/Admin) see only their own tasks; Supervisor-only
+ * sees self + direct reports; Admin/GlobalAdmin see everything in the
+ * organisation. A task's assignedToId can be anyone (an Agent, a Broker,
+ * or an Admin themselves for a manual task) — scoping is always by
+ * assignedToId, never by an agentId/brokerId distinction the way
+ * Appointments' scoping is, since Task has no such split.
+ */
+
+import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
+import { listTasks, getTaskById, createTask, updateTask, deleteTask } from '../services/taskService.js';
+import { getDirectReportIds, isAgentOnly, isSupervisorOnly } from '../services/userService.js';
+import { writeAuditLog, clientIp } from '../services/auditService.js';
+import { CreateTaskSchema, UpdateTaskSchema, TaskListQuerySchema, CATEGORY_TO_TYPE, TYPE_TO_CATEGORY } from '../models/task.js';
+import { isUuid } from '../http/helpers.js';
+
+const EDIT_FIELDS = ['assignedToId', 'title', 'detail', 'priority', 'dueDate'];
+
+function isAdminRole(roles) {
+  return (roles ?? []).some(r => ['Admin', 'GlobalAdmin'].includes(r));
+}
+
+/**
+ * Translates a taskService row into exactly the shape Tasks.jsx's own
+ * MOCK_TASKS already established — category (not type), done (not
+ * isComplete), dueDate/createdAt as date-only strings, linkedLead as an
+ * assembled display name rather than three separate name columns. Keeping
+ * this translation here (not in taskService.js) means the service stays
+ * about DB shape and this handler owns the one place that has to match
+ * the frontend's pre-existing contract exactly.
+ * @param {Object} row
+ */
+function shapeTask(row) {
+  const linkedLead = row.linkedLeadId
+    ? [row.linkedLeadTitle, row.linkedLeadFirstName, row.linkedLeadLastName].filter(Boolean).join(' ')
+    : null;
+  return {
+    id:                row.id,
+    category:          TYPE_TO_CATEGORY[row.type] ?? 'manual',
+    priority:          row.priority,
+    done:              row.isComplete,
+    title:             row.title,
+    detail:            row.detail,
+    linkedLead,
+    linkedLeadId:      row.linkedLeadId,
+    linkedAppointment: row.linkedAppointmentId,
+    assignedTo:        row.assignedToName,
+    assignedToId:      row.assignedToId,
+    assignedToRole:    row.assignedToRole,
+    dueDate:           row.dueAt ? String(row.dueAt).slice(0, 10) : null,
+    createdAt:         row.createdAt ? String(row.createdAt).slice(0, 10) : null,
+    source:            row.type === 'Manual' ? 'manual' : 'system',
+  };
+}
+
+/** GET (list) + POST (create) /api/tasks */
+export async function handleTasksCollection(req, res) {
+  try {
+    const claims = await validateToken(req);
+
+    if (req.method === 'GET') {
+      requireRole(claims, ['Agent', 'Supervisor', 'Admin', 'GlobalAdmin', 'Broker']);
+
+      const parsed = TaskListQuerySchema.safeParse(req.query);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+      const filters = { ...parsed.data };
+      if (!isAdminRole(claims.roles)) {
+        if (isSupervisorOnly(claims.roles)) {
+          filters.scopeIds = [claims.oid, ...(await getDirectReportIds(claims.oid))];
+        } else {
+          // Agent-only, Broker-only, or any other non-admin combination —
+          // scoped to their own tasks only.
+          filters.scopeIds = [claims.oid];
+        }
+      }
+      // Admin/GlobalAdmin: no scopeIds at all — org-wide, matching listTasks'
+      // own contract (scopeIds undefined = no scoping filter applied).
+
+      const tasks = await listTasks(filters);
+      return res.status(200).json({ tasks: tasks.map(shapeTask) });
+    }
+
+    if (req.method === 'POST') {
+      // Matches Tasks.jsx: only Admin/Supervisor/GlobalAdmin see "+ New Task".
+      requireRole(claims, ['Admin', 'Supervisor', 'GlobalAdmin']);
+
+      const parsed = CreateTaskSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+      const newId = await createTask({
+        assignedToId: parsed.data.assignedToId,
+        type:         CATEGORY_TO_TYPE[parsed.data.category],
+        title:        parsed.data.title,
+        detail:       parsed.data.detail,
+        priority:     parsed.data.priority,
+        dueAt:        parsed.data.dueDate || null,
+        // Manual creation never links a real Lead/Appointment — no
+        // entity-picking UI exists in NewTaskModal.
+        entityType:   null,
+        entityId:     null,
+      });
+
+      await writeAuditLog({
+        entityType: 'Task',
+        entityId: newId,
+        action: 'TaskCreated',
+        performedById: claims.oid,
+        changeDetail: { assignedToId: parsed.data.assignedToId, category: parsed.data.category },
+        ipAddress: clientIp(req),
+      });
+
+      const created = await getTaskById(newId);
+      return res.status(201).json(shapeTask(created));
+    }
+
+    res.setHeader('Allow', 'GET, POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('tasks/index error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** PATCH + DELETE /api/tasks/:id */
+export async function handleTaskById(req, res, id) {
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Agent', 'Supervisor', 'Admin', 'GlobalAdmin', 'Broker']);
+
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid task ID format' });
+
+    const existing = await getTaskById(id);
+    if (!existing) return res.status(404).json({ error: 'Task not found' });
+
+    // Visibility — a role that couldn't see this task via listTasks'
+    // scoping shouldn't be able to reach it directly by id either.
+    let canSee = isAdminRole(claims.roles);
+    if (!canSee && isSupervisorOnly(claims.roles)) {
+      const reportIds = await getDirectReportIds(claims.oid);
+      canSee = existing.assignedToId === claims.oid || reportIds.includes(existing.assignedToId);
+    }
+    if (!canSee) canSee = existing.assignedToId === claims.oid;
+    if (!canSee) return res.status(403).json({ error: 'You do not have access to this task' });
+
+    if (req.method === 'PATCH') {
+      const parsed = UpdateTaskSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+      // isComplete is the one field the assignee themselves can touch —
+      // ticking off your own task doesn't need Admin/Supervisor. Editing
+      // or reassigning anything else does (matches only Admin/Supervisor/
+      // GlobalAdmin ever seeing a way to do so in Tasks.jsx).
+      const isEditOrReassign = EDIT_FIELDS.some(f => parsed.data[f] !== undefined);
+      if (isEditOrReassign && !isAdminRole(claims.roles) && !isSupervisorOnly(claims.roles)) {
+        return res.status(403).json({ error: 'Only an Admin or Supervisor can edit or reassign a task' });
+      }
+
+      const { dueDate, ...rest } = parsed.data;
+      await updateTask(id, dueDate !== undefined ? { ...rest, dueAt: dueDate } : rest);
+
+      await writeAuditLog({
+        entityType: 'Task',
+        entityId: id,
+        action: parsed.data.isComplete === true ? 'TaskCompleted'
+              : parsed.data.isComplete === false ? 'TaskReopened'
+              : 'TaskUpdated',
+        performedById: claims.oid,
+        changeDetail: parsed.data,
+        ipAddress: clientIp(req),
+      });
+
+      const updated = await getTaskById(id);
+      return res.status(200).json(shapeTask(updated));
+    }
+
+    if (req.method === 'DELETE') {
+      // Header spec: "DELETE /api/tasks/:id Admin only" — GlobalAdmin
+      // always travels with Admin in this codebase's allow-lists.
+      requireRole(claims, ['Admin', 'GlobalAdmin']);
+
+      await deleteTask(id);
+
+      await writeAuditLog({
+        entityType: 'Task',
+        entityId: id,
+        action: 'TaskDeleted',
+        performedById: claims.oid,
+        changeDetail: null,
+        ipAddress: clientIp(req),
+      });
+
+      return res.status(204).end();
+    }
+
+    res.setHeader('Allow', 'PATCH, DELETE, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('tasks/[id] error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}

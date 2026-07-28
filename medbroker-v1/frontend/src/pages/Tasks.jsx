@@ -3,32 +3,40 @@
  *
  * Task management — production feature, gated by tasks.enabled (Core, default false).
  *
- * TASK GENERATION MODEL:
- * In production, tasks are created server-side from appointment events:
- *   CallbackRequested outcome  → "Call back [lead name] by [callbackDateTime]"
+ * TASK GENERATION MODEL (built 28 Jul 2026, §56):
+ * Tasks are created server-side from these five trigger rules — see
+ * taskService.createTask()'s call sites in leadService.logCallAttempt()
+ * and appointmentService.createAppointment()/saveOutcome():
+ *   CallbackRequested outcome  → "Call back [lead name]"
  *   Appointment booked         → "Confirm appointment with [broker] — [date]"
  *   Meeting marked Rescheduled → "Reschedule [lead name] [nth] meeting"
  *   Meeting marked Seen        → "Record outcome — [lead name]"
  *   Appointment unassigned     → "Assign broker — [lead name]"
  *
- * In preview mode the page runs entirely on MOCK_TASKS below.
+ * The Entra branch (RoleContext doesn't yet derive a real identity there —
+ * see its header comment) still runs entirely on MOCK_TASKS below.
  *
- * ROLES:
- *   GlobalAdmin/Admin/Supervisor — see all tasks, can create and reassign
- *   Agent                        — sees tasks assigned to them only
- *   Broker                       — sees tasks assigned to them only
+ * ROLES (server-enforced, see api-lib/handlers/taskHandlers.js):
+ *   GlobalAdmin/Admin — see all tasks, can create/reassign/delete
+ *   Supervisor        — sees self + direct reports' tasks, can create/reassign
+ *   Agent/Broker      — sees only tasks assigned to them; can mark done, nothing else
  *
- * API (when backend is built):
- *   GET    /api/tasks            ?assignedTo=me&status=pending&category=...
- *   POST   /api/tasks            Create manual task
- *   PATCH  /api/tasks/:id        Update status, assignee, dueDate
- *   DELETE /api/tasks/:id        Admin only
+ * API:
+ *   GET    /api/tasks            ?assignedToId=<uuid> (Admin/Supervisor filter only —
+ *                                 role-scoping itself isn't a query param, see handler)
+ *   POST   /api/tasks            Create manual task — Admin/Supervisor/GlobalAdmin only
+ *   PATCH  /api/tasks/:id        isComplete: anyone who can see the task.
+ *                                 Everything else: Admin/Supervisor/GlobalAdmin only
+ *   DELETE /api/tasks/:id        Admin/GlobalAdmin only
  */
 
-import { useState } from 'react';
+import { useState }      from 'react';
 import { useRole }       from '../context/RoleContext.jsx';
+import { useAuth }       from '../context/AuthContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
+import { useFetch }      from '../hooks/useFetch.js';
 import { s }             from '../styles/tokens.js';
+import { apiMode, tasksApi, usersApi } from '../services/api.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -57,19 +65,22 @@ const PRIORITY_META = {
   Low:    { colour: 'var(--mut)', bg: 'var(--panel2)' },
 };
 
-// Today for relative due date calculation
-const TODAY = new Date('2026-05-20');
+// Fixed reference date for MOCK_TASKS' curated relative-date badges
+// (Entra branch only — real demo-mode tasks use the real current date,
+// computed in the Tasks() component below and threaded through as a
+// parameter rather than read off a module-level constant).
+const MOCK_TODAY = new Date('2026-05-20');
 
-function daysUntil(dateStr) {
+function daysUntil(dateStr, today) {
   if (!dateStr) return null;
   const d = new Date(dateStr);
-  return Math.round((d - TODAY) / 86400000);
+  return Math.round((d - today) / 86400000);
 }
 
-function dueMeta(dateStr, done) {
+function dueMeta(dateStr, done, today) {
   if (done) return { label: 'Done', colour: '#15803d', bg: 'color-mix(in srgb, #15803d 14%, var(--panel))' };
   if (!dateStr) return { label: 'No due date', colour: 'var(--mut)', bg: 'var(--panel2)' };
-  const days = daysUntil(dateStr);
+  const days = daysUntil(dateStr, today);
   if (days < 0)  return { label: `Overdue ${Math.abs(days)}d`, colour: '#dc2626', bg: 'color-mix(in srgb, #dc2626 14%, var(--panel))' };
   if (days === 0) return { label: 'Due today',    colour: '#d97706', bg: 'color-mix(in srgb, #d97706 14%, var(--panel))' };
   if (days === 1) return { label: 'Due tomorrow', colour: '#d97706', bg: 'color-mix(in srgb, #d97706 14%, var(--panel))' };
@@ -201,26 +212,17 @@ const ASSIGNEES = ['All', 'Thabo Molefe', 'Naledi van Wyk', 'Sandra van der Berg
                    'Pieter Joubert', 'Riaan Botha', 'Supervisor One', 'Admin User'];
 
 // ─── New Task modal ─────────────────────────────────────────────────────────────
-function NewTaskModal({ onClose, onSave }) {
+function NewTaskModal({ onClose, onSave, assignees }) {
   const [form, setForm] = useState({
     title: '', detail: '', category: 'manual', priority: 'Medium',
-    assignedTo: 'Admin User', dueDate: '',
+    assignedTo: assignees[0]?.value ?? '', dueDate: '',
   });
   const [error, setError] = useState('');
 
   function handleSave() {
     if (!form.title.trim()) { setError('Title is required.'); return; }
-    onSave({
-      ...form,
-      id: 't-' + Date.now(),
-      done: false,
-      linkedLead: null,
-      linkedLeadId: null,
-      linkedAppointment: null,
-      assignedToRole: 'Admin',
-      createdAt: '2026-05-20',
-      source: 'manual',
-    });
+    if (!form.assignedTo) { setError('Choose someone to assign this to.'); return; }
+    onSave(form);
     onClose();
   }
 
@@ -279,7 +281,7 @@ function NewTaskModal({ onClose, onSave }) {
           <div>
             <label style={s.formLabel}>Assign to</label>
             <select style={s.formInput} value={form.assignedTo} onChange={e => f('assignedTo', e.target.value)}>
-              {ASSIGNEES.filter(a => a !== 'All').map(a => <option key={a}>{a}</option>)}
+              {assignees.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
             </select>
           </div>
           <div>
@@ -298,9 +300,9 @@ function NewTaskModal({ onClose, onSave }) {
 }
 
 // ─── Task row ───────────────────────────────────────────────────────────────────
-function TaskRow({ task, onToggle, isAdmin, isMobile }) {
+function TaskRow({ task, onToggle, isAdmin, isMobile, today }) {
   const [expanded, setExpanded] = useState(false);
-  const due  = dueMeta(task.dueDate, task.done);
+  const due  = dueMeta(task.dueDate, task.done, today);
   const cat  = CATEGORY_META[task.category] ?? CATEGORY_META.manual;
   const pri  = PRIORITY_META[task.priority] ?? PRIORITY_META.Low;
 
@@ -434,49 +436,125 @@ function TaskRow({ task, onToggle, isAdmin, isMobile }) {
 
 // ─── Main page ──────────────────────────────────────────────────────────────────
 export default function Tasks() {
-  const { role }     = useRole();
-  const { isMobile } = useWindowSize();
+  const { role }      = useRole();
+  const { isMobile }  = useWindowSize();
+  const demoMode = apiMode.DEMO_MODE;
 
   const isAdmin  = ['GlobalAdmin', 'Admin', 'Supervisor'].includes(role);
   const isBroker = role === 'Broker';
 
-  const [tasks,        setTasks]        = useState(MOCK_TASKS);
+  // Demo mode: real fetch. Role-scoping already happened server-side
+  // (taskHandlers.js) — Agent/Broker only ever receive their own tasks,
+  // Supervisor receives self + direct reports, Admin/GlobalAdmin receive
+  // everything — so there is no further "is this mine" filtering to do
+  // here the way the Entra branch's roleName mechanism still needs below.
+  const { data: taskData, refetch: refetchTasks } = useFetch(
+    () => demoMode ? tasksApi.list() : Promise.resolve(null),
+    [demoMode]
+  );
+  // Entra branch keeps its own local, mutable copy of MOCK_TASKS so the
+  // checkbox/New Task interactions still work with no backend behind them
+  // — unchanged behaviour from before this session.
+  const [mockTasks, setMockTasks] = useState(MOCK_TASKS);
+  const tasks = demoMode ? (taskData?.tasks ?? []) : mockTasks;
+
+  // Real users for the Admin/Supervisor "Assignee" filter and NewTaskModal's
+  // "Assign to" field — fetched only when both apply, to avoid the extra
+  // round trip for Agent/Broker, who never see either control.
+  const { data: userData } = useFetch(
+    () => (demoMode && isAdmin) ? usersApi.list() : Promise.resolve(null),
+    [demoMode, isAdmin]
+  );
+  const assignees = demoMode
+    ? (userData?.users ?? []).map(u => ({ value: u.id, label: u.displayName }))
+    : ASSIGNEES.filter(a => a !== 'All').map(a => ({ value: a, label: a }));
+
   const [activeTab,    setActiveTab]    = useState('all');
   const [filterAssign, setFilterAssign] = useState('All');
   const [showDone,     setShowDone]     = useState(false);
   const [showNew,      setShowNew]      = useState(false);
   const [search,       setSearch]       = useState('');
 
-  function toggleDone(id) {
-    setTasks(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
+  // MOCK_TASKS' relative-date badges were curated against a fixed date;
+  // real tasks from a live database need the real current date instead.
+  const today = demoMode ? new Date() : MOCK_TODAY;
+
+  async function toggleDone(id) {
+    if (demoMode) {
+      const task = tasks.find(t => t.id === id);
+      if (!task) return;
+      try {
+        await tasksApi.update(id, { isComplete: !task.done });
+        refetchTasks();
+      } catch (err) {
+        console.error('Could not update task:', err);
+      }
+    } else {
+      setMockTasks(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
+    }
   }
 
-  function addTask(task) {
-    setTasks(prev => [task, ...prev]);
+  async function addTask(form) {
+    if (demoMode) {
+      try {
+        await tasksApi.create({
+          title:        form.title,
+          detail:       form.detail || undefined,
+          category:     form.category,
+          priority:     form.priority,
+          assignedToId: form.assignedTo,
+          dueDate:      form.dueDate || undefined,
+        });
+        refetchTasks();
+      } catch (err) {
+        console.error('Could not create task:', err);
+      }
+    } else {
+      setMockTasks(prev => [{
+        ...form,
+        id: 't-' + Date.now(),
+        done: false,
+        linkedLead: null,
+        linkedLeadId: null,
+        linkedAppointment: null,
+        assignedToRole: 'Admin',
+        createdAt: MOCK_TODAY.toISOString().slice(0, 10),
+        source: 'manual',
+      }, ...prev]);
+    }
   }
 
-  // Role filter — agents and brokers see only their tasks in production
-  // (in preview all tasks are shown, but with a notice)
-  const roleName = role === 'Agent' ? 'Thabo Molefe'
+  // Role filter — Entra branch only (matches its fixed PERSONAS names,
+  // since RoleContext doesn't derive a real identity there). Demo mode's
+  // scoping already happened server-side, see the fetch above.
+  const roleName = demoMode ? null
+                 : role === 'Agent' ? 'Thabo Molefe'
                  : role === 'Broker' ? 'Sandra van der Berg'
                  : null;
+
+  function matchesAssigneeFilter(t) {
+    if (filterAssign === 'All') return true;
+    return demoMode ? t.assignedToId === filterAssign : t.assignedTo === filterAssign;
+  }
 
   const filtered = tasks.filter(t => {
     if (roleName && t.assignedTo !== roleName) return false;
     if (!showDone && t.done) return false;
     if (activeTab !== 'all' && t.category !== activeTab) return false;
-    if (filterAssign !== 'All' && t.assignedTo !== filterAssign) return false;
+    if (!matchesAssigneeFilter(t)) return false;
     if (search && !t.title.toLowerCase().includes(search.toLowerCase()) &&
         !(t.linkedLead ?? '').toLowerCase().includes(search.toLowerCase())) return false;
     return true;
   });
 
-  // Metrics — always from full task list, not filtered view
+  // Metrics — always from the full task list, not the filtered view. In
+  // demo mode `tasks` is already exactly the right scope for this person
+  // (see the fetch above), so no further roleName filtering applies here.
   const myTasks  = roleName ? tasks.filter(t => t.assignedTo === roleName) : tasks;
   const metrics  = [
     { label: 'Pending',   value: myTasks.filter(t => !t.done).length,                                               colour: '#d97706' },
-    { label: 'Overdue',   value: myTasks.filter(t => !t.done && t.dueDate && daysUntil(t.dueDate) < 0).length,     colour: '#dc2626' },
-    { label: 'Due today', value: myTasks.filter(t => !t.done && t.dueDate && daysUntil(t.dueDate) === 0).length,   colour: '#7c3aed' },
+    { label: 'Overdue',   value: myTasks.filter(t => !t.done && t.dueDate && daysUntil(t.dueDate, today) < 0).length,   colour: '#dc2626' },
+    { label: 'Due today', value: myTasks.filter(t => !t.done && t.dueDate && daysUntil(t.dueDate, today) === 0).length, colour: '#7c3aed' },
     { label: 'Completed', value: myTasks.filter(t => t.done).length,                                                colour: '#15803d' },
   ];
 
@@ -527,7 +605,8 @@ export default function Tasks() {
             onChange={e => setFilterAssign(e.target.value)}
             style={{ ...s.formInput, maxWidth: '160px', padding: '5px 8px', fontSize: '0.8125rem' }}
           >
-            {ASSIGNEES.map(a => <option key={a}>{a}</option>)}
+            <option value="All">All</option>
+            {assignees.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
           </select>
         )}
         <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8125rem', color:'var(--mut)', cursor: 'pointer', marginLeft: 'auto' }}>
@@ -588,6 +667,7 @@ export default function Tasks() {
               onToggle={toggleDone}
               isAdmin={isAdmin}
               isMobile={isMobile}
+              today={today}
             />
           ))
         )}
@@ -595,7 +675,7 @@ export default function Tasks() {
 
       {/* ── New Task modal ───────────────────────────────────────────────── */}
       {showNew && (
-        <NewTaskModal onClose={() => setShowNew(false)} onSave={addTask} />
+        <NewTaskModal onClose={() => setShowNew(false)} onSave={addTask} assignees={assignees} />
       )}
     </div>
   );

@@ -920,10 +920,15 @@ LeadDetail.jsx (leadId filter added to listAppointments, surfaces every
 Appointment linked to a Lead rather than just the most recent one). See
 §54 for full detail. Continued same session: built §55 — Settings wired to
 a real self-service backend (PUT /api/users/me, new User columns for
-theme/avatar/timezone). See §55 for full detail.
+theme/avatar/timezone). See §55 for full detail. Continued further: built
+§57 — full Task backend (schema fix, REST API, all five generation rules
+wired into their real trigger points). See §57 for full detail.
 
 GENUINELY OPEN ITEMS (accurate as of session 14):
-  - Task backend — Tasks.jsx UI complete, server-side generation not built.
+  - Notifications — narrowed scope agreed (§57): only the two synchronous
+    trigger types (LeadAssigned, AppointmentAssigned) next; the three
+    time-based types (reminders, auto-return) need Vercel Cron, which
+    doesn't exist in this stack yet — parked until that's solved.
   - Token economy (Stripe) — claim model works, payment provider not wired.
   - Excel/JSON lead data importer — flagged since §34, still unscoped.
   - Deployment-phase security — A5/A6, E1/E2/E3/E5, WAF (Cloudflare Pro),
@@ -4176,6 +4181,126 @@ MIGRATION:
   frontend/src/constants/avatarOptions.js       (NEW)
   frontend/src/App.jsx                          (sidebar avatar bubble wired)
   frontend/src/pages/Settings.jsx               (real wiring)
+Plus this Status.md.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+57. TASK BACKEND BUILT — 28 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark asked which of Tasks or Notifications to tackle first. Recommended
+Tasks: its generation model is fully spec'd in Tasks.jsx's own header
+comment (five precise, entirely event-driven trigger rules hooking into
+service methods already built and understood), whereas Notifications'
+full scope — three of its six trigger types are time-based (appointment/
+callback reminders, lead auto-return) — would need Vercel Cron, which
+doesn't exist anywhere in this stack yet. Mark agreed; scoped Notifications
+down to a smaller first pass (two synchronous types only) for a later
+session.
+
+SCHEMA GAPS FOUND (not guessed — read Tasks.jsx's own spec and MOCK_TASKS
+shape before touching the database):
+  - Task had no `priority` column at all, despite MOCK_TASKS and the whole
+    UI depending on High/Medium/Low throughout.
+  - Task.entityType/entityId were NOT NULL and Task.type's CHECK only
+    allowed the five system-generated values — meaning a manually created
+    task (NewTaskModal's default category, no linked Lead/Appointment)
+    could never actually have been inserted under the original schema.
+  Migration 013_add_task_priority_and_manual_type.sql fixes both: adds
+  priority, makes entityType/entityId nullable, adds 'Manual' as a sixth
+  type value. schema.postgres.sql updated to match for fresh databases.
+
+BUILT — full REST API (api-lib/models/task.js, services/taskService.js,
+handlers/taskHandlers.js, api/tasks-router.js, vercel.json rewrite):
+  GET/POST /api/tasks, PATCH/DELETE /api/tasks/:id. Role-scoping mirrors
+  the established Leads/Appointments pattern exactly rather than
+  re-deriving it: Agent/Broker (non-admin) see only their own tasks;
+  Supervisor-only sees self + direct reports; Admin/GlobalAdmin see
+  everything. isComplete is the one field the assignee themselves can
+  touch (ticking off your own task); every other field (reassign, edit)
+  is Admin/Supervisor/GlobalAdmin only, matching what Tasks.jsx's UI
+  already gated. DELETE is Admin/GlobalAdmin only per the file's own
+  header spec. taskService's TASK_SELECT resolves Task's polymorphic
+  entityType/entityId (Lead OR Appointment OR neither) via two
+  mutually-exclusive LEFT JOINs plus a third hop from Appointment to its
+  own Lead, so a task linked to an Appointment still surfaces the
+  underlying Lead's name for display, not just Callback-category tasks.
+  taskHandlers.js's shapeTask() translates DB rows into exactly the field
+  names/shape Tasks.jsx's own MOCK_TASKS already established (category
+  not type, done not isComplete, assembled linkedLead display name) so the
+  frontend's existing contract needed no renaming to match.
+
+TASK GENERATION — all five rules from Tasks.jsx's own header spec, wired
+into their real trigger points, not stubbed:
+  1. CallbackRequested outcome -> Callback task, assigned to the same
+     agent (leadService.logCallAttempt).
+  2 & 5. Appointment booked with a broker -> Confirm-appointment task
+     (assigned to the agent) / booked without one -> Assign-broker task
+     (assigned to the agent's Supervisor, falling back to the agent
+     themselves if they have no supervisorId set — Task.assignedToId is
+     NOT NULL, never left orphaned). Both hang off the SAME booking
+     touchpoint in appointmentService.createAppointment() — mutually
+     exclusive outcomes of the brokerId-present-or-absent branch that
+     already decided the Appointment's status, not two separate call sites.
+  3 & 4. Meeting marked Rescheduled -> Reschedule task / marked Seen ->
+     Outcome task, both in appointmentService.saveOutcome(), assigned to
+     the broker. Gated on a genuine TRANSITION into that status (compared
+     against the meeting's previous status, fetched before the update) —
+     re-saving an already-Rescheduled meeting does not spawn a fresh task
+     every time.
+
+FRONTEND (Tasks.jsx): rewired to the real backend in demo mode — real
+fetch (role-scoping already happened server-side, so no redundant
+client-side "is this mine" filtering the way the Entra branch's roleName
+mechanism still needs), real create/toggle via tasksApi, real users
+populate the Assignee filter and NewTaskModal's Assign-to field (id-based,
+not name-based). The Entra branch's MOCK_TASKS interactivity is
+deliberately UNCHANGED — its own local state, own checkbox/create
+behaviour, exactly as before this session (RoleContext doesn't yet derive
+a real identity there — see its header comment).
+
+BUG CAUGHT IN PASSING: MOCK_TASKS' relative-date badges (Overdue/Due
+today/etc.) were computed against a hardcoded fixed "today" of 20 May
+2026. Left as a module-level constant, every REAL task fetched from the
+live database (dated July 2026 onward) would have shown wildly wrong
+Overdue badges the moment this went live. daysUntil()/dueMeta() now take
+an explicit reference date instead — real current date in demo mode,
+the fixed mock date (renamed MOCK_TODAY) only for the Entra branch's
+curated MOCK_TASKS dataset.
+
+DEPLOYMENT NOTE: tasks.enabled defaults to '0' (off) in feature-flags.
+postgres.sql — Mark needs to toggle it on in FeatureFlags.jsx (AppAdmin)
+to see the Tasks nav item / route at all. Not flipped automatically by
+this delivery — flag state lives in the database, this is a code delivery.
+
+VERIFIED: full Vite production build clean (1,412 modules, zero errors);
+existing 45-test Vitest suite unaffected; every new/edited backend file
+(models/task.js, services/taskService.js, handlers/taskHandlers.js,
+api/tasks-router.js, services/leadService.js, services/appointmentService.js)
+passes node --check and an ESM import smoke test (services requiring
+DATABASE_URL/JWT_SIGNING_SECRET at import time as always — confirmed clean
+with dummy values; no live DB connection available in this sandbox, same
+limitation as every prior session — the five generation rules were
+verified by inspection and against the existing test suite, not a live
+Postgres run).
+
+NOT YET BUILT (deliberately deferred, not silently dropped): a manual
+task cannot currently be deleted from the UI (DELETE /api/tasks/:id exists
+server-side per the header spec, but Tasks.jsx has no delete button/action
+wired to it — no such control existed in the original mock UI either).
+
+MIGRATION:
+  frontend/db/migrations/013_add_task_priority_and_manual_type.sql (NEW)
+  frontend/db/schema.postgres.sql                (Task table updated)
+  frontend/api-lib/models/task.js                (NEW)
+  frontend/api-lib/services/taskService.js       (NEW)
+  frontend/api-lib/handlers/taskHandlers.js      (NEW)
+  frontend/api/tasks-router.js                   (NEW)
+  frontend/vercel.json                           (tasks-router rewrite registered)
+  frontend/api-lib/services/leadService.js       (Callback task trigger)
+  frontend/api-lib/services/appointmentService.js (Confirm/Assign-broker + Reschedule/Outcome triggers)
+  frontend/src/services/api.js                   (tasksApi added)
+  frontend/src/pages/Tasks.jsx                   (real wiring)
 Plus this Status.md.
 
 

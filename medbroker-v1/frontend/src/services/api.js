@@ -282,6 +282,20 @@ export const usersApi = {
   listSupervisors: () => request('/users?supervisors=true'),
 };
 
+// ─── Tasks (§56) ──────────────────────────────────────────────────────────────
+
+export const tasksApi = {
+  list: (params = {}) => {
+    const qs = new URLSearchParams(
+      Object.entries(params).filter(([, v]) => v !== undefined && v !== null)
+    ).toString();
+    return request(`/tasks${qs ? `?${qs}` : ''}`);
+  },
+  create: (data)     => request('/tasks', { method: 'POST', body: JSON.stringify(data) }),
+  update: (id, data) => request(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  remove: (id)       => request(`/tasks/${id}`, { method: 'DELETE' }),
+};
+
 // ─── Feature flags ────────────────────────────────────────────────────────────
 
 export const flagsApi = {
