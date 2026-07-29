@@ -165,6 +165,7 @@ export const leadsApi = {
   },
   get:     (id)   => request(`/leads/${id}`),
   create:  (data) => request('/leads', { method: 'POST', body: JSON.stringify(data) }),
+  checkDuplicates: (rows) => request('/leads/check-duplicates', { method: 'POST', body: JSON.stringify({ rows }) }),
   // assign — first-time assignment of an unassigned lead to an agent, OR
   //   changing the agent on an already-assigned lead. Same endpoint either
   //   way — the backend distinguishes them itself (checks whether there

@@ -108,6 +108,20 @@ export const AssignLeadSchema = z.object({
   agentId: z.string().uuid('agentId must be a valid UUID'),
 });
 
+// §63 — LeadImport.jsx's bulk import preview needs to show a REAL
+// duplicate count before anything is created, not the
+// Math.floor(rows.length * 0.06) placeholder it had been showing. One
+// batched call checking every parsed row against findDuplicate(), rather
+// than N separate round trips. Capped at 1000 — comfortably above any
+// realistic single import file, and keeps one request from ever being
+// asked to check an unbounded number of rows.
+export const CheckDuplicatesSchema = z.object({
+  rows: z.array(z.object({
+    email:    z.string().email(),
+    idNumber: z.string().optional(),
+  })).min(1).max(1000),
+});
+
 export const CallAttemptSchema = z.object({
   outcome: z.enum([
     'NoAnswer',

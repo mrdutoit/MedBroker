@@ -927,6 +927,9 @@ THIS SESSION (14, 28 Jul 2026) — built, in order:
       AppointmentAssigned only; reminders/auto-return parked on Cron)
   §62 Fixed a failed Vercel deploy — 13 serverless functions, one over
       Hobby's 12 limit; folded broker-matching into appointments-router.js
+  §63 Lead importer rework — real duplicate detection (nothing had ever
+      called findDuplicate() on this path), real CSV/Excel/JSON parsing,
+      formula-injection fix, honest "coming soon" Subscription tab
 See each section for full detail.
 
 GENUINELY OPEN ITEMS (accurate as of session 14, end):
@@ -937,6 +940,10 @@ GENUINELY OPEN ITEMS (accurate as of session 14, end):
     Consolidating system-config.js into flags-router.js is the natural
     next fold, before the next new domain needs its own top-level API
     surface. Not done yet — Mark's call when to prioritise it.
+  - xlsx dependency (§63) is pinned to 0.18.5 — the last version npm's
+    registry carries. Two known high-severity CVEs are fixed in 0.20.2+,
+    published only to SheetJS's own CDN, unreachable from this sandbox.
+    Mark's call whether to bump it from his own machine.
   - Token economy (Stripe) — claim model works, payment provider not wired.
   - Excel/JSON lead data importer — flagged since §34, still unscoped.
   - Deployment-phase security — A5/A6, E1/E2/E3/E5, WAF (Cloudflare Pro),
@@ -4636,6 +4643,123 @@ MIGRATION — logic only, no schema change:
                                                      delete the file/folder on GitHub too,
                                                      not just add the new code, same
                                                      warning §29 gave the first time)
+Plus this Status.md and Project_Context.md.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+63. LEAD IMPORTER REWORK — REAL DEDUP, REAL CSV/EXCEL/JSON, FORMULA-INJECTION FIX — 28 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Picked as the next feature over Token economy (needs business decisions
+first) and Email notifications (blocked on Mark setting up Azure
+Communication Services) — this one was self-contained and, on inspection,
+worse than "unbuilt": partially built and actively misleading.
+
+WHAT WAS ACTUALLY THERE (checked before touching anything): LeadImport.jsx's
+"Historical CSV" channel already worked end-to-end — real file parsing,
+real leadsApi.create() calls, real Lead rows created. But:
+  - The duplicate count was fabricated — setCsvDupes(Math.floor(rows.length
+    * 0.06)), a made-up "6% of rows" formula, not a real check.
+  - Worse: NOTHING on this path had ever called leadService.findDuplicate()
+    at all. Portal (leadPortalService.js) and Events (eventService.js)
+    both check it themselves before their own createLead() calls; the
+    public POST /api/leads endpoint — LeadImport.jsx's only route in, for
+    both bulk import AND Manual Entry — never did. A genuine duplicate
+    row really did create a true duplicate Lead; the UI just claimed
+    otherwise.
+  - CSV-only, naively so — lines[i].split(',') breaks on any quoted field
+    containing a comma, routine in a real Excel-exported CSV. Couldn't
+    read an actual .xlsx file at all despite "Excel" being in the
+    feature's name. No JSON import path existed.
+  - The "Medical Subscription" tab was a complete UI mockup — the drop
+    zone toggled a hardcoded fake filename, the "Import" button faked a
+    1-second spinner then navigated away doing nothing, and it falsely
+    claimed "Deduplication is active" for a feature that never called the
+    API at all.
+
+BUILT:
+
+BACKEND
+  - leadHandlers.js's POST /api/leads now calls findDuplicate() before
+    createLead() — 409 (not generic 400) if found, so the frontend can
+    tell "skipped as duplicate" apart from "failed validation" instead of
+    lumping every non-success into one fail count.
+  - NEW: POST /api/leads/check-duplicates (models/lead.js's
+    CheckDuplicatesSchema, leadHandlers.js's handleLeadCheckDuplicates) —
+    one batched call checking every parsed row against findDuplicate(),
+    so LeadImport.jsx's preview can show a real count before anything is
+    created. Capped at 1000 rows. Routed as a literal sub-route on the
+    EXISTING leads-router.js (same pattern as its own 'sources' route) —
+    no new top-level function, Vercel count untouched at 12/12 (§62).
+  - Formula-injection fix (leadService.js): Project_Context.md's own
+    security checklist had flagged "CSV import hardening: formula
+    injection (= + - @)" as an open gap before this session — addressed
+    now, since createLead() is exactly the code path bulk-imported
+    spreadsheet data flows through. neutralizeFormulaInjection() prefixes
+    a leading quote onto any free-text field starting with =, +, -, or @
+    (title, firstName, lastName, occupation, hospitalOrPractice,
+    universityAttended, degreeAttained, policies, medicalAidProvider,
+    manualSourceName) before insert — the standard mitigation, so a
+    malicious formula payload can't execute if this data is ever exported
+    back out to a spreadsheet and opened (no Lead export feature exists
+    today, but fixing it at the point of storage means any future export
+    inherits the protection automatically). Applied unconditionally, not
+    just for bulk-import callers — manual entry gets the same protection.
+    Row/size cap: the check-duplicates endpoint's own .max(1000) already
+    provides a practical ceiling on import size, blocking with an error
+    rather than a separate bespoke limit.
+
+FRONTEND (LeadImport.jsx)
+  - Real unified parser for CSV/Excel(.xlsx/.xls)/JSON via the new xlsx
+    (SheetJS) dependency — replaces the naive comma-split, handles quoted
+    fields correctly. JSON parsed directly, expecting an array of
+    objects with the same field names CSV/Excel headers already needed
+    (no column-mapping UI — matches the original design's assumption,
+    just extended to more formats).
+  - Real duplicate detection: a batched pre-check (check-duplicates) for
+    an accurate preview count, PLUS the per-row create-time check (409)
+    catching duplicates BETWEEN two rows in the same file, which the
+    preview-time check alone can't (it only knows about leads already in
+    the database when it runs, not earlier rows in this same batch that
+    haven't been created yet).
+  - Manual Entry also now rejects a duplicate submission with a clear
+    message, instead of silently creating one.
+  - "Medical Subscription" tab: every control now honestly disabled with
+    a "coming soon" label, matching the same treatment already given to
+    Settings' photo upload (§55) — not deleted, since it's still a useful
+    visual preview of the intended feature, just no longer pretending to
+    work. Its own now-unused subFile/subImporting state removed.
+
+xlsx DEPENDENCY — FLAGGED, NOT HIDDEN: npm's registry only carries xlsx
+up to 0.18.5; SheetJS stopped publishing newer releases there and moved
+to their own CDN (cdn.sheetjs.com), outside this sandbox's allowed
+network list. 0.18.5 carries two known high-severity advisories
+(prototype pollution GHSA-4r6h-8v6p-xvw6, ReDoS GHSA-5pgg-2g8v-p4x9),
+both fixed in 0.20.2+ — a version this sandbox cannot install. Installed
+0.18.5 as the only reachable option. Flagged to Mark directly in chat;
+his call whether to bump the dependency to the CDN-hosted patched
+version from his own machine, which does have unrestricted network
+access this sandbox doesn't.
+
+VERIFIED: full Vite production build clean (zero errors; LeadImport's own
+chunk grew substantially — 346.90 kB / 118.24 kB gzipped — from bundling
+SheetJS, but it's lazy-loaded only on that route, not the main bundle);
+existing 45-test Vitest suite unaffected; every edited backend file
+(models/lead.js, services/leadService.js, handlers/leadHandlers.js,
+api/leads-router.js) passes node --check and an ESM import smoke test;
+the formula-injection sanitizer itself unit-verified standalone against
+real-shaped values (a formula string gets neutralized, an ordinary name/
+phone/practice-name string passes through unchanged).
+
+MIGRATION — no schema change:
+  frontend/package.json                          (xlsx@0.18.5 added)
+  frontend/package-lock.json                      (lockfile updated)
+  frontend/api-lib/models/lead.js                 (CheckDuplicatesSchema added)
+  frontend/api-lib/services/leadService.js        (dedup import fixed; formula-injection sanitizer added)
+  frontend/api-lib/handlers/leadHandlers.js       (POST /leads dedup check; handleLeadCheckDuplicates added)
+  frontend/api/leads-router.js                    (check-duplicates sub-route added)
+  frontend/src/services/api.js                    (leadsApi.checkDuplicates added)
+  frontend/src/pages/LeadImport.jsx               (real parsing/dedup; Subscription tab honesty fix)
 Plus this Status.md and Project_Context.md.
 
 

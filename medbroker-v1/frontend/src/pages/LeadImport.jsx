@@ -1,17 +1,55 @@
 /**
  * pages/LeadImport.jsx
  * Three import channels:
- *   1. Historical CSV — free-text source label, deduplication active
- *   2. Medical Subscription — subscription selected from dropdown, name used as source label
- *   3. Manual Entry — single lead, free-text source required
+ *   1. Historical CSV/Excel/JSON — free-text source label, REAL
+ *      deduplication (§63 — see below)
+ *   2. Medical Subscription — UI mockup only, not wired to anything real;
+ *      left as a disabled "coming soon" control rather than the
+ *      misleading working-looking button it was before (see its own
+ *      comment further down)
+ *   3. Manual Entry — single lead, free-text source required, now also
+ *      real-dedup-checked before submit (§63)
+ *
+ * BULK IMPORT REWORK (28 Jul 2026, §63): this channel used to be
+ * CSV-only, via a hand-rolled `lines[i].split(',')` parser that couldn't
+ * handle a quoted field containing a comma (which real Excel-exported
+ * CSVs routinely have), and reported a completely fabricated duplicate
+ * count — Math.floor(rows.length * 0.06), a made-up "6% of rows" formula,
+ * not a real check. Worse: nothing on the actual create path
+ * (POST /api/leads) ever called leadService.findDuplicate() at all —
+ * Portal/Events both check it themselves before their own createLead()
+ * calls, but this public endpoint, LeadImport.jsx's only route in,
+ * didn't. A genuine duplicate CSV row really did create a true duplicate
+ * Lead row; the UI just claimed otherwise.
+ *
+ * Now: SheetJS (the `xlsx` package) parses CSV, .xlsx, and .xls uniformly
+ * (handles quoted/embedded commas correctly); JSON is parsed directly.
+ * Real duplicate detection: POST /api/leads/check-duplicates batches a
+ * findDuplicate() call per row for an accurate preview count before
+ * anything is created, and POST /api/leads itself now also checks (409
+ * if found) — that second check is what catches a duplicate BETWEEN two
+ * rows in the same uploaded file, which the preview-time batch check
+ * can't (it only knows about leads already in the database when it runs,
+ * not rows earlier in this same batch that haven't been created yet).
+ *
+ * xlsx DEPENDENCY NOTE: npm's registry only carries xlsx up to 0.18.5 —
+ * SheetJS stopped publishing newer releases there and moved to their own
+ * CDN (cdn.sheetjs.com), which isn't in this sandbox's allowed network
+ * list. 0.18.5 has two known high-severity advisories (prototype
+ * pollution, ReDoS) fixed in 0.20.2+ that this sandbox cannot install.
+ * Flagged to Mark; his call whether to bump to the CDN-hosted patched
+ * version from his own machine.
  */
 
 import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { leadsApi } from '../services/api.js';
+import * as XLSX from 'xlsx';
+import { leadsApi, ApiError } from '../services/api.js';
 import { s } from '../styles/tokens.js';
 import { TITLES, JOB_TITLES } from '../constants/leadOptions.js';
 import { PORTFOLIOS } from '../context/RoleContext.jsx';
+
+const REQUIRED_COLUMNS = ['title', 'firstName', 'lastName', 'dateOfBirth', 'occupation', 'mobileNumber', 'email'];
 
 const SUBSCRIPTIONS = [
   'MedLeads SA — Monthly Bundle',
@@ -44,19 +82,24 @@ export default function LeadImport() {
   const fileRef   = useRef();
   const [tab, setTab] = useState('csv');
 
-  // CSV state
+  // CSV/Excel/JSON state
   const [csvFile,      setCsvFile]      = useState(null);
   const [csvRows,      setCsvRows]      = useState([]);
   const [csvErrors,    setCsvErrors]    = useState([]);
   const [csvSource,    setCsvSource]    = useState('');
-  const [csvDupes,     setCsvDupes]     = useState(3);
+  // Real duplicate check state (§63) — replaces the old fake csvDupes
+  // number. checkingDupes covers the network round trip; dupeIndices is a
+  // Set of row indices (into csvRows) the backend confirmed already exist.
+  const [checkingDupes, setCheckingDupes] = useState(false);
+  const [dupeIndices,   setDupeIndices]   = useState(new Set());
+  const [dupeCheckError, setDupeCheckError] = useState('');
   const [importing,    setImporting]    = useState(false);
   const [importResult, setImportResult] = useState(null);
 
-  // Subscription state
-  const [subName,    setSubName]    = useState('');
-  const [subFile,    setSubFile]    = useState(null);
-  const [subImporting, setSubImporting] = useState(false);
+  // Subscription state — subName only; the tab itself is a disabled
+  // preview (§63), no file/import state to back since nothing here does
+  // anything real yet.
+  const [subName, setSubName] = useState('');
 
   // Manual state
   const [form,          setForm]          = useState(BLANK_FORM);
@@ -64,51 +107,115 @@ export default function LeadImport() {
   const [formSubmitting, setFormSubmitting] = useState(false);
   const [formSuccess,   setFormSuccess]   = useState(false);
 
-  function parseCSV(text) {
-    const lines = text.trim().split('\n');
-    if (lines.length < 2) return { rows: [], errors: ['CSV has no data rows'] };
-    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g, ''));
-    const required = ['title', 'firstName', 'lastName', 'dateOfBirth', 'occupation', 'mobileNumber', 'email'];
-    const missing  = required.filter(r => !headers.includes(r));
+  /**
+   * Unified parser for CSV, Excel (.xlsx/.xls), and JSON — replaces the
+   * old CSV-only `lines[i].split(',')` approach, which broke on any
+   * quoted field containing a comma (routine in a real Excel export).
+   * SheetJS reads CSV/XLSX/XLS through the same API; JSON is parsed
+   * directly. Same REQUIRED_COLUMNS / per-row email requirement as
+   * before — only the parsing mechanism changed, not the expected shape
+   * (headers must match the Lead field names directly: title, firstName,
+   * lastName, etc. — there's no column-mapping UI here, matching the
+   * original design's assumption, just extended to more file formats).
+   */
+  function parseRows(fileName, rawData) {
+    const ext = fileName.toLowerCase().split('.').pop();
+    let rawRows;
+
+    try {
+      if (ext === 'json') {
+        const parsed = JSON.parse(rawData);
+        if (!Array.isArray(parsed)) return { rows: [], errors: ['JSON file must contain an array of lead objects'] };
+        rawRows = parsed;
+      } else {
+        // csv, xlsx, xls — SheetJS handles all three from the same array buffer
+        const workbook = XLSX.read(rawData, { type: 'array' });
+        const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+        rawRows = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
+      }
+    } catch (err) {
+      return { rows: [], errors: [`Could not read this file: ${err.message}`] };
+    }
+
+    if (rawRows.length === 0) return { rows: [], errors: ['File has no data rows'] };
+
+    const headers = Object.keys(rawRows[0]);
+    const missing = REQUIRED_COLUMNS.filter(r => !headers.includes(r));
     if (missing.length > 0) return { rows: [], errors: [`Missing required columns: ${missing.join(', ')}`] };
+
     const rows = [];
     const errors = [];
-    for (let i = 1; i < lines.length; i++) {
-      const vals = lines[i].split(',').map(v => v.trim().replace(/^"|"$/g, ''));
-      const row  = Object.fromEntries(headers.map((h, idx) => [h, vals[idx] ?? '']));
-      if (!row.email) { errors.push(`Row ${i + 1}: email is required`); continue; }
-      rows.push(row);
-    }
+    rawRows.forEach((row, i) => {
+      // String(...) — SheetJS parses numeric-looking cells (a mobile
+      // number, an ID number) as JS numbers, not strings; every field
+      // downstream (regex validation, display) expects a string.
+      const normalised = Object.fromEntries(REQUIRED_COLUMNS.map(h => [h, row[h] !== undefined ? String(row[h]).trim() : '']));
+      if (row.idNumber) normalised.idNumber = String(row.idNumber).trim();
+      if (!normalised.email) { errors.push(`Row ${i + 2}: email is required`); return; }
+      rows.push(normalised);
+    });
+
     return { rows, errors };
   }
 
-  function handleFileChange(e) {
+  async function handleFileChange(e) {
     const file = e.target.files[0];
     if (!file) return;
     setCsvFile(file);
     setImportResult(null);
+    setDupeIndices(new Set());
+    setDupeCheckError('');
+
+    const ext = file.name.toLowerCase().split('.').pop();
     const reader = new FileReader();
-    reader.onload = ev => {
-      const { rows, errors } = parseCSV(ev.target.result);
+    reader.onload = async ev => {
+      const { rows, errors } = parseRows(file.name, ev.target.result);
       setCsvRows(rows);
       setCsvErrors(errors);
-      setCsvDupes(Math.min(Math.floor(rows.length * 0.06), rows.length));
+      if (rows.length === 0) return;
+
+      // §63 — real duplicate check, replacing the old fake
+      // Math.floor(rows.length * 0.06) placeholder. One batched call
+      // rather than checking as each row is created, so the preview
+      // below shows an accurate number before anything is committed.
+      setCheckingDupes(true);
+      try {
+        const { results } = await leadsApi.checkDuplicates(
+          rows.map(r => ({ email: r.email, idNumber: r.idNumber || undefined }))
+        );
+        setDupeIndices(new Set(results.filter(r => r.isDuplicate).map(r => r.index)));
+      } catch (err) {
+        setDupeCheckError('Could not check for duplicates — try again before importing.');
+      } finally {
+        setCheckingDupes(false);
+      }
     };
-    reader.readAsText(file);
+    if (ext === 'json') reader.readAsText(file);
+    else reader.readAsArrayBuffer(file);
   }
 
   async function handleImport() {
     if (!csvSource.trim()) { setCsvErrors(['Source name is required']); return; }
     setImporting(true);
     setImportResult(null);
-    let ok = 0, fail = 0;
-    for (const row of csvRows) {
+    let ok = 0, fail = 0, skipped = dupeIndices.size;
+    for (let i = 0; i < csvRows.length; i++) {
+      if (dupeIndices.has(i)) continue; // already known — don't even attempt these
       try {
-        await leadsApi.create(stripEmpty({ ...row, leadSource: 'CSVImport', manualSourceName: csvSource }));
+        await leadsApi.create(stripEmpty({ ...csvRows[i], leadSource: 'CSVImport', manualSourceName: csvSource }));
         ok++;
-      } catch { fail++; }
+      } catch (err) {
+        // A duplicate BETWEEN two rows in this same file (row 5 duplicates
+        // row 2, say) — the preview-time batch check above only knows
+        // about leads already in the database when it ran, not earlier
+        // rows in this same batch that hadn't been created yet. POST
+        // /api/leads's own findDuplicate() check (§63) catches it here,
+        // by the time this row's turn comes up.
+        if (err instanceof ApiError && err.status === 409) skipped++;
+        else fail++;
+      }
     }
-    setImportResult({ ok, fail, skipped: csvDupes });
+    setImportResult({ ok, fail, skipped });
     setImporting(false);
     if (fail === 0) setTimeout(() => navigate('/leads'), 1500);
   }
@@ -132,11 +239,14 @@ export default function LeadImport() {
       setForm(BLANK_FORM);
       setTimeout(() => navigate('/leads'), 1500);
     } catch (err) {
-      setFormErrors({ _global: err.message });
+      const message = err instanceof ApiError && err.status === 409
+        ? 'A lead with this email or ID number already exists — check the Leads list before creating a new one.'
+        : err.message;
+      setFormErrors({ _global: message });
     } finally { setFormSubmitting(false); }
   }
 
-  const importable = csvRows.length - csvDupes;
+  const importable = csvRows.length - dupeIndices.size;
 
   return (
     <div style={{ ...s.page, maxWidth: '720px' }}>
@@ -145,7 +255,7 @@ export default function LeadImport() {
 
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '20px' }}>
-        {[['csv', 'Historical CSV'], ['subscription', 'Medical Subscription'], ['manual', 'Manual Entry']].map(([key, label]) => (
+        {[['csv', 'Historical Import'], ['subscription', 'Medical Subscription'], ['manual', 'Manual Entry']].map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -168,10 +278,10 @@ export default function LeadImport() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
             <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
-              Required columns: <strong>title</strong>, <strong>firstName</strong>, <strong>lastName</strong>, <strong>dateOfBirth</strong> (YYYY-MM-DD), <strong>occupation</strong>, <strong>mobileNumber</strong>, <strong>email</strong>
+              CSV, Excel (.xlsx), or JSON. Required columns: <strong>title</strong>, <strong>firstName</strong>, <strong>lastName</strong>, <strong>dateOfBirth</strong> (YYYY-MM-DD), <strong>occupation</strong>, <strong>mobileNumber</strong>, <strong>email</strong>
             </p>
             <button onClick={() => { const c = 'title,firstName,lastName,dateOfBirth,occupation,mobileNumber,email\n'; const b = new Blob([c], {type:'text/csv'}); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href=u; a.download='template.csv'; a.click(); }} style={s.secondaryBtn}>
-              Download template
+              Download CSV template
             </button>
           </div>
 
@@ -196,20 +306,28 @@ export default function LeadImport() {
               background:csvFile ? 'color-mix(in srgb, var(--live) 10%, var(--panel))' : 'var(--panel2)',
             }}
           >
-            <input ref={fileRef} type="file" accept=".csv" onChange={handleFileChange} style={{ display: 'none' }} />
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.json" onChange={handleFileChange} style={{ display: 'none' }} />
             <div style={{ fontSize: '2rem', marginBottom: '8px' }}>{csvFile ? '✅' : '📁'}</div>
             {csvFile
               ? <p style={{ color: '#15803d', fontWeight: 500 }}>{csvFile.name} — {csvRows.length} valid rows found</p>
-              : <p style={{ color:'var(--mut)' }}>Click to select a CSV file</p>
+              : <p style={{ color:'var(--mut)' }}>Click to select a CSV, Excel, or JSON file</p>
             }
           </div>
 
-          {/* Dedup notice */}
+          {/* Dedup notice — real (§63), replacing the old fake claim */}
           {csvFile && csvRows.length > 0 && (
             <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>
-              ℹ Deduplication is active — leads with a matching email or ID number already in the
-              system will be skipped. <strong>{csvDupes} duplicate{csvDupes !== 1 ? 's' : ''} detected</strong> and
-              will be skipped.
+              {checkingDupes ? (
+                <>⏳ Checking for existing leads with a matching email or ID number…</>
+              ) : dupeCheckError ? (
+                <span style={{ color: '#dc2626' }}>⚠ {dupeCheckError}</span>
+              ) : (
+                <>
+                  ℹ Checked against existing leads by email or ID number.{' '}
+                  <strong>{dupeIndices.size} duplicate{dupeIndices.size !== 1 ? 's' : ''} found</strong>
+                  {dupeIndices.size > 0 ? ' and will be skipped.' : '.'}
+                </>
+              )}
             </div>
           )}
 
@@ -263,20 +381,34 @@ export default function LeadImport() {
 
           <button
             onClick={handleImport}
-            disabled={importable <= 0 || importing}
-            style={{ ...s.primaryBtn, opacity: importable <= 0 ? 0.5 : 1 }}
+            disabled={importable <= 0 || importing || checkingDupes || !!dupeCheckError}
+            style={{ ...s.primaryBtn, opacity: (importable <= 0 || checkingDupes || dupeCheckError) ? 0.5 : 1 }}
           >
-            {importing ? 'Importing…' : `Import ${importable} Lead${importable !== 1 ? 's' : ''}${csvDupes > 0 ? ` (${csvDupes} skipped)` : ''}`}
+            {importing ? 'Importing…' : checkingDupes ? 'Checking…' : `Import ${importable} Lead${importable !== 1 ? 's' : ''}${dupeIndices.size > 0 ? ` (${dupeIndices.size} skipped)` : ''}`}
           </button>
         </div>
       )}
 
       {/* ── Subscription tab ── */}
+      {/* §63 — this whole channel was a UI mockup with no real backend:
+          the drop zone just toggled a hardcoded fake filename, and the
+          "Import" button did nothing but fake a 1-second spinner before
+          navigating away. Worse, it claimed "Deduplication is active" —
+          actively false, since nothing here ever called the API at all.
+          Kept as a visual preview of the intended feature (this needs its
+          own scoping — which real subscription data sources exist, what
+          format they deliver in — not assumed here) but every control is
+          now honestly disabled rather than looking functional. Matches
+          the same treatment already given to Settings' photo upload. */}
       {tab === 'subscription' && (
         <div>
+          <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>
+            ℹ This import channel isn't built yet — shown here as a preview of the intended feature only.
+          </div>
+
           <div style={s.formGroup}>
             <label style={s.formLabel}>Medical subscription *</label>
-            <select style={s.formInput} value={subName} onChange={e => setSubName(e.target.value)}>
+            <select style={s.formInput} value={subName} onChange={e => setSubName(e.target.value)} disabled>
               <option value="">Select subscription…</option>
               {SUBSCRIPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
             </select>
@@ -284,29 +416,17 @@ export default function LeadImport() {
           </div>
 
           <div
-            onClick={() => setSubFile(subFile ? null : { name: 'subscription-data.csv' })}
             style={{
-              border: `2px dashed ${subFile ? '#4ade80' : 'var(--line)'}`,
-              borderRadius: '8px', padding: '32px', textAlign: 'center', cursor: 'pointer', marginBottom: '14px',
-              background:subFile ? 'color-mix(in srgb, var(--live) 10%, var(--panel))' : 'var(--panel2)',
+              border: '2px dashed var(--line)',
+              borderRadius: '8px', padding: '32px', textAlign: 'center', cursor: 'default', marginBottom: '14px',
+              background: 'var(--panel2)', opacity: 0.6,
             }}
           >
-            {subFile
-              ? <p style={{ color: '#15803d', fontWeight: 500 }}>{subFile.name} selected</p>
-              : <p style={{ color:'var(--mut)' }}>Click to select subscription CSV file</p>
-            }
+            <p style={{ color:'var(--mut)' }}>Coming soon</p>
           </div>
 
-          <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>
-            ℹ Deduplication is active — leads already in the system will not be recreated.
-          </div>
-
-          <button
-            disabled={!subName || !subFile || subImporting}
-            style={{ ...s.primaryBtn, opacity: (!subName || !subFile) ? 0.5 : 1 }}
-            onClick={() => { setSubImporting(true); setTimeout(() => { setSubImporting(false); navigate('/leads'); }, 1000); }}
-          >
-            {subImporting ? 'Importing…' : 'Import Subscription Leads'}
+          <button disabled style={{ ...s.primaryBtn, opacity: 0.5, cursor: 'default' }} title="Coming soon">
+            Import Subscription Leads — coming soon
           </button>
         </div>
       )}

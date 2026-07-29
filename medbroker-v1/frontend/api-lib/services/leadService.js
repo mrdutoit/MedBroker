@@ -45,6 +45,36 @@ import { createTask, deleteTasksForEntity, reassignTasksForEntity } from './task
 import { config } from '../config.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
+// FORMULA_INJECTION_PREFIXES / neutralizeFormulaInjection (§63) — closes a
+// gap Project_Context.md's own security checklist had flagged (CSV import
+// hardening) before this session and nothing had addressed. A CSV/Excel
+// cell value starting with =, +, -, or @ is interpreted as a formula by
+// Excel/Sheets/LibreOffice when the file is opened — meaning a lead's
+// name/occupation/etc, sourced from an externally supplied spreadsheet
+// (LeadImport.jsx's bulk channel), could carry a formula payload that
+// executes the moment this data is ever exported back out and opened
+// again (this app has no Lead export feature today, but fixing it at the
+// point of storage means any future export inherits the protection
+// automatically, rather than every future export feature needing to
+// remember to escape this itself). Prefixing with a straight quote is
+// the standard mitigation (Excel/Sheets both then treat the whole value
+// as inert text) — applied to every free-text field a bulk import can
+// populate, not just the ones LeadImport.jsx currently collects, since
+// manual entry and future intake channels write through this same
+// function.
+const FORMULA_INJECTION_PREFIXES = ['=', '+', '-', '@'];
+
+function neutralizeFormulaInjection(value) {
+  if (typeof value !== 'string' || value.length === 0) return value;
+  return FORMULA_INJECTION_PREFIXES.includes(value[0]) ? `'${value}` : value;
+}
+
+const FREE_TEXT_LEAD_FIELDS = [
+  'title', 'firstName', 'lastName', 'occupation', 'hospitalOrPractice',
+  'universityAttended', 'degreeAttained', 'policies', 'medicalAidProvider',
+  'manualSourceName',
+];
+
 // Shared SELECT fragment — sourceLabel computed from whichever of the four
 // source columns is populated. Event and subscription names win over the
 // free-text manualSourceName when both would somehow be present.
@@ -281,6 +311,14 @@ async function syncLeadPortfolios(leadId, portfolioIds) {
  * @returns {Promise<string>} the new lead ID
  */
 export async function createLead(data, createdById) {
+  // §63 — neutralize any formula-injection payload before it ever
+  // reaches storage. Applied unconditionally, not just for bulk-import
+  // callers — this function has no way to know which caller a given
+  // invocation came from, and manual entry deserves the same protection.
+  for (const field of FREE_TEXT_LEAD_FIELDS) {
+    if (data[field] !== undefined) data[field] = neutralizeFormulaInjection(data[field]);
+  }
+
   const encryptedIdNumber = data.idNumber ? await encrypt(data.idNumber) : null;
   const idNumberHash = data.idNumber ? blindIndex(data.idNumber) : null;
   const newId = crypto.randomUUID();

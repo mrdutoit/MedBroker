@@ -969,7 +969,12 @@ deployed and no client data flows; but each must be closed before it does):
        access, identical to Admin); re-audit when Appointments/broker access
        is built
     ⬜ Token lifecycle: expiry, refresh, logout/revocation
-    ⬜ CSV import hardening: formula injection (= + - @), row/size caps
+    🟢 CSV import hardening: formula injection (= + - @) — closed 28 Jul
+       2026, §63. neutralizeFormulaInjection() in leadService.js's
+       createLead() prefixes a leading quote onto any free-text field
+       starting with =, +, -, or @, applied unconditionally (manual entry
+       included, not just bulk import). Row/size cap: the check-
+       duplicates endpoint's own 1000-row ceiling.
     ⬜ Bulk-export / report exfiltration limits
     ⬜ Rate limiting on authenticated endpoints (not just the public one)
 

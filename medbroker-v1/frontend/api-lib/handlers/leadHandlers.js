@@ -6,11 +6,11 @@
  */
 
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
-import { listLeads, createLead, listSources, getLeadById, updateLead, deleteLead, assignLead, reopenLead, logCallAttempt, listCallAttempts } from '../services/leadService.js';
+import { listLeads, createLead, listSources, getLeadById, updateLead, deleteLead, assignLead, reopenLead, logCallAttempt, listCallAttempts, findDuplicate } from '../services/leadService.js';
 import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById } from '../services/userService.js';
 import { writeAuditLog, clientIp, listAuditLog } from '../services/auditService.js';
 import { createNotification } from '../services/notificationService.js';
-import { CreateLeadSchema, UpdateLeadSchema, LeadListQuerySchema, AssignLeadSchema, CallAttemptSchema } from '../models/lead.js';
+import { CreateLeadSchema, UpdateLeadSchema, LeadListQuerySchema, AssignLeadSchema, CallAttemptSchema, CheckDuplicatesSchema } from '../models/lead.js';
 import { isUuid } from '../http/helpers.js';
 
 /** GET (list) + POST (create) /api/leads */
@@ -41,6 +41,21 @@ export async function handleLeadsCollection(req, res) {
       const parsed = CreateLeadSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
+      // §63 — nothing checked this on this path before. Portal/Events
+      // both call findDuplicate() themselves before their own createLead()
+      // calls (leadPortalService.js, eventService.js); this public
+      // endpoint — LeadImport.jsx's only route in, for both the CSV/
+      // Excel/JSON bulk loop and Manual Entry — never did, meaning a
+      // duplicate row really did create a true duplicate Lead. 409, not a
+      // generic 400 — the frontend needs to tell "this was skipped as a
+      // duplicate" apart from "this row failed validation" to report an
+      // accurate ok/fail/skipped breakdown, not lump every non-success
+      // into one fail count the way it silently did before.
+      const existingLeadId = await findDuplicate(parsed.data.email, parsed.data.idNumber);
+      if (existingLeadId) {
+        return res.status(409).json({ error: 'duplicate', existingLeadId });
+      }
+
       const newId = await createLead(parsed.data, claims.oid);
 
       await writeAuditLog({
@@ -64,6 +79,48 @@ export async function handleLeadsCollection(req, res) {
       return res.status(status).json(body);
     }
     console.error('leads/index error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * POST /api/leads/check-duplicates — §63. One batched call so
+ * LeadImport.jsx's preview step (before anything is actually created) can
+ * show a real duplicate count instead of the Math.floor(rows.length *
+ * 0.06) placeholder it used to. Same requireRole as POST /api/leads
+ * itself — whoever can create leads is who needs to preview an import.
+ * Internally still one findDuplicate() query per row — this collapses
+ * the ROUND TRIPS to one, not the underlying DB work, which is the part
+ * that actually matters for an upload-a-file-and-wait UX.
+ */
+export async function handleLeadCheckDuplicates(req, res) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Admin', 'Supervisor', 'GlobalAdmin']);
+
+    const parsed = CheckDuplicatesSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const results = [];
+    for (let i = 0; i < parsed.data.rows.length; i++) {
+      const row = parsed.data.rows[i];
+      const existingLeadId = await findDuplicate(row.email, row.idNumber);
+      results.push({ index: i, isDuplicate: !!existingLeadId, existingLeadId: existingLeadId ?? null });
+    }
+
+    return res.status(200).json({ results });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('leads/check-duplicates error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

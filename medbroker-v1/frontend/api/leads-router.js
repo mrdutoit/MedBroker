@@ -7,8 +7,8 @@
  * Routes:
  *   GET    /api/leads
  *   POST   /api/leads
- *   GET    /api/leads/sources     (literal, checked before treating the
- *                                  segment as an :id)
+ *   GET    /api/leads/sources           (literal, checked before treating
+ *   POST   /api/leads/check-duplicates   the segment as an :id — §63)
  *   GET    /api/leads/:id
  *   PUT    /api/leads/:id
  *   DELETE /api/leads/:id
@@ -22,6 +22,7 @@
 import {
   handleLeadsCollection, handleLeadSources, handleLeadById,
   handleLeadAssign, handleLeadReopen, handleLeadCalls, handleLeadAudit,
+  handleLeadCheckDuplicates,
 } from '../api-lib/handlers/leadHandlers.js';
 import { applyCors, parseSlug } from '../api-lib/http/helpers.js';
 
@@ -36,6 +37,10 @@ export default async function handler(req, res) {
 
   if (segments.length === 1 && segments[0] === 'sources') {
     return handleLeadSources(req, res);
+  }
+
+  if (segments.length === 1 && segments[0] === 'check-duplicates') {
+    return handleLeadCheckDuplicates(req, res);
   }
 
   if (segments.length === 1) {
