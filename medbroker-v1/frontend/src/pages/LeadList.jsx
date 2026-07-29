@@ -14,7 +14,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { useFetch } from '../hooks/useFetch.js';
 import { leadsApi, usersApi, apiMode } from '../services/api.js';
 import { formatDistanceToNow } from 'date-fns';

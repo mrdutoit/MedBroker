@@ -18,7 +18,7 @@
  * The broker is identified by the :id URL param (a real User.id now).
  */
 
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router';
 import { useState } from 'react';
 import { useRole } from '../context/RoleContext.jsx';
 import { s } from '../styles/tokens.js';

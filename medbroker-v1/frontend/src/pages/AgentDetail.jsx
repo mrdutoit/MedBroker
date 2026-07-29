@@ -17,7 +17,7 @@
  * mock key like 'tm').
  */
 
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router';
 import { useState } from 'react';
 import { useRole } from '../context/RoleContext.jsx';
 import { s } from '../styles/tokens.js';

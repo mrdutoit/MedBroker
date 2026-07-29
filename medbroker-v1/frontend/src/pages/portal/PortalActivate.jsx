@@ -7,7 +7,7 @@
  * of birth against an existing Lead instead.
  */
 import { useState } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router';
 import { PortalCard } from '../../components/PortalCard.jsx';
 import { useProspectAuth } from '../../context/ProspectAuthContext.jsx';
 import { s } from '../../styles/tokens.js';

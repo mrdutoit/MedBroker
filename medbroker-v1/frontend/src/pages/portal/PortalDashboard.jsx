@@ -6,7 +6,7 @@
  * deferred to a real POPIA SAR flow rather than ad hoc partial access.
  */
 import { useState, useEffect } from 'react';
-import { useNavigate, Link } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router';
 import { format } from 'date-fns';
 import { useProspectAuth } from '../../context/ProspectAuthContext.jsx';
 import { portalApi } from '../../services/portalApi.js';

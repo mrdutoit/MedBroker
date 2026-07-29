@@ -28,7 +28,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router';
 import { useFetch } from '../hooks/useFetch.js';
 import { leadsApi, appointmentsApi, brokerMatchingApi, ApiError } from '../services/api.js';
 import { formatDistanceToNow, format } from 'date-fns';

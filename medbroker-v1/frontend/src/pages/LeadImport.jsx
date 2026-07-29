@@ -42,7 +42,7 @@
  */
 
 import { useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import * as XLSX from 'xlsx';
 import { leadsApi, ApiError } from '../services/api.js';
 import { s } from '../styles/tokens.js';

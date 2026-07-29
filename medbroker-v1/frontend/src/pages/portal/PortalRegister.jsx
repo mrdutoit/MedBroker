@@ -6,7 +6,7 @@
  * physical scan required to register).
  */
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router';
 import { format } from 'date-fns';
 import { PortalCard } from '../../components/PortalCard.jsx';
 import { useProspectAuth } from '../../context/ProspectAuthContext.jsx';

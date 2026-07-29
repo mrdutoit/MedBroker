@@ -29,7 +29,7 @@
  * browser, which rules it out given the prospect base is largely iPhones.
  */
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { Html5Qrcode } from 'html5-qrcode';
 import { s } from '../../styles/tokens.js';
 

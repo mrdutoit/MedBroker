@@ -33,7 +33,7 @@
  */
 
 import { useState }     from 'react';
-import { useNavigate }  from 'react-router-dom';
+import { useNavigate }  from 'react-router';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
   ResponsiveContainer, Cell, LabelList, Legend,

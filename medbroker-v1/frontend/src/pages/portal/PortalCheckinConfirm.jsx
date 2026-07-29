@@ -20,7 +20,7 @@
  *     RSVP'd.
  */
 import { useState, useEffect, useRef } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, Link } from 'react-router';
 import { format } from 'date-fns';
 import { PortalCard } from '../../components/PortalCard.jsx';
 import { useProspectAuth } from '../../context/ProspectAuthContext.jsx';

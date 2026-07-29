@@ -9,7 +9,7 @@
  * Responsive — collapsible sidebar on mobile.
  */
 
-import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useParams, useLocation } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useParams, useLocation } from 'react-router';
 import { lazy, Suspense, useState } from 'react';
 import { RoleProvider, useRole, PERSONAS } from './context/RoleContext.jsx';
 import { FlagProvider, useFlags }           from './context/FlagContext.jsx';
@@ -496,42 +496,33 @@ export default function App() {
   return (
     <ThemeProvider>
       {/*
-        REACT ROUTER v7 MIGRATION — PHASE 1 (28 Jul 2026, §64).
-        Official recommended path for a declarative-mode app (no data
-        routers/loaders — this one): enable every v7 future flag on the
-        CURRENT v6 install first, verify nothing changes, then swap the
-        package to v7 as a separate, later step. Each flag verified safe
-        by reading the actual code, not assumed from general guidance:
-          v7_startTransition            — every lazy() call in this file
-            is module-scope, not inside a component body (the standard
-            gotcha this flag can expose) — confirmed by inspection.
-          v7_relativeSplatPath          — the one flag that could have
-            actually changed behavior here: PortalApp's own routes
-            (register/:qrToken, login, dashboard, etc.) are relative,
-            nested under the /portal/* splat. But every navigate()/<Link>
-            call app-wide — checked in every page, not just Portal's —
-            uses an ABSOLUTE path (/portal/dashboard, /appointments/${id},
-            etc.), never a relative one. This flag only changes how a
-            RELATIVE path resolves under a splat; with zero relative
-            navigation anywhere in the app, it's a confirmed no-op.
-          v7_fetcherPersist, v7_normalizeFormMethod, v7_partialHydration,
-          v7_skipActionErrorRevalidation — all four only affect
-            useFetcher/<Form>/loaders/actions. None exist anywhere in
-            this codebase (grepped for all of them) — MedBroker is pure
-            declarative mode, so these four are complete no-ops.
-        If the build/test suite and a manual click-through both come back
-        clean with these enabled, Phase 2 (swap react-router-dom -> the
-        react-router v7 package, update the ~17 files' imports) should be
-        low-risk — see Status.md §64 for the full plan.
+        REACT ROUTER v6 -> v7 MIGRATION — COMPLETE (28 Jul 2026, §64/§65).
+        Phase 1 (§64) enabled all six v7 future flags on the v6 install
+        first and verified each one against the actual code (not just
+        general guidance) — the only one that could have mattered,
+        v7_relativeSplatPath, turned out to be a confirmed no-op: every
+        navigate()/<Link> call app-wide (including PortalApp's own
+        relative-route definitions under its /portal/* splat) uses an
+        absolute path, so the splat-relative-resolution change this flag
+        governs never applies here. Phase 2 (§65) swapped the package
+        itself — react-router-dom is gone entirely; every export this
+        app uses (BrowserRouter, Routes, Route, NavLink, Navigate,
+        useNavigate, useParams, useLocation, Link) lives directly in the
+        react-router package now, confirmed by installing v7.18.2 in a
+        scratch directory and inspecting its actual exports before
+        touching this file, not assumed from documentation. The future
+        flags themselves are removed below — they were how you opted
+        into v7 behavior early while still on v6; now that this IS v7,
+        that behavior is just the only behavior, no flag needed.
+        One remaining npm audit entry (react-router, RSC Mode CSRF
+        Bypass, GHSA-qwww-vcr4-c8h2) is confirmed NOT applicable — it
+        only affects the unstable React Server Components APIs, which
+        this app (a plain client-side Vite SPA, no RSC, no data
+        routers/loaders) doesn't use anywhere. The actual fix for that
+        one is React Router v8, a separate, larger decision — not
+        bundled into this migration.
       */}
-      <BrowserRouter future={{
-        v7_startTransition: true,
-        v7_relativeSplatPath: true,
-        v7_fetcherPersist: true,
-        v7_normalizeFormMethod: true,
-        v7_partialHydration: true,
-        v7_skipActionErrorRevalidation: true,
-      }}>
+      <BrowserRouter>
         <Routes>
           <Route path="/portal/*" element={<PortalApp />} />
           <Route path="/*" element={<StaffApp />} />

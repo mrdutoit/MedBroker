@@ -930,6 +930,11 @@ THIS SESSION (14, 28 Jul 2026) — built, in order:
   §63 Lead importer rework — real duplicate detection (nothing had ever
       called findDuplicate() on this path), real CSV/Excel/JSON parsing,
       formula-injection fix, honest "coming soon" Subscription tab
+  §64/§65 React Router v6 -> v7 migration, complete — closes the open-
+      redirect + SSR-hydration vulnerability. Two-phase: future flags
+      verified safe on v6 first (§64), then the actual package swap
+      (§65). Bundled in: engines.node pinned to 20.x (was an open-ended
+      >=20 range Vercel had flagged).
 See each section for full detail.
 
 GENUINELY OPEN ITEMS (accurate as of session 14, end):
@@ -940,12 +945,27 @@ GENUINELY OPEN ITEMS (accurate as of session 14, end):
     Consolidating system-config.js into flags-router.js is the natural
     next fold, before the next new domain needs its own top-level API
     surface. Not done yet — Mark's call when to prioritise it.
-  - xlsx dependency (§63) is pinned to 0.18.5 — the last version npm's
-    registry carries. Two known high-severity CVEs are fixed in 0.20.2+,
-    published only to SheetJS's own CDN, unreachable from this sandbox.
-    Mark's call whether to bump it from his own machine.
+  - xlsx — RESOLVED outside this sandbox (28 Jul 2026): Mark bumped it to
+    the CDN-hosted patched 0.20.3 via a GitHub Codespace, since neither
+    npm's registry nor SheetJS's own GitHub tags carry anything past
+    0.18.5 (checked both before concluding this sandbox genuinely
+    couldn't reach a fix). Also surfaced and fixed a real, unrelated gap
+    while resolving this: the repo had no .gitignore at all, which very
+    nearly resulted in the entire node_modules tree (10,000+ files)
+    being committed from that Codespace session. Both fixed and pushed;
+    confirmed clean via the actual git status/commit/push output.
+  - react-router v8 — one remaining npm audit entry post-migration
+    (GHSA-qwww-vcr4-c8h2, RSC Mode CSRF Bypass) is confirmed NOT
+    applicable to this app (RSC-APIs-only, and this app has none) — see
+    §65. The actual fix is v8, a separate, larger decision than the
+    v6->v7 migration this session scoped and completed.
+  - ESLint v10 + missing eslint.config.js — queued from the original npm
+    audit conversation, lowest of the three original priorities
+    (dev-tooling only, zero production exposure), not started.
+  - Vite v8 + Vitest v4 major bump — also queued from that conversation,
+    higher-risk than ESLint (Vite is this app's actual build tool), not
+    started.
   - Token economy (Stripe) — claim model works, payment provider not wired.
-  - Excel/JSON lead data importer — flagged since §34, still unscoped.
   - Deployment-phase security — A5/A6, E1/E2/E3/E5, WAF (Cloudflare Pro),
     pen test, POPIA operator agreements — parked for go-live, not blocking
     demo work. Full list in §5 (still accurate — this is genuinely
@@ -4826,6 +4846,95 @@ so no backend verification needed.
 MIGRATION — logic only, no schema change, no new dependency (still
 react-router-dom@6.30.4, just the future flags enabled):
   frontend/src/App.jsx (future flags added to BrowserRouter)
+Plus this Status.md.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+65. REACT ROUTER V7 MIGRATION — PHASE 2 (PACKAGE SWAP, COMPLETE) + engines.node PIN — 28 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Phase 2 of §64's migration — swapping the package itself, the step that
+actually closes the react-router/react-router-dom vulnerability (open
+redirect + SSR hydration constructor injection). Verified the real
+package structure before touching the project, not assumed from
+documentation: installed react-router@7.18.2 in a scratch directory and
+inspected its actual exports. Confirmed BrowserRouter, Routes, Route,
+NavLink, Navigate, useNavigate, useParams, useLocation, and Link — every
+single thing MedBroker uses — are all exported directly from the main
+react-router package. The react-router/dom subpath only carries
+RouterProvider/HydratedRouter (data-router/SSR features this app doesn't
+use at all). This meant Phase 2 was purely mechanical: no code touching
+routing LOGIC, just import paths and the package itself.
+
+BUILT:
+  - package.json: react-router-dom removed entirely, react-router@^7.18.2
+    added as a direct dependency (was only ever transitive via
+    react-router-dom@6 before).
+  - All 17 files that imported from react-router-dom updated to import
+    from react-router instead — a plain string swap
+    (from 'react-router-dom' -> from 'react-router'), verified safe
+    because every export name used is identical between the two.
+  - App.jsx: the six v7 future flags added in §64 removed from
+    BrowserRouter — they were how you opt into v7 behaviour early while
+    still on v6; now that this genuinely is v7, that behaviour is just
+    the only behaviour, no flag needed. Replaced with a comment
+    documenting the full migration (§64 + §65) for whoever reads this
+    file next.
+
+NEW ADVISORY FOUND, CHECKED, CONFIRMED NOT APPLICABLE: even the patched
+react-router@7.18.2 carries one high-severity npm audit entry —
+GHSA-qwww-vcr4-c8h2, "RSC Mode CSRF Bypass Allows Action Execution Before
+400 Response". Read the actual advisory before accepting or dismissing
+it: GitHub's own note says explicitly "This only affects your
+application if you are using the unstable RSC APIs" — React Server
+Components, an entirely different, unstable/experimental React Router
+feature this app doesn't touch anywhere (confirmed — no RSC, no data
+routers, no loaders/actions, declarative mode only, same as everything
+else checked this session). The real fix is React Router v8 (already
+released, 8.3.0), which is a separate, larger decision than the
+originally-scoped v6->v7 migration — not bundled into this delivery.
+Found the exact same reasoning already applied by another real project
+hitting this identical advisory (a client-only Vite SPA with no RSC
+server actions) while researching this — allowlisting the single
+advisory ID until a deliberate v8 migration is a recognised, sound
+pattern here, not a shortcut invented for this session.
+
+BUNDLED IN (Mark's request, from the earlier Vercel build-log
+conversation): package.json's engines.node changed from ">=20" (an
+open-ended range Vercel had flagged — Vercel would silently move to a
+newer Node major on a future deploy without any deliberate decision) to
+"20.x", pinning the runtime to a specific major version. Unrelated to
+React Router; bundled here purely because Mark asked for it to ship
+together with this delivery.
+
+VERIFIED: full Vite production build clean (zero errors; main bundle
+grew somewhat — 265 kB vs 251 kB gzipped-precompression — expected, v7's
+core is somewhat larger even in pure declarative-mode usage); existing
+45-test Vitest suite unaffected; confirmed zero remaining references to
+react-router-dom anywhere in the built output except one internal
+react-router error-message STRING (an invariant check's own warning text
+mentioning the old package name for people who mistakenly still import
+RouterProvider from the wrong place) — not an actual dependency or
+broken reference, checked the exact string context to be sure rather
+than assume a grep hit meant a problem. package-lock.json confirmed
+react-router-dom fully absent, react-router resolved to exactly 7.18.2.
+
+NOT DONE, DELIBERATELY: React Router v8 upgrade (closes the one
+remaining advisory, but a separate, larger decision — v7 -> v8 has its
+own real breaking changes beyond what this session scoped). ESLint v10 +
+missing eslint.config.js, and the Vite/Vitest major bump, both still
+queued from the original npm audit conversation, lowest priority of the
+three, not started.
+
+MIGRATION — no schema change:
+  frontend/package.json           (react-router-dom -> react-router@7.18.2; engines.node pinned to 20.x)
+  frontend/package-lock.json      (lockfile updated)
+  frontend/src/App.jsx            (imports updated; future flags removed; migration comment)
+  frontend/src/pages/AgentDetail.jsx, AppointmentDetail.jsx, AppointmentList.jsx,
+    BrokerDetail.jsx, EventDetail.jsx, EventList.jsx, LeadDetail.jsx, LeadImport.jsx,
+    LeadList.jsx, Reports.jsx, portal/PortalActivate.jsx, portal/PortalCheckIn.jsx,
+    portal/PortalCheckinConfirm.jsx, portal/PortalDashboard.jsx, portal/PortalLogin.jsx,
+    portal/PortalRegister.jsx     (import path only: react-router-dom -> react-router)
 Plus this Status.md.
 
 
