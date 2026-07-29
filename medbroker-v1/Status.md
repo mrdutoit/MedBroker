@@ -4763,6 +4763,72 @@ MIGRATION — no schema change:
 Plus this Status.md and Project_Context.md.
 
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+64. REACT ROUTER V7 MIGRATION — PHASE 1 (FUTURE FLAGS ON V6) — 28 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Following up on the react-router/react-router-dom vulnerability (moderate,
+open redirect + SSR hydration constructor injection — see the npm audit
+conversation earlier this session): no patch exists within v6 at all
+(6.30.4 is the newest v6 ever released and is still in the vulnerable
+range) — the only real fix is a v6->v7 migration. Researched the current,
+official migration path before touching anything: for a declarative-mode
+app (plain BrowserRouter/Routes/Route, no data routers/loaders — which is
+exactly what MedBroker is), the recommended approach is to enable every
+v7 "future flag" on the CURRENT v6 install first, verify nothing changes,
+THEN swap the package to v7 as a separate step. Never batch it all into
+one change.
+
+PHASE 1 (this entry): enabled all six flags on the existing v6.30.4
+install. Each one verified SAFE BY READING THE ACTUAL CODE, not assumed
+from general migration guidance:
+  - v7_startTransition — every lazy() call in App.jsx is module-scope,
+    not inside a component body (the standard gotcha this flag exposes).
+    Confirmed by inspection.
+  - v7_relativeSplatPath — the one flag that could genuinely have changed
+    behavior here. PortalApp's own routes (register/:qrToken, login,
+    dashboard, etc.) ARE relative, nested under the /portal/* splat —
+    exactly the scenario this flag affects (old behavior: a relative
+    path resolves ignoring everything after the splat; v7: resolves
+    against the full current URL). But grepped every navigate()/<Link>
+    call across all 17 files that import from react-router-dom, not just
+    Portal's — every single one uses an absolute path (/portal/dashboard,
+    /appointments/${id}, etc.), never relative. Zero relative navigation
+    anywhere in the app means this flag is a confirmed no-op, not a
+    "should be fine" guess.
+  - v7_fetcherPersist, v7_normalizeFormMethod, v7_partialHydration,
+    v7_skipActionErrorRevalidation — all four only affect useFetcher/
+    <Form>/loaders/actions. Grepped for all of them (useFetcher,
+    useLoaderData, useActionData, createBrowserRouter, <Form, 
+    RouterProvider) — zero matches anywhere in src/. MedBroker is pure
+    declarative mode; these four are complete no-ops for this app.
+  - v7_prependBasename exists in the installed version too but is an
+    internal implementation constant, not part of the public future{}
+    API documented in React Router's own upgrade guide — not set, and
+    doesn't apply anyway (this app has no basename prop on BrowserRouter).
+
+Confirmed present in the actual installed package (not just documented
+in guides) by grepping node_modules/react-router/dist/react-router.
+development.js directly for the flag name strings.
+
+NOT YET DONE (Phase 2, separate future step): swap the package from
+react-router-dom to react-router v7, update imports across all 17 files
+that currently import from react-router-dom, verify again. Given Phase 1
+covers every behavioral flag and all of them are confirmed no-ops for
+this specific app, Phase 2 should mostly be mechanical import-path
+changes — but "should be" gets verified the same way Phase 1 was, not
+assumed, when that step happens.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected. This phase has no server-side component (App.jsx only)
+so no backend verification needed.
+
+MIGRATION — logic only, no schema change, no new dependency (still
+react-router-dom@6.30.4, just the future flags enabled):
+  frontend/src/App.jsx (future flags added to BrowserRouter)
+Plus this Status.md.
+
+
 
 If picking up a pending item from Section 5, reference it by name.
 e.g. "I want to work on the Appointments API build."

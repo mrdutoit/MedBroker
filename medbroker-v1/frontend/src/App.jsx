@@ -495,7 +495,43 @@ function PortalApp() {
 export default function App() {
   return (
     <ThemeProvider>
-      <BrowserRouter>
+      {/*
+        REACT ROUTER v7 MIGRATION — PHASE 1 (28 Jul 2026, §64).
+        Official recommended path for a declarative-mode app (no data
+        routers/loaders — this one): enable every v7 future flag on the
+        CURRENT v6 install first, verify nothing changes, then swap the
+        package to v7 as a separate, later step. Each flag verified safe
+        by reading the actual code, not assumed from general guidance:
+          v7_startTransition            — every lazy() call in this file
+            is module-scope, not inside a component body (the standard
+            gotcha this flag can expose) — confirmed by inspection.
+          v7_relativeSplatPath          — the one flag that could have
+            actually changed behavior here: PortalApp's own routes
+            (register/:qrToken, login, dashboard, etc.) are relative,
+            nested under the /portal/* splat. But every navigate()/<Link>
+            call app-wide — checked in every page, not just Portal's —
+            uses an ABSOLUTE path (/portal/dashboard, /appointments/${id},
+            etc.), never a relative one. This flag only changes how a
+            RELATIVE path resolves under a splat; with zero relative
+            navigation anywhere in the app, it's a confirmed no-op.
+          v7_fetcherPersist, v7_normalizeFormMethod, v7_partialHydration,
+          v7_skipActionErrorRevalidation — all four only affect
+            useFetcher/<Form>/loaders/actions. None exist anywhere in
+            this codebase (grepped for all of them) — MedBroker is pure
+            declarative mode, so these four are complete no-ops.
+        If the build/test suite and a manual click-through both come back
+        clean with these enabled, Phase 2 (swap react-router-dom -> the
+        react-router v7 package, update the ~17 files' imports) should be
+        low-risk — see Status.md §64 for the full plan.
+      */}
+      <BrowserRouter future={{
+        v7_startTransition: true,
+        v7_relativeSplatPath: true,
+        v7_fetcherPersist: true,
+        v7_normalizeFormMethod: true,
+        v7_partialHydration: true,
+        v7_skipActionErrorRevalidation: true,
+      }}>
         <Routes>
           <Route path="/portal/*" element={<PortalApp />} />
           <Route path="/*" element={<StaffApp />} />
