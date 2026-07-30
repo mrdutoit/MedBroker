@@ -4388,6 +4388,88 @@ MIGRATION — schema change (§69 only; §70 is documentation only):
   frontend/src/pages/Tasks.jsx             ("Created by me" filter + display)
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+71. TASK VISIBILITY BUG FIX + TASK COMMENTS — 30 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark tested §69's "Created by me" filter and found the specific task he
+tested with disappeared when the filter was ON, for both himself and
+Werner (Admin). Root-caused before touching anything: that task was
+created BEFORE §69's migration/code landed, so its createdById is
+genuinely NULL in the database — not a code bug. Re-checked every part
+of the wiring (POST handler sets createdById; shapeTask returns it; the
+frontend filter compares it correctly) and confirmed all of it was
+already right. Gave Mark a one-off SQL backfill to run directly against
+Neon (not a migration file — this is test-data cleanup specific to his
+own account, not something every environment needs):
+  UPDATE Task SET createdById = (SELECT id FROM "User" WHERE
+  displayName = 'Mark du Toit') WHERE type = 'Manual' AND createdById
+  IS NULL;
+
+ADMIN/SUPERVISOR TASK VISIBILITY — CONFIRMED ALREADY CORRECT, NOT A BUG:
+Mark asked whether Admin/Supervisor seeing all tasks was intentional,
+and proposed exactly the design already built: Admin/GlobalAdmin see
+everything; Supervisor sees self + direct reports only; Agent/Broker see
+only their own. Re-verified the actual isSupervisorOnly()/isAdminRole()
+logic before answering — confirmed this is precisely what's already
+implemented (§56). Mark had only tested as GlobalAdmin and Admin so far
+(both of which are SUPPOSED to see everything) — no code change needed.
+
+REAL BUG FOUND AND FIXED WHILE BUILDING COMMENTS (below): §69 fixed
+listTasks()'s LIST-view scoping to OR createdById against the usual
+assignedToId scoping (a creator's own tasks are always visible to them).
+But handleTaskById()'s SINGLE-task visibility check (used for PATCH/
+DELETE) was never updated to match — it still only checked assignedToId.
+That meant a Supervisor could see their own creation in the task LIST,
+but clicking into it to edit/complete it, or now commenting on it, would
+still 403. Extracted both checks into one shared canSeeTask() helper so
+there's exactly one place this logic lives, not two that can silently
+drift apart again — this bug existed because there were two, not one.
+
+TASK COMMENTS (§71) — Mark's request: a threaded discussion per task,
+showing who commented and when.
+  - Migration 015_add_task_comment.sql — new TaskComment table
+    (taskId, authorId, body, createdAt). ON DELETE CASCADE on taskId —
+    if a Task is ever deleted (manual deletion or cascade-cleanup from a
+    Lead/Appointment change), its comments go with it rather than
+    becoming orphaned rows. No edit/delete on comments at all — a
+    discussion thread is a record of what was said and when, matching
+    the same philosophy AuditLog already follows for the same reason.
+  - GET/POST /api/tasks/:id/comments — routed as a sub-route on the
+    ALREADY-EXISTING tasks-router.js (matching every other sub-route
+    precedent this build uses), so this adds zero to the 12/12 Vercel
+    function count.
+  - Visibility: whoever can see a task (canSeeTask() — see above) can
+    both read and post to its comment thread. No separate permission
+    tier for comments; if you can see the task, you're part of its
+    discussion.
+  - Tasks.jsx: comment thread UI in the expanded row, lazy-loaded only
+    when a task is actually expanded (not fetched for every row in the
+    list up front). Entra branch: a local, in-memory thread, matching
+    the same "keep the mock UI interactive" philosophy already applied
+    to Tasks/Notifications throughout this build.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected; every new/edited backend file (models/task.js,
+services/taskService.js, handlers/taskHandlers.js, api/tasks-router.js)
+passes node --check and an ESM import smoke test.
+
+MIGRATION:
+  frontend/db/migrations/015_add_task_comment.sql (NEW)
+  frontend/db/schema.postgres.sql          (TaskComment table added)
+  frontend/api-lib/models/task.js          (CreateCommentSchema added)
+  frontend/api-lib/services/taskService.js (listComments/createComment added)
+  frontend/api-lib/handlers/taskHandlers.js (handleTaskComments added;
+                                              canSeeTask() extracted, fixing
+                                              the single-task visibility bug)
+  frontend/api/tasks-router.js             (:id/comments sub-route added)
+  frontend/src/services/api.js             (tasksApi.listComments/addComment added)
+  frontend/src/pages/Tasks.jsx             (comment thread UI)
+Plus this Status_Vercel.md.
+
+NOT YET DONE: password policy overhaul — last item on Mark's list,
+biggest and most security-sensitive, starting next.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I

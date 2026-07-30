@@ -33,7 +33,8 @@
  *                                 not deleted. Enforced server-side, not just hidden here.
  */
 
-import { useState }      from 'react';
+import { useState, useEffect } from 'react';
+import { format } from 'date-fns';
 import { useRole }       from '../context/RoleContext.jsx';
 import { useAuth }       from '../context/AuthContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
@@ -309,6 +310,47 @@ function TaskRow({ task, onToggle, onDelete, isAdmin, canDelete, isMobile, today
   const cat  = CATEGORY_META[task.category] ?? CATEGORY_META.manual;
   const pri  = PRIORITY_META[task.priority] ?? PRIORITY_META.Low;
 
+  // Comment thread (§71) — lazy-loaded only once a task is actually
+  // expanded, not fetched for every row in the list up front. Entra
+  // branch: a local, in-memory thread (starts empty) so the UI stays
+  // interactive with no backend behind it, matching the same philosophy
+  // already applied to Tasks/Notifications throughout this build.
+  const demoMode = apiMode.DEMO_MODE;
+  const [comments, setComments] = useState([]);
+  const [commentsLoaded, setCommentsLoaded] = useState(false);
+  const [newComment, setNewComment] = useState('');
+  const [postingComment, setPostingComment] = useState(false);
+
+  useEffect(() => {
+    if (!expanded || commentsLoaded || !demoMode) return;
+    tasksApi.listComments(task.id)
+      .then(({ comments }) => { setComments(comments); setCommentsLoaded(true); })
+      .catch(err => console.error('Could not load comments:', err));
+  }, [expanded, commentsLoaded, demoMode, task.id]);
+
+  async function handlePostComment() {
+    const body = newComment.trim();
+    if (!body) return;
+    setPostingComment(true);
+    if (demoMode) {
+      try {
+        const created = await tasksApi.addComment(task.id, body);
+        setComments(prev => [...prev, created]);
+        setNewComment('');
+      } catch (err) {
+        console.error('Could not post comment:', err);
+      }
+    } else {
+      // Entra branch — local only, matching every other mock-mode
+      // fallback in this file.
+      setComments(prev => [...prev, {
+        id: 'c-' + Date.now(), body, author: 'You', createdAt: new Date().toISOString(),
+      }]);
+      setNewComment('');
+    }
+    setPostingComment(false);
+  }
+
   return (
     <div style={{
       borderBottom:'1px solid var(--line)',
@@ -455,6 +497,46 @@ function TaskRow({ task, onToggle, onDelete, isAdmin, canDelete, isMobile, today
               </button>
             </div>
           )}
+
+          {/* Comment thread (§71) */}
+          <div style={{ marginTop: '12px', paddingTop: '12px', borderTop: '1px solid var(--line)' }} onClick={e => e.stopPropagation()}>
+            <span style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+              Comments {comments.length > 0 ? `(${comments.length})` : ''}
+            </span>
+            <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {comments.length === 0 && (
+                <p style={{ fontSize: '0.8125rem', color:'var(--mut)', margin: 0 }}>No comments yet.</p>
+              )}
+              {comments.map(c => (
+                <div key={c.id} style={{ background: 'var(--panel2)', borderRadius: '6px', padding: '8px 10px' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', marginBottom: '3px' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 600, color:'var(--ink)' }}>{c.author}</span>
+                    <span style={{ fontSize: '0.6875rem', color:'var(--mut)' }}>
+                      {(() => { try { return format(new Date(c.createdAt), 'd MMM yyyy, HH:mm'); } catch { return ''; } })()}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: '0.8125rem', color:'var(--ink)', margin: 0, whiteSpace: 'pre-wrap' }}>{c.body}</p>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', marginTop: '10px' }}>
+              <input
+                type="text"
+                value={newComment}
+                onChange={e => setNewComment(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && !postingComment) handlePostComment(); }}
+                placeholder="Add a comment…"
+                style={{ ...s.formInput, flex: 1, fontSize: '0.8125rem', padding: '6px 10px' }}
+              />
+              <button
+                onClick={handlePostComment}
+                disabled={!newComment.trim() || postingComment}
+                style={{ ...s.secondaryBtn, fontSize: '0.8125rem', padding: '6px 14px', opacity: (!newComment.trim() || postingComment) ? 0.5 : 1 }}
+              >
+                {postingComment ? '…' : 'Post'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

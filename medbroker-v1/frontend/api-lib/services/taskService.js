@@ -236,3 +236,47 @@ export async function deleteTasksForEntity({ entityType, entityId }) {
     }
   );
 }
+
+// ── Task comments (§71) ─────────────────────────────────────────────────────
+
+/**
+ * Every comment on one task, oldest first (a discussion thread reads
+ * top-to-bottom in the order things were said).
+ * @param {string} taskId
+ */
+export async function listComments(taskId) {
+  return executeQuery(
+    `SELECT tc.id, tc.body, tc.createdAt AS "createdAt",
+            tc.authorId AS "authorId", au.displayName AS "authorName"
+     FROM TaskComment tc
+     LEFT JOIN "User" au ON tc.authorId = au.id
+     WHERE tc.taskId = @taskId AND tc.organisationId = @organisationId
+     ORDER BY tc.createdAt ASC`,
+    {
+      taskId:         { type: sql.UniqueIdentifier, value: taskId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+}
+
+/**
+ * @param {string} taskId
+ * @param {string} authorId
+ * @param {string} body
+ * @returns {Promise<string>} new comment id
+ */
+export async function createComment(taskId, authorId, body) {
+  const newId = crypto.randomUUID();
+  await executeQuery(
+    `INSERT INTO TaskComment (id, organisationId, taskId, authorId, body, createdAt)
+     VALUES (@id, @organisationId, @taskId, @authorId, @body, NOW())`,
+    {
+      id:             { type: sql.UniqueIdentifier, value: newId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+      taskId:         { type: sql.UniqueIdentifier, value: taskId },
+      authorId:       { type: sql.UniqueIdentifier, value: authorId },
+      body:           { type: sql.NVarChar(2000),   value: body },
+    }
+  );
+  return newId;
+}

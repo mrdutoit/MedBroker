@@ -295,6 +295,8 @@ export const tasksApi = {
   create: (data)     => request('/tasks', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => request(`/tasks/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   remove: (id)       => request(`/tasks/${id}`, { method: 'DELETE' }),
+  listComments: (id)       => request(`/tasks/${id}/comments`),
+  addComment:   (id, body) => request(`/tasks/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }),
 };
 
 // ─── Notifications (§61) ──────────────────────────────────────────────────────

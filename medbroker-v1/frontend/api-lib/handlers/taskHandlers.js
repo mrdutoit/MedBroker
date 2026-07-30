@@ -12,10 +12,10 @@
  */
 
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
-import { listTasks, getTaskById, createTask, updateTask, deleteTask } from '../services/taskService.js';
+import { listTasks, getTaskById, createTask, updateTask, deleteTask, listComments, createComment } from '../services/taskService.js';
 import { getDirectReportIds, isAgentOnly, isSupervisorOnly } from '../services/userService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
-import { CreateTaskSchema, UpdateTaskSchema, TaskListQuerySchema, CATEGORY_TO_TYPE, TYPE_TO_CATEGORY } from '../models/task.js';
+import { CreateTaskSchema, UpdateTaskSchema, TaskListQuerySchema, CATEGORY_TO_TYPE, TYPE_TO_CATEGORY, CreateCommentSchema } from '../models/task.js';
 import { isUuid } from '../http/helpers.js';
 
 const EDIT_FIELDS = ['assignedToId', 'title', 'detail', 'priority', 'dueDate'];
@@ -157,6 +157,84 @@ export async function handleTasksCollection(req, res) {
   }
 }
 
+/**
+ * Shared visibility check for a single task — used by PATCH/DELETE
+ * (below) and by the new comments endpoint (§71), so there's exactly
+ * one place this logic lives, not two copies that can drift apart.
+ *
+ * FIXED 30 Jul 2026, §71: this used to only check assignedToId — §69
+ * fixed listTasks()' LIST-view scoping to also consider createdById
+ * (a creator's own tasks are always visible to them, regardless of who
+ * they're assigned to), but this SINGLE-task check was never updated to
+ * match. That meant a Supervisor could see their own creation in the
+ * list, but clicking into it — or, now, commenting on it — would still
+ * 403. Fixed here, alongside building comments, which needed this exact
+ * check anyway.
+ * @param {Object} claims
+ * @param {Object} task - a row from getTaskById()
+ * @returns {Promise<boolean>}
+ */
+async function canSeeTask(claims, task) {
+  if (isAdminRole(claims.roles)) return true;
+  if (task.createdById === claims.oid) return true;
+  if (isSupervisorOnly(claims.roles)) {
+    const reportIds = await getDirectReportIds(claims.oid);
+    return task.assignedToId === claims.oid || reportIds.includes(task.assignedToId);
+  }
+  return task.assignedToId === claims.oid;
+}
+
+/** GET + POST /api/tasks/:id/comments — §71 */
+export async function handleTaskComments(req, res, taskId) {
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Agent', 'Supervisor', 'Admin', 'GlobalAdmin', 'Broker']);
+
+    if (!isUuid(taskId)) return res.status(400).json({ error: 'Invalid task ID format' });
+
+    const task = await getTaskById(taskId);
+    if (!task) return res.status(404).json({ error: 'Task not found' });
+    if (!(await canSeeTask(claims, task))) {
+      return res.status(403).json({ error: 'You do not have access to this task' });
+    }
+
+    if (req.method === 'GET') {
+      const comments = await listComments(taskId);
+      return res.status(200).json({
+        comments: comments.map(c => ({
+          id: c.id, body: c.body, createdAt: c.createdAt,
+          authorId: c.authorId, author: c.authorName,
+        })),
+      });
+    }
+
+    if (req.method === 'POST') {
+      const parsed = CreateCommentSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+      const newId = await createComment(taskId, claims.oid, parsed.data.body);
+
+      const comments = await listComments(taskId);
+      const created = comments.find(c => c.id === newId);
+      return res.status(201).json({
+        id: created.id, body: created.body, createdAt: created.createdAt,
+        authorId: created.authorId, author: created.authorName,
+      });
+    }
+
+    res.setHeader('Allow', 'GET, POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('tasks/[id]/comments error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
 /** PATCH + DELETE /api/tasks/:id */
 export async function handleTaskById(req, res, id) {
   try {
@@ -168,14 +246,11 @@ export async function handleTaskById(req, res, id) {
     const existing = await getTaskById(id);
     if (!existing) return res.status(404).json({ error: 'Task not found' });
 
-    // Visibility — a role that couldn't see this task via listTasks'
-    // scoping shouldn't be able to reach it directly by id either.
-    let canSee = isAdminRole(claims.roles);
-    if (!canSee && isSupervisorOnly(claims.roles)) {
-      const reportIds = await getDirectReportIds(claims.oid);
-      canSee = existing.assignedToId === claims.oid || reportIds.includes(existing.assignedToId);
-    }
-    if (!canSee) canSee = existing.assignedToId === claims.oid;
+    // Visibility — see canSeeTask() above (shared with the comments
+    // endpoint; also now correctly considers createdById, not just
+    // assignedToId — see that function's own comment for why this
+    // changed today).
+    const canSee = await canSeeTask(claims, existing);
     if (!canSee) return res.status(403).json({ error: 'You do not have access to this task' });
 
     if (req.method === 'PATCH') {

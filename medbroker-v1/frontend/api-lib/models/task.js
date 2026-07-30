@@ -75,3 +75,10 @@ export const UpdateTaskSchema = z.object({
 export const TaskListQuerySchema = z.object({
   assignedToId: z.string().uuid().optional(),
 });
+
+// POST /api/tasks/:id/comments — §71. No edit/delete schema at all;
+// comments are a discussion record, not a document — matches the same
+// philosophy AuditLog already follows for the same reason.
+export const CreateCommentSchema = z.object({
+  body: z.string().min(1).max(2000),
+});

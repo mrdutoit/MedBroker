@@ -684,6 +684,24 @@ CREATE INDEX IF NOT EXISTS IX_Task_AssignedTo
     ON Task (assignedToId, isComplete, dueAt)
     WHERE isComplete = FALSE;
 
+-- Task discussion threads (v2.9, 30 Jul 2026, §71/migration 015). No
+-- edit/delete on comments — a discussion thread is a record of what was
+-- said and when, matching the same philosophy AuditLog already follows.
+CREATE TABLE IF NOT EXISTS TaskComment (
+    id             UUID          NOT NULL DEFAULT gen_random_uuid(),
+    organisationId UUID          NOT NULL DEFAULT 'D0000000-0000-0000-0000-000000000001',
+    taskId         UUID          NOT NULL,
+    authorId       UUID          NOT NULL,
+    body           VARCHAR(2000) NOT NULL,
+    createdAt      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    CONSTRAINT PK_TaskComment        PRIMARY KEY (id),
+    CONSTRAINT FK_TaskComment_Org    FOREIGN KEY (organisationId) REFERENCES Organisation(id),
+    CONSTRAINT FK_TaskComment_Task   FOREIGN KEY (taskId) REFERENCES Task(id) ON DELETE CASCADE,
+    CONSTRAINT FK_TaskComment_Author FOREIGN KEY (authorId) REFERENCES "User"(id)
+);
+
+CREATE INDEX IF NOT EXISTS IX_TaskComment_Task ON TaskComment (taskId, createdAt);
+
 -- =============================================================================
 -- SECTION 14 — TOKEN LEDGER (Phase 2 stub)
 -- =============================================================================

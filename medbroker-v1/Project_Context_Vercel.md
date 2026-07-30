@@ -131,9 +131,18 @@ Task
   when the Lead/Appointment a task is about changes owner or closes out.
   createdById (§69): nullable, always NULL for system-generated tasks,
   always populated for manual ones. A creator's own tasks are always
-  visible to them regardless of who they're assigned to (server-side
-  scoping ORs createdById against the usual assignedToId scoping) —
-  this was a real visibility bug before §69, not just a missing filter.
+  visible to them regardless of who they're assigned to — enforced via
+  a single shared canSeeTask() helper (§71) used by both the list-view
+  scoping and the single-task visibility check; these two used to be
+  separate, drift-prone copies, which is exactly how a real visibility
+  bug slipped through §69 (list view fixed, single-task check wasn't).
+
+TaskComment (§71)
+  taskId, authorId, body, createdAt. No edit/delete — a discussion
+  thread is a record of what was said and when, not a document to
+  revise (matches AuditLog's own philosophy). ON DELETE CASCADE on
+  taskId. Visibility matches the parent Task's — whoever can see a task
+  can read and post to its comment thread, no separate permission tier.
 
 Notification
   type: LeadAssigned | AppointmentAssigned | AppointmentReminder |
