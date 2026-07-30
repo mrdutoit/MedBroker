@@ -4938,6 +4938,45 @@ MIGRATION — no schema change:
 Plus this Status.md.
 
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+66. FIXED OWN MISTAKE — engines.node PINNED TO A DEPRECATED VERSION — 28 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§65 pinned package.json's engines.node from an open-ended ">=20" to
+"20.x", reasoning it as "a mature LTS, low risk." That reasoning was
+wrong — didn't check Vercel's actual current platform support timeline
+before picking a specific version. Mark's next deploy surfaced it
+directly in the build log: "Error: Node.js version 20.x is deprecated.
+Deployments created on or after 2026-10-01 will fail to build." 13
+errors, 14 warnings, though the build itself still completed this time
+(Vercel currently downgrades this to a hard failure only after the
+2026-10-01 cutoff).
+
+Worse detail from the log itself, worth being honest about: Vercel's own
+Project Settings were ALREADY correctly set to Node 24.x — package.json's
+"engines": { "node": "20.x" } was actively OVERRIDING that correct
+platform setting down to the deprecated version. This wasn't just "picked
+a slightly-too-old version" — it was a regression against a setting
+that was already right.
+
+FIX: engines.node changed to "24.x". Verified via search before
+confirming, not just trusted Vercel's message blindly (though in this
+case it was correct): Node 24.x has been the Active LTS line since
+October 2025, supported through April 2028 — the right, current choice,
+not just "whatever Vercel says this week."
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected. Caveat, stated plainly: this sandbox runs Node 22.22.2,
+not 24.x — cannot fully replicate Vercel's exact target runtime locally.
+Low risk given this is a metadata field (which Node version Vercel
+provisions), not a code change, but the true test is Mark's next
+deployment succeeding without the 13 errors/14 warnings recurring.
+
+MIGRATION — one line, no schema change:
+  frontend/package.json (engines.node: "20.x" -> "24.x")
+Plus this Status.md.
+
+
 
 If picking up a pending item from Section 5, reference it by name.
 e.g. "I want to work on the Appointments API build."
