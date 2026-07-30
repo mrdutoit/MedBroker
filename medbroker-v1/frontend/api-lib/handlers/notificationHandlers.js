@@ -11,8 +11,47 @@
 
 import { validateToken, authErrorResponse } from '../middleware/auth.js';
 import { listNotificationsForUser, getNotificationById, markNotificationRead, markAllNotificationsRead } from '../services/notificationService.js';
+import { sendAppointmentReminders, sendCallbackReminders, autoReturnStaleLeads } from '../services/schedulerService.js';
 import { UpdateNotificationSchema } from '../models/notification.js';
 import { isUuid } from '../http/helpers.js';
+
+/**
+ * GET /api/notifications/scheduled-tick — Vercel Cron's entry point
+ * (§68), once daily. Secured via CRON_SECRET, Vercel's own documented
+ * pattern: Vercel automatically sends Authorization: Bearer
+ * <CRON_SECRET> when it triggers a cron job, so this route rejects
+ * anything that doesn't match — no JWT/user session involved, this is a
+ * system-triggered request, not a user one. CRON_SECRET must be set as
+ * an environment variable in Vercel's project settings (not something
+ * committed to the repo) — Mark's action, not something this delivery
+ * can do on its own.
+ */
+export async function handleScheduledTick(req, res) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = req.headers.authorization || '';
+  if (!cronSecret || authHeader !== `Bearer ${cronSecret}`) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  try {
+    const [appointmentReminders, callbackReminders, leadsAutoReturned] = await Promise.all([
+      sendAppointmentReminders(),
+      sendCallbackReminders(),
+      autoReturnStaleLeads(),
+    ]);
+
+    return res.status(200).json({ appointmentReminders, callbackReminders, leadsAutoReturned });
+
+  } catch (err) {
+    console.error('notifications/scheduled-tick error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
 
 /** GET /api/notifications — every authenticated role, always self-scoped */
 export async function handleNotificationsCollection(req, res) {

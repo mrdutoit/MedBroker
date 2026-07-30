@@ -6,11 +6,12 @@
  *
  * Routes:
  *   GET   /api/notifications
+ *   GET   /api/notifications/scheduled-tick  (Vercel Cron only, §68)
  *   PATCH /api/notifications/mark-all-read
  *   PATCH /api/notifications/:id
  */
 
-import { handleNotificationsCollection, handleNotificationById, handleMarkAllRead } from '../api-lib/handlers/notificationHandlers.js';
+import { handleNotificationsCollection, handleNotificationById, handleMarkAllRead, handleScheduledTick } from '../api-lib/handlers/notificationHandlers.js';
 import { applyCors, parseSlug } from '../api-lib/http/helpers.js';
 
 export default async function handler(req, res) {
@@ -19,9 +20,10 @@ export default async function handler(req, res) {
   const segments = parseSlug(req.query.slug);
 
   if (segments.length === 0) return handleNotificationsCollection(req, res);
-  // Must come before the UUID branch below — 'mark-all-read' is never a
+  // Must come before the UUID branch below — neither literal is ever a
   // valid notification id.
   if (segments.length === 1 && segments[0] === 'mark-all-read') return handleMarkAllRead(req, res);
+  if (segments.length === 1 && segments[0] === 'scheduled-tick') return handleScheduledTick(req, res);
   if (segments.length === 1) return handleNotificationById(req, res, segments[0]);
 
   return res.status(404).json({ error: 'Not found' });

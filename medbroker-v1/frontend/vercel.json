@@ -23,5 +23,8 @@
         { "key": "Cache-Control", "value": "public, max-age=31536000, immutable" }
       ]
     }
+  ],
+  "crons": [
+    { "path": "/api/notifications/scheduled-tick", "schedule": "0 6 * * *" }
   ]
 }

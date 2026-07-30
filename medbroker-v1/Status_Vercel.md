@@ -48,8 +48,12 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   about changes owner or closes out, manual creation +
                   deletion (Admin/GlobalAdmin, manual-type only), real
                   sidebar badge (own incomplete-task count)
-  Notifications   LeadAssigned + AppointmentAssigned are real, generated
-                  at the moment those actions happen. Real sidebar badge.
+  Notifications   All 5 real-data-driven types now generate for real:
+                  LeadAssigned + AppointmentAssigned (action-driven, §61)
+                  and AppointmentReminder + CallbackReminder +
+                  LeadAutoReturned (daily Vercel Cron scan, §68). Only
+                  needs CRON_SECRET set in Vercel's env vars to actually
+                  fire — see §68.
   Settings        Real backend for theme/name/avatar/timezone. Photo
                   upload is an honest disabled "coming soon" stub.
 
@@ -4163,6 +4167,103 @@ NOT YET DONE (next three items in the agreed order):
 MIGRATION — one dependency, no code change:
   frontend/package.json (recharts: ^2.12.7 -> ^3.10.1)
   frontend/package-lock.json
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+68. VERCEL CRON + REMAINING NOTIFICATION TYPES + LEAD AUTO-RETURN — 30 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Second of Mark's four post-testing items. §61 left three Notification
+types parked specifically because "no Vercel Cron exists in this stack
+yet" — checked that claim properly rather than accept it, and it turned
+out Vercel Cron genuinely is usable on Hobby (up to 100 jobs per project,
+raised from a much lower cap in Jan 2026) with one real constraint:
+once-per-day cadence only, fired sometime within the scheduled hour, not
+exact-minute. That's not a limitation for any of these three checks —
+"today's appointments," "today's callbacks," and "stale leads" are all
+naturally daily-cadence anyway.
+
+FUNCTION COUNT: a cron entry just hits an existing route on a schedule —
+it does not create a new serverless function. Routed the new endpoint
+through the ALREADY-EXISTING notifications-router.js as a literal
+sub-route (scheduled-tick, same pattern as mark-all-read), so this adds
+zero to the 12/12 Vercel function count.
+
+BUILT:
+  - NEW api-lib/services/schedulerService.js — three independently
+    idempotent-by-construction scan functions (re-running the same day
+    doesn't duplicate anything, because each WHERE clause naturally
+    excludes what's already been handled — no separate "already
+    notified today" tracking needed):
+      sendAppointmentReminders() — every Appointment dated today, still
+        Assigned (a broker is actually attached), reminds that broker.
+      sendCallbackReminders() — a Lead whose most recent CallAttempt
+        asked for a callback today, with no LATER CallAttempt logged
+        since (the NOT EXISTS clause is what stops this firing forever
+        once the agent actually makes the call), reminds the agent.
+      autoReturnStaleLeads() — a Lead still Assigned/InProgress whose
+        last activity (most recent CallAttempt, or createdAt if none)
+        is older than SystemConfig.leadAutoUnassignMonths gets
+        unassigned back to Unassigned, its incomplete Tasks cleaned up
+        (deleteTasksForEntity — the SAME cascade-cleanup function
+        returnToLeads already uses, reused rather than duplicated), and
+        the agent who lost it notified why. Gated on
+        leads.autoUnassign.enabled (defaults on) — the one of the three
+        that actually changes data, not just sends a notification, so
+        it respects the flag explicitly rather than assuming it's safe.
+  - handleScheduledTick (notificationHandlers.js) — the cron's actual
+    entry point. Secured via CRON_SECRET, Vercel's own documented
+    pattern (not a custom one): Vercel automatically sends
+    Authorization: Bearer <CRON_SECRET> when it triggers a cron job;
+    this route rejects anything that doesn't match, including — checked
+    explicitly — the case where CRON_SECRET isn't configured at all
+    (secure-by-default, not open-by-default if the env var is missing).
+  - vercel.json: crons entry, "0 6 * * *" — 6am UTC = 8am SAST (South
+    Africa has no DST, always UTC+2), a sensible before-business-hours
+    time for the day's reminders to already exist.
+
+MARK'S ACTION REQUIRED, NOT SOMETHING THIS DELIVERY CAN DO ON ITS OWN:
+  set CRON_SECRET as an environment variable in Vercel's project
+  settings (Settings -> Environment Variables), a random string of at
+  least 16 characters. Without it, the endpoint will correctly reject
+  every request (by design) and the cron will never actually do anything.
+
+FRONTEND: no changes needed at all. Notifications.jsx's TYPE_ICON table
+and the Reminders tab filter (n.type.includes('Reminder')) already
+handle all three of these types — its own header comment said MOCK_
+NOTIFICATIONS covered all six types for exactly this reason. Checked
+before assuming, not just trusted the old comment.
+
+CORRECTION TO §61's OWN RECORD: double-checked TYPE_ICON against
+MOCK_NOTIFICATIONS before calling this done, since TYPE_ICON has a sixth
+entry, RescheduleReminder, that §61's comment listed as one of "the
+three time-based types" needing Cron. Grepped MOCK_NOTIFICATIONS itself
+(not just the icon map) — RescheduleReminder is never actually used by
+any mock entry, only 5 types are genuinely active (LeadAssigned,
+AppointmentReminder, CallbackReminder, AppointmentAssigned,
+LeadAutoReturned). §61's "six types" framing overstated it slightly;
+RescheduleReminder in TYPE_ICON is vestigial, not a missed requirement —
+this delivery's scope (the three genuinely time-based, actually-used
+types) was complete as built, not short by one.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected; all three new/edited backend files pass node --check
+and an ESM import smoke test; vercel.json validated as well-formed JSON;
+the CRON_SECRET auth logic itself unit-verified standalone against all
+four cases (correct secret, wrong secret, missing header, secret not
+configured at all) before trusting it.
+
+NOT YET DONE (remaining two items from Mark's four):
+  - Task creator tracking (createdById).
+  - Password policy overhaul (temp password + forced first-login
+    change, AppAdmin UI for rotation/lockout, password-history/reuse
+    prevention) — biggest and most security-sensitive, scoped last.
+
+MIGRATION — no schema change:
+  frontend/api-lib/services/schedulerService.js   (NEW)
+  frontend/api-lib/handlers/notificationHandlers.js (handleScheduledTick added)
+  frontend/api/notifications-router.js            (scheduled-tick route added)
+  frontend/vercel.json                            (crons entry added)
 Plus this Status_Vercel.md.
 
 
