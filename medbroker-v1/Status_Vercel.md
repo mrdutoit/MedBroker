@@ -4605,6 +4605,40 @@ Plus this Status_Vercel.md.
 Mark's original four-item batch (recharts, Cron/Notifications, Task
 creator tracking + comments, password policy) is now complete.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+73. FIXED — STALE SUPERVISOR DROPDOWN AFTER A ROLE CHANGE — 30 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark found this while testing §72: changed a user's role from Admin to
+Supervisor, then went to assign that same person as another user's
+supervisor — they didn't appear in the "Select supervisor…" dropdown
+until a full browser refresh.
+
+ROOT CAUSE, confirmed by reading the actual code rather than guessed:
+UserAdmin.jsx fetches two separate lists — the main user table
+(refetched correctly after every save, via refetchUsers()) and a
+SEPARATE supervisors-only list backing the dropdown
+(usersApi.listSupervisors()), fetched with useFetch(..., []) — an empty
+dependency array, meaning once on mount, never again. handleModalSave()
+only ever called refetchUsers(), never anything for the supervisors
+list, so a role change that should have added or removed someone from
+that list silently didn't update it until the component remounted.
+
+FIX: destructured refetch from the supervisors useFetch() call too, and
+call both refetches together (Promise.all) after every save in
+handleModalSave() — not just the one that happens to affect the edited
+user directly, since any role change could plausibly change who
+qualifies as a supervisor. Checked for the same pattern elsewhere first
+— listSupervisors() is only ever called from this one place, so this was
+the only spot with the bug, not one instance of several.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected.
+
+MIGRATION — one file, no schema change:
+  frontend/src/pages/UserAdmin.jsx
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I

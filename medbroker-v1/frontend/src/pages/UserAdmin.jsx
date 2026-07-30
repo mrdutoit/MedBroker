@@ -365,7 +365,13 @@ export default function UserAdmin() {
     () => usersApi.list({ role: roleFilter !== 'All' ? roleFilter : undefined }),
     [roleFilter]
   );
-  const { data: supervisorsData } = useFetch(() => usersApi.listSupervisors(), []);
+  // FIXED 30 Jul 2026 — this used to fetch once on mount and never again.
+  // Changing a user's role TO Supervisor (or away from it) never refreshed
+  // this list, so the "Select supervisor…" dropdown on every OTHER user's
+  // edit form kept showing the pre-change roster until a full page reload
+  // remounted the component. Now refetched in the same place refetchUsers
+  // already is — see handleModalSave below.
+  const { data: supervisorsData, refetch: refetchSupervisors } = useFetch(() => usersApi.listSupervisors(), []);
 
   // usersLoading (checked below, near the top of the render) keeps the
   // brief window while the real fetch is in flight from showing an empty
@@ -382,7 +388,11 @@ export default function UserAdmin() {
     } else {
       await usersApi.create(payload);
     }
-    await refetchUsers();
+    // Both lists derive from the same underlying User table, so any save
+    // that could plausibly change WHO qualifies as a supervisor (a role
+    // change either way) needs both refetched together, not just the one
+    // the edited user happens to show up in directly.
+    await Promise.all([refetchUsers(), refetchSupervisors()]);
     setModal(null);
   }
 
