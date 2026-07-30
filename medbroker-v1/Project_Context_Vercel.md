@@ -158,10 +158,25 @@ User
   Local auth: passwordHash (NULL if this user only ever gets created via
   some future SSO path — not currently exercised), passwordSetAt,
   passwordMustChange, failedLoginAttempts, isLocked.
+  Password policy (§72, fully real): createUserFull() always sets
+  passwordMustChange=true whenever a password is set at creation — a
+  manually created user is always forced to set their own on first
+  login. Rotation (SystemConfig.passwordRotationDays) and lockout
+  (passwordLockoutAttempts) were already enforced at login before §72;
+  what changed is they're now admin-configurable (AppAdmin -> System
+  Settings), not just backend-enforced with no UI. Self-service and
+  forced changes both go through PUT /api/auth/change-password.
   Self-service profile fields (added for Settings, §55-era work):
   themePreference, avatarColour, timezone — separate from admin-editable
   fields (role, portfolios, isActive) via a deliberately narrow
   self-service schema, never a permissive subset of the admin one.
+
+PasswordHistory (§72)
+  userId, passwordHash, createdAt. Every hash a user's password has ever
+  held. Checked (via bcrypt verifyPassword() against each entry from the
+  current calendar year, one at a time — hashes are one-way, no direct
+  comparison possible) whenever a new password is set, if
+  SystemConfig.passwordPreventReuse is on (default). ON DELETE CASCADE.
 
 Organisation
   Multi-tenancy-ready, single-tenant today. resolveOrganisationId() in
@@ -538,10 +553,16 @@ APPLICATION
      GlobalAdmin: everything). Notifications sidesteps this entirely by
      being always self-scoped regardless of role.
   ✅ CSV/Excel formula injection — closed (§ CRITICAL IMPLEMENTATION RULES).
+  ✅ Password policy (§72) — rotation, lockout, and calendar-year reuse
+     prevention all admin-configurable and enforced; manually created
+     users always forced to change their password on first login. See
+     PasswordHistory above and Status_Vercel.md §72 for the full build.
   ⬜ Token lifecycle — JWT is a fixed 8-hour expiry (signJwt() default),
      no refresh-token flow and no explicit revocation/logout-side-effect
      beyond the client discarding its copy. A stolen token is valid for
-     up to 8 hours with no way to invalidate it early.
+     up to 8 hours with no way to invalidate it early. (Separate concern
+     from password policy above — this is about the SESSION token, not
+     the password itself.)
   ⬜ Rate limiting on authenticated endpoints — not implemented in
      api-lib anywhere. Vercel's WAF rate limiting (Pro plan+) is the
      natural mechanism once prioritised — see EDGE/TRANSPORT above.

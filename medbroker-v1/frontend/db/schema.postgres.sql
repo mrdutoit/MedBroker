@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS SystemConfig (
     -- 30/60/90/180 + custom in the UI); 0 means "off" for either setting.
     passwordRotationDays            INT             NOT NULL DEFAULT 90,
     passwordLockoutAttempts         INT             NOT NULL DEFAULT 5,
+    -- v2.9 (30 Jul 2026, §72/migration 016) — reuse prevention, checked
+    -- against PasswordHistory (below) for the current calendar year.
+    passwordPreventReuse            BOOLEAN         NOT NULL DEFAULT TRUE,
     updatedAt                       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     CONSTRAINT PK_SystemConfig      PRIMARY KEY (id),
     CONSTRAINT CK_SystemConfig_One  CHECK (id = 1),
@@ -172,6 +175,24 @@ CREATE TABLE IF NOT EXISTS "User" (
     -- same as the Azure version — Postgres CHECK constraints have the same
     -- cross-column limitation here.
 );
+
+-- Password reuse history (v2.9, 30 Jul 2026, §72/migration 016) — every
+-- hash a user's password has ever been set to, checked against the
+-- current calendar year when they try to set a new one. ON DELETE
+-- CASCADE — a hard-deleted user (never happens today; Users are
+-- soft-deleted like everything else) doesn't leave orphaned history rows.
+CREATE TABLE IF NOT EXISTS PasswordHistory (
+    id             UUID        NOT NULL DEFAULT gen_random_uuid(),
+    organisationId UUID        NOT NULL DEFAULT 'D0000000-0000-0000-0000-000000000001',
+    userId         UUID        NOT NULL,
+    passwordHash   TEXT        NOT NULL,
+    createdAt      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT PK_PasswordHistory      PRIMARY KEY (id),
+    CONSTRAINT FK_PasswordHistory_Org  FOREIGN KEY (organisationId) REFERENCES Organisation(id),
+    CONSTRAINT FK_PasswordHistory_User FOREIGN KEY (userId) REFERENCES "User"(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS IX_PasswordHistory_User ON PasswordHistory (userId, createdAt);
 
 DO $$
 BEGIN

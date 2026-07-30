@@ -31,6 +31,7 @@
  */
 
 import { useState }     from 'react';
+import { useNavigate }  from 'react-router';
 import { useRole }       from '../context/RoleContext.jsx';
 import { useAuth }       from '../context/AuthContext.jsx';
 import { useTheme }      from '../context/ThemeContext.jsx';
@@ -41,6 +42,7 @@ import { AVATAR_OPTIONS, avatarColourValue } from '../constants/avatarOptions.js
 import { getUserTimezone, setUserTimezone, SUPPORTED_TIMEZONES } from '../utils/dateFormat.js';
 
 export default function Settings() {
+  const navigate = useNavigate();
   const { persona }            = useRole();
   const { user, updateUser }   = useAuth();
   const { theme, setTheme, themes } = useTheme();
@@ -208,6 +210,19 @@ export default function Settings() {
             <span style={{ ...s.badge, background: colors.primarySoft, color: colors.primary }}>{persona.role}</span>
           </div>
         </div>
+
+        {/* ── Security (§72) ─────────────────────────────────────────────── */}
+        {demoMode && (
+          <div style={s.card}>
+            <h2 style={s.cardTitle}>Security</h2>
+            <p style={{ fontSize: '0.8125rem', color:'var(--mut)', margin: '0 0 12px' }}>
+              Change your password. You'll need your current password to do this.
+            </p>
+            <button style={s.secondaryBtn} onClick={() => navigate('/change-password')}>
+              Change password
+            </button>
+          </div>
+        )}
 
         {/* ── Avatar ─────────────────────────────────────────────────────── */}
         <div style={s.card}>

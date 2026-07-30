@@ -16,6 +16,7 @@ const SELECT_COLUMNS = `
   brokerFreeAppointmentsPerMonth AS "brokerFreeAppointmentsPerMonth",
   passwordRotationDays AS "passwordRotationDays",
   passwordLockoutAttempts AS "passwordLockoutAttempts",
+  passwordPreventReuse AS "passwordPreventReuse",
   updatedAt AS "updatedAt"`;
 
 /**
@@ -33,6 +34,7 @@ export async function updateSystemConfig(fields) {
   const allowed = [
     'maxCallAttempts', 'leadAutoUnassignMonths', 'qrTokenExpiryHours',
     'brokerFreeAppointmentsPerMonth', 'passwordRotationDays', 'passwordLockoutAttempts',
+    'passwordPreventReuse',
   ];
   const setClauses = [];
   const params = {};
@@ -40,7 +42,7 @@ export async function updateSystemConfig(fields) {
   for (const key of allowed) {
     if (fields[key] === undefined) continue;
     setClauses.push(`${key} = @${key}`);
-    params[key] = { type: sql.Int, value: fields[key] };
+    params[key] = { type: key === 'passwordPreventReuse' ? sql.Bit : sql.Int, value: fields[key] };
   }
   if (setClauses.length === 0) return getSystemConfig();
 

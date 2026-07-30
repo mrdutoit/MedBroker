@@ -54,12 +54,17 @@ export function AuthProvider({ children }) {
     setError(null);
     try {
       const data = await authApi.login(email, password);
-      authStore.setSession(data.token, data.user);
-      setUser(data.user);
+      // §72 — passwordMustChange arrives as a top-level field on the login
+      // response, not nested inside data.user, so it wasn't being
+      // persisted anywhere before — a page refresh right after login
+      // would have silently lost it, since only data.user was stored.
+      const userWithFlag = { ...data.user, passwordMustChange: !!data.passwordMustChange };
+      authStore.setSession(data.token, userWithFlag);
+      setUser(userWithFlag);
       if (data.user.themePreference && THEME_IDS.includes(data.user.themePreference)) {
         setTheme(data.user.themePreference);
       }
-      return data; // caller can check data.passwordMustChange
+      return data; // caller can still check data.passwordMustChange directly too
     } catch (err) {
       setError(err.body?.error ?? err.message ?? 'Login failed');
       throw err;

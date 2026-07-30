@@ -25,4 +25,14 @@ export const UpdateSystemConfigSchema = z.object({
   // rotation, 3/5/10 + custom for lockout — this schema just bounds sane values.
   passwordRotationDays:           z.number().int().min(0).max(3650).optional(),
   passwordLockoutAttempts:        z.number().int().min(0).max(100).optional(),
+  passwordPreventReuse:           z.boolean().optional(),
+});
+
+// PUT /api/auth/change-password — §72. currentPassword is required even
+// for a forced first-login change (the temp password the user just
+// logged in with) — defence against a hijacked session token that
+// doesn't actually have the password, not just a UX formality.
+export const ChangePasswordSchema = z.object({
+  currentPassword: z.string().min(1, 'Current password is required'),
+  newPassword:     z.string().min(12, 'Password must be at least 12 characters'),
 });

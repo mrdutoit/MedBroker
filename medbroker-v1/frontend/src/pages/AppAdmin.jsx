@@ -4,10 +4,12 @@
  * These are the configurable reference data entities used throughout the app.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { s } from '../styles/tokens.js';
 import { PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
+import { useFetch } from '../hooks/useFetch.js';
+import { apiMode, systemConfigApi } from '../services/api.js';
 
 const MOCK_AUDIT_LOG = [
   { id: 1, action: 'Lead assigned',             entity: 'Lead',        entityRef: 'Dr Priya Naidoo',     performedBy: 'Admin User',   role: 'Admin',       timestamp: '2026-05-20 14:32' },
@@ -36,18 +38,66 @@ const ALL_PRODUCTS = [
 export default function AppAdmin() {
   const [tab, setTab] = useState('portfolios');
   const { flag } = useFlags();
+  const demoMode = apiMode.DEMO_MODE;
 
-  // System Settings state — in production, fetched from GET /api/config
-  // and saved via PUT /api/config (Admin/GlobalAdmin only)
-  const [monthlyTokens,     setMonthlyTokens]     = useState(10);
-  const [autoReturnMonths,  setAutoReturnMonths]   = useState(6);
-  const [maxCallAttempts,   setMaxCallAttempts]    = useState(3);
-  const [settingsSaved,     setSettingsSaved]      = useState(false);
+  // System Settings state (§72 — real-wired to GET/PUT /api/system-config
+  // in demo mode; this whole tab was mock-only before, including
+  // password rotation/lockout, which had real backend enforcement
+  // already but no way for an Admin to actually configure it).
+  const { data: config, loading: configLoading, refetch: refetchConfig } =
+    useFetch(() => demoMode ? systemConfigApi.get() : Promise.resolve(null), [demoMode]);
 
-  function saveSettings() {
-    // In production: PUT /api/config { brokerFreeAppointmentsPerMonth, leadAutoUnassignMonths, maxCallAttempts }
-    setSettingsSaved(true);
-    setTimeout(() => setSettingsSaved(false), 2500);
+  const [monthlyTokens,      setMonthlyTokens]      = useState(10);
+  const [autoReturnMonths,   setAutoReturnMonths]    = useState(6);
+  const [maxCallAttempts,    setMaxCallAttempts]     = useState(3);
+  const [rotationPreset,     setRotationPreset]      = useState('90');
+  const [rotationCustom,     setRotationCustom]      = useState(90);
+  const [lockoutAttempts,    setLockoutAttempts]     = useState(5);
+  const [preventReuse,       setPreventReuse]        = useState(true);
+  const [settingsSaved,      setSettingsSaved]       = useState(false);
+  const [settingsError,      setSettingsError]       = useState(null);
+  const [saving,             setSaving]              = useState(false);
+
+  // Sync local editable state once the real config actually loads —
+  // can't initialise useState directly from it, since the fetch hasn't
+  // resolved yet on first render.
+  useEffect(() => {
+    if (!config) return;
+    setMonthlyTokens(config.brokerFreeAppointmentsPerMonth ?? 10);
+    setAutoReturnMonths(config.leadAutoUnassignMonths ?? 6);
+    setMaxCallAttempts(config.maxCallAttempts ?? 3);
+    const days = config.passwordRotationDays ?? 90;
+    if ([0, 30, 60, 90, 180].includes(days)) { setRotationPreset(String(days)); }
+    else { setRotationPreset('custom'); setRotationCustom(days); }
+    setLockoutAttempts(config.passwordLockoutAttempts ?? 5);
+    setPreventReuse(config.passwordPreventReuse ?? true);
+  }, [config]);
+
+  async function saveSettings() {
+    if (!demoMode) {
+      setSettingsSaved(true);
+      setTimeout(() => setSettingsSaved(false), 2500);
+      return;
+    }
+    setSaving(true);
+    setSettingsError(null);
+    try {
+      await systemConfigApi.update({
+        brokerFreeAppointmentsPerMonth: monthlyTokens,
+        leadAutoUnassignMonths:         autoReturnMonths,
+        maxCallAttempts,
+        passwordRotationDays:    rotationPreset === 'custom' ? rotationCustom : Number(rotationPreset),
+        passwordLockoutAttempts: lockoutAttempts,
+        passwordPreventReuse:    preventReuse,
+      });
+      await refetchConfig();
+      setSettingsSaved(true);
+      setTimeout(() => setSettingsSaved(false), 2500);
+    } catch (err) {
+      setSettingsError(err.message || 'Could not save settings');
+    } finally {
+      setSaving(false);
+    }
   }
 
   return (
@@ -204,6 +254,14 @@ export default function AppAdmin() {
             System-wide configuration values. Changes take effect immediately without a deployment.
           </p>
 
+          {demoMode && configLoading && (
+            <div style={{ ...s.noticeInfo, marginBottom: '16px' }}>Loading current settings…</div>
+          )}
+
+          {settingsError && (
+            <div style={{ ...s.errorBox, marginBottom: '16px' }}>{settingsError}</div>
+          )}
+
           {settingsSaved && (
             <div style={{ ...s.noticeSuccess, marginBottom: '16px' }}>
               ✓ Settings saved successfully.
@@ -292,6 +350,88 @@ export default function AppAdmin() {
                 <span style={{ fontSize: '0.875rem', color:'var(--mut)' }}>attempts</span>
               </div>
               <div style={s.formHint}>Default: 3 attempts.</div>
+            </div>
+          </div>
+
+          {/* Password Policy (§72) — SystemConfig.passwordRotationDays /
+              passwordLockoutAttempts already existed and were already
+              enforced at login (rotation forces a change past the
+              configured age; lockout locks the account after this many
+              failed attempts) — this card is what was actually missing:
+              a way for an Admin to configure either one, at all. */}
+          <div style={s.card}>
+            <div style={s.cardTitle}>Password Policy</div>
+            <div style={{ ...s.noticeInfo, marginBottom: '14px', fontSize: '0.8125rem' }}>
+              Applies to local email/password accounts. Manually created users are always
+              required to set their own password on first login, regardless of these settings.
+            </div>
+
+            <div style={s.formGroup}>
+              <label style={s.formLabel}>
+                Password rotation
+                <span style={{ marginLeft: '8px', fontSize: '0.75rem', color:'var(--mut)', fontWeight: 400 }}>
+                  (stored in SystemConfig.passwordRotationDays)
+                </span>
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <select
+                  value={rotationPreset}
+                  onChange={e => setRotationPreset(e.target.value)}
+                  style={{ ...s.formInput, width: '160px' }}
+                >
+                  <option value="0">Never expires</option>
+                  <option value="30">Every 30 days</option>
+                  <option value="60">Every 60 days</option>
+                  <option value="90">Every 90 days</option>
+                  <option value="180">Every 180 days</option>
+                  <option value="custom">Custom…</option>
+                </select>
+                {rotationPreset === 'custom' && (
+                  <>
+                    <input
+                      type="number" min={1} max={3650}
+                      value={rotationCustom}
+                      onChange={e => setRotationCustom(Math.max(1, Math.min(3650, parseInt(e.target.value) || 90)))}
+                      style={{ ...s.formInput, width: '100px' }}
+                    />
+                    <span style={{ fontSize: '0.875rem', color:'var(--mut)' }}>days</span>
+                  </>
+                )}
+              </div>
+              <div style={s.formHint}>
+                A user is prompted to set a new password the next time they log in after this many
+                days. "Never expires" disables the check entirely.
+              </div>
+            </div>
+
+            <div style={s.formGroup}>
+              <label style={s.formLabel}>
+                Account lockout
+                <span style={{ marginLeft: '8px', fontSize: '0.75rem', color:'var(--mut)', fontWeight: 400 }}>
+                  (stored in SystemConfig.passwordLockoutAttempts)
+                </span>
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <input
+                  type="number" min={1} max={100}
+                  value={lockoutAttempts}
+                  onChange={e => setLockoutAttempts(Math.max(1, Math.min(100, parseInt(e.target.value) || 5)))}
+                  style={{ ...s.formInput, width: '100px' }}
+                />
+                <span style={{ fontSize: '0.875rem', color:'var(--mut)' }}>failed attempts</span>
+              </div>
+              <div style={s.formHint}>Default: 5 attempts. A locked account needs an Admin to unlock it.</div>
+            </div>
+
+            <div style={s.formGroup}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.875rem', color:'var(--ink)', cursor: 'pointer' }}>
+                <input type="checkbox" checked={preventReuse} onChange={e => setPreventReuse(e.target.checked)} />
+                Prevent reusing a password from the current calendar year
+              </label>
+              <div style={s.formHint}>
+                (stored in SystemConfig.passwordPreventReuse) — a user cannot set a new password
+                that matches any password they've used since 1 January this year.
+              </div>
             </div>
           </div>
 

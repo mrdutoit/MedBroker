@@ -10,10 +10,11 @@
  */
 
 import { timingSafeEqual } from 'crypto';
-import { getUserByEmailForLogin, recordLoginSuccess, recordLoginFailure, countActiveGlobalAdmins, createLocalUser } from '../services/userService.js';
+import { validateToken, authErrorResponse } from '../middleware/auth.js';
+import { getUserByEmailForLogin, recordLoginSuccess, recordLoginFailure, countActiveGlobalAdmins, createLocalUser, getUserPasswordHash, setUserPassword, wasPasswordUsedThisYear } from '../services/userService.js';
 import { verifyPassword, signJwt, hashPassword, checkPasswordComplexity } from '../services/authService.js';
 import { getSystemConfig } from '../services/systemConfigService.js';
-import { LoginSchema, BootstrapAdminSchema } from '../models/auth.js';
+import { LoginSchema, BootstrapAdminSchema, ChangePasswordSchema } from '../models/auth.js';
 import { config } from '../config.js';
 
 /**
@@ -139,6 +140,64 @@ export async function handleBootstrapAdmin(req, res) {
 
   } catch (err) {
     console.error('auth/bootstrap-admin error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * PUT /api/auth/change-password — §72. Used for both a forced
+ * first-login change (passwordMustChange was true) and a voluntary
+ * self-service change from Settings — same endpoint, same rules either
+ * way. currentPassword is required in both cases; see ChangePasswordSchema's
+ * own comment in models/auth.js for why that's not just a UX formality.
+ */
+export async function handleChangePassword(req, res) {
+  if (req.method !== 'PUT') {
+    res.setHeader('Allow', 'PUT, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+
+    const parsed = ChangePasswordSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    const { currentPassword, newPassword } = parsed.data;
+
+    const existing = await getUserPasswordHash(claims.oid);
+    if (!existing?.passwordHash) {
+      return res.status(400).json({ error: 'This account has no local password set — contact your administrator' });
+    }
+
+    const currentOk = await verifyPassword(currentPassword, existing.passwordHash);
+    if (!currentOk) return res.status(400).json({ error: 'Current password is incorrect' });
+
+    const complexityProblems = checkPasswordComplexity(newPassword);
+    if (complexityProblems.length > 0) {
+      return res.status(400).json({ error: { passwordProblems: complexityProblems } });
+    }
+
+    // Reuse prevention ("unique passwords in a calendar year", Mark's own
+    // phrasing) — admin-configurable (SystemConfig.passwordPreventReuse,
+    // default on), checked here rather than baked in unconditionally.
+    const sysConfig = await getSystemConfig();
+    if (sysConfig.passwordPreventReuse) {
+      const reused = await wasPasswordUsedThisYear(claims.oid, newPassword);
+      if (reused) {
+        return res.status(400).json({ error: 'This password has already been used this year — choose a different one' });
+      }
+    }
+
+    await setUserPassword(claims.oid, newPassword);
+
+    return res.status(200).json({ message: 'Password changed successfully' });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('auth/change-password error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

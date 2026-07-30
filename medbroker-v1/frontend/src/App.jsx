@@ -22,6 +22,7 @@ import { useFetch }                          from './hooks/useFetch.js';
 import { Logo }                              from './components/Logo.jsx';
 import { avatarColourValue }                 from './constants/avatarOptions.js';
 import Login                                 from './pages/Login.jsx';
+import ChangePassword                        from './pages/ChangePassword.jsx';
 
 import LeadList        from './pages/LeadList.jsx';
 import AppointmentList from './pages/AppointmentList.jsx';
@@ -407,6 +408,7 @@ function AppLayoutWrapper() {
 
         {/* Account — all roles */}
         <Route path="/settings"      element={<Settings />} />
+        <Route path="/change-password" element={<ChangePassword />} />
 
         {/* Analytics — all roles; self-service roles see only their own data */}
         <Route path="/reports" element={reportsLanding ? <Navigate to={reportsLanding} replace /> : <Reports />} />
@@ -441,10 +443,19 @@ function AppLayoutWrapper() {
 
 // ─── Auth gate — only meaningful in demo-backend mode ──────────────────────────
 function AuthGate() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, user } = useAuth();
 
   if (apiMode.DEMO_MODE && !isAuthenticated) {
     return <Login />;
+  }
+
+  // §72 — forced first-login password change. Blocks everything else in
+  // the app, same principle as the unauthenticated case above: nothing
+  // else renders until this is resolved. Not gated on DEMO_MODE alone —
+  // user.passwordMustChange is simply always false/undefined outside
+  // demo mode, so this is a no-op there.
+  if (user?.passwordMustChange) {
+    return <ChangePassword forced />;
   }
 
   return <AppLayoutWrapper />;

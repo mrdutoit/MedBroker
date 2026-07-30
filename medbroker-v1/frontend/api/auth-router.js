@@ -9,12 +9,13 @@
  * the slug parameter is parsed defensively rather than assumed to arrive
  * as a particular shape.
  *
- * Routes (unchanged from the previous attempt):
+ * Routes:
  *   POST /api/auth/login
  *   POST /api/auth/bootstrap-admin
+ *   PUT  /api/auth/change-password  (§72)
  */
 
-import { handleLogin, handleBootstrapAdmin } from '../api-lib/handlers/authHandlers.js';
+import { handleLogin, handleBootstrapAdmin, handleChangePassword } from '../api-lib/handlers/authHandlers.js';
 import { applyCors, parseSlug } from '../api-lib/http/helpers.js';
 
 export default async function handler(req, res) {
@@ -24,6 +25,7 @@ export default async function handler(req, res) {
 
   if (route === 'login') return handleLogin(req, res);
   if (route === 'bootstrap-admin') return handleBootstrapAdmin(req, res);
+  if (route === 'change-password') return handleChangePassword(req, res);
 
   return res.status(404).json({ error: 'Not found' });
 }

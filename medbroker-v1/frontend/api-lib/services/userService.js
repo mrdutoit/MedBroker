@@ -16,7 +16,7 @@
 
 import { executeQuery, executeQueryOne, sql } from './db.js';
 import { resolveOrganisationId } from '../context/tenant.js';
-import { hashPassword } from './authService.js';
+import { hashPassword, verifyPassword } from './authService.js';
 
 const USER_LIST_SELECT = `
   u.id, u.displayName AS "displayName", u.email, u.role, u.region,
@@ -247,10 +247,10 @@ export async function createUserFull(data) {
   await executeQuery(
     `INSERT INTO "User" (
        id, organisationId, displayName, email, role, region, supervisorId,
-       passwordHash, passwordSetAt, isActive
+       passwordHash, passwordSetAt, passwordMustChange, isActive
      ) VALUES (
        @id, @organisationId, @displayName, @email, @role, @region, @supervisorId,
-       @passwordHash, @passwordSetAt, TRUE
+       @passwordHash, @passwordSetAt, @passwordMustChange, TRUE
      )`,
     {
       id:             { type: sql.UniqueIdentifier, value: newId },
@@ -262,8 +262,18 @@ export async function createUserFull(data) {
       supervisorId:   { type: sql.UniqueIdentifier, value: data.supervisorId ?? null },
       passwordHash:   { type: sql.NVarChar(sql.MAX), value: passwordHash },
       passwordSetAt:  { type: sql.DateTimeOffset,   value: passwordHash ? new Date() : null },
+      // §72 — whoever sets this initial password (whether the Admin
+      // typed it themselves or it's a generated temp password), the new
+      // user is always forced to set their own on first login. This is
+      // the whole point of a manually created account never having a
+      // password only the Admin knows persist unchanged.
+      passwordMustChange: { type: sql.Bit, value: !!passwordHash },
     }
   );
+
+  // Seed password history so a future reuse check has a baseline to
+  // compare against, not just changes made after this point.
+  if (passwordHash) await addPasswordHistory(newId, passwordHash);
 
   const [portfolioIds, productIds] = await Promise.all([
     resolvePortfolioIds(data.portfolios),
@@ -532,4 +542,90 @@ export async function createLocalUser({ displayName, email, role, passwordHash, 
     }
   );
   return newId;
+}
+
+// ── Password policy (§72) ───────────────────────────────────────────────────
+
+/**
+ * Every password hash a user's account has ever held, one row per set —
+ * the record a reuse check compares a proposed new password against.
+ * @param {string} userId
+ * @param {string} passwordHash
+ */
+export async function addPasswordHistory(userId, passwordHash) {
+  await executeQuery(
+    `INSERT INTO PasswordHistory (id, organisationId, userId, passwordHash, createdAt)
+     VALUES (@id, @organisationId, @userId, @passwordHash, NOW())`,
+    {
+      id:             { type: sql.UniqueIdentifier, value: crypto.randomUUID() },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+      userId:         { type: sql.UniqueIdentifier, value: userId },
+      passwordHash:   { type: sql.NVarChar(sql.MAX), value: passwordHash },
+    }
+  );
+}
+
+/**
+ * "Unique passwords in a calendar year" (Mark's own phrasing) — checks a
+ * PROPOSED plaintext password against every hash this user has held
+ * since 1 January of the current year. Hashes are one-way, so this loops
+ * verifyPassword() against each historical entry rather than comparing
+ * hash strings directly — fine at this scale (a handful of password
+ * changes per user per year, not hundreds).
+ * @param {string} userId
+ * @param {string} plaintext - the NEW password being proposed
+ * @returns {Promise<boolean>} true if this password was already used this year
+ */
+export async function wasPasswordUsedThisYear(userId, plaintext) {
+  const yearStart = new Date(new Date().getUTCFullYear(), 0, 1);
+  const rows = await executeQuery(
+    `SELECT passwordHash AS "passwordHash" FROM PasswordHistory
+     WHERE userId = @userId AND createdAt >= @yearStart`,
+    {
+      userId:    { type: sql.UniqueIdentifier, value: userId },
+      yearStart: { type: sql.DateTimeOffset,   value: yearStart },
+    }
+  );
+  for (const row of rows) {
+    if (await verifyPassword(plaintext, row.passwordHash)) return true;
+  }
+  return false;
+}
+
+/**
+ * The one place passwordHash is fetched by user id rather than email —
+ * getActiveUserById() deliberately excludes it (never needed for
+ * anything but authenticating), but changing your own password needs to
+ * verify the CURRENT one first.
+ * @param {string} userId
+ */
+export async function getUserPasswordHash(userId) {
+  return executeQueryOne(
+    `SELECT passwordHash AS "passwordHash" FROM "User" WHERE id = @userId AND organisationId = @organisationId`,
+    { userId: { type: sql.UniqueIdentifier, value: userId }, organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } }
+  );
+}
+
+/**
+ * Sets a user's password — via a self-service change or a forced
+ * first-login change, both go through this same function. Always clears
+ * passwordMustChange (whatever set it — a forced change or a rotation
+ * deadline — is now satisfied) and always records the new hash into
+ * PasswordHistory in the SAME call, so no caller can update one without
+ * the other.
+ * @param {string} userId
+ * @param {string} newPlaintext
+ */
+export async function setUserPassword(userId, newPlaintext) {
+  const newHash = await hashPassword(newPlaintext);
+  await executeQuery(
+    `UPDATE "User" SET passwordHash = @passwordHash, passwordSetAt = NOW(), passwordMustChange = FALSE
+     WHERE id = @userId AND organisationId = @organisationId`,
+    {
+      passwordHash:   { type: sql.NVarChar(sql.MAX), value: newHash },
+      userId:         { type: sql.UniqueIdentifier, value: userId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+  await addPasswordHistory(userId, newHash);
 }

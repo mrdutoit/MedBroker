@@ -152,6 +152,13 @@ export const apiMode = { DEMO_MODE, ENTRA_MODE };
 export const authApi = {
   login: (email, password) =>
     request('/auth/login', { method: 'POST', skipAuth: true, body: JSON.stringify({ email, password }) }),
+  changePassword: (currentPassword, newPassword) =>
+    request('/auth/change-password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) }),
+};
+
+export const systemConfigApi = {
+  get:    ()     => request('/system-config'),
+  update: (data) => request('/system-config', { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // ─── Leads ────────────────────────────────────────────────────────────────────

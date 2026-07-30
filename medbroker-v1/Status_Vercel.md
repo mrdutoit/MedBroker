@@ -57,8 +57,17 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   LeadAutoReturned (daily Vercel Cron scan, §68). Only
                   needs CRON_SECRET set in Vercel's env vars to actually
                   fire — see §68.
-  Settings        Real backend for theme/name/avatar/timezone. Photo
-                  upload is an honest disabled "coming soon" stub.
+  Settings        Real backend for theme/name/avatar/timezone, plus a
+                  Security card (§72) for self-service password change.
+                  Photo upload is an honest disabled "coming soon" stub.
+  Password policy (§72) — fully real now: rotation (30/60/90/180/custom
+                  days), lockout, and calendar-year reuse prevention are
+                  all admin-configurable (AppAdmin -> System Settings)
+                  and actually enforced. Manually created users are
+                  always forced to set their own password on first
+                  login. AppAdmin's whole System Settings tab is now
+                  real-wired too, not just the password fields — it was
+                  entirely mock before this.
 
 GATED OFF BY DEFAULT (built, working, just not switched on):
   tasks.enabled — flip in FeatureFlags.jsx (AppAdmin) to see Tasks in
@@ -4469,6 +4478,132 @@ Plus this Status_Vercel.md.
 
 NOT YET DONE: password policy overhaul — last item on Mark's list,
 biggest and most security-sensitive, starting next.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+72. PASSWORD POLICY OVERHAUL — 30 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Last of Mark's four post-testing items, and the biggest. Three questions
+asked: (1) can manually created users be forced to change their password
+on first login, (2) can passwords expire on a configurable schedule, (3)
+can other rules apply, e.g. no reusing a password from the current
+calendar year. Investigated before building anything, same as always —
+found the real state was more scattered than expected: rotation and
+lockout were ALREADY built and ALREADY enforced at login
+(passwordRotationDays/passwordLockoutAttempts in SystemConfig), but had
+NO admin-facing UI anywhere to configure them. generateTempPassword()
+and passwordMustChange existed on User but were never actually wired to
+the real user-creation flow — UserAdmin.jsx's "create user" form has the
+Admin type a password directly, and nothing ever set
+passwordMustChange=true regardless. Reuse prevention didn't exist at
+all. Login.jsx even had its own comment: "passwordMustChange handling
+(forcing a change screen) is a follow-up, not yet built."
+
+FUNCTION COUNT: change-password is a new endpoint but not a new Vercel
+function — routed as a sub-route on the ALREADY-EXISTING auth-router.js
+(same pattern as every other sub-route this build uses), so this stays
+at 12/12, not 13.
+
+BUILT:
+
+BACKEND
+  - Migration 016_add_password_policy.sql — SystemConfig gains
+    passwordPreventReuse (boolean, default TRUE); new PasswordHistory
+    table (userId, passwordHash, createdAt), ON DELETE CASCADE so a
+    hard-deleted user (never happens today, but the safe default
+    regardless) doesn't leave orphaned rows.
+  - userService.js: createUserFull() now ALWAYS sets
+    passwordMustChange=true whenever a password is provided at creation
+    — whether the Admin typed it themselves or it was system-generated,
+    the point is the same either way: a password only the Admin knows
+    shouldn't persist unchanged. Also seeds PasswordHistory with that
+    initial password so a future reuse check has a baseline.
+  - NEW: addPasswordHistory(), wasPasswordUsedThisYear() (loops
+    verifyPassword() against every hash a user has held since 1 January
+    this year — hashes are one-way, so this can't be a direct string
+    comparison; fine at this scale, a handful of changes per user per
+    year, not hundreds — verified the actual bcrypt behaviour standalone,
+    not just read the code), getUserPasswordHash(), setUserPassword()
+    (updates the User row AND records history in the same call, so no
+    caller can do one without the other).
+  - authHandlers.js: new handleChangePassword() — verifies current
+    password, checks complexity (checkPasswordComplexity, already
+    existed), checks calendar-year reuse if passwordPreventReuse is on,
+    sets the new password. Same endpoint serves both a forced
+    first-login change and a voluntary self-service one.
+  - systemConfigService.js: passwordPreventReuse added to the existing
+    GET/PUT — no new endpoint needed, this was already a working API
+    that just needed one more field and a real UI in front of it.
+
+FRONTEND
+  - NEW ChangePassword.jsx — one component, two entry points: forced
+    (rendered directly by App.jsx's AuthGate when
+    user.passwordMustChange is true, blocks everything else, no cancel
+    option) and voluntary (a normal /change-password route from
+    Settings, with a Cancel link). Live complexity hints as you type.
+  - AuthContext.jsx: fixed a real gap found while building this —
+    passwordMustChange arrived as a top-level field on the login
+    response but was never persisted into the stored session, only
+    data.user was. A page refresh right after login would have silently
+    lost it. Now merged into the persisted user object at login time.
+  - App.jsx: AuthGate now checks user?.passwordMustChange before
+    rendering the app at all — forces ChangePassword first. Safe outside
+    demo mode (user is always null there, so this is a no-op).
+  - Settings.jsx: new "Security" card, "Change password" button
+    (voluntary path), demo mode only.
+  - AppAdmin.jsx — turned out to need more than just adding password
+    fields: the ENTIRE System Settings tab was mock-only, never actually
+    connected to the real GET/PUT /api/system-config endpoint that
+    already existed and worked (brokerFreeAppointmentsPerMonth,
+    leadAutoUnassignMonths, maxCallAttempts were all fake useState with
+    a "PUT /api/config" comment that never happened). Real-wired the
+    WHOLE tab — not just the new fields — since building real fetch/save
+    plumbing for two new fields costs the same as building it for six,
+    and leaving half the form real and half mock in the same card would
+    have been worse than fixing it properly. Added the new Password
+    Policy card: rotation (preset dropdown 30/60/90/180/Never + custom),
+    lockout attempts, and the reuse-prevention checkbox.
+
+VERIFIED: full Vite production build clean (1208 modules); existing
+45-test Vitest suite unaffected; every new/edited backend file passes
+node --check and an ESM import smoke test. Beyond that, checked three
+specific things standalone rather than trust the code read alone:
+  - The reuse-check logic, with real bcrypt hashing (not mocked) —
+    confirmed a reused password is correctly detected and a genuinely
+    new one is correctly allowed through.
+  - AppAdmin.jsx's rotation preset/custom sync logic — confirmed a
+    non-preset value (e.g. 45 days) correctly falls into "Custom" with
+    45 pre-filled, rather than silently defaulting to something wrong.
+  - AuthGate's passwordMustChange check can't misfire outside demo
+    mode — user is always null there by construction, so user
+    ?.passwordMustChange is safely undefined, never true.
+
+NOT DONE / DELIBERATELY OUT OF SCOPE: auto-generating a temp password
+instead of the Admin typing one directly — kept the existing UserAdmin.jsx
+flow as-is (Admin still types the initial password) and focused the fix
+on always forcing the change afterward, rather than redesigning that
+form's workflow, which wasn't what was asked.
+
+This closes the last of Mark's four post-testing items.
+
+MIGRATION:
+  frontend/db/migrations/016_add_password_policy.sql (NEW)
+  frontend/db/schema.postgres.sql          (PasswordHistory table + passwordPreventReuse column)
+  frontend/api-lib/models/auth.js          (ChangePasswordSchema; UpdateSystemConfigSchema extended)
+  frontend/api-lib/services/systemConfigService.js (passwordPreventReuse wired in)
+  frontend/api-lib/services/userService.js (password history + setUserPassword + createUserFull fix)
+  frontend/api-lib/handlers/authHandlers.js (handleChangePassword added)
+  frontend/api/auth-router.js              (change-password sub-route added)
+  frontend/src/services/api.js             (authApi.changePassword, systemConfigApi added)
+  frontend/src/pages/ChangePassword.jsx    (NEW)
+  frontend/src/context/AuthContext.jsx     (passwordMustChange persistence fix)
+  frontend/src/App.jsx                     (forced gate + voluntary route)
+  frontend/src/pages/Settings.jsx          (Security card)
+  frontend/src/pages/AppAdmin.jsx          (System Settings tab real-wired; Password Policy card added)
+Plus this Status_Vercel.md.
+
+Mark's original four-item batch (recharts, Cron/Notifications, Task
+creator tracking + comments, password policy) is now complete.
 
 
 
