@@ -70,6 +70,8 @@ function shapeTask(row) {
     assignedTo:        row.assignedToName,
     assignedToId:      row.assignedToId,
     assignedToRole:    row.assignedToRole,
+    createdBy:         row.createdByName,
+    createdById:       row.createdById,
     dueDate:           toDateOnly(row.dueAt),
     createdAt:         toDateOnly(row.createdAt),
     source:            row.type === 'Manual' ? 'manual' : 'system',
@@ -87,18 +89,22 @@ export async function handleTasksCollection(req, res) {
       const parsed = TaskListQuerySchema.safeParse(req.query);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-      const filters = { ...parsed.data };
+      const filters = { ...parsed.data, viewerId: claims.oid };
       if (!isAdminRole(claims.roles)) {
         if (isSupervisorOnly(claims.roles)) {
           filters.scopeIds = [claims.oid, ...(await getDirectReportIds(claims.oid))];
         } else {
           // Agent-only, Broker-only, or any other non-admin combination —
-          // scoped to their own tasks only.
+          // scoped to their own tasks only. viewerId above still applies
+          // on top — same scopeIds here already, so no behaviour change
+          // for this branch specifically, just consistency.
           filters.scopeIds = [claims.oid];
         }
       }
       // Admin/GlobalAdmin: no scopeIds at all — org-wide, matching listTasks'
       // own contract (scopeIds undefined = no scoping filter applied).
+      // viewerId is harmless here too — listTasks only uses it when
+      // scopeIds is actually set.
 
       const tasks = await listTasks(filters);
       return res.status(200).json({ tasks: tasks.map(shapeTask) });
@@ -113,6 +119,7 @@ export async function handleTasksCollection(req, res) {
 
       const newId = await createTask({
         assignedToId: parsed.data.assignedToId,
+        createdById:  claims.oid,
         type:         CATEGORY_TO_TYPE[parsed.data.category],
         title:        parsed.data.title,
         detail:       parsed.data.detail,

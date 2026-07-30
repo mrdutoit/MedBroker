@@ -129,6 +129,11 @@ Task
   all event-driven (no scheduled job needed) — see Status_Vercel.md for
   exactly where each one hooks in. Cascade cleanup (reassign/delete) runs
   when the Lead/Appointment a task is about changes owner or closes out.
+  createdById (§69): nullable, always NULL for system-generated tasks,
+  always populated for manual ones. A creator's own tasks are always
+  visible to them regardless of who they're assigned to (server-side
+  scoping ORs createdById against the usual assignedToId scoping) —
+  this was a real visibility bug before §69, not just a missing filter.
 
 Notification
   type: LeadAssigned | AppointmentAssigned | AppointmentReminder |
@@ -539,6 +544,12 @@ CLOUD POSTURE
     Identity model. Backup/PITR is Neon's own built-in capability
     (point-in-time recovery), not something to configure separately the
     way Azure SQL geo-redundancy was.
+  ⬜ TLS certificate verification (found 30 Jul 2026, §70 in
+     Status_Vercel.md): db.js sets ssl: { rejectUnauthorized: false } —
+     the connection to Neon is encrypted but the certificate isn't
+     verified. Low practical risk (same trusted cloud infrastructure),
+     tracked not urgent. Tightening this touches every DB query the app
+     makes, so it needs its own careful verification pass, not a quick fix.
   ⬜ Backup/restore actually tested (Neon's PITR capability exists;
      hasn't been exercised).
   ⬜ Least-privilege DB role/grants — the app currently connects with

@@ -420,6 +420,12 @@ function TaskRow({ task, onToggle, onDelete, isAdmin, canDelete, isMobile, today
                 {task.source === 'system' ? 'Auto-generated' : 'Manual'}
               </div>
             </div>
+            {task.createdBy && (
+              <div>
+                <span style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Created by</span>
+                <div style={{ fontSize: '0.8125rem', color:'var(--ink)', marginTop: '2px' }}>{task.createdBy}</div>
+              </div>
+            )}
             {task.linkedLead && (
               <div>
                 <span style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Linked lead</span>
@@ -457,7 +463,7 @@ function TaskRow({ task, onToggle, onDelete, isAdmin, canDelete, isMobile, today
 
 // ─── Main page ──────────────────────────────────────────────────────────────────
 export default function Tasks() {
-  const { role }      = useRole();
+  const { role, persona } = useRole();
   const { isMobile }  = useWindowSize();
   const demoMode = apiMode.DEMO_MODE;
 
@@ -496,6 +502,13 @@ export default function Tasks() {
   const [activeTab,    setActiveTab]    = useState('all');
   const [filterAssign, setFilterAssign] = useState('All');
   const [showDone,     setShowDone]     = useState(false);
+  // §69 — Mark asked whether Tasks should show things created, not just
+  // assigned — demo mode's server-side scoping already ensures a
+  // Supervisor never LOSES visibility of a task they created (viewerId
+  // in the handler), so this checkbox is purely a convenience NARROW,
+  // not a visibility fix — it lets someone filter down to just their
+  // own creations on top of whatever's already visible to them.
+  const [createdByMeOnly, setCreatedByMeOnly] = useState(false);
   const [showNew,      setShowNew]      = useState(false);
   const [search,       setSearch]       = useState('');
 
@@ -583,6 +596,7 @@ export default function Tasks() {
   const filtered = tasks.filter(t => {
     if (roleName && t.assignedTo !== roleName) return false;
     if (!showDone && t.done) return false;
+    if (createdByMeOnly && t.createdById !== persona.id) return false;
     if (activeTab !== 'all' && t.category !== activeTab) return false;
     if (!matchesAssigneeFilter(t)) return false;
     if (search && !t.title.toLowerCase().includes(search.toLowerCase()) &&
@@ -651,6 +665,12 @@ export default function Tasks() {
             <option value="All">All</option>
             {assignees.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
           </select>
+        )}
+        {isAdmin && (
+          <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8125rem', color:'var(--mut)', cursor: 'pointer' }}>
+            <input type="checkbox" checked={createdByMeOnly} onChange={e => setCreatedByMeOnly(e.target.checked)} />
+            Created by me
+          </label>
         )}
         <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.8125rem', color:'var(--mut)', cursor: 'pointer', marginLeft: 'auto' }}>
           <input type="checkbox" checked={showDone} onChange={e => setShowDone(e.target.checked)} />

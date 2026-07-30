@@ -19,6 +19,7 @@ const TASK_SELECT = `
   t.dueAt AS "dueAt", t.isComplete AS "isComplete", t.completedAt AS "completedAt",
   t.createdAt AS "createdAt", t.updatedAt AS "updatedAt",
   t.assignedToId AS "assignedToId", au.displayName AS "assignedToName", au.role AS "assignedToRole",
+  t.createdById AS "createdById", cu.displayName AS "createdByName",
   t.entityType AS "entityType", t.entityId AS "entityId",
   CASE WHEN t.entityType = 'Appointment' THEN t.entityId ELSE NULL END AS "linkedAppointmentId",
   COALESCE(l_direct.id, l_via_appt.id) AS "linkedLeadId",
@@ -29,31 +30,45 @@ const TASK_SELECT = `
 const TASK_JOINS = `
   FROM Task t
   LEFT JOIN "User" au        ON t.assignedToId = au.id
+  LEFT JOIN "User" cu        ON t.createdById = cu.id
   LEFT JOIN Lead l_direct    ON t.entityType = 'Lead' AND t.entityId = l_direct.id
   LEFT JOIN Appointment ap   ON t.entityType = 'Appointment' AND t.entityId = ap.id
   LEFT JOIN Lead l_via_appt  ON ap.leadId = l_via_appt.id`;
 
 /**
- * @param {{assignedToId?: string, scopeIds?: string[]}} filters
+ * @param {{assignedToId?: string, scopeIds?: string[], viewerId?: string}} filters
  *   scopeIds — mandatory role-scoping (self, or self+direct reports),
  *   omitted entirely for Admin/GlobalAdmin (org-wide). assignedToId is an
  *   additional convenience filter (the Assignee dropdown), ANDed on top —
  *   composes with scopeIds exactly like every other filter pair in this
  *   codebase (Leads/Appointments' own supervisorAgentIds + agentId/brokerId).
+ *   viewerId (§69) — the caller's own id, ORed against scopeIds so a
+ *   Supervisor who creates a task for someone OUTSIDE their own direct
+ *   reports (a real, if unusual, scenario) never loses visibility of a
+ *   task they created themselves. Without this, scopeIds alone (self +
+ *   direct reports) would silently exclude that task from their own view.
  */
-export async function listTasks({ assignedToId, scopeIds } = {}) {
+export async function listTasks({ assignedToId, scopeIds, viewerId } = {}) {
   let whereClause = 'WHERE t.organisationId = @organisationId';
   const params = { organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } };
 
   if (scopeIds !== undefined) {
-    if (scopeIds.length === 0) {
+    if (scopeIds.length === 0 && !viewerId) {
       whereClause += ' AND 1 = 0'; // no direct reports yet (or none at all) — no rows
     } else {
-      const placeholders = scopeIds.map((_, i) => `@scope${i}`).join(', ');
-      whereClause += ` AND t.assignedToId IN (${placeholders})`;
-      scopeIds.forEach((id, i) => {
-        params[`scope${i}`] = { type: sql.UniqueIdentifier, value: id };
-      });
+      const conditions = [];
+      if (scopeIds.length > 0) {
+        const placeholders = scopeIds.map((_, i) => `@scope${i}`).join(', ');
+        conditions.push(`t.assignedToId IN (${placeholders})`);
+        scopeIds.forEach((id, i) => {
+          params[`scope${i}`] = { type: sql.UniqueIdentifier, value: id };
+        });
+      }
+      if (viewerId) {
+        conditions.push('t.createdById = @viewerId');
+        params.viewerId = { type: sql.UniqueIdentifier, value: viewerId };
+      }
+      whereClause += ` AND (${conditions.join(' OR ')})`;
     }
   }
   if (assignedToId) {
@@ -90,16 +105,17 @@ export async function createTask(data) {
   const newId = crypto.randomUUID();
   await executeQuery(
     `INSERT INTO Task (
-       id, organisationId, assignedToId, entityType, entityId, type,
+       id, organisationId, assignedToId, createdById, entityType, entityId, type,
        priority, title, detail, dueAt, createdAt, updatedAt
      ) VALUES (
-       @id, @organisationId, @assignedToId, @entityType, @entityId, @type,
+       @id, @organisationId, @assignedToId, @createdById, @entityType, @entityId, @type,
        @priority, @title, @detail, @dueAt, NOW(), NOW()
      )`,
     {
       id:             { type: sql.UniqueIdentifier, value: newId },
       organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
       assignedToId:   { type: sql.UniqueIdentifier, value: data.assignedToId },
+      createdById:    { type: sql.UniqueIdentifier, value: data.createdById ?? null },
       entityType:     { type: sql.NVarChar(50),     value: data.entityType ?? null },
       entityId:       { type: sql.UniqueIdentifier, value: data.entityId ?? null },
       type:           { type: sql.NVarChar(50),     value: data.type },

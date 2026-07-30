@@ -47,7 +47,10 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   reassign/delete when the Lead/Appointment a task is
                   about changes owner or closes out, manual creation +
                   deletion (Admin/GlobalAdmin, manual-type only), real
-                  sidebar badge (own incomplete-task count)
+                  sidebar badge (own incomplete-task count), creator
+                  tracking (createdById, §69) — a creator's own tasks
+                  are always visible to them regardless of who they're
+                  assigned to, plus a "Created by me" filter
   Notifications   All 5 real-data-driven types now generate for real:
                   LeadAssigned + AppointmentAssigned (action-driven, §61)
                   and AppointmentReminder + CallbackReminder +
@@ -94,6 +97,11 @@ CURRENT SECURITY / DEPENDENCY STATE (as of 30 Jul 2026):
     Pro-and-above only). No separate Cloudflare/Azure Front Door
     needed — see Project_Context_Vercel.md §12 for the full decision
     and why NOT to also add Cloudflare in front of Vercel.
+  - DB connection TLS: db.js sets ssl: { rejectUnauthorized: false } on
+    the pg Pool — encrypts the connection to Neon but doesn't verify
+    Neon's certificate. Low practical risk (same trusted cloud
+    infrastructure), not the strictest possible config. Tracked, not
+    urgent — see §70 for the full finding and how to tighten it later.
   - Still queued, lowest priority (dev-tooling only, zero production
     exposure): ESLint v10 + the still-missing eslint.config.js (lint
     genuinely cannot run at all right now); Vite v8 + Vitest v4 major
@@ -4264,6 +4272,120 @@ MIGRATION — no schema change:
   frontend/api-lib/handlers/notificationHandlers.js (handleScheduledTick added)
   frontend/api/notifications-router.js            (scheduled-tick route added)
   frontend/vercel.json                            (crons entry added)
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+69. TASK CREATOR TRACKING (createdById) — 30 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Third of Mark's four post-testing items. Task tracked assignedToId (who
+a task is FOR) but had no way to know who CREATED it — Mark asked
+whether Tasks should show "things I created" alongside "things assigned
+to me", and the honest answer was the data to support that didn't exist.
+
+REAL GAP FOUND, NOT JUST A MISSING DISPLAY FIELD: this wasn't only a
+"can't filter by creator" limitation — it was a genuine VISIBILITY bug.
+A Supervisor's task list was scoped to assignedToId IN (self + direct
+reports). If that Supervisor created a manual task and assigned it to
+someone OUTSIDE their own reporting line (a real, if unusual, scenario —
+nothing stops an Admin/Supervisor assigning a task to any user), the
+task would immediately vanish from the CREATOR's own view the moment it
+was created, with no way to find it again except by asking the assignee.
+
+BUILT:
+  - Migration 014_add_task_created_by.sql — createdById, nullable
+    (always NULL for the five system-generated trigger rules — no human
+    creator; always populated for a manual task). schema.postgres.sql
+    updated to match for fresh databases.
+  - taskService.js: createTask() accepts/stores createdById.
+    listTasks()'s scoping fixed — a new viewerId parameter is ORed
+    against the existing assignedToId-IN-scopeIds condition, so a
+    creator's own tasks are always visible to them regardless of who
+    they're assigned to. Verified the generated WHERE clause directly
+    (not just trusted the code read) before considering this done.
+  - taskHandlers.js: POST sets createdById to the caller; GET always
+    passes viewerId = the caller's own id (harmless for Admin/
+    GlobalAdmin, who have no scopeIds restriction to begin with, so
+    nothing changes for them specifically — the fix matters for
+    Supervisor and, in principle, Agent/Broker too, though those two
+    can't create tasks at all so it's moot for them in practice today).
+    shapeTask() now exposes createdBy/createdById.
+  - Tasks.jsx: new "Created by me" checkbox (Admin/Supervisor/
+    GlobalAdmin only, matching who can create tasks at all) — this is a
+    convenience NARROW on top of the visibility fix above, not the fix
+    itself; the fix means nothing is ever invisible to its own creator,
+    the checkbox just lets someone filter down to only their own
+    creations when they want to. Expanded task detail panel now also
+    shows "Created by" next to the existing Source field, for manual
+    tasks that have a creator to name.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected; both edited backend files pass node --check and an
+ESM import smoke test; the scoping fix's generated SQL WHERE clause
+verified standalone for both the Supervisor and Agent cases before
+trusting it, confirming createdById is genuinely ORed in, not silently
+dropped.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+70. TRACKED ITEM — DB CONNECTION TLS: rejectUnauthorized: false — 30 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Logged per Mark's instruction — bundled into this update rather than a
+standalone delivery, since it's a documentation-only item with no code
+change attached to it.
+
+Mark spotted an "Error"-level log entry in Vercel's runtime logs (not
+build logs — those were clean) on an unrelated /api/flags request:
+  [DEP0169] DeprecationWarning: 'url.parse()' ...
+  Warning: SECURITY WARNING: The SSL modes 'prefer', 'require', and
+  'verify-ca' are treated as aliases for 'verify-full'. In the next
+  major version (pg-connection-string v3.0.0 and pg v9.0.0)...
+
+Checked before answering: neither warning comes from this codebase's own
+code (grepped for url.parse() — zero matches anywhere in api-lib/api/).
+Both originate inside pg's own dependency chain (pg-connection-string
+parses the DATABASE_URL connection string using the legacy url.parse()
+API, and inspects its sslmode parameter while doing so). Vercel's log
+viewer buckets Node process warnings under "Error" severity because
+they're written to stderr — the actual request succeeded (200, response
+finished in 2s) — worth knowing so the red colour doesn't overstate it.
+
+WHAT ACTUALLY MATTERS HERE, separate from the warning itself: db.js's
+getPool() sets `ssl: { rejectUnauthorized: false }` explicitly when
+creating the pg Pool, with a comment explaining why ("Neon requires TLS;
+pooled connections terminate it upstream") — ported as-is from the
+original build. This is what actually governs TLS behaviour for every
+DB connection, not whatever sslmode value is embedded in DATABASE_URL —
+so the FUTURE pg-connection-string v3/pg v9 change this warning
+describes won't alter this app's behaviour at all when it lands (we
+don't rely on the sslmode string's aliasing). But rejectUnauthorized:
+false itself means the app encrypts the connection to Neon without
+verifying Neon's TLS certificate against a certificate authority — a
+real, standing, deliberate-if-inherited choice, low practical risk given
+app and database both sit inside the same trusted cloud infrastructure,
+but not the strictest possible configuration.
+
+NOT URGENT — tracked, not acted on. If tightened later: set
+rejectUnauthorized: true (requires Neon's CA chain to validate correctly
+against Node's default trust store, which it should for a standard
+managed Postgres provider) or move to explicit sslmode=verify-full in
+the connection string per the warning's own suggested fix, and confirm
+the app still connects successfully before calling it done — either
+change touches every single database query this app makes, so it
+deserves its own careful verification pass, not a same-turn fix bundled
+into something else.
+
+NOT YET DONE (last item from Mark's four): Password policy overhaul —
+temp password + forced first-login change, AppAdmin UI for rotation/
+lockout settings, password-history/reuse prevention. Biggest and most
+security-sensitive of the four, scoped last deliberately.
+
+MIGRATION — schema change (§69 only; §70 is documentation only):
+  frontend/db/migrations/014_add_task_created_by.sql (NEW)
+  frontend/db/schema.postgres.sql          (Task table updated)
+  frontend/api-lib/services/taskService.js (createdById + scoping fix)
+  frontend/api-lib/handlers/taskHandlers.js (createdById wired through)
+  frontend/src/pages/Tasks.jsx             ("Created by me" filter + display)
 Plus this Status_Vercel.md.
 
 
