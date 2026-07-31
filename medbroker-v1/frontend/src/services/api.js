@@ -322,6 +322,14 @@ export const flagsApi = {
     request(`/flags/${key}`, { method: 'PATCH', body: JSON.stringify({ value }) }),
 };
 
+// §76 — routed through /api/flags/audit-log on the backend (no natural
+// domain fit; every existing router is where AppAdmin's own routes
+// ended up living, since there's zero headroom for a new top-level
+// function at 12/12).
+export const auditApi = {
+  list: (page = 1, pageSize = 25) => request(`/flags/audit-log?page=${page}&pageSize=${pageSize}`),
+};
+
 // ─── Reports ─────────────────────────────────────────────────────────────────
 // Replaces a stale reportsApi shape (pipeline/broker-activity) that never
 // matched Reports.jsx's own header comment and was never wired to

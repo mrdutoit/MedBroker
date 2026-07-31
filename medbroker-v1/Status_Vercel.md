@@ -68,6 +68,9 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   login. AppAdmin's whole System Settings tab is now
                   real-wired too, not just the password fields — it was
                   entirely mock before this.
+  Audit Log (§76) — AppAdmin's Audit Log tab is real now, paginated,
+                  org-wide. Was showing ten hardcoded fake entries
+                  unconditionally before this.
 
 GATED OFF BY DEFAULT (built, working, just not switched on):
   tasks.enabled — flip in FeatureFlags.jsx (AppAdmin) to see Tasks in
@@ -4677,6 +4680,171 @@ data, not just read.
 MIGRATION — no schema/backend change:
   frontend/src/hooks/useSortableData.js (NEW)
   frontend/src/pages/UserAdmin.jsx
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+75. PRODUCTION-READINESS AUDIT + SSO PAGE REWRITE — 31 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark wants to wrap this project up and ship to a real customer — asked
+for a proper audit of legacy/fake content plus a list of genuinely
+missing features. Did this as an actual codebase search (grepped for
+"coming soon"/"not yet built"/"mock"/"fake"/etc. across every page, not
+from memory), since accuracy matters a lot here — Mark's about to make
+real go/no-go decisions off this list.
+
+FULL AUDIT FINDINGS (see chat for the complete tables presented to
+Mark — summarised here for the record):
+
+Legacy/fake content found:
+  - SingleSignOn.jsx — far worse than expected on inspection. Not just
+    outdated documentation: it presented FABRICATED configuration as
+    live — a made-up Tenant ID, Client ID, "Token validation: Active —
+    JWKS endpoint", "M365 calendar integration: Active — Graph API
+    scopes granted", plus "Test connection"/"Edit configuration" buttons
+    that did nothing. A real customer looking at this page would
+    reasonably believe SSO was actively configured. Fixed this session
+    (below).
+  - AppAdmin.jsx's Audit Log tab — hardcoded fake entries shown
+    UNCONDITIONALLY, not even gated behind demo mode like everything
+    else in this app. Flagged as the next item to fix (compliance-
+    adjacent feature showing fabricated data is a real problem).
+  - AppAdmin.jsx's Subscriptions tab — same underlying gap as the
+    already-tracked "Medical Subscription lead import never built"
+    item, not a separate issue.
+  - Login.jsx had a stale comment claiming the forced password-change
+    flow "is a follow-up, not yet built" — it was built in §72, comment
+    just never got updated. Fixed inline while doing this audit.
+  - Dead "Entra branch" code scattered across ~8 files (RoleContext,
+    AuthContext, Tasks, Notifications, Settings, Login, App.jsx,
+    FeatureFlags) — inert, never executes since this deployment always
+    runs in demo mode, but real bulk sitting in the codebase. Flagged,
+    not removed yet — Mark's call on priority, it's a real refactor
+    touching many files, not a quick fix.
+  - LeadImport's "Medical Subscription" import tab and Settings' "Upload
+    photo" are ALREADY honest, already-disabled stubs — checked, no
+    action needed there.
+
+Genuinely missing features (confirmed, not assumed): email
+notifications (no provider connected), an org-wide Audit Log viewer
+(only per-entity history exists — listAuditLog(entityType, entityId) in
+auditService.js, no "browse everything" query), Medical Subscription
+lead import (the channel itself, separate from Audit Log's use of the
+same underlying gap), token economy (Stripe not wired), POPIA Subject
+Access Request endpoint.
+
+Security/compliance hardening items (go-live gates, already individually
+tracked across earlier sections, not repeated here) and the still-queued
+ESLint/Vite-Vitest/React-Router-v8 items from the npm audit conversation
+are unchanged — see §0's CURRENT SECURITY / DEPENDENCY STATE for the
+current list of those.
+
+BUILT THIS ENTRY: SingleSignOn.jsx rewritten from scratch. Removed
+entirely: the fabricated M365 config table, the fake "Test
+connection"/"Edit configuration" buttons, and the full Microsoft Entra
+ID / Google Workspace step-by-step setup documentation — all of it
+described the ORIGINAL Azure Functions/Entra ID architecture (api/src/,
+the separate, now out-of-scope target), and doesn't belong embedded in
+this product's live UI regardless of whether it's accurate for a
+DIFFERENT deployment. Replaced with a short, honest page: states plainly
+that this deployment uses local email/password auth (with a pointer to
+the real, working policy controls in App Admin), and that SSO is a
+capability of a separate enterprise deployment profile, without implying
+anything about it is active here. Nav entry/route left unchanged — the
+label "Single Sign-On" is still a reasonable name for a page that now
+honestly explains it isn't available, not misleading.
+
+VERIFIED: full Vite production build clean (confirmed SingleSignOn's own
+chunk built successfully, not just the overall build); existing 45-test
+Vitest suite unaffected.
+
+NEXT (Mark's confirmed order): AppAdmin's Audit Log tab (fake data
+shown unconditionally), then email notifications, then the rest of the
+list roughly in the order presented.
+
+MIGRATION — no schema/backend change:
+  frontend/src/pages/SingleSignOn.jsx (rewritten)
+  frontend/src/pages/Login.jsx (stale comment fixed)
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+76. REAL ORG-WIDE AUDIT LOG — 31 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Second item from §75's audit — AppAdmin's Audit Log tab showed ten
+hardcoded fake entries unconditionally (not even gated behind demo mode
+like the rest of this app). Compliance-adjacent feature showing
+fabricated data was flagged as the most concerning finding in that
+audit; this closes it.
+
+FUNCTION COUNT: routed as a sub-route on the already-existing
+flags-router.js (GET /api/flags/audit-log) — not a natural domain fit,
+but every existing router is where AppAdmin's own routes have ended up
+living, since this build is sitting at exactly 12/12 Vercel functions
+with zero headroom for a new top-level file.
+
+BUILT:
+  - auditService.js: new listAllAuditLog({page, pageSize}) — org-wide,
+    paginated, most recent first. entityType/entityId are polymorphic
+    across everything that writes to AuditLog (confirmed by grepping
+    every entityType value actually written anywhere in api-lib, not
+    guessed: Appointment, Lead, Event, EventAttendee, FeatureFlag, Task,
+    User). Resolving a human-readable "what was this about" reference
+    for all seven would need a seven-way join — scoped down deliberately
+    to the three that matter most for a real Admin reading this log
+    (Lead, Appointment via its Lead, User), via the same
+    COALESCE-across-LEFT-JOINs pattern already used for Task's own
+    polymorphic resolution. Everything else falls back to entityType +
+    entityId — FeatureFlag's entityId is already the human-readable flag
+    key itself ("tasks.enabled"), so that fallback reads fine for that
+    one specifically; Event/EventAttendee/Task show a raw id, a real gap
+    but not the one costing the most value to close right now.
+  - CAUGHT A REAL BUG BEFORE IT SHIPPED: the first version of this query
+    cast entityId (VARCHAR) TO uuid for the Lead/Appointment/User joins.
+    FeatureFlag rows genuinely have a non-UUID entityId (a flag key
+    string), and Postgres doesn't guarantee an AND condition
+    short-circuits away from evaluating a cast on non-matching rows —
+    meaning the very first FeatureFlag audit entry in the table (there
+    are already several, confirmed by the same grep above) would have
+    made this query start throwing 500s. Fixed by comparing entityId
+    against each table's id column CAST TO TEXT instead (l_direct.id::
+    text) — casting a UUID to text always succeeds, so there's no
+    failure mode regardless of what's actually in entityId. Checked this
+    specific risk deliberately before considering the function done, not
+    discovered by accident.
+  - NEW auditHandlers.js — handleAuditLogList(), Admin/GlobalAdmin only.
+  - flags-router.js: audit-log sub-route added, checked before the
+    generic 1-segment PATCH-by-key branch (flag keys use dot-notation,
+    so 'audit-log' can never collide with a real one anyway, but matches
+    the same defensive-ordering convention every other sub-route in this
+    build uses).
+  - AppAdmin.jsx: real-wired with loading/error states and Previous/Next
+    pagination (25 per page). The Role column from the mock table was
+    DROPPED, not carried over — AuditLog never actually tracked a
+    performer's role at the time of the action, only their identity;
+    showing their CURRENT role would misrepresent history if it changed
+    since (an Agent promoted to Supervisor would have their old actions
+    relabelled as Supervisor actions, which they weren't at the time).
+    Dropping a fabricated column is more honest than keeping the table
+    shape identical to the mock.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected; auditService.js and auditHandlers.js pass node --check
+and an ESM import smoke test. The cast-failure risk was checked
+deliberately (reasoned through Postgres's actual AND-evaluation
+semantics, not just assumed the naive version was fine) before the fix
+was written, not found by trial and error against a live database this
+sandbox doesn't have access to.
+
+NEXT (Mark's confirmed order): email notifications, then the rest of
+the production-readiness list from §75 roughly in the order presented.
+
+MIGRATION — no schema change (AuditLog table already existed):
+  frontend/api-lib/services/auditService.js (listAllAuditLog added)
+  frontend/api-lib/handlers/auditHandlers.js (NEW)
+  frontend/api/flags-router.js             (audit-log sub-route added)
+  frontend/src/services/api.js             (auditApi added)
+  frontend/src/pages/AppAdmin.jsx          (Audit Log tab real-wired)
 Plus this Status_Vercel.md.
 
 

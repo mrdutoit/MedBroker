@@ -7,9 +7,14 @@
  * Routes:
  *   GET   /api/flags
  *   PATCH /api/flags/:key
+ *   GET   /api/flags/audit-log  (§76 — not a natural domain fit, routed
+ *                                 here for the same reason every other
+ *                                 sub-route this build uses an existing
+ *                                 router: zero headroom left at 12/12)
  */
 
 import { handleFlagsList, handleFlagUpdate } from '../api-lib/handlers/flagHandlers.js';
+import { handleAuditLogList } from '../api-lib/handlers/auditHandlers.js';
 import { applyCors, parseSlug } from '../api-lib/http/helpers.js';
 
 export default async function handler(req, res) {
@@ -18,6 +23,10 @@ export default async function handler(req, res) {
   const segments = parseSlug(req.query.slug);
 
   if (segments.length === 0) return handleFlagsList(req, res);
+  // Must come before the generic 1-segment PATCH-by-key branch below —
+  // 'audit-log' is never a valid flag key (flag keys use dot-notation,
+  // e.g. 'tasks.enabled').
+  if (segments.length === 1 && segments[0] === 'audit-log') return handleAuditLogList(req, res);
   if (segments.length === 1) return handleFlagUpdate(req, res, segments[0]);
 
   return res.status(404).json({ error: 'Not found' });

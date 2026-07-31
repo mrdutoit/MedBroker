@@ -9,7 +9,7 @@ import { s } from '../styles/tokens.js';
 import { PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
-import { apiMode, systemConfigApi } from '../services/api.js';
+import { apiMode, systemConfigApi, auditApi } from '../services/api.js';
 
 const MOCK_AUDIT_LOG = [
   { id: 1, action: 'Lead assigned',             entity: 'Lead',        entityRef: 'Dr Priya Naidoo',     performedBy: 'Admin User',   role: 'Admin',       timestamp: '2026-05-20 14:32' },
@@ -57,6 +57,18 @@ export default function AppAdmin() {
   const [settingsSaved,      setSettingsSaved]       = useState(false);
   const [settingsError,      setSettingsError]       = useState(null);
   const [saving,             setSaving]              = useState(false);
+
+  // Audit Log (§76) — real, paginated. demoMode-gated like everything
+  // else with a real backend; MOCK_AUDIT_LOG below is the Entra-branch
+  // fallback only, not shown when a real fetch is possible.
+  const [auditPage, setAuditPage] = useState(1);
+  const { data: auditData, loading: auditLoading, error: auditError } = useFetch(
+    () => demoMode ? auditApi.list(auditPage, 25) : Promise.resolve(null),
+    [demoMode, auditPage]
+  );
+  const auditEntries = demoMode ? (auditData?.entries ?? []) : MOCK_AUDIT_LOG;
+  const auditTotal    = demoMode ? (auditData?.total ?? 0) : MOCK_AUDIT_LOG.length;
+  const auditTotalPages = Math.max(1, Math.ceil(auditTotal / 25));
 
   // Sync local editable state once the real config actually loads —
   // can't initialise useState directly from it, since the fetch hasn't
@@ -448,29 +460,32 @@ export default function AppAdmin() {
               Immutable record of significant system actions for FAIS Act and POPIA compliance.
               Entries are written by the system and cannot be edited or deleted.
             </p>
-            <div style={{ ...s.noticeInfo, fontSize: '0.8125rem' }}>
-              In production, this log is written by the API to the <strong>AuditLog</strong> table.
-              Search and date-range filtering will be available when the backend is connected.
-            </div>
           </div>
+
+          {demoMode && auditLoading && (
+            <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading audit log…</div>
+          )}
+          {auditError && (
+            <div style={{ ...s.errorBox, marginBottom: '14px' }}>Could not load the audit log.</div>
+          )}
+
           <div style={{ ...s.tableCard, overflowX: 'auto' }}>
-            <table style={{ ...s.table, minWidth: '860px' }}>
+            <table style={{ ...s.table, minWidth: '760px' }}>
               <thead><tr>
                 <th style={s.th}>Timestamp</th>
                 <th style={s.th}>Action</th>
                 <th style={s.th}>Entity</th>
                 <th style={s.th}>Detail</th>
                 <th style={s.th}>Performed by</th>
-                <th style={s.th}>Role</th>
               </tr></thead>
               <tbody>
-                {MOCK_AUDIT_LOG.map(entry => (
+                {auditEntries.map(entry => (
                   <tr key={entry.id} style={s.tr}
                     onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
                     onMouseLeave={e => e.currentTarget.style.background = ''}
                   >
                     <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
-                      {entry.timestamp}
+                      {demoMode ? new Date(entry.performedAt).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' }) : entry.timestamp}
                     </td>
                     <td style={{ ...s.td, fontWeight: 500, fontSize: '0.8125rem' }}>{entry.action}</td>
                     <td style={s.td}>
@@ -478,37 +493,43 @@ export default function AppAdmin() {
                         ...s.badge, fontSize: '0.688rem',
                         background:'var(--panel2)', color:'var(--ink)',
                       }}>
-                        {entry.entity}
+                        {demoMode ? entry.entityType : entry.entity}
                       </span>
                     </td>
                     <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem', maxWidth: '260px' }}>
                       {entry.entityRef}
                     </td>
-                    <td style={{ ...s.td, fontSize: '0.8125rem' }}>{entry.performedBy}</td>
-                    <td style={s.td}>
-                      <span style={{
-                        ...s.badge, fontSize: '0.688rem',
-                        background: entry.role === 'System' ? 'var(--panel2)'
-                          : entry.role === 'GlobalAdmin' ? 'color-mix(in srgb, #7e22ce 14%, var(--panel))'
-                          : entry.role === 'Admin' ? 'color-mix(in srgb, #1d4ed8 14%, var(--panel))'
-                          : entry.role === 'Supervisor' ? 'color-mix(in srgb, #15803d 14%, var(--panel))'
-                          : entry.role === 'Agent' ? 'color-mix(in srgb, #d97706 14%, var(--panel))'
-                          : 'color-mix(in srgb, #7c3aed 14%, var(--panel))',
-                        color: entry.role === 'System' ? 'var(--mut)'
-                          : entry.role === 'GlobalAdmin' ? '#c084fc'
-                          : entry.role === 'Admin' ? 'var(--accent)'
-                          : entry.role === 'Supervisor' ? '#15803d'
-                          : entry.role === 'Agent' ? '#d97706'
-                          : '#a78bfa',
-                      }}>
-                        {entry.role}
-                      </span>
+                    <td style={{ ...s.td, fontSize: '0.8125rem' }}>
+                      {demoMode ? entry.performedByName : entry.performedBy}
                     </td>
                   </tr>
                 ))}
+                {demoMode && !auditLoading && auditEntries.length === 0 && (
+                  <tr><td colSpan={5} style={{ ...s.td, textAlign: 'center', color:'var(--mut)' }}>No audit log entries yet.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
+
+          {demoMode && auditTotalPages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '14px' }}>
+              <button
+                style={{ ...s.secondaryBtn, opacity: auditPage <= 1 ? 0.5 : 1 }}
+                disabled={auditPage <= 1}
+                onClick={() => setAuditPage(p => Math.max(1, p - 1))}
+              >
+                ← Previous
+              </button>
+              <span style={{ fontSize: '0.8125rem', color:'var(--mut)' }}>Page {auditPage} of {auditTotalPages}</span>
+              <button
+                style={{ ...s.secondaryBtn, opacity: auditPage >= auditTotalPages ? 0.5 : 1 }}
+                disabled={auditPage >= auditTotalPages}
+                onClick={() => setAuditPage(p => Math.min(auditTotalPages, p + 1))}
+              >
+                Next →
+              </button>
+            </div>
+          )}
         </>
       )}
     </div>
