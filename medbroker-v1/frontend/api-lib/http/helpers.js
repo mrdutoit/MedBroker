@@ -72,3 +72,29 @@ export function parseSlug(slug) {
   return String(slug).split(/[/,]/).filter(Boolean);
 }
 
+/**
+ * Serializes an array of flat objects to CSV text — added for audit log
+ * export (§77), written generically enough to reuse for any future
+ * export feature. Properly escapes fields containing a comma, a double
+ * quote, or a newline (wraps in quotes, doubles any internal quotes) —
+ * the standard CSV escaping rule, not just "hope nothing has a comma in
+ * it". Nested objects/arrays (e.g. an audit entry's changeDetail) are
+ * JSON.stringify'd into a single cell rather than flattened, so the
+ * output stays one row per input row regardless of field shape.
+ * @param {Array<Object>} rows
+ * @param {Array<{key: string, label: string}>} columns
+ * @returns {string}
+ */
+export function toCsv(rows, columns) {
+  function escapeCell(value) {
+    if (value === null || value === undefined) return '';
+    const str = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
+    return str;
+  }
+
+  const header = columns.map(c => escapeCell(c.label)).join(',');
+  const lines = rows.map(row => columns.map(c => escapeCell(row[c.key])).join(','));
+  return [header, ...lines].join('\r\n');
+}
+

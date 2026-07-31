@@ -9,7 +9,24 @@ import { s } from '../styles/tokens.js';
 import { PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
-import { apiMode, systemConfigApi, auditApi } from '../services/api.js';
+import { apiMode, systemConfigApi, auditApi, usersApi } from '../services/api.js';
+
+// Mirrors auditHandlers.js's VALID_ENTITY_TYPES/VALID_ACTIONS exactly —
+// kept in sync manually (no shared module between frontend/backend in
+// this architecture). If a new action/entityType is ever added on the
+// backend, add it here too or it just won't appear as a filter option
+// (existing entries with that value still show up fine in the
+// unfiltered view either way — this only affects the dropdown, not
+// what data exists).
+const AUDIT_ENTITY_TYPES = ['Appointment', 'Lead', 'Event', 'EventAttendee', 'FeatureFlag', 'Task', 'User'];
+const AUDIT_ACTIONS = [
+  'AppointmentBrokerAssigned', 'AppointmentCreated', 'AppointmentOutcomeSaved',
+  'AppointmentReassigned', 'AppointmentReturnedToLeads', 'AttendeeAdded',
+  'AttendeeRemoved', 'EventCreated', 'EventStatusChanged', 'FeatureFlagUpdated',
+  'LeadCreated', 'LeadDeleted', 'LeadReopened', 'LeadUpdated',
+  'PortalAccountActivated', 'PortalProfileUpdated', 'PortalRegistration',
+  'PortalWalkInCheckedIn', 'ProfileUpdated', 'TaskCreated', 'TaskDeleted', 'UserCreated',
+];
 
 const MOCK_AUDIT_LOG = [
   { id: 1, action: 'Lead assigned',             entity: 'Lead',        entityRef: 'Dr Priya Naidoo',     performedBy: 'Admin User',   role: 'Admin',       timestamp: '2026-05-20 14:32' },
@@ -58,17 +75,60 @@ export default function AppAdmin() {
   const [settingsError,      setSettingsError]       = useState(null);
   const [saving,             setSaving]              = useState(false);
 
-  // Audit Log (§76) — real, paginated. demoMode-gated like everything
-  // else with a real backend; MOCK_AUDIT_LOG below is the Entra-branch
-  // fallback only, not shown when a real fetch is possible.
+  // Audit Log (§76) — real, paginated. Filters + export added (§77).
+  // demoMode-gated like everything else with a real backend;
+  // MOCK_AUDIT_LOG below is the Entra-branch fallback only, not shown
+  // when a real fetch is possible.
   const [auditPage, setAuditPage] = useState(1);
+  const [auditDateFrom, setAuditDateFrom] = useState('');
+  const [auditDateTo, setAuditDateTo] = useState('');
+  const [auditEntityType, setAuditEntityType] = useState('');
+  const [auditAction, setAuditAction] = useState('');
+  const [auditPerformedById, setAuditPerformedById] = useState('');
+  const [exporting, setExporting] = useState(null); // 'csv' | 'json' | null, drives button disabled state
+  const [auditExportError, setAuditExportError] = useState(null);
+
+  const auditFilters = {
+    dateFrom: auditDateFrom || undefined,
+    dateTo: auditDateTo || undefined,
+    entityType: auditEntityType || undefined,
+    action: auditAction || undefined,
+    performedById: auditPerformedById || undefined,
+  };
+  // JSON.stringify as a dependency — the filters object above is a new
+  // reference every render, which would make useFetch refire on every
+  // render if used directly as a dep; stringifying gives a stable value
+  // to compare against instead.
+  const auditFiltersKey = JSON.stringify(auditFilters);
+
   const { data: auditData, loading: auditLoading, error: auditError } = useFetch(
-    () => demoMode ? auditApi.list(auditPage, 25) : Promise.resolve(null),
-    [demoMode, auditPage]
+    () => demoMode ? auditApi.list(auditPage, 25, auditFilters) : Promise.resolve(null),
+    [demoMode, auditPage, auditFiltersKey]
   );
   const auditEntries = demoMode ? (auditData?.entries ?? []) : MOCK_AUDIT_LOG;
   const auditTotal    = demoMode ? (auditData?.total ?? 0) : MOCK_AUDIT_LOG.length;
   const auditTotalPages = Math.max(1, Math.ceil(auditTotal / 25));
+
+  // Users list for the "Performed by" filter dropdown — reuses the same
+  // endpoint UserAdmin.jsx already calls, no new backend needed.
+  const { data: auditUsersData } = useFetch(() => demoMode ? usersApi.list({}) : Promise.resolve(null), [demoMode]);
+  const auditUsers = auditUsersData?.users ?? [];
+
+  function resetAuditPageOnFilterChange(setter) {
+    return (value) => { setter(value); setAuditPage(1); };
+  }
+
+  async function handleAuditExport(format) {
+    setExporting(format);
+    setAuditExportError(null);
+    try {
+      await auditApi.export(format, auditFilters);
+    } catch (err) {
+      setAuditExportError(`Could not export the audit log: ${err.message || 'unknown error'}`);
+    } finally {
+      setExporting(null);
+    }
+  }
 
   // Sync local editable state once the real config actually loads —
   // can't initialise useState directly from it, since the fetch hasn't
@@ -462,11 +522,71 @@ export default function AppAdmin() {
             </p>
           </div>
 
+          {demoMode && (
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'flex-end', marginBottom: '14px' }}>
+              <div>
+                <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>From</label>
+                <input type="date" style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem' }}
+                  value={auditDateFrom} onChange={e => resetAuditPageOnFilterChange(setAuditDateFrom)(e.target.value)} />
+              </div>
+              <div>
+                <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>To</label>
+                <input type="date" style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem' }}
+                  value={auditDateTo} onChange={e => resetAuditPageOnFilterChange(setAuditDateTo)(e.target.value)} />
+              </div>
+              <div>
+                <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>Entity</label>
+                <select style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem' }}
+                  value={auditEntityType} onChange={e => resetAuditPageOnFilterChange(setAuditEntityType)(e.target.value)}>
+                  <option value="">All</option>
+                  {AUDIT_ENTITY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>Action</label>
+                <select style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem' }}
+                  value={auditAction} onChange={e => resetAuditPageOnFilterChange(setAuditAction)(e.target.value)}>
+                  <option value="">All</option>
+                  {AUDIT_ACTIONS.map(a => <option key={a} value={a}>{a}</option>)}
+                </select>
+              </div>
+              <div>
+                <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>Performed by</label>
+                <select style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem', maxWidth: '180px' }}
+                  value={auditPerformedById} onChange={e => resetAuditPageOnFilterChange(setAuditPerformedById)(e.target.value)}>
+                  <option value="">All</option>
+                  {auditUsers.map(u => <option key={u.id} value={u.id}>{u.displayName}</option>)}
+                </select>
+              </div>
+              {(auditDateFrom || auditDateTo || auditEntityType || auditAction || auditPerformedById) && (
+                <button
+                  style={{ ...s.ghostBtn, fontSize: '0.8125rem' }}
+                  onClick={() => { setAuditDateFrom(''); setAuditDateTo(''); setAuditEntityType(''); setAuditAction(''); setAuditPerformedById(''); setAuditPage(1); }}
+                >
+                  Clear filters
+                </button>
+              )}
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                <button style={{ ...s.secondaryBtn, fontSize: '0.8125rem', opacity: exporting ? 0.5 : 1 }}
+                  disabled={!!exporting} onClick={() => handleAuditExport('csv')}>
+                  {exporting === 'csv' ? 'Exporting…' : 'Export CSV'}
+                </button>
+                <button style={{ ...s.secondaryBtn, fontSize: '0.8125rem', opacity: exporting ? 0.5 : 1 }}
+                  disabled={!!exporting} onClick={() => handleAuditExport('json')}>
+                  {exporting === 'json' ? 'Exporting…' : 'Export JSON'}
+                </button>
+              </div>
+            </div>
+          )}
+
           {demoMode && auditLoading && (
             <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading audit log…</div>
           )}
           {auditError && (
             <div style={{ ...s.errorBox, marginBottom: '14px' }}>Could not load the audit log.</div>
+          )}
+          {auditExportError && (
+            <div style={{ ...s.errorBox, marginBottom: '14px' }}>{auditExportError}</div>
           )}
 
           <div style={{ ...s.tableCard, overflowX: 'auto' }}>

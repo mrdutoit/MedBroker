@@ -1,8 +1,8 @@
 /**
- * handlers/auditHandlers.js — NEW (§76).
+ * handlers/auditHandlers.js — NEW (§76), filters + export added (§77).
  * Backs AppAdmin's Audit Log tab, which showed ten hardcoded fake
- * entries unconditionally before this — not even gated behind demo
- * mode like the rest of this app. Routed through the already-existing
+ * entries unconditionally before §76 — not even gated behind demo mode
+ * like the rest of this app. Routed through the already-existing
  * flags-router.js as a literal sub-route (GET /api/flags/audit-log) —
  * not a natural domain fit, but this app is sitting at exactly 12/12
  * Vercel functions with zero headroom, so a new top-level file wasn't
@@ -12,9 +12,53 @@
  */
 
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
-import { listAllAuditLog } from '../services/auditService.js';
+import { listAllAuditLog, exportAuditLog } from '../services/auditService.js';
+import { toCsv } from '../http/helpers.js';
 
 const MAX_PAGE_SIZE = 100;
+const MAX_EXPORT_ROWS = 5000;
+
+// Fixed, known lists — validated against, not trusted blindly from the
+// query string. entityType values confirmed by grepping every literal
+// written anywhere in api-lib (see auditService.js's own comment);
+// action values are the full set of literal action strings currently
+// written anywhere in this codebase, same way.
+const VALID_ENTITY_TYPES = ['Appointment', 'Lead', 'Event', 'EventAttendee', 'FeatureFlag', 'Task', 'User'];
+const VALID_ACTIONS = [
+  'AppointmentBrokerAssigned', 'AppointmentCreated', 'AppointmentOutcomeSaved',
+  'AppointmentReassigned', 'AppointmentReturnedToLeads', 'AttendeeAdded',
+  'AttendeeRemoved', 'EventCreated', 'EventStatusChanged', 'FeatureFlagUpdated',
+  'LeadCreated', 'LeadDeleted', 'LeadReopened', 'LeadUpdated',
+  'PortalAccountActivated', 'PortalProfileUpdated', 'PortalRegistration',
+  'PortalWalkInCheckedIn', 'ProfileUpdated', 'TaskCreated', 'TaskDeleted', 'UserCreated',
+];
+
+/**
+ * Pulls filter params off the query string, validating entityType/action
+ * against the known lists above rather than passing anything through —
+ * an invalid value here would just silently return zero rows either
+ * way, but validating explicitly is cheap and catches a typo'd filter
+ * before it looks like "there's nothing in the log" rather than "you
+ * asked for something that doesn't exist".
+ */
+function parseFilters(query) {
+  const filters = {};
+  if (query.dateFrom) filters.dateFrom = query.dateFrom;
+  if (query.dateTo) filters.dateTo = query.dateTo;
+  if (query.entityType && VALID_ENTITY_TYPES.includes(query.entityType)) filters.entityType = query.entityType;
+  if (query.action && VALID_ACTIONS.includes(query.action)) filters.action = query.action;
+  if (query.performedById) filters.performedById = query.performedById;
+  return filters;
+}
+
+const CSV_COLUMNS = [
+  { key: 'performedAt',     label: 'Timestamp' },
+  { key: 'action',          label: 'Action' },
+  { key: 'entityType',      label: 'Entity Type' },
+  { key: 'entityRef',       label: 'Entity' },
+  { key: 'performedByName', label: 'Performed By' },
+  { key: 'changeDetail',    label: 'Detail' },
+];
 
 /** GET /api/flags/audit-log */
 export async function handleAuditLogList(req, res) {
@@ -27,10 +71,31 @@ export async function handleAuditLogList(req, res) {
     const claims = await validateToken(req);
     requireRole(claims, ['Admin', 'GlobalAdmin']);
 
+    const filters = parseFilters(req.query);
+
+    // Export mode (§77) — same filters, no pagination, capped, returned
+    // as a downloadable file rather than a normal JSON API response.
+    if (req.query.export === 'csv' || req.query.export === 'json') {
+      const entries = await exportAuditLog(filters, MAX_EXPORT_ROWS);
+      const filename = `medbroker-audit-log-${new Date().toISOString().slice(0, 10)}.${req.query.export}`;
+
+      if (req.query.export === 'csv') {
+        res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+        res.statusCode = 200;
+        return res.end(toCsv(entries, CSV_COLUMNS));
+      }
+
+      res.setHeader('Content-Type', 'application/json; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.statusCode = 200;
+      return res.end(JSON.stringify(entries, null, 2));
+    }
+
     const page = Math.max(1, parseInt(req.query.page, 10) || 1);
     const pageSize = Math.min(MAX_PAGE_SIZE, Math.max(1, parseInt(req.query.pageSize, 10) || 25));
 
-    const result = await listAllAuditLog({ page, pageSize });
+    const result = await listAllAuditLog({ page, pageSize, ...filters });
     return res.status(200).json(result);
 
   } catch (err) {

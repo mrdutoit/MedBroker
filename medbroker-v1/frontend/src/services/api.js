@@ -326,8 +326,51 @@ export const flagsApi = {
 // domain fit; every existing router is where AppAdmin's own routes
 // ended up living, since there's zero headroom for a new top-level
 // function at 12/12).
+// §76/§77 — routed through /api/flags/audit-log on the backend (no
+// natural domain fit; every existing router is where AppAdmin's own
+// routes ended up living, since there's zero headroom for a new
+// top-level function at 12/12).
 export const auditApi = {
-  list: (page = 1, pageSize = 25) => request(`/flags/audit-log?page=${page}&pageSize=${pageSize}`),
+  list: (page = 1, pageSize = 25, filters = {}) => {
+    const cleanFilters = Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== undefined && v !== null && v !== ''));
+    const params = new URLSearchParams({ page, pageSize, ...cleanFilters });
+    return request(`/flags/audit-log?${params}`);
+  },
+  /**
+   * Export can't go through request() — that helper always parses the
+   * response as JSON, but a CSV export is plain text, not JSON. This
+   * does its own authenticated fetch (same token logic request() uses
+   * internally), reads the response as a Blob, and triggers a browser
+   * download via a temporary <a> element — the standard way to handle
+   * an authenticated file download, since a plain <a href> link can't
+   * carry an Authorization header the way this endpoint requires.
+   * @param {'csv'|'json'} format
+   * @param {Object} filters
+   */
+  export: async (format, filters = {}) => {
+    const cleanFilters = Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== undefined && v !== null && v !== ''));
+    const params = new URLSearchParams({ export: format, ...cleanFilters });
+    const token = getToken();
+    const response = await fetch(`${API_BASE}/flags/audit-log?${params}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) {
+      throw new ApiError(response.status, `Export failed (${response.status})`);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="([^"]+)"/);
+    const filename = match ? match[1] : `medbroker-audit-log.${format}`;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  },
 };
 
 // ─── Reports ─────────────────────────────────────────────────────────────────

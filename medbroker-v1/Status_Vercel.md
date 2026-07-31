@@ -4847,6 +4847,92 @@ MIGRATION — no schema change (AuditLog table already existed):
   frontend/src/pages/AppAdmin.jsx          (Audit Log tab real-wired)
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+77. AUDIT LOG FILTERS + CSV/JSON EXPORT — 31 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Follow-up to §76 — Mark asked for date range / Action / Entity /
+Performed By filtering, plus CSV and JSON export.
+
+BUILT:
+
+BACKEND
+  - auditService.js refactored: the SELECT/JOIN base and a new
+    buildAuditFilters() are now shared between listAllAuditLog() and the
+    new exportAuditLog() — deliberately, so filtering behaves IDENTICALLY
+    in both. For a compliance feature specifically, an export that
+    silently includes/excludes different rows than what's on screen
+    would be a genuinely bad bug, not just an inconsistency.
+  - exportAuditLog(filters, maxRows=5000) — same filters, no pagination,
+    capped at 5000 rows as a safety limit against an unbounded export on
+    a large, unfiltered log.
+  - New toCsv() helper in http/helpers.js — proper CSV escaping (wraps
+    a field in quotes and doubles internal quotes when it contains a
+    comma, quote, or newline; JSON.stringifies nested objects like
+    changeDetail into a single cell). Verified standalone against
+    exactly those cases (comma, quotes, newline, object, null) before
+    trusting it, not just read the code.
+  - auditHandlers.js: entityType/action filters are validated against
+    fixed, known lists (the actual entityType/action values grepped from
+    across api-lib, not guessed) rather than trusted blindly from the
+    query string — an invalid value would return zero rows either way,
+    but validating explicitly turns a typo'd filter into something
+    checkable rather than "the log looks empty" with no clue why.
+    export=csv/json branches to a file-download response (Content-Type +
+    Content-Disposition headers) instead of the normal paginated JSON.
+
+  CAUGHT ANOTHER RISK BEFORE SHIPPING, related to this project's own
+  history: originally used res.status(200).send(...) for the file
+  response — but nothing anywhere else in this codebase has ever used
+  res.send(), and this project already has a precedent for a Vercel-
+  runtime assumption breaking in production without direct verification
+  (the bracket catch-all routing failure, early this session). Rather
+  than repeat that mistake, switched to res.statusCode = 200 +
+  res.end(...) — a guaranteed core Node.js http.ServerResponse method,
+  not a Vercel-specific convenience helper this sandbox can't verify
+  against a live deployment. Worth a quick real-world check once
+  deployed (click Export CSV/JSON and confirm a file actually
+  downloads), same caveat as anything this sandbox can't fully verify.
+
+FRONTEND
+  - api.js: auditApi.list() now accepts filters (stripped of undefined/
+    empty values before building the query string — URLSearchParams
+    would otherwise serialize an unset filter as the literal string
+    "undefined", which the backend's truthy check would treat as a real
+    filter value; caught this before it shipped too). New auditApi.
+    export() — can't reuse request() (that helper always parses JSON;
+    an export response is a file, not JSON) — does its own authenticated
+    fetch, reads the response as a Blob, and triggers a browser download
+    via a temporary <a> element, the standard pattern for an
+    authenticated file download (a plain <a href> can't carry the
+    Authorization header this endpoint needs).
+  - AppAdmin.jsx: date range, Entity dropdown (7 known values), Action
+    dropdown (22 known values, mirrored from the backend's validation
+    list), and Performed By dropdown (reuses the same usersApi.list()
+    UserAdmin.jsx already calls — no new backend needed for this one).
+    Any filter change resets to page 1. Export CSV/JSON buttons with a
+    per-format loading state. Export errors get their OWN state
+    (auditExportError) — initially reused settingsError from the System
+    Settings tab for this, caught that it would show a stale Settings-
+    tab error message on the Audit tab too, fixed before it shipped.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected; every new/edited backend file passes node --check and
+an ESM import smoke test; the CSV escaping helper verified standalone
+against representative inputs (comma, quotes, newline, nested object,
+null) before trusting it.
+
+NEXT (Mark's confirmed order): email notifications, then the rest of
+the production-readiness list from §75.
+
+MIGRATION — no schema change:
+  frontend/api-lib/services/auditService.js (refactored; exportAuditLog added)
+  frontend/api-lib/handlers/auditHandlers.js (filters + export added)
+  frontend/api-lib/http/helpers.js         (toCsv added)
+  frontend/src/services/api.js             (auditApi.list filters; auditApi.export added)
+  frontend/src/pages/AppAdmin.jsx          (filter UI + export buttons)
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I
