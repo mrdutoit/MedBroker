@@ -22,9 +22,10 @@ export default function Login() {
     setError(null);
     try {
       await login(email, password);
-      // Success — AuthContext's user state flips, App.jsx re-renders into the app.
-      // passwordMustChange handling (forcing a change screen) is a follow-up,
-      // not yet built — see DEMO_NOTES.md.
+      // Success — AuthContext's user state flips, App.jsx re-renders. If
+      // passwordMustChange is true, AuthGate renders <ChangePassword
+      // forced /> instead of the app itself — built in §72, nothing
+      // further needed here.
     } catch {
       // error is already set on the context by login(); nothing else to do here.
     }

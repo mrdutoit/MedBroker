@@ -4639,6 +4639,131 @@ MIGRATION — one file, no schema change:
   frontend/src/pages/UserAdmin.jsx
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+74. SORTABLE TABLES — USER ADMIN — 30 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's request: clickable column headers to sort a table, with a
+sensible default (User Admin — alphabetical by name) and the ability to
+change which column it's sorted on.
+
+BUILT: new reusable hook, hooks/useSortableData.js — click a header to
+sort by it, click the same one again to reverse direction, click a
+different one to switch (ascending). Deliberately client-side —
+everything this would apply to (Users, Tasks, a single agent's own
+Leads) is personal/org-scale, dozens to a few hundred rows, not a
+dataset that needs server-side sort + pagination. Stable sort (ties keep
+their original relative order) and empty/null values always sort last
+regardless of direction — verified both behaviours, plus case-
+insensitive string comparison, with real data standalone before trusting
+the logic, not just read the code.
+
+Applied to UserAdmin.jsx: Name, Email, Role, Region, Supervisor, Status
+are all sortable; Portfolio and Products stay unsortable (multi-value
+badge columns, not a single value to compare). Default: Name, ascending
+— exactly what Mark asked for.
+
+Deliberately scoped to this one table for now, not retrofitted across
+every table in the app in the same pass — the hook itself is written to
+be reusable (see its own header comment), so applying the same pattern
+elsewhere (Leads, Appointments, Tasks) is a small, contained addition
+whenever wanted, not a rebuild.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected; the sort logic itself (case-insensitive compare, null-
+handling, stability on ties) verified standalone with representative
+data, not just read.
+
+MIGRATION — no schema/backend change:
+  frontend/src/hooks/useSortableData.js (NEW)
+  frontend/src/pages/UserAdmin.jsx
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+75. PRODUCTION-READINESS AUDIT + SSO PAGE REWRITE — 31 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark wants to wrap this project up and ship to a real customer — asked
+for a proper audit of legacy/fake content plus a list of genuinely
+missing features. Did this as an actual codebase search (grepped for
+"coming soon"/"not yet built"/"mock"/"fake"/etc. across every page, not
+from memory), since accuracy matters a lot here — Mark's about to make
+real go/no-go decisions off this list.
+
+FULL AUDIT FINDINGS (see chat for the complete tables presented to
+Mark — summarised here for the record):
+
+Legacy/fake content found:
+  - SingleSignOn.jsx — far worse than expected on inspection. Not just
+    outdated documentation: it presented FABRICATED configuration as
+    live — a made-up Tenant ID, Client ID, "Token validation: Active —
+    JWKS endpoint", "M365 calendar integration: Active — Graph API
+    scopes granted", plus "Test connection"/"Edit configuration" buttons
+    that did nothing. A real customer looking at this page would
+    reasonably believe SSO was actively configured. Fixed this session
+    (below).
+  - AppAdmin.jsx's Audit Log tab — hardcoded fake entries shown
+    UNCONDITIONALLY, not even gated behind demo mode like everything
+    else in this app. Flagged as the next item to fix (compliance-
+    adjacent feature showing fabricated data is a real problem).
+  - AppAdmin.jsx's Subscriptions tab — same underlying gap as the
+    already-tracked "Medical Subscription lead import never built"
+    item, not a separate issue.
+  - Login.jsx had a stale comment claiming the forced password-change
+    flow "is a follow-up, not yet built" — it was built in §72, comment
+    just never got updated. Fixed inline while doing this audit.
+  - Dead "Entra branch" code scattered across ~8 files (RoleContext,
+    AuthContext, Tasks, Notifications, Settings, Login, App.jsx,
+    FeatureFlags) — inert, never executes since this deployment always
+    runs in demo mode, but real bulk sitting in the codebase. Flagged,
+    not removed yet — Mark's call on priority, it's a real refactor
+    touching many files, not a quick fix.
+  - LeadImport's "Medical Subscription" import tab and Settings' "Upload
+    photo" are ALREADY honest, already-disabled stubs — checked, no
+    action needed there.
+
+Genuinely missing features (confirmed, not assumed): email
+notifications (no provider connected), an org-wide Audit Log viewer
+(only per-entity history exists — listAuditLog(entityType, entityId) in
+auditService.js, no "browse everything" query), Medical Subscription
+lead import (the channel itself, separate from Audit Log's use of the
+same underlying gap), token economy (Stripe not wired), POPIA Subject
+Access Request endpoint.
+
+Security/compliance hardening items (go-live gates, already individually
+tracked across earlier sections, not repeated here) and the still-queued
+ESLint/Vite-Vitest/React-Router-v8 items from the npm audit conversation
+are unchanged — see §0's CURRENT SECURITY / DEPENDENCY STATE for the
+current list of those.
+
+BUILT THIS ENTRY: SingleSignOn.jsx rewritten from scratch. Removed
+entirely: the fabricated M365 config table, the fake "Test
+connection"/"Edit configuration" buttons, and the full Microsoft Entra
+ID / Google Workspace step-by-step setup documentation — all of it
+described the ORIGINAL Azure Functions/Entra ID architecture (api/src/,
+the separate, now out-of-scope target), and doesn't belong embedded in
+this product's live UI regardless of whether it's accurate for a
+DIFFERENT deployment. Replaced with a short, honest page: states plainly
+that this deployment uses local email/password auth (with a pointer to
+the real, working policy controls in App Admin), and that SSO is a
+capability of a separate enterprise deployment profile, without implying
+anything about it is active here. Nav entry/route left unchanged — the
+label "Single Sign-On" is still a reasonable name for a page that now
+honestly explains it isn't available, not misleading.
+
+VERIFIED: full Vite production build clean (confirmed SingleSignOn's own
+chunk built successfully, not just the overall build); existing 45-test
+Vitest suite unaffected.
+
+NEXT (Mark's confirmed order): AppAdmin's Audit Log tab (fake data
+shown unconditionally), then email notifications, then the rest of the
+list roughly in the order presented.
+
+MIGRATION — no schema/backend change:
+  frontend/src/pages/SingleSignOn.jsx (rewritten)
+  frontend/src/pages/Login.jsx (stale comment fixed)
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I
