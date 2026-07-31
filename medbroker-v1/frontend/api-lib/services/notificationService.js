@@ -1,24 +1,25 @@
 /**
- * services/notificationService.js — NEW (§61).
- * Data access for the Notification entity. Simpler than taskService.js —
- * no polymorphic entity resolution needed for display, since a
- * notification's title/body are fully human-readable text baked in at
- * creation time (entityType/entityId are carried through for a possible
- * future "go to the lead/appointment" click-through, not currently used
- * by Notifications.jsx, which has no navigation today either).
+ * services/notificationService.js — NEW (§61), email notifications added
+ * (§78). Data access for the Notification entity. Simpler than
+ * taskService.js — no polymorphic entity resolution needed for display,
+ * since a notification's title/body are fully human-readable text baked
+ * in at creation time (entityType/entityId are carried through for a
+ * possible future "go to the lead/appointment" click-through, not
+ * currently used by Notifications.jsx, which has no navigation today
+ * either).
  */
 
 import { executeQuery, executeQueryOne, sql } from './db.js';
 import { resolveOrganisationId } from '../context/tenant.js';
+import { getFlagMeta } from './flagService.js';
+import { getUserEmailById } from './userService.js';
+import { sendEmail } from './emailService.js';
 
 /**
- * Low-level insert — used by the two synchronous trigger points this
- * narrowed pass covers: LeadAssigned (leadHandlers.js's assign handler)
- * and AppointmentAssigned (appointmentService.assignBroker()). The three
- * time-based types Notifications.jsx's own header comment lists
- * (AppointmentReminder, CallbackReminder, LeadAutoReturned) need a
- * scheduled job that doesn't exist anywhere in this stack yet —
- * deliberately not built here, see Status.md §61.
+ * Low-level insert — every real notification type funnels through this
+ * one function: LeadAssigned/AppointmentAssigned (action-driven, §61)
+ * and AppointmentReminder/CallbackReminder/LeadAutoReturned (daily
+ * Vercel Cron scan, §68 — schedulerService.js).
  * @param {{recipientId: string, type: string, title: string, body: string,
  *          entityType?: string, entityId?: string}} data
  * @returns {Promise<string>} new notification id
@@ -44,7 +45,46 @@ export async function createNotification({ recipientId, type, title, body, entit
       entityId:       { type: sql.NVarChar(100),    value: entityId ?? null },
     }
   );
+
+  // §78 — email notifications. AWAITED, not fire-and-forget: a Vercel
+  // serverless function can freeze/terminate the instant its handler
+  // returns, so an un-awaited promise here risks never actually
+  // completing. Wrapped in try/catch so an email failure — including
+  // "SMTP isn't configured yet", which is the DEFAULT state — can never
+  // make notification creation itself fail. The in-app notification
+  // (already inserted above) always succeeds regardless of whether the
+  // email send does.
+  try {
+    await maybeSendNotificationEmail({ recipientId, title, body });
+  } catch (err) {
+    console.error(`Email notification failed (non-fatal, in-app notification ${newId} still created):`, err.message);
+  }
+
   return newId;
+}
+
+/**
+ * Gated on the notifications.email.enabled flag (default off) — checked
+ * fresh on every call rather than cached, since this flag is exactly
+ * the kind of thing an Admin might flip and expect to take effect
+ * immediately, not after some cache expires. Returns early (no-op,
+ * no error) when the flag is off — this is the DEFAULT state, so the
+ * common case does the least possible work: one flag lookup, nothing
+ * else.
+ */
+async function maybeSendNotificationEmail({ recipientId, title, body }) {
+  const flag = await getFlagMeta('notifications.email.enabled');
+  if (!flag || flag.value !== '1') return;
+
+  const email = await getUserEmailById(recipientId);
+  if (!email) return; // deleted/deactivated user — nothing to send to
+
+  await sendEmail({
+    to: email,
+    subject: title,
+    text: body,
+    html: `<p>${body}</p><p style="color:#888;font-size:12px;margin-top:24px;">This is an automated notification from MedBroker.</p>`,
+  });
 }
 
 const NOTIFICATION_SELECT = `

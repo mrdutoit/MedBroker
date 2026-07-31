@@ -16,6 +16,7 @@
     "bcryptjs": "^2.4.3",
     "date-fns": "^3.6.0",
     "html5-qrcode": "^2.3.8",
+    "nodemailer": "^9.0.3",
     "pg": "^8.13.0",
     "pino": "^9.4.0",
     "qrcode": "^1.5.4",
@@ -23,7 +24,7 @@
     "react-dom": "^18.3.1",
     "react-router": "^7.18.2",
     "recharts": "^3.10.1",
-    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz",
+    "xlsx": "^0.18.5",
     "zod": "^3.23.8"
   },
   "devDependencies": {

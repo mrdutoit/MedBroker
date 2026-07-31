@@ -70,7 +70,16 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   entirely mock before this.
   Audit Log (§76) — AppAdmin's Audit Log tab is real now, paginated,
                   org-wide. Was showing ten hardcoded fake entries
-                  unconditionally before this.
+                  unconditionally before this. Filters (date range,
+                  Entity, Action, Performed By) + CSV/JSON export (§77).
+  Email notifications (§78) — real, built on standard SMTP
+                  (nodemailer) rather than any provider's proprietary
+                  API, deliberately, so it's swappable for a customer's
+                  own mail server or M365 later without a rewrite. Needs
+                  SMTP_HOST/SMTP_USER/SMTP_PASSWORD/SMTP_FROM set in
+                  Vercel's env vars AND notifications.email.enabled
+                  switched on (AppAdmin -> Feature Flags) before
+                  anything actually sends — neither is done yet.
 
 GATED OFF BY DEFAULT (built, working, just not switched on):
   tasks.enabled — flip in FeatureFlags.jsx (AppAdmin) to see Tasks in
@@ -78,15 +87,12 @@ GATED OFF BY DEFAULT (built, working, just not switched on):
 
 DELIBERATELY NOT BUILT (real gaps, not yet scoped or blocked on
 something outside this session's control):
-  - Notifications: 3 of 6 types (AppointmentReminder, CallbackReminder,
-    LeadAutoReturned) need a scheduled job. No Vercel Cron exists in
-    this stack yet — this is the blocker, not lack of scoping.
   - Token economy: claim model works; Stripe not connected.
-  - Email notifications: flag exists; Azure Communication Services
-    (or any email provider) not configured. Separate from the in-app
-    Notification system above, which is real.
   - POPIA Subject Access Request endpoint: flag exists, nothing built.
   - "Medical Subscription" lead import tab: UI mockup only, no backend.
+  - Org-wide entity display for Event/EventAttendee/Task in the Audit
+    Log (§76) — shows a raw id rather than a resolved name, a real but
+    lower-priority gap than Lead/Appointment/User, which do resolve.
 
 CURRENT SECURITY / DEPENDENCY STATE (as of 30 Jul 2026):
   - react-router: migrated 6->7 (7.18.2). The open-redirect + SSR-
@@ -4932,6 +4938,103 @@ MIGRATION — no schema change:
   frontend/src/services/api.js             (auditApi.list filters; auditApi.export added)
   frontend/src/pages/AppAdmin.jsx          (filter UI + export buttons)
 Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+78. EMAIL NOTIFICATIONS — 31 Jul 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's next item from §75's production-readiness list. Deliberately
+built on STANDARD SMTP (via nodemailer), not any provider's proprietary
+REST API — Mark's explicit requirement, discussed and agreed before
+building: whatever this is built on needs to be swappable later for a
+customer's own mail server or Microsoft 365, without a rewrite. Every
+SMTP-capable provider speaks the identical protocol, so swapping is
+purely an environment-variable change, never a code change.
+
+Researched properly before building, not assumed: Vercel doesn't host
+outbound email sending as a platform feature itself. Resend (built by
+former Vercel engineers, in Vercel's own integration marketplace) is the
+free option being targeted — confirmed current as of 31 Jul 2026: 3,000
+emails/month, 100/day, one verified domain, 30-day log retention.
+Resend supports both a proprietary REST API and standard SMTP relay;
+building against the SMTP relay specifically is what makes this
+swappable. Flagged one real caveat to Mark: M365 tenants increasingly
+have SMTP AUTH disabled by default, so a customer's IT admin may need to
+explicitly enable it — not something this code can control.
+
+BUILT:
+  - NEW emailService.js — pure SMTP transport, ZERO knowledge of Resend/
+    M365/any specific provider on purpose. nodemailer chosen
+    specifically: confirmed zero dependencies, no native bindings (no
+    gypfile) before adding it — a real, checked reason to trust it in a
+    serverless environment, not just "it's popular". Transporter cached
+    at module scope, same pattern db.js already uses for its connection
+    pool. Throws a clear error if SMTP_HOST/SMTP_USER/SMTP_PASSWORD
+    aren't set — callers treat this as "not configured yet", not a hard
+    failure of whatever triggered it.
+  - notificationService.js: email-sending hooked into createNotification()
+    itself — the ONE place every real notification type already funnels
+    through (LeadAssigned/AppointmentAssigned action-driven, §61;
+    AppointmentReminder/CallbackReminder/LeadAutoReturned via the daily
+    Cron scan, §68) — rather than duplicating the email logic at five
+    separate call sites. AWAITED, deliberately not fire-and-forget: a
+    Vercel serverless function can freeze/terminate the instant its
+    handler returns, so an un-awaited promise here risks the email
+    silently never actually sending. Wrapped in try/catch so a failure —
+    including "SMTP isn't configured yet", the DEFAULT state right now —
+    can never make notification creation itself fail; verified this
+    exact chain (flag on, SMTP not yet configured) standalone before
+    trusting it, not just read the code.
+  - Gated on notifications.email.enabled (already existed as a flag,
+    default off — checked fresh on every call, not cached, since an
+    Admin flipping this flag should take effect immediately). Its own
+    seed description was stale ("not wired up") — fixed in
+    feature-flags.postgres.sql; existing databases won't pick that text
+    change up automatically (it's seed data, not a migration), a
+    cosmetic detail Mark can leave as-is or update by hand, not urgent.
+  - userService.js: new getUserEmailById(), matching
+    getUserDisplayNameById's exact existing pattern.
+  - Fixed a second stale comment in notificationService.js's own header
+    while in there — it still said the Cron-dependent types "need a
+    scheduled job that doesn't exist anywhere in this stack yet",
+    written before §68 built exactly that.
+
+MARK'S ACTION REQUIRED — nothing sends until these are set in Vercel's
+project environment variables:
+  SMTP_HOST      e.g. smtp.resend.com
+  SMTP_PORT      587 (safe default; 465 also works if a provider needs it)
+  SMTP_USER      provider-specific — for Resend this is literally the
+                 string "resend", not an email address
+  SMTP_PASSWORD  the actual API key / SMTP password
+  SMTP_FROM      must be on a domain verified with whichever provider is
+                 configured, or sends get rejected/spam-filtered
+Get these from Resend's dashboard (Settings -> SMTP) once a domain is
+verified there. Also needs notifications.email.enabled switched on in
+AppAdmin -> Feature Flags — the env vars alone don't turn emails on.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected; every new/edited backend file passes node --check and
+an ESM import smoke test. The full failure-handling chain (flag on, SMTP
+not configured — the realistic state immediately after this ships,
+before Mark sets the env vars) verified standalone: confirmed the
+in-app notification still succeeds and the error is caught non-fatally,
+not just assumed the try/catch would behave as intended.
+
+NOT YET DONE: actual email TEMPLATES beyond a plain paragraph wrapping
+each notification's existing title/body text — functional, not
+polished. Worth a follow-up pass once real sending is confirmed working,
+not before.
+
+MIGRATION — no schema change (notifications.email.enabled flag already existed):
+  frontend/package.json                     (nodemailer added)
+  frontend/package-lock.json
+  frontend/db/feature-flags.postgres.sql    (stale flag description fixed)
+  frontend/api-lib/services/emailService.js (NEW)
+  frontend/api-lib/services/notificationService.js (email hook + stale comment fix)
+  frontend/api-lib/services/userService.js  (getUserEmailById added)
+Plus this Status_Vercel.md.
+
+NEXT: rest of §75's production-readiness list.
 
 
 

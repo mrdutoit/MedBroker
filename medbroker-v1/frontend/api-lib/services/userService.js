@@ -384,6 +384,23 @@ export async function getUserDisplayNameById(id) {
 }
 
 /**
+ * §78 — email notifications need the recipient's actual address, not
+ * just their display name. Same pattern as getUserDisplayNameById above.
+ * @param {string} id
+ */
+export async function getUserEmailById(id) {
+  const row = await executeQueryOne(
+    `SELECT email FROM "User"
+     WHERE id = @id AND deletedAt IS NULL AND organisationId = @organisationId`,
+    {
+      id:             { type: sql.UniqueIdentifier, value: id },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+  return row?.email ?? null;
+}
+
+/**
  * All active, non-deleted direct-report user ids for a supervisor.
  * Used to scope Supervisor (without Admin) to their team plus unassigned
  * records — the A1 finding: "Supervisor must never get unrestricted
