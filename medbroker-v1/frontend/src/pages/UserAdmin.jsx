@@ -23,6 +23,7 @@ import { useState } from 'react';
 import { useRole, PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
+import { useSortableData } from '../hooks/useSortableData.js';
 import { usersApi, apiMode, ApiError } from '../services/api.js';
 import { REGIONS } from '../constants/leadOptions.js';
 import { s } from '../styles/tokens.js';
@@ -44,6 +45,27 @@ const BLANK_FORM = {
 };
 
 // ─── Portfolio + product selector (reused in both modals) ────────────────────
+/**
+ * A clickable <th> that sorts by activeKey when clicked, showing a ▲/▼
+ * indicator when it's the currently active sort column. Local to this
+ * file for now — worth extracting alongside useSortableData if the same
+ * pattern gets applied to another table later.
+ */
+function SortableTh({ label, activeKey, currentSortKey, currentDirection, requestSort }) {
+  const isActive = currentSortKey === activeKey;
+  return (
+    <th
+      style={{ ...s.th, cursor: 'pointer', userSelect: 'none', whiteSpace: 'nowrap' }}
+      onClick={() => requestSort(activeKey)}
+    >
+      {label}
+      <span style={{ marginLeft: '4px', fontSize: '0.6875rem', color: isActive ? 'var(--ink)' : 'var(--mut)', opacity: isActive ? 1 : 0.4 }}>
+        {isActive ? (currentDirection === 'asc' ? '▲' : '▼') : '▲'}
+      </span>
+    </th>
+  );
+}
+
 function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onProductChange, role }) {
   const needsPortfolio = ['Agent', 'Supervisor', 'Broker'].includes(role);
   const needsProducts  = role === 'Broker';
@@ -382,6 +404,11 @@ export default function UserAdmin() {
   const filtered = allUsers.filter(u => roleFilter === 'All' || u.role === roleFilter);
   const counts   = ROLES.reduce((acc, r) => { acc[r] = allUsers.filter(u => u.role === r).length; return acc; }, {});
 
+  // Sorting (default: Name, ascending — alphabetical, per Mark's request).
+  // Applied AFTER filtering, so sorting always acts on whatever's
+  // currently visible, not the full unfiltered roster.
+  const { sorted: sortedFiltered, sortKey, sortDirection, requestSort } = useSortableData(filtered, 'displayName', 'asc');
+
   async function handleModalSave(payload) {
     if (modal.mode === 'edit') {
       await usersApi.update(modal.user.id, payload);
@@ -445,19 +472,19 @@ export default function UserAdmin() {
         <table style={{ ...s.table, minWidth: '600px' }}>
           <thead>
             <tr>
-              <th style={s.th}>Name</th>
-              <th style={s.th}>Email</th>
-              <th style={s.th}>Role</th>
-              <th style={s.th}>Region</th>
+              <SortableTh label="Name"       activeKey="displayName" currentSortKey={sortKey} currentDirection={sortDirection} requestSort={requestSort} />
+              <SortableTh label="Email"      activeKey="email"       currentSortKey={sortKey} currentDirection={sortDirection} requestSort={requestSort} />
+              <SortableTh label="Role"       activeKey="role"        currentSortKey={sortKey} currentDirection={sortDirection} requestSort={requestSort} />
+              <SortableTh label="Region"     activeKey="region"      currentSortKey={sortKey} currentDirection={sortDirection} requestSort={requestSort} />
               <th style={s.th}>Portfolio</th>
-              <th style={s.th}>Supervisor</th>
+              <SortableTh label="Supervisor" activeKey="supervisor"  currentSortKey={sortKey} currentDirection={sortDirection} requestSort={requestSort} />
               <th style={s.th}>Products</th>
-              <th style={s.th}>Status</th>
+              <SortableTh label="Status"     activeKey="isActive"    currentSortKey={sortKey} currentDirection={sortDirection} requestSort={requestSort} />
               <th style={s.th}></th>
             </tr>
           </thead>
           <tbody>
-            {filtered.map(user => {
+            {sortedFiltered.map(user => {
               const rs = ROLE_STYLE[user.role] ?? ROLE_STYLE.Agent;
               return (
                 <tr
