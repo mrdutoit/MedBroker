@@ -140,7 +140,7 @@ function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onP
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
-function UserModal({ mode, user, supervisors, ssoEnabled, demoMode, onClose, onSave }) {
+function UserModal({ mode, user, supervisors, ssoEnabled, demoMode, onClose, onSave, onUnlock }) {
   const isEdit = mode === 'edit';
   const [form, setForm] = useState(
     isEdit
@@ -228,6 +228,17 @@ function UserModal({ mode, user, supervisors, ssoEnabled, demoMode, onClose, onS
     }
   }
 
+  async function handleUnlock() {
+    setSaving(true);
+    setError(null);
+    try {
+      await onUnlock();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not unlock this account.');
+      setSaving(false);
+    }
+  }
+
   return (
     <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ ...s.modal, width: '520px' }}>
@@ -237,6 +248,13 @@ function UserModal({ mode, user, supervisors, ssoEnabled, demoMode, onClose, onS
         </div>
 
         {error && <div style={{ ...s.errorBox, marginBottom: '14px' }}>{error}</div>}
+
+        {/* Locked notice — §81, visible immediately rather than only implied by the Unlock button */}
+        {isEdit && user.isLocked && (
+          <div style={{ ...s.errorBox, marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            🔒 This account is locked after too many failed login attempts. Use "Unlock Account" below to restore access.
+          </div>
+        )}
 
         {/* SSO notice — only when SSO is actually the active auth path */}
         {ssoEnabled && (
@@ -359,9 +377,16 @@ function UserModal({ mode, user, supervisors, ssoEnabled, demoMode, onClose, onS
 
         <div style={{ ...s.modalFooter, justifyContent: isEdit ? 'space-between' : 'flex-end' }}>
           {isEdit && (
-            <button style={s.dangerBtn} onClick={handleDeactivate} disabled={saving}>
-              {saving ? 'Working…' : 'Deactivate'}
-            </button>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button style={s.dangerBtn} onClick={handleDeactivate} disabled={saving}>
+                {saving ? 'Working…' : 'Deactivate'}
+              </button>
+              {user.isLocked && (
+                <button style={s.secondaryBtn} onClick={handleUnlock} disabled={saving}>
+                  {saving ? 'Working…' : 'Unlock Account'}
+                </button>
+              )}
+            </div>
           )}
           <div style={{ display: 'flex', gap: '8px' }}>
             <button style={s.ghostBtn} onClick={onClose} disabled={saving}>Cancel</button>
@@ -408,6 +433,13 @@ export default function UserAdmin() {
   // Applied AFTER filtering, so sorting always acts on whatever's
   // currently visible, not the full unfiltered roster.
   const { sorted: sortedFiltered, sortKey, sortDirection, requestSort } = useSortableData(filtered, 'displayName', 'asc');
+
+  async function handleModalUnlock() {
+    if (!modal?.user) return;
+    await usersApi.unlock(modal.user.id);
+    await Promise.all([refetchUsers(), refetchSupervisors()]);
+    setModal(null);
+  }
 
   async function handleModalSave(payload) {
     if (modal.mode === 'edit') {
@@ -538,6 +570,11 @@ export default function UserAdmin() {
                     <span style={{ ...s.badge, background: user.isActive ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'var(--panel2)', color: user.isActive ? '#15803d' : 'var(--mut)' }}>
                       {user.isActive ? 'Active' : 'Inactive'}
                     </span>
+                    {user.isLocked && (
+                      <span style={{ ...s.badge, background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', color: '#dc2626', marginLeft: '4px' }}>
+                        Locked
+                      </span>
+                    )}
                   </td>
                   <td style={s.td} onClick={e => e.stopPropagation()}>
                     <button style={s.linkBtn} onClick={() => setModal({ mode: 'edit', user })}>Edit</button>
@@ -558,6 +595,7 @@ export default function UserAdmin() {
           demoMode={demoMode}
           onClose={() => setModal(null)}
           onSave={handleModalSave}
+          onUnlock={handleModalUnlock}
         />
       )}
     </div>

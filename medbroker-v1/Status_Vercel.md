@@ -5240,6 +5240,63 @@ NEXT: dead Entra-branch cleanup (~8 files, optional, Mark's call on
 priority) is the last item on §75's original list; everything else
 remaining there was process/paperwork, not a code task.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+81. FIXED — ADMIN COULD NOT UNLOCK A LOCKED ACCOUNT — 1 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark found this testing §72's password policy: an account locks
+correctly after too many failed logins, but there was no way for an
+Admin (or anyone) to unlock it again. He asked whether this was
+deliberately reserved for GlobalAdmin.
+
+It wasn't. Checked before answering: unlockUser() has existed in
+userService.js since §72, but nothing anywhere in the codebase ever
+called it — no handler, no route, no UI button. Not a role restriction,
+a genuinely unfinished feature. Also found isLocked/failedLoginAttempts
+were selected by neither the user LIST query nor the detail query the
+Edit User modal uses — meaning even if the button had existed, there
+was no way to tell which accounts were locked in the first place.
+
+FUNCTION COUNT: PUT /api/users/:id/unlock added as a sub-route on the
+already-existing users-router.js — no new function.
+
+BUILT:
+  - userService.js: isLocked + failedLoginAttempts added to
+    USER_LIST_SELECT (shared by both listUsers and getUserForAdmin) —
+    Postgres's primary-key functional-dependency rule means this didn't
+    need a GROUP BY change (u.isActive was already relying on the same
+    thing, confirmed before assuming it'd just work).
+  - userHandlers.js: new handleUserUnlock() — Admin/GlobalAdmin, the
+    SAME role gate as everything else in User Admin, correcting the
+    assumption this was GlobalAdmin-only. This is a routine account-
+    administration action, not a system-configuration one, so it
+    doesn't belong behind a tighter gate than the rest of this router.
+    Writes UserUnlocked to the audit trail.
+  - users-router.js: unlock sub-route added.
+  - auditHandlers.js: UserUnlocked added to the Audit Log's filterable
+    action list.
+  - UserAdmin.jsx: a red "Locked" badge now shows next to Active/
+    Inactive in the main table, so locked accounts are visible without
+    opening each one. The Edit User modal shows a clear locked notice
+    up top (not just an implied state from a button's presence), and
+    an "Unlock Account" button next to Deactivate, shown only when the
+    account is actually locked. New onUnlock prop threaded through
+    from the parent, mirroring the existing onSave pattern rather than
+    inventing a different one.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected; every new/edited backend file passes node --check and
+an ESM import smoke test.
+
+MIGRATION — no schema change (isLocked/failedLoginAttempts already existed):
+  frontend/api-lib/services/userService.js  (isLocked/failedLoginAttempts added to shared SELECT)
+  frontend/api-lib/handlers/userHandlers.js (handleUserUnlock added)
+  frontend/api-lib/handlers/auditHandlers.js (UserUnlocked added to filter list)
+  frontend/api/users-router.js              (unlock sub-route added)
+  frontend/src/services/api.js              (usersApi.unlock added)
+  frontend/src/pages/UserAdmin.jsx          (Locked badge, modal notice, Unlock button)
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I

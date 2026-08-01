@@ -5,7 +5,7 @@
  */
 
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
-import { listUsers, createUserFull, listSupervisors, getUserForAdmin, updateUserFull, getOwnProfile, updateOwnProfile } from '../services/userService.js';
+import { listUsers, createUserFull, listSupervisors, getUserForAdmin, updateUserFull, getOwnProfile, updateOwnProfile, unlockUser } from '../services/userService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
 import { CreateUserSchema, UserListQuerySchema, UpdateUserSchema, UpdateOwnProfileSchema } from '../models/user.js';
 import { isUuid } from '../http/helpers.js';
@@ -170,6 +170,51 @@ export async function handleUserById(req, res, id) {
       return res.status(status).json(body);
     }
     console.error('users/[id] error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * PUT /api/users/:id/unlock — clears a lockout from too many failed
+ * login attempts. Admin/GlobalAdmin, same role gate as everything else
+ * in User Admin — this is a routine account-administration action, not
+ * a system-configuration one, so it doesn't belong behind a tighter
+ * gate than the rest of this router. unlockUser() itself has existed
+ * since the password policy work (§72); this endpoint — the thing that
+ * actually calls it — did not, which is the real bug being fixed here,
+ * not a deliberate GlobalAdmin-only restriction.
+ */
+export async function handleUserUnlock(req, res, id) {
+  if (req.method !== 'PUT') {
+    res.setHeader('Allow', 'PUT, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Admin', 'GlobalAdmin']);
+
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid user ID format' });
+
+    const existing = await getUserForAdmin(id);
+    if (!existing) return res.status(404).json({ error: 'User not found' });
+
+    await unlockUser(id);
+
+    await writeAuditLog({
+      entityType: 'User', entityId: id, action: 'UserUnlocked',
+      performedById: claims.oid, ipAddress: clientIp(req),
+    });
+
+    const updated = await getUserForAdmin(id);
+    return res.status(200).json(updated);
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('users/[id]/unlock error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

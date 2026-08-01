@@ -20,7 +20,9 @@ import { hashPassword, verifyPassword } from './authService.js';
 
 const USER_LIST_SELECT = `
   u.id, u.displayName AS "displayName", u.email, u.role, u.region,
-  u.isActive AS "isActive", u.supervisorId AS "supervisorId",
+  u.isActive AS "isActive", u.isLocked AS "isLocked",
+  u.failedLoginAttempts AS "failedLoginAttempts",
+  u.supervisorId AS "supervisorId",
   sup.displayName AS "supervisorName",
   COALESCE(array_agg(DISTINCT p.name) FILTER (WHERE p.name IS NOT NULL), ARRAY[]::text[]) AS "portfolios",
   COALESCE(array_agg(DISTINCT prod.name) FILTER (WHERE prod.name IS NOT NULL), ARRAY[]::text[]) AS "products"`;
