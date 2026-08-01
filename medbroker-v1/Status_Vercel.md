@@ -5641,6 +5641,64 @@ MIGRATION — no schema change, frontend only:
   frontend/src/pages/Login.jsx
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+89. FIXED — PORTFOLIOS AND PRODUCTS TABS WERE ENTIRELY FAKE — 1 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark found this testing after §88 — App Admin's Portfolios and Products
+tabs "don't work at all". Checked carefully whether this was a
+regression from §88's large RoleContext/AuthContext/App.jsx refactor
+before doing anything else, given the scale of that change — it
+wasn't. Both tabs were always entirely hardcoded: fabricated numbers
+("487 active leads", "3 brokers assigned", per-product monthly sales
+figures pulled from a literal array of made-up integers) and "+ Add
+Portfolio"/"+ Add Product"/"Edit" buttons with no onClick handlers at
+all — never wired to anything, in any session.
+
+Checked what MedBroker-User-Guide.docx already told the customer about
+this page before deciding how to fix it, rather than guess at the
+intended design: "These are fixed to match your organisation's
+licensing and are not user-editable." That resolves the question
+cleanly — the buttons and fake numbers were the bug, not evidence of a
+missing CRUD feature. Building real portfolio/product management would
+also have been a much larger undertaking than it looks: PORTFOLIOS and
+PRODUCTS_BY_PORTFOLIO are hardcoded constants threaded through Lead
+creation, User Admin's portfolio/product checkboxes, LeadImport, and
+more — making them genuinely dynamic would mean touching all of those,
+not just this one tab.
+
+FIX: both tabs rebuilt as honest, static reference views — real
+portfolio/product names and their real relationship to each other
+(pulled from the same PORTFOLIOS/PRODUCTS_BY_PORTFOLIO constants
+already used correctly everywhere else in the app), no fabricated
+metrics, no dead buttons. ALL_PRODUCTS' fake sold/status fields removed
+from the constant itself, not just hidden from the table — nothing
+else in the file referenced them.
+
+VERIFIED: full Vite production build clean — AppAdmin's own bundle
+shrank further, 30.33 kB -> 28.22 kB; existing 45-test Vitest suite
+unaffected.
+
+STATUS CHECK (Mark also asked what's still outstanding overall):
+everything from the original §75 production-readiness audit is now
+either built, fixed, or correctly identified as process/paperwork
+outside what code changes can address. What remains:
+  - Token economy (Stripe) — needs Mark's pricing decisions before any
+    build work can start, not a scoping gap.
+  - Rate limiting on authenticated endpoints, session token refresh/
+    revocation, TLS certificate verification tightening — buildable,
+    not yet started.
+  - Dependency bumps (ESLint v10, Vite v8/Vitest v4, React Router v8) —
+    lowest priority, already established as such.
+  - Process/paperwork items that were never code tasks: a real
+    penetration test, operator agreements with Vercel and Neon, a
+    cross-border data transfer assessment, a breach-notification
+    process, actually testing DB backup/restore.
+
+MIGRATION — no schema change, frontend only:
+  frontend/src/pages/AppAdmin.jsx
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I

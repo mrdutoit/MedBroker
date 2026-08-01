@@ -29,8 +29,8 @@ const AUDIT_ACTIONS = [
 ];
 
 const ALL_PRODUCTS = [
-  ...PRODUCTS_BY_PORTFOLIO.disc.map((name, i) => ({ name, portfolio: 'Discovery',          sold: [23,18,14,9,6,11,16,8,12,5][i] ?? 0, status: 'Active' })),
-  ...PRODUCTS_BY_PORTFOLIO.mm.map((name, i)   => ({ name, portfolio: 'Money and Medicine', sold: [4,3,2][i] ?? 0,                      status: 'Active' })),
+  ...PRODUCTS_BY_PORTFOLIO.disc.map(name => ({ name, portfolio: 'Discovery' })),
+  ...PRODUCTS_BY_PORTFOLIO.mm.map(name   => ({ name, portfolio: 'Money and Medicine' })),
 ];
 
 export default function AppAdmin() {
@@ -293,37 +293,25 @@ export default function AppAdmin() {
       {/* Portfolios */}
       {tab === 'portfolios' && (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
-              Portfolios define the business unit a broker or agent operates under.
-            </p>
-            <button style={s.primaryBtn}>+ Add Portfolio</button>
-          </div>
+          <p style={{ color:'var(--mut)', fontSize: '0.875rem', marginBottom: '12px' }}>
+            Portfolios define the business unit a broker or agent operates under. Fixed to match your
+            organisation's licensing — not user-editable.
+          </p>
           <div style={{ ...s.tableCard, overflowX: 'auto' }}>
-            <table style={{ ...s.table, minWidth: '600px' }}>
+            <table style={{ ...s.table, minWidth: '400px' }}>
               <thead><tr>
                 <th style={s.th}>Portfolio name</th>
-                <th style={s.th}>Brokers assigned</th>
-                <th style={s.th}>Agents assigned</th>
-                <th style={s.th}>Active leads</th>
-                <th style={s.th}>Status</th>
-                <th style={s.th}></th>
+                <th style={s.th}>Products</th>
               </tr></thead>
               <tbody>
-                <tr style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
-                  <td style={{ ...s.td, fontWeight: 500 }}>Discovery</td>
-                  <td style={s.td}>3</td><td style={s.td}>3</td>
-                  <td style={{ ...s.td, color:'var(--accent)', fontWeight: 600 }}>487</td>
-                  <td style={s.td}><span style={{ ...s.badge, background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d' }}>Active</span></td>
-                  <td style={s.td}><button style={s.linkBtn}>Edit</button></td>
-                </tr>
-                <tr style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
-                  <td style={{ ...s.td, fontWeight: 500 }}>Money and Medicine</td>
-                  <td style={s.td}>2</td><td style={s.td}>2</td>
-                  <td style={{ ...s.td, color:'var(--accent)', fontWeight: 600 }}>214</td>
-                  <td style={s.td}><span style={{ ...s.badge, background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d' }}>Active</span></td>
-                  <td style={s.td}><button style={s.linkBtn}>Edit</button></td>
-                </tr>
+                {PORTFOLIOS.map(p => (
+                  <tr key={p.id} style={s.tr}>
+                    <td style={{ ...s.td, fontWeight: 500 }}>{p.name}</td>
+                    <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>
+                      {PRODUCTS_BY_PORTFOLIO[p.id]?.length ?? 0} products
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -333,24 +321,19 @@ export default function AppAdmin() {
       {/* Products */}
       {tab === 'products' && (
         <>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-            <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
-              Products belong to a portfolio and are selectable as products sold on an appointment.
-            </p>
-            <button style={s.primaryBtn}>+ Add Product</button>
-          </div>
+          <p style={{ color:'var(--mut)', fontSize: '0.875rem', marginBottom: '12px' }}>
+            Products belong to a portfolio and are selectable as products sold on an appointment.
+            Fixed to match your organisation's licensing — not user-editable.
+          </p>
           <div style={{ ...s.tableCard, overflowX: 'auto' }}>
-            <table style={{ ...s.table, minWidth: '600px' }}>
+            <table style={{ ...s.table, minWidth: '400px' }}>
               <thead><tr>
                 <th style={s.th}>Product name</th>
                 <th style={s.th}>Portfolio</th>
-                <th style={s.th}>Sold this month</th>
-                <th style={s.th}>Status</th>
-                <th style={s.th}></th>
               </tr></thead>
               <tbody>
                 {ALL_PRODUCTS.map(p => (
-                  <tr key={p.name} style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
+                  <tr key={p.name} style={s.tr}>
                     <td style={{ ...s.td, fontWeight: 500 }}>{p.name}</td>
                     <td style={s.td}>
                       <span style={{ ...s.badge, fontSize: '0.688rem',
@@ -360,9 +343,6 @@ export default function AppAdmin() {
                         {p.portfolio === 'Money and Medicine' ? 'M&M' : p.portfolio}
                       </span>
                     </td>
-                    <td style={s.td}>{p.sold}</td>
-                    <td style={s.td}><span style={{ ...s.badge, background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d' }}>Active</span></td>
-                    <td style={s.td}><button style={s.linkBtn}>Edit</button></td>
                   </tr>
                 ))}
               </tbody>
