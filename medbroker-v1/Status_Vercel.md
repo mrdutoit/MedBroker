@@ -5476,6 +5476,54 @@ MIGRATION — no schema change, frontend only:
   frontend/src/App.jsx (partial — badge counts only)
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+86. DEAD ENTRA-BRANCH CODE CLEANUP — BATCH 3 (TASKS.JSX) — 1 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Continuing §84/§85. This was the biggest, most tangled file in the whole
+cleanup — 17 demoMode references, 2 mock datasets, and one mechanism
+(roleName) that reached into filtering, metrics, AND category-tab counts
+simultaneously. Read the entire file in full before touching anything,
+given the scale, rather than editing section by section from a partial
+view.
+
+REMOVED:
+  - MOCK_TASKS (11 fake tasks) and ASSIGNEES (a fixed name list) —
+    entire ~120-line block deleted, not commented out.
+  - MOCK_TODAY, the fixed reference date MOCK_TASKS' relative-date
+    badges were curated against — no longer needed once the mock data
+    is gone.
+  - TaskRow's comment-thread demoMode branch — the "local, in-memory
+    thread" fallback for a task's comments, simplified to always use
+    the real backend (already fully real since §71).
+  - mockTasks/setMockTasks local state, and the entire demoMode ? real
+    : mock pattern across toggleDone/deleteTaskHandler/addTask — each
+    simplified to its real-API branch only.
+  - roleName — this was the largest single piece of dead logic in the
+    whole cleanup exercise: a hardcoded name-matching mechanism
+    ("Thabo Molefe" for Agent, "Sandra van der Berg" for Broker) that
+    only ever existed because the Entra branch couldn't derive a real
+    identity. It touched three separate places (the main filtered list,
+    the metrics/myTasks calculation, and every category tab's count) —
+    all three simplified together in the same pass, since leaving even
+    one usage behind would have left roleName looking load-bearing when
+    it wasn't. matchesAssigneeFilter's own demoMode branch (string name
+    match vs id match) simplified to id-match only, the real shape.
+
+VERIFIED: full Vite production build clean — Tasks.jsx's own bundle
+shrank from 20.60 kB to 16.37 kB, a real, measurable confirmation that
+actual dead code came out, not just cosmetic tidying. Existing 45-test
+Vitest suite unaffected. Grepped the finished file for demoMode/
+apiMode/roleName/MOCK_/Entra as a final check — zero remaining matches.
+
+NOT YET DONE — remaining batches: AppAdmin.jsx (31 refs, the largest
+remaining), Settings.jsx (8 refs); RoleContext.jsx, AuthContext.jsx,
+Login.jsx, and the rest of App.jsx (Category C, last, on purpose).
+
+MIGRATION — no schema change, frontend only:
+  frontend/src/pages/Tasks.jsx
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I

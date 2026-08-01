@@ -13,9 +13,6 @@
  *   Meeting marked Seen        → "Record outcome — [lead name]"
  *   Appointment unassigned     → "Assign broker — [lead name]"
  *
- * The Entra branch (RoleContext doesn't yet derive a real identity there —
- * see its header comment) still runs entirely on MOCK_TASKS below.
- *
  * ROLES (server-enforced, see api-lib/handlers/taskHandlers.js):
  *   GlobalAdmin/Admin — see all tasks, can create/reassign/delete
  *   Supervisor        — sees self + direct reports' tasks, can create/reassign
@@ -40,7 +37,7 @@ import { useAuth }       from '../context/AuthContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch }      from '../hooks/useFetch.js';
 import { s }             from '../styles/tokens.js';
-import { apiMode, tasksApi, usersApi } from '../services/api.js';
+import { tasksApi, usersApi } from '../services/api.js';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -69,12 +66,6 @@ const PRIORITY_META = {
   Low:    { colour: 'var(--mut)', bg: 'var(--panel2)' },
 };
 
-// Fixed reference date for MOCK_TASKS' curated relative-date badges
-// (Entra branch only — real demo-mode tasks use the real current date,
-// computed in the Tasks() component below and threaded through as a
-// parameter rather than read off a module-level constant).
-const MOCK_TODAY = new Date('2026-05-20');
-
 function daysUntil(dateStr, today) {
   if (!dateStr) return null;
   const d = new Date(dateStr);
@@ -90,130 +81,6 @@ function dueMeta(dateStr, done, today) {
   if (days === 1) return { label: 'Due tomorrow', colour: '#d97706', bg: 'color-mix(in srgb, #d97706 14%, var(--panel))' };
   return { label: `Due ${dateStr.slice(5)}`, colour: 'var(--accent)', bg: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))' };
 }
-
-// ─── Mock data ─────────────────────────────────────────────────────────────────
-// Production: fetched from GET /api/tasks filtered by role and assignee.
-const MOCK_TASKS = [
-  {
-    id: 't-001', category: 'callback', priority: 'High', done: false,
-    title: 'Call back Dr Priya Naidoo',
-    detail: 'Callback requested during initial contact. Missed the 10:00 slot.',
-    linkedLead: 'Dr Priya Naidoo', linkedLeadId: 'lead-001',
-    assignedTo: 'Thabo Molefe', assignedToRole: 'Agent',
-    dueDate: '2026-05-19',
-    createdAt: '2026-05-19',
-    source: 'system',
-  },
-  {
-    id: 't-002', category: 'appointment', priority: 'High', done: false,
-    title: 'Confirm appointment — Dr Sipho Dlamini',
-    detail: 'First appointment is tomorrow at 14:00. Confirm with broker Riaan Botha and send calendar invite.',
-    linkedLead: 'Dr Sipho Dlamini', linkedLeadId: 'lead-002',
-    linkedAppointment: 'appt-002',
-    assignedTo: 'Thabo Molefe', assignedToRole: 'Agent',
-    dueDate: '2026-05-20',
-    createdAt: '2026-05-19',
-    source: 'system',
-  },
-  {
-    id: 't-003', category: 'rescheduling', priority: 'High', done: false,
-    title: 'Reschedule — Dr Amara Osei second meeting',
-    detail: 'Client requested reschedule. Original: 20 May 10:00. Find a new slot and update the appointment.',
-    linkedLead: 'Dr Amara Osei', linkedLeadId: 'lead-003',
-    linkedAppointment: 'appt-003',
-    assignedTo: 'Sandra van der Berg', assignedToRole: 'Broker',
-    dueDate: '2026-05-20',
-    createdAt: '2026-05-20',
-    source: 'system',
-  },
-  {
-    id: 't-004', category: 'outcome', priority: 'Medium', done: false,
-    title: 'Record outcome — Dr Lerato Mokoena',
-    detail: 'First meeting was completed on 19 May. Record the outcome and update appointment status.',
-    linkedLead: 'Dr Lerato Mokoena', linkedLeadId: 'lead-004',
-    linkedAppointment: 'appt-004',
-    assignedTo: 'Sandra van der Berg', assignedToRole: 'Broker',
-    dueDate: '2026-05-21',
-    createdAt: '2026-05-19',
-    source: 'system',
-  },
-  {
-    id: 't-005', category: 'appointment', priority: 'Medium', done: false,
-    title: 'Assign broker — Dr James van Rooyen',
-    detail: 'Appointment has been unassigned since 14 May. Assign to an available broker in Gauteng.',
-    linkedLead: 'Dr James van Rooyen', linkedLeadId: 'lead-005',
-    linkedAppointment: 'appt-005',
-    assignedTo: 'Supervisor One', assignedToRole: 'Supervisor',
-    dueDate: '2026-05-21',
-    createdAt: '2026-05-14',
-    source: 'system',
-  },
-  {
-    id: 't-006', category: 'callback', priority: 'Medium', done: false,
-    title: 'Call back Dr Zanele Dube',
-    detail: 'Client called in during lunch, left voicemail. Has shown strong interest in Discovery Life.',
-    linkedLead: 'Dr Zanele Dube', linkedLeadId: 'lead-006',
-    assignedTo: 'Naledi van Wyk', assignedToRole: 'Agent',
-    dueDate: '2026-05-21',
-    createdAt: '2026-05-20',
-    source: 'system',
-  },
-  {
-    id: 't-007', category: 'manual', priority: 'Medium', done: false,
-    title: 'Review Q2 lead import batch',
-    detail: 'New SA Medical Register batch arrived. Review for duplicates before importing.',
-    linkedLead: null, linkedLeadId: null,
-    assignedTo: 'Admin User', assignedToRole: 'Admin',
-    dueDate: '2026-05-22',
-    createdAt: '2026-05-20',
-    source: 'manual',
-  },
-  {
-    id: 't-008', category: 'outcome', priority: 'Low', done: false,
-    title: 'Record outcome — Dr Bongani Khumalo',
-    detail: 'Second meeting completed 18 May. Waiting on outcome — broker needs to update the record.',
-    linkedLead: 'Dr Bongani Khumalo', linkedLeadId: 'lead-008',
-    linkedAppointment: 'appt-008',
-    assignedTo: 'Pieter Joubert', assignedToRole: 'Broker',
-    dueDate: '2026-05-22',
-    createdAt: '2026-05-18',
-    source: 'system',
-  },
-  {
-    id: 't-009', category: 'rescheduling', priority: 'Low', done: false,
-    title: 'Reschedule — Dr Fatima Mahomed first meeting',
-    detail: 'Broker cancelled due to scheduling conflict. Needs to be rescheduled within the week.',
-    linkedLead: 'Dr Fatima Mahomed', linkedLeadId: 'lead-009',
-    linkedAppointment: 'appt-009',
-    assignedTo: 'Naledi van Wyk', assignedToRole: 'Agent',
-    dueDate: '2026-05-24',
-    createdAt: '2026-05-19',
-    source: 'system',
-  },
-  {
-    id: 't-010', category: 'manual', priority: 'Low', done: true,
-    title: 'Update broker product list — Riaan Botha',
-    detail: 'Riaan has completed his Money and Medicine product training. Update his product list in User Admin.',
-    linkedLead: null, linkedLeadId: null,
-    assignedTo: 'Admin User', assignedToRole: 'Admin',
-    dueDate: '2026-05-18',
-    createdAt: '2026-05-15',
-    source: 'manual',
-  },
-  {
-    id: 't-011', category: 'callback', priority: 'High', done: true,
-    title: 'Call back Dr Naledi Dlamini',
-    detail: 'Completed. Client agreed to an appointment on 22 May.',
-    linkedLead: 'Dr Naledi Dlamini', linkedLeadId: 'lead-011',
-    assignedTo: 'Thabo Molefe', assignedToRole: 'Agent',
-    dueDate: '2026-05-17',
-    createdAt: '2026-05-16',
-    source: 'system',
-  },
-];
-
-const ASSIGNEES = ['All', 'Thabo Molefe', 'Naledi van Wyk', 'Sandra van der Berg',
-                   'Pieter Joubert', 'Riaan Botha', 'Supervisor One', 'Admin User'];
 
 // ─── New Task modal ─────────────────────────────────────────────────────────────
 function NewTaskModal({ onClose, onSave, assignees }) {
@@ -311,42 +178,29 @@ function TaskRow({ task, onToggle, onDelete, isAdmin, canDelete, isMobile, today
   const pri  = PRIORITY_META[task.priority] ?? PRIORITY_META.Low;
 
   // Comment thread (§71) — lazy-loaded only once a task is actually
-  // expanded, not fetched for every row in the list up front. Entra
-  // branch: a local, in-memory thread (starts empty) so the UI stays
-  // interactive with no backend behind it, matching the same philosophy
-  // already applied to Tasks/Notifications throughout this build.
-  const demoMode = apiMode.DEMO_MODE;
+  // expanded, not fetched for every row in the list up front.
   const [comments, setComments] = useState([]);
   const [commentsLoaded, setCommentsLoaded] = useState(false);
   const [newComment, setNewComment] = useState('');
   const [postingComment, setPostingComment] = useState(false);
 
   useEffect(() => {
-    if (!expanded || commentsLoaded || !demoMode) return;
+    if (!expanded || commentsLoaded) return;
     tasksApi.listComments(task.id)
       .then(({ comments }) => { setComments(comments); setCommentsLoaded(true); })
       .catch(err => console.error('Could not load comments:', err));
-  }, [expanded, commentsLoaded, demoMode, task.id]);
+  }, [expanded, commentsLoaded, task.id]);
 
   async function handlePostComment() {
     const body = newComment.trim();
     if (!body) return;
     setPostingComment(true);
-    if (demoMode) {
-      try {
-        const created = await tasksApi.addComment(task.id, body);
-        setComments(prev => [...prev, created]);
-        setNewComment('');
-      } catch (err) {
-        console.error('Could not post comment:', err);
-      }
-    } else {
-      // Entra branch — local only, matching every other mock-mode
-      // fallback in this file.
-      setComments(prev => [...prev, {
-        id: 'c-' + Date.now(), body, author: 'You', createdAt: new Date().toISOString(),
-      }]);
+    try {
+      const created = await tasksApi.addComment(task.id, body);
+      setComments(prev => [...prev, created]);
       setNewComment('');
+    } catch (err) {
+      console.error('Could not post comment:', err);
     }
     setPostingComment(false);
   }
@@ -547,7 +401,6 @@ function TaskRow({ task, onToggle, onDelete, isAdmin, canDelete, isMobile, today
 export default function Tasks() {
   const { role, persona } = useRole();
   const { isMobile }  = useWindowSize();
-  const demoMode = apiMode.DEMO_MODE;
 
   const isAdmin  = ['GlobalAdmin', 'Admin', 'Supervisor'].includes(role);
   const isBroker = role === 'Broker';
@@ -555,31 +408,18 @@ export default function Tasks() {
   // GlobalAdmin only, not Supervisor; see taskHandlers.js).
   const canDelete = ['GlobalAdmin', 'Admin'].includes(role);
 
-  // Demo mode: real fetch. Role-scoping already happened server-side
-  // (taskHandlers.js) — Agent/Broker only ever receive their own tasks,
-  // Supervisor receives self + direct reports, Admin/GlobalAdmin receive
-  // everything — so there is no further "is this mine" filtering to do
-  // here the way the Entra branch's roleName mechanism still needs below.
-  const { data: taskData, refetch: refetchTasks } = useFetch(
-    () => demoMode ? tasksApi.list() : Promise.resolve(null),
-    [demoMode]
-  );
-  // Entra branch keeps its own local, mutable copy of MOCK_TASKS so the
-  // checkbox/New Task interactions still work with no backend behind them
-  // — unchanged behaviour from before this session.
-  const [mockTasks, setMockTasks] = useState(MOCK_TASKS);
-  const tasks = demoMode ? (taskData?.tasks ?? []) : mockTasks;
+  // Role-scoping already happened server-side (taskHandlers.js) — Agent/
+  // Broker only ever receive their own tasks, Supervisor receives self +
+  // direct reports, Admin/GlobalAdmin receive everything — so there is
+  // no further "is this mine" filtering to do here.
+  const { data: taskData, refetch: refetchTasks } = useFetch(() => tasksApi.list(), []);
+  const tasks = taskData?.tasks ?? [];
 
   // Real users for the Admin/Supervisor "Assignee" filter and NewTaskModal's
-  // "Assign to" field — fetched only when both apply, to avoid the extra
-  // round trip for Agent/Broker, who never see either control.
-  const { data: userData } = useFetch(
-    () => (demoMode && isAdmin) ? usersApi.list() : Promise.resolve(null),
-    [demoMode, isAdmin]
-  );
-  const assignees = demoMode
-    ? (userData?.users ?? []).map(u => ({ value: u.id, label: u.displayName }))
-    : ASSIGNEES.filter(a => a !== 'All').map(a => ({ value: a, label: a }));
+  // "Assign to" field — fetched only for Admin/Supervisor, to avoid the
+  // extra round trip for Agent/Broker, who never see either control.
+  const { data: userData } = useFetch(() => isAdmin ? usersApi.list() : Promise.resolve(null), [isAdmin]);
+  const assignees = (userData?.users ?? []).map(u => ({ value: u.id, label: u.displayName }));
 
   const [activeTab,    setActiveTab]    = useState('all');
   const [filterAssign, setFilterAssign] = useState('All');
@@ -594,22 +434,16 @@ export default function Tasks() {
   const [showNew,      setShowNew]      = useState(false);
   const [search,       setSearch]       = useState('');
 
-  // MOCK_TASKS' relative-date badges were curated against a fixed date;
-  // real tasks from a live database need the real current date instead.
-  const today = demoMode ? new Date() : MOCK_TODAY;
+  const today = new Date();
 
   async function toggleDone(id) {
-    if (demoMode) {
-      const task = tasks.find(t => t.id === id);
-      if (!task) return;
-      try {
-        await tasksApi.update(id, { isComplete: !task.done });
-        refetchTasks();
-      } catch (err) {
-        console.error('Could not update task:', err);
-      }
-    } else {
-      setMockTasks(prev => prev.map(t => t.id === id ? { ...t, done: !t.done } : t));
+    const task = tasks.find(t => t.id === id);
+    if (!task) return;
+    try {
+      await tasksApi.update(id, { isComplete: !task.done });
+      refetchTasks();
+    } catch (err) {
+      console.error('Could not update task:', err);
     }
   }
 
@@ -620,63 +454,36 @@ export default function Tasks() {
   // to-do item.
   async function deleteTaskHandler(id) {
     if (!window.confirm('Delete this task? This cannot be undone.')) return;
-    if (demoMode) {
-      try {
-        await tasksApi.remove(id);
-        refetchTasks();
-      } catch (err) {
-        console.error('Could not delete task:', err);
-      }
-    } else {
-      setMockTasks(prev => prev.filter(t => t.id !== id));
+    try {
+      await tasksApi.remove(id);
+      refetchTasks();
+    } catch (err) {
+      console.error('Could not delete task:', err);
     }
   }
 
   async function addTask(form) {
-    if (demoMode) {
-      try {
-        await tasksApi.create({
-          title:        form.title,
-          detail:       form.detail || undefined,
-          category:     form.category,
-          priority:     form.priority,
-          assignedToId: form.assignedTo,
-          dueDate:      form.dueDate || undefined,
-        });
-        refetchTasks();
-      } catch (err) {
-        console.error('Could not create task:', err);
-      }
-    } else {
-      setMockTasks(prev => [{
-        ...form,
-        id: 't-' + Date.now(),
-        done: false,
-        linkedLead: null,
-        linkedLeadId: null,
-        linkedAppointment: null,
-        assignedToRole: 'Admin',
-        createdAt: MOCK_TODAY.toISOString().slice(0, 10),
-        source: 'manual',
-      }, ...prev]);
+    try {
+      await tasksApi.create({
+        title:        form.title,
+        detail:       form.detail || undefined,
+        category:     form.category,
+        priority:     form.priority,
+        assignedToId: form.assignedTo,
+        dueDate:      form.dueDate || undefined,
+      });
+      refetchTasks();
+    } catch (err) {
+      console.error('Could not create task:', err);
     }
   }
 
-  // Role filter — Entra branch only (matches its fixed PERSONAS names,
-  // since RoleContext doesn't derive a real identity there). Demo mode's
-  // scoping already happened server-side, see the fetch above.
-  const roleName = demoMode ? null
-                 : role === 'Agent' ? 'Thabo Molefe'
-                 : role === 'Broker' ? 'Sandra van der Berg'
-                 : null;
-
   function matchesAssigneeFilter(t) {
     if (filterAssign === 'All') return true;
-    return demoMode ? t.assignedToId === filterAssign : t.assignedTo === filterAssign;
+    return t.assignedToId === filterAssign;
   }
 
   const filtered = tasks.filter(t => {
-    if (roleName && t.assignedTo !== roleName) return false;
     if (!showDone && t.done) return false;
     if (createdByMeOnly && t.createdById !== persona.id) return false;
     if (activeTab !== 'all' && t.category !== activeTab) return false;
@@ -686,10 +493,10 @@ export default function Tasks() {
     return true;
   });
 
-  // Metrics — always from the full task list, not the filtered view. In
-  // demo mode `tasks` is already exactly the right scope for this person
-  // (see the fetch above), so no further roleName filtering applies here.
-  const myTasks  = roleName ? tasks.filter(t => t.assignedTo === roleName) : tasks;
+  // Metrics — always from the full task list, not the filtered view.
+  // Server-side scoping (see the fetch above) already ensures `tasks` is
+  // exactly the right scope for this person.
+  const myTasks  = tasks;
   const metrics  = [
     { label: 'Pending',   value: myTasks.filter(t => !t.done).length,                                               colour: '#d97706' },
     { label: 'Overdue',   value: myTasks.filter(t => !t.done && t.dueDate && daysUntil(t.dueDate, today) < 0).length,   colour: '#dc2626' },
@@ -764,8 +571,8 @@ export default function Tasks() {
       <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '4px', overflowX: 'auto' }}>
         {CATEGORIES.map(({ key, label }) => {
           const count = key === 'all'
-            ? tasks.filter(t => !t.done && (!roleName || t.assignedTo === roleName)).length
-            : tasks.filter(t => t.category === key && !t.done && (!roleName || t.assignedTo === roleName)).length;
+            ? tasks.filter(t => !t.done).length
+            : tasks.filter(t => t.category === key && !t.done).length;
           return (
             <button
               key={key}
