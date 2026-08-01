@@ -26,7 +26,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
-import { appointmentsApi, usersApi, apiMode } from '../services/api.js';
+import { appointmentsApi, usersApi } from '../services/api.js';
 import { useFetch } from '../hooks/useFetch.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s, APPT_STATUS_META, MEETING_STATUS_META, PORTFOLIO_META } from '../styles/tokens.js';
@@ -372,7 +372,7 @@ export default function AppointmentList() {
     agentId:     a.agentId,
   }));
 
-  // apptLoading/DEMO_MODE checked below (near the top of the render) keeps
+  // apptLoading (checked below, near the top of the render) keeps
   // the brief window while fetches are in flight from rendering an empty
   // state as if it were the final result.
   const sourceData = realAppointments;
@@ -635,7 +635,7 @@ export default function AppointmentList() {
         </div>
       )}
 
-      {apiMode.DEMO_MODE && apptLoading && (
+      {apptLoading && (
         <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading appointments…</div>
       )}
 

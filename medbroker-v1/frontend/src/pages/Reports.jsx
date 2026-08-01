@@ -41,7 +41,7 @@ import {
 import { useRole }       from '../context/RoleContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch }      from '../hooks/useFetch.js';
-import { reportsApi, apiMode } from '../services/api.js';
+import { reportsApi } from '../services/api.js';
 import { s, colors, CHART_PALETTE } from '../styles/tokens.js';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -246,7 +246,7 @@ export default function Reports() {
         </div>
       </div>
 
-      {apiMode.DEMO_MODE && anyLoading && (
+      {anyLoading && (
         <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading report data…</div>
       )}
       {anyError && (

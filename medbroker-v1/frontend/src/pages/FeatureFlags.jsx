@@ -17,7 +17,7 @@
 
 import { useState } from 'react';
 import { useFlags } from '../context/FlagContext.jsx';
-import { flagsApi, apiMode } from '../services/api.js';
+import { flagsApi } from '../services/api.js';
 import { s }        from '../styles/tokens.js';
 
 // ─── Flag metadata ─────────────────────────────────────────────────────────────
@@ -274,12 +274,9 @@ export default function FeatureFlags() {
   const { flags, setFlag } = useFlags();
   const [activeTier, setActiveTier] = useState('Core');
 
-  // Real PATCH /api/flags/:key when using the local-auth demo backend,
-  // reflected in context on success either way.
+  // Real PATCH /api/flags/:key, reflected in context on success either way.
   async function handleSaveFlag(key, value) {
-    if (apiMode.DEMO_MODE) {
-      await flagsApi.update(key, value); // throws ApiError on failure — caller (FlagRow) catches it
-    }
+    await flagsApi.update(key, value); // throws ApiError on failure — caller (FlagRow) catches it
     setFlag(key, value);
   }
 

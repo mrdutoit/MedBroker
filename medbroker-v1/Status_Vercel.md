@@ -5370,6 +5370,68 @@ MIGRATION — no backend change, frontend only:
   frontend/src/App.jsx
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+84. DEAD ENTRA-BRANCH CODE CLEANUP — BATCH 1 OF SEVERAL — 1 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Last item from §75's original list. Mark confirmed the full scope
+before starting: not just the original 8 auth-infrastructure files, but
+the wider demoMode ? real : MOCK_X fallback pattern used across most
+data-fetching pages too — a genuinely large refactor, so this is being
+done in verified batches rather than one giant unreviewed sweep.
+
+FOUND ON INVESTIGATION: the actual codebase split into two meaningfully
+different categories, not one — worth recording since it changed how
+this was sequenced:
+  - Category A (trivial): LeadList, AppointmentList, Reports,
+    AgentDetail, BrokerDetail, FeatureFlags — each had only a bare
+    apiMode.DEMO_MODE && loading-style gate on a loading indicator (or,
+    for FeatureFlags, a redundant if around one line), no actual mock
+    dataset, no alternate rendering path. Six files, all mechanical.
+  - Category B (substantial): AppAdmin.jsx alone has 31 demoMode
+    references and 2 real MOCK_ datasets; Tasks.jsx has 17 references
+    and 2 MOCK_ datasets; Notifications.jsx has 6 references and 1
+    MOCK_ dataset; Settings.jsx has 8 references with no MOCK_ constant
+    but real conditional identity-source logic. These need individual,
+    careful handling — batched separately, not attempted in this entry.
+  - Category C (foundational, highest risk, saved for last): RoleContext
+    .jsx and AuthContext.jsx derive role/persona/auth state itself and
+    are used by essentially every page in the app; Login.jsx and
+    App.jsx's AuthGate gate the entire authenticated app on this same
+    logic. A mistake here risks breaking the whole application, not
+    just one page — deliberately sequenced last, after building
+    confidence on the lower-risk categories first.
+
+BUILT THIS ENTRY — Category A (6 files) plus UserAdmin.jsx (5
+references, no MOCK_ dataset, turned out simple enough to fold into this
+same batch): every apiMode.DEMO_MODE / demoMode check removed since it
+always evaluated true in this deployment; the now-always-true branch
+kept, the dead branch deleted, not left commented out. UserAdmin.jsx
+also had a demoMode PROP threaded into UserModal — removed at both ends
+(the prop declaration and the pass-through), not just simplified in
+place, since prop-drilling an always-true value serves no purpose.
+Removed the now-unused apiMode import from all 7 files rather than
+leave a dangling import.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected. Checked after this batch specifically (not deferred
+to a single check at the very end of the whole cleanup) so any issue
+is caught close to its cause.
+
+NOT YET DONE — remaining batches: AppAdmin.jsx, Tasks.jsx,
+Notifications.jsx, Settings.jsx (Category B); RoleContext.jsx,
+AuthContext.jsx, Login.jsx, App.jsx (Category C, highest risk, last).
+
+MIGRATION — no schema change, frontend only:
+  frontend/src/pages/LeadList.jsx
+  frontend/src/pages/AppointmentList.jsx
+  frontend/src/pages/Reports.jsx
+  frontend/src/pages/AgentDetail.jsx
+  frontend/src/pages/BrokerDetail.jsx
+  frontend/src/pages/FeatureFlags.jsx
+  frontend/src/pages/UserAdmin.jsx
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I

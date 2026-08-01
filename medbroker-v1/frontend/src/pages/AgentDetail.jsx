@@ -23,7 +23,7 @@ import { useRole } from '../context/RoleContext.jsx';
 import { s } from '../styles/tokens.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch } from '../hooks/useFetch.js';
-import { reportsApi, apiMode } from '../services/api.js';
+import { reportsApi } from '../services/api.js';
 
 const STATUS_COLOUR = {
   Unassigned:            { bg: 'var(--panel2)', colour: 'var(--mut)' },
@@ -133,7 +133,7 @@ export default function AgentDetail() {
         </div>
       </div>
 
-      {apiMode.DEMO_MODE && loading && (
+      {loading && (
         <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading…</div>
       )}
 

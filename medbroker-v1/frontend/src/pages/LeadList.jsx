@@ -16,7 +16,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useFetch } from '../hooks/useFetch.js';
-import { leadsApi, usersApi, apiMode } from '../services/api.js';
+import { leadsApi, usersApi } from '../services/api.js';
 import { formatDistanceToNow } from 'date-fns';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
@@ -285,7 +285,7 @@ export default function LeadList() {
         )}
       </div>
 
-      {apiMode.DEMO_MODE && leadsLoading && (
+      {leadsLoading && (
         <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading leads…</div>
       )}
       {error && <div style={s.errorBox}>Could not load leads: {error.message}</div>}

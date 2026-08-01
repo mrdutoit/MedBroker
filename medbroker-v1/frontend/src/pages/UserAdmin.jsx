@@ -24,7 +24,7 @@ import { useRole, PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleConte
 import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
 import { useSortableData } from '../hooks/useSortableData.js';
-import { usersApi, apiMode, ApiError } from '../services/api.js';
+import { usersApi, ApiError } from '../services/api.js';
 import { REGIONS } from '../constants/leadOptions.js';
 import { s } from '../styles/tokens.js';
 
@@ -140,7 +140,7 @@ function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onP
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
-function UserModal({ mode, user, supervisors, ssoEnabled, demoMode, onClose, onSave, onUnlock }) {
+function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnlock }) {
   const isEdit = mode === 'edit';
   const [form, setForm] = useState(
     isEdit
@@ -175,7 +175,7 @@ function UserModal({ mode, user, supervisors, ssoEnabled, demoMode, onClose, onS
   }
 
   const needsSupervisor = ['Agent', 'Broker'].includes(form.role);
-  const needsPassword   = !isEdit && demoMode && !ssoEnabled;
+  const needsPassword   = !isEdit && !ssoEnabled;
 
   async function handleSave() {
     setError(null);
@@ -405,7 +405,6 @@ export default function UserAdmin() {
   const [roleFilter, setRoleFilter] = useState('All');
   const [modal,      setModal]      = useState(null);   // { mode: 'create'|'edit', user? }
   const { flag } = useFlags();
-  const demoMode = apiMode.DEMO_MODE;
   const ssoEnabled = flag('auth.sso.enabled');
 
   const { data: usersData, loading: usersLoading, refetch: refetchUsers } = useFetch(
@@ -462,7 +461,7 @@ export default function UserAdmin() {
         <button style={s.primaryBtn} onClick={() => setModal({ mode: 'create' })}>+ Add User</button>
       </div>
 
-      {demoMode && usersLoading && (
+      {usersLoading && (
         <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading users…</div>
       )}
 
@@ -592,7 +591,6 @@ export default function UserAdmin() {
           user={modal.user}
           supervisors={supervisors}
           ssoEnabled={ssoEnabled}
-          demoMode={demoMode}
           onClose={() => setModal(null)}
           onSave={handleModalSave}
           onUnlock={handleModalUnlock}

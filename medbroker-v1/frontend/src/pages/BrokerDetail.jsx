@@ -24,7 +24,7 @@ import { useRole } from '../context/RoleContext.jsx';
 import { s } from '../styles/tokens.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch } from '../hooks/useFetch.js';
-import { reportsApi, apiMode } from '../services/api.js';
+import { reportsApi } from '../services/api.js';
 
 function getPeriodLabel(period) {
   const now = new Date();
@@ -137,7 +137,7 @@ export default function BrokerDetail() {
         </div>
       </div>
 
-      {apiMode.DEMO_MODE && loading && (
+      {loading && (
         <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading…</div>
       )}
 
