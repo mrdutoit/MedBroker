@@ -10,6 +10,9 @@
  *   GET    /api/leads/sources           (literal, checked before treating
  *   POST   /api/leads/check-duplicates   the segment as an :id — §63)
  *   GET    /api/leads/subscriptions      (§80 — Medical Subscription import)
+ *   GET    /api/leads/portfolios         (§90 — Portfolio/Product management)
+ *   POST   /api/leads/portfolios
+ *   POST   /api/leads/portfolios/:id/products
  *   GET    /api/leads/sar-requests       (§79 — POPIA SAR processing)
  *   POST   /api/leads/sar-requests
  *   GET    /api/leads/:id
@@ -33,6 +36,9 @@ import {
 import {
   handleSarRequestsCollection, handleSarRequestById, handleSarRequestExport,
 } from '../api-lib/handlers/sarHandlers.js';
+import {
+  handlePortfoliosCollection, handlePortfolioProducts,
+} from '../api-lib/handlers/portfolioHandlers.js';
 import { applyCors, parseSlug } from '../api-lib/http/helpers.js';
 
 export default async function handler(req, res) {
@@ -54,6 +60,15 @@ export default async function handler(req, res) {
 
   if (segments.length === 1 && segments[0] === 'subscriptions') {
     return handleLeadMedicalSubscriptions(req, res);
+  }
+
+  // 'portfolios' segment — checked before the generic 1/2-segment :id
+  // branches below, same defensive-ordering convention as every other
+  // literal sub-route here.
+  if (segments[0] === 'portfolios') {
+    if (segments.length === 1) return handlePortfoliosCollection(req, res);
+    if (segments.length === 3 && segments[2] === 'products') return handlePortfolioProducts(req, res, segments[1]);
+    return res.status(404).json({ error: 'Not found' });
   }
 
   // 'sar-requests' segment — checked before the generic 1/2-segment

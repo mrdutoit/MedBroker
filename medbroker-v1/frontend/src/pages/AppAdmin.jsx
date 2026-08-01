@@ -6,7 +6,7 @@
 
 import { useState, useEffect, Fragment } from 'react';
 import { s } from '../styles/tokens.js';
-import { PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
+import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
 import { systemConfigApi, auditApi, usersApi, sarApi, leadsApi } from '../services/api.js';
@@ -28,14 +28,56 @@ const AUDIT_ACTIONS = [
   'PortalWalkInCheckedIn', 'ProfileUpdated', 'TaskCreated', 'TaskDeleted', 'UserCreated',
 ];
 
-const ALL_PRODUCTS = [
-  ...PRODUCTS_BY_PORTFOLIO.disc.map(name => ({ name, portfolio: 'Discovery' })),
-  ...PRODUCTS_BY_PORTFOLIO.mm.map(name   => ({ name, portfolio: 'Money and Medicine' })),
-];
-
 export default function AppAdmin() {
   const [tab, setTab] = useState('portfolios');
   const { flag } = useFlags();
+  const { portfolios, refetchPortfolios } = useRole();
+
+  // Portfolio/Product creation (§91 — closing the gap Mark flagged:
+  // these tabs looked functional but nothing behind the buttons ever
+  // worked; the real Portfolio/Product tables already existed, they
+  // just had no API surface).
+  const [portShowCreate, setPortShowCreate] = useState(false);
+  const [portNewName, setPortNewName] = useState('');
+  const [portSaving, setPortSaving] = useState(false);
+  const [portError, setPortError] = useState(null);
+
+  const [prodShowCreateFor, setProdShowCreateFor] = useState(null); // portfolioId | null
+  const [prodNewName, setProdNewName] = useState('');
+  const [prodSaving, setProdSaving] = useState(false);
+  const [prodError, setProdError] = useState(null);
+
+  async function handleCreatePortfolio() {
+    if (!portNewName.trim()) return;
+    setPortSaving(true);
+    setPortError(null);
+    try {
+      await leadsApi.createPortfolio(portNewName.trim());
+      await refetchPortfolios();
+      setPortShowCreate(false);
+      setPortNewName('');
+    } catch (err) {
+      setPortError(err.message || 'Could not create portfolio');
+    } finally {
+      setPortSaving(false);
+    }
+  }
+
+  async function handleCreateProduct(portfolioId) {
+    if (!prodNewName.trim()) return;
+    setProdSaving(true);
+    setProdError(null);
+    try {
+      await leadsApi.createProduct(portfolioId, prodNewName.trim());
+      await refetchPortfolios();
+      setProdShowCreateFor(null);
+      setProdNewName('');
+    } catch (err) {
+      setProdError(err.message || 'Could not create product');
+    } finally {
+      setProdSaving(false);
+    }
+  }
 
   // System Settings state (§72 — real-wired to GET/PUT /api/system-config;
   // this whole tab was mock-only before, including password rotation/
@@ -293,10 +335,33 @@ export default function AppAdmin() {
       {/* Portfolios */}
       {tab === 'portfolios' && (
         <>
-          <p style={{ color:'var(--mut)', fontSize: '0.875rem', marginBottom: '12px' }}>
-            Portfolios define the business unit a broker or agent operates under. Fixed to match your
-            organisation's licensing — not user-editable.
-          </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
+              Portfolios define the business unit a broker or agent operates under.
+            </p>
+            <button style={s.primaryBtn} onClick={() => setPortShowCreate(v => !v)}>
+              {portShowCreate ? 'Cancel' : '+ Add Portfolio'}
+            </button>
+          </div>
+
+          {portError && <div style={{ ...s.errorBox, marginBottom: '14px' }}>{portError}</div>}
+
+          {portShowCreate && (
+            <div style={{ ...s.card, marginBottom: '16px', display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
+              <div style={{ ...s.formGroup, flex: 1, marginBottom: 0 }}>
+                <label style={s.formLabel}>Portfolio name *</label>
+                <input type="text" style={s.formInput} value={portNewName} onChange={e => setPortNewName(e.target.value)} placeholder="e.g. Corporate Cover" />
+              </div>
+              <button
+                style={{ ...s.primaryBtn, opacity: (!portNewName.trim() || portSaving) ? 0.5 : 1 }}
+                disabled={!portNewName.trim() || portSaving}
+                onClick={handleCreatePortfolio}
+              >
+                {portSaving ? 'Saving…' : 'Add'}
+              </button>
+            </div>
+          )}
+
           <div style={{ ...s.tableCard, overflowX: 'auto' }}>
             <table style={{ ...s.table, minWidth: '400px' }}>
               <thead><tr>
@@ -304,14 +369,17 @@ export default function AppAdmin() {
                 <th style={s.th}>Products</th>
               </tr></thead>
               <tbody>
-                {PORTFOLIOS.map(p => (
+                {portfolios.map(p => (
                   <tr key={p.id} style={s.tr}>
                     <td style={{ ...s.td, fontWeight: 500 }}>{p.name}</td>
                     <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>
-                      {PRODUCTS_BY_PORTFOLIO[p.id]?.length ?? 0} products
+                      {p.products.length} product{p.products.length !== 1 ? 's' : ''}
                     </td>
                   </tr>
                 ))}
+                {portfolios.length === 0 && (
+                  <tr><td colSpan={2} style={{ ...s.td, textAlign: 'center', color:'var(--mut)' }}>No portfolios yet.</td></tr>
+                )}
               </tbody>
             </table>
           </div>
@@ -321,10 +389,41 @@ export default function AppAdmin() {
       {/* Products */}
       {tab === 'products' && (
         <>
-          <p style={{ color:'var(--mut)', fontSize: '0.875rem', marginBottom: '12px' }}>
-            Products belong to a portfolio and are selectable as products sold on an appointment.
-            Fixed to match your organisation's licensing — not user-editable.
-          </p>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+            <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
+              Products belong to a portfolio and are selectable as products sold on an appointment.
+            </p>
+            <select
+              style={{ ...s.formInput, width: '220px', padding: '6px 10px', fontSize: '0.8125rem' }}
+              value={prodShowCreateFor ?? ''}
+              onChange={e => { setProdShowCreateFor(e.target.value || null); setProdNewName(''); setProdError(null); }}
+              disabled={portfolios.length === 0}
+            >
+              <option value="">+ Add Product to…</option>
+              {portfolios.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+            </select>
+          </div>
+
+          {prodError && <div style={{ ...s.errorBox, marginBottom: '14px' }}>{prodError}</div>}
+
+          {prodShowCreateFor && (
+            <div style={{ ...s.card, marginBottom: '16px', display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
+              <div style={{ ...s.formGroup, flex: 1, marginBottom: 0 }}>
+                <label style={s.formLabel}>
+                  Product name — added to {portfolios.find(p => p.id === prodShowCreateFor)?.name} *
+                </label>
+                <input type="text" style={s.formInput} value={prodNewName} onChange={e => setProdNewName(e.target.value)} placeholder="e.g. Funeral Cover" />
+              </div>
+              <button
+                style={{ ...s.primaryBtn, opacity: (!prodNewName.trim() || prodSaving) ? 0.5 : 1 }}
+                disabled={!prodNewName.trim() || prodSaving}
+                onClick={() => handleCreateProduct(prodShowCreateFor)}
+              >
+                {prodSaving ? 'Saving…' : 'Add'}
+              </button>
+            </div>
+          )}
+
           <div style={{ ...s.tableCard, overflowX: 'auto' }}>
             <table style={{ ...s.table, minWidth: '400px' }}>
               <thead><tr>
@@ -332,19 +431,22 @@ export default function AppAdmin() {
                 <th style={s.th}>Portfolio</th>
               </tr></thead>
               <tbody>
-                {ALL_PRODUCTS.map(p => (
-                  <tr key={p.name} style={s.tr}>
-                    <td style={{ ...s.td, fontWeight: 500 }}>{p.name}</td>
+                {portfolios.flatMap(p => p.products.map(prod => (
+                  <tr key={prod.id} style={s.tr}>
+                    <td style={{ ...s.td, fontWeight: 500 }}>{prod.name}</td>
                     <td style={s.td}>
                       <span style={{ ...s.badge, fontSize: '0.688rem',
-                        background: p.portfolio === 'Discovery' ? 'color-mix(in srgb, #1d4ed8 14%, var(--panel))' : 'color-mix(in srgb, #7c3aed 14%, var(--panel))',
-                        color:      p.portfolio === 'Discovery' ? 'var(--accent)' : '#a78bfa',
+                        background: p.name === 'Discovery' ? 'color-mix(in srgb, #1d4ed8 14%, var(--panel))' : 'color-mix(in srgb, #7c3aed 14%, var(--panel))',
+                        color:      p.name === 'Discovery' ? 'var(--accent)' : '#a78bfa',
                       }}>
-                        {p.portfolio === 'Money and Medicine' ? 'M&M' : p.portfolio}
+                        {p.name === 'Money and Medicine' ? 'M&M' : p.name}
                       </span>
                     </td>
                   </tr>
-                ))}
+                )))}
+                {portfolios.every(p => p.products.length === 0) && (
+                  <tr><td colSpan={2} style={{ ...s.td, textAlign: 'center', color:'var(--mut)' }}>No products yet.</td></tr>
+                )}
               </tbody>
             </table>
           </div>

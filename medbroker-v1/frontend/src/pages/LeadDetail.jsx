@@ -33,7 +33,7 @@ import { useFetch } from '../hooks/useFetch.js';
 import { leadsApi, appointmentsApi, brokerMatchingApi, ApiError } from '../services/api.js';
 import { formatDistanceToNow, format } from 'date-fns';
 import { useWindowSize } from '../hooks/useWindowSize.js';
-import { useRole, PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
+import { useRole } from '../context/RoleContext.jsx';
 import { REGIONS, JOB_TITLES } from '../constants/leadOptions.js';
 import AuditLogList from '../components/AuditLogList.jsx';
 import { APPT_STATUS_META } from '../styles/tokens.js';
@@ -180,7 +180,7 @@ export default function LeadDetail() {
   const { id }   = useParams();
   const navigate = useNavigate();
   const { isMobile } = useWindowSize();
-  const { role, persona } = useRole();
+  const { role, persona, portfolios: allPortfolios, productsByPortfolio } = useRole();
 
   const { data: lead, loading: leadLoading, error: leadError, refetch: refetchLead } = useFetch(() => leadsApi.get(id), [id]);
   const baseLead = lead ?? {};
@@ -523,7 +523,7 @@ export default function LeadDetail() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '7px 0', borderBottom:'1px solid var(--line)', fontSize: '0.875rem', gap: '12px' }}>
               <span style={{ color:'var(--mut)', flexShrink: 0 }}>Portfolio</span>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                {PORTFOLIOS.map(p => {
+                {allPortfolios.map(p => {
                   const checked = editForm.portfolios.includes(p.name);
                   return (
                     <label
@@ -781,6 +781,7 @@ export default function LeadDetail() {
 // (region/portfolio/products -> broker search -> selection -> booking
 // details) to be its own thing, not because of any technical requirement.
 function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
+  const { portfolios: allPortfolios, productsByPortfolio } = useRole();
   const labelStyle = { display: 'block', fontSize: '0.8125rem', fontWeight: 500, color:'var(--ink)', marginBottom: '5px' };
   const inputStyle = { width: '100%', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box' };
   const btn = {
@@ -824,10 +825,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
   // Products available now union across every selected portfolio, not
   // just one — the whole point of allowing more than one portfolio here
   // is being able to record interest in products from both.
-  const availableProducts = portfolios.flatMap((name) => {
-    const key = name === 'Discovery' ? 'disc' : name === 'Money and Medicine' ? 'mm' : null;
-    return key ? (PRODUCTS_BY_PORTFOLIO[key] ?? []) : [];
-  });
+  const availableProducts = portfolios.flatMap((name) => productsByPortfolio[name] ?? []);
 
   function togglePortfolio(name) {
     setPortfolios((prev) => {
@@ -835,10 +833,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
       // Drop any selected product that's no longer offered once its
       // portfolio is deselected — same reasoning as the previous single-
       // select version resetting products on every portfolio change.
-      const stillAvailable = next.flatMap((n) => {
-        const key = n === 'Discovery' ? 'disc' : n === 'Money and Medicine' ? 'mm' : null;
-        return key ? (PRODUCTS_BY_PORTFOLIO[key] ?? []) : [];
-      });
+      const stillAvailable = next.flatMap((n) => productsByPortfolio[n] ?? []);
       setProducts((prods) => prods.filter((p) => stillAvailable.includes(p)));
       return next;
     });
@@ -915,7 +910,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
         <div style={{ marginBottom: '10px' }}>
           <label style={labelStyle}>Portfolio *</label>
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {PORTFOLIOS.map((p) => (
+            {allPortfolios.map((p) => (
               <label key={p.id} style={{ display: 'flex', alignItems: 'center', gap: '5px', cursor: 'pointer', padding: '6px 12px', border: `1px solid ${portfolios.includes(p.name) ? 'var(--accent)' : 'var(--line)'}`, borderRadius: '6px', fontSize: '0.8125rem', background: portfolios.includes(p.name) ? 'color-mix(in srgb, var(--accent) 10%, var(--panel))' : 'var(--panel)' }}>
                 <input type="checkbox" checked={portfolios.includes(p.name)} onChange={() => togglePortfolio(p.name)} style={{ accentColor: 'var(--accent)' }} />
                 {p.name}

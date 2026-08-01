@@ -91,6 +91,15 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   free-text source name. AppAdmin's Subscriptions tab is
                   real too (was hardcoded mock data + a dead "+ Add
                   Subscription" button before this).
+  Portfolio/Product management (§89/§90) — real. AppAdmin -> Portfolios
+                  and Products tabs can genuinely add a new portfolio or
+                  product now (products belong to a portfolio, matching
+                  the real FK constraint) — every consumer across the
+                  app (Lead Detail, Lead Import, Appointment Detail's
+                  products-sold, User Admin's assignment checkboxes)
+                  reads this same live data through RoleContext.jsx's
+                  useRole() hook, not a hardcoded constant, so a new
+                  portfolio/product shows up everywhere immediately.
 
 GATED OFF BY DEFAULT (built, working, just not switched on):
   tasks.enabled — flip in FeatureFlags.jsx (AppAdmin) to see Tasks in
@@ -5697,6 +5706,117 @@ outside what code changes can address. What remains:
 
 MIGRATION — no schema change, frontend only:
   frontend/src/pages/AppAdmin.jsx
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+90. REAL PORTFOLIO/PRODUCT MANAGEMENT — 1 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Follow-up to §89 — after seeing the honest static reference view,
+Mark clarified he wants these pages genuinely functional: a customer
+Admin should be able to add portfolios and products, with products
+correctly related to a portfolio. This turned out to be a much bigger
+change than the tab itself — PORTFOLIOS/PRODUCTS_BY_PORTFOLIO were
+hardcoded module-level constants in RoleContext.jsx, imported directly
+by five different files (AppAdmin, User Admin's assignment checkboxes,
+Lead Detail, Lead Import, Appointment Detail's products-sold), none of
+which could ever see a newly-added portfolio without a full rewrite of
+how this data flows through the app.
+
+WHAT ALREADY EXISTED, confirmed before designing anything: real
+Portfolio and Product tables, correctly related via Product.portfolioId,
+already in the schema and already seeded with the same Discovery/Money
+and Medicine data the hardcoded constants mirrored. A real
+UserPortfolio junction table for user assignment also already existed.
+The gap was purely that nothing ever exposed this over the API — the
+data model was already right.
+
+FUNCTION COUNT: GET/POST /api/leads/portfolios and POST /api/leads/
+portfolios/:id/products added as sub-routes on leads-router.js — no new
+function, 12/12 unchanged.
+
+ARCHITECTURE: rather than have every consumer fetch this independently
+(five separate fetches, five separate chances to go stale relative to
+each other), RoleContext.jsx now fetches portfolios+products once and
+exposes them through the same useRole() hook every consumer already
+calls for role/persona — portfolios (array of {id, name, products}) and
+productsByPortfolio (name-keyed, not id-keyed, matching how the rest of
+the app already treats portfolio/product ASSIGNMENT as name-based, e.g.
+User.portfolios/products are string-name arrays — see userService.js's
+USER_LIST_SELECT). Name-keying also let every consumer drop its own
+'disc'/'mm' key-translation hack, a genuine simplification alongside
+making the data live.
+
+A REAL BUG CAUGHT DURING THE MIGRATION, not after: LeadDetail.jsx has
+two separate components in the same file — LeadDetail() itself, and
+BookAppointmentModal(), which already had its own local portfolios/
+setPortfolios state (the SELECTED portfolios for the appointment being
+booked, entirely different from the new reference list of ALL available
+portfolios). Naively destructuring the new context value as portfolios
+in both places would have been a duplicate-declaration syntax error in
+BookAppointmentModal specifically. Found by tracing every usage
+individually before editing, not a blanket find-and-replace — renamed
+to allPortfolios specifically where a real collision existed, left the
+local selection state's name untouched elsewhere. The exact same
+collision shape existed in UserAdmin.jsx's PortfolioProductSelector
+(portfolios/products props are a user's ASSIGNED values) and was
+handled the same deliberate way — useRole() called in the parent
+(UserModal), the reference data passed down as new, distinctly-named
+props rather than called a second time inside the child component.
+
+BUILT:
+  - NEW portfolioService.js — listPortfoliosWithProducts() (one query,
+    JSON-aggregated, not fetched flat and joined client-side — every
+    consumer needs "portfolio with its products nested" together, never
+    one without the other), createPortfolio(), createProduct().
+  - CAUGHT BEFORE TRUSTING IT: the json_agg result — no existing
+    json_agg query anywhere in this codebase to confirm node-postgres's
+    usual auto-parse-json-columns behaviour actually holds here, so the
+    handling is defensive (checks whether the result is already an
+    array or still a JSON string) rather than asserted confidently in a
+    comment and left to find out in production.
+  - NEW portfolioHandlers.js — LIST open to any authenticated role
+    (pure reference data, nothing sensitive, and every role's own forms
+    need it); CREATE Admin/GlobalAdmin only, matching Medical
+    Subscription's own creation gate (§80).
+  - leads-router.js: portfolios sub-routes added.
+  - RoleContext.jsx: portfolios/productsByPortfolio/refetchPortfolios
+    added to the exposed context value, fetched via the same useFetch
+    pattern used throughout, gated on `user` existing (same "don't
+    fetch before login" reasoning already applied to persona/role).
+  - AppointmentDetail.jsx, LeadDetail.jsx, UserAdmin.jsx, LeadImport.jsx:
+    migrated from the static import to useRole(), each checked
+    individually for local-variable collisions before editing rather
+    than assumed safe.
+  - AppAdmin.jsx: Portfolios and Products tabs rebuilt again (replacing
+    §89's static reference view) — real "+ Add Portfolio" and
+    "+ Add Product" forms, the latter requiring a portfolio to be
+    selected first (products can't exist without one, matching the
+    real FK constraint), both wired to the new endpoints and refetching
+    through the same refetchPortfolios() so every other open page
+    picks up the change too, not just this tab.
+
+VERIFIED: full Vite production build clean across all six touched
+frontend files plus RoleContext; existing 45-test Vitest suite
+unaffected; every new/edited backend file passes node --check and an
+ESM import smoke test. Final comprehensive grep across the ENTIRE
+frontend for PORTFOLIOS/PRODUCTS_BY_PORTFOLIO after all edits — the
+only remaining hit is this entry's own explanatory comment in
+RoleContext.jsx, zero live code left referencing the old static data.
+
+MIGRATION — no schema change (Portfolio/Product/UserPortfolio tables
+already existed and were already correctly related):
+  frontend/api-lib/services/portfolioService.js (NEW)
+  frontend/api-lib/handlers/portfolioHandlers.js (NEW)
+  frontend/api-lib/models/lead.js          (CreatePortfolioSchema, CreateProductSchema added)
+  frontend/api/leads-router.js             (portfolios sub-routes added)
+  frontend/src/services/api.js             (leadsApi.listPortfolios/createPortfolio/createProduct added)
+  frontend/src/context/RoleContext.jsx     (real portfolio/product fetching added)
+  frontend/src/pages/AppointmentDetail.jsx (migrated to useRole())
+  frontend/src/pages/LeadDetail.jsx        (migrated to useRole(), collision handled)
+  frontend/src/pages/UserAdmin.jsx         (migrated to useRole(), collision handled)
+  frontend/src/pages/LeadImport.jsx        (migrated to useRole())
+  frontend/src/pages/AppAdmin.jsx          (real create UI built)
 Plus this Status_Vercel.md.
 
 

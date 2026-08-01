@@ -18,25 +18,23 @@
  * across the app — but RoleProvider's OWN render still executes on
  * every render regardless, so persona/role default to null rather than
  * assuming user is always truthy.
+ *
+ * PORTFOLIOS/PRODUCTS (added 1 Aug 2026, §90): previously a static,
+ * hardcoded pair of exported constants — meaning no portfolio or
+ * product could ever actually be added anywhere in the app, regardless
+ * of what App Admin's own UI claimed. Real Portfolio/Product tables
+ * already existed in the database and were already correctly related
+ * (Product.portfolioId), just never exposed over the API — now fetched
+ * once here and exposed through the same useRole() hook every consumer
+ * already calls, so a portfolio added in App Admin shows up everywhere
+ * (Lead Detail, Lead Import, Appointment Detail, User Admin's
+ * assignment checkboxes) without each page needing its own fetch.
  */
 
 import { createContext, useContext } from 'react';
 import { useAuth } from './AuthContext.jsx';
-
-// Portfolios and products — matches App Admin seed data exactly
-export const PORTFOLIOS = [
-  { id: 'disc', name: 'Discovery' },
-  { id: 'mm',   name: 'Money and Medicine' },
-];
-
-export const PRODUCTS_BY_PORTFOLIO = {
-  disc: [
-    'Life Insurance', 'Income Protection', 'Disability Cover',
-    'Severe Illness Cover', 'Education Cover', 'Retirement Annuity',
-    'Medical Aid', 'Gap Cover', 'Vitality', 'Bank',
-  ],
-  mm: ['Unit Trust', 'TFSA', 'Endowment Policy'],
-};
+import { useFetch } from '../hooks/useFetch.js';
+import { leadsApi } from '../services/api.js';
 
 const RoleContext = createContext(null);
 
@@ -63,8 +61,26 @@ export function RoleProvider({ children }) {
   // because switching roles is ever a real action anymore.
   const setRole = () => {};
 
+  // Gated on `user` — the Login page renders before authentication
+  // succeeds, and this endpoint requires a valid session; matches the
+  // same "don't fetch before login" reasoning as persona/role above.
+  const { data: portfolioData, refetch: refetchPortfolios } = useFetch(
+    () => user ? leadsApi.listPortfolios() : Promise.resolve(null),
+    [user?.id]
+  );
+  const portfolios = portfolioData?.portfolios ?? [];
+  // Name-keyed, not id-keyed — every consumer already worked with
+  // portfolio NAMES throughout (User.portfolios/products are both
+  // string-name arrays, matching the wider app convention — see
+  // userService.js's USER_LIST_SELECT), so this is what lets each of
+  // them switch from the old static import to this fetched data with a
+  // small, mechanical change rather than a deeper rewrite.
+  const productsByPortfolio = Object.fromEntries(
+    portfolios.map(p => [p.name, p.products.map(prod => prod.name)])
+  );
+
   return (
-    <RoleContext.Provider value={{ role, setRole, persona }}>
+    <RoleContext.Provider value={{ role, setRole, persona, portfolios, productsByPortfolio, refetchPortfolios }}>
       {children}
     </RoleContext.Provider>
   );

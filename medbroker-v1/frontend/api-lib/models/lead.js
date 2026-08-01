@@ -159,3 +159,11 @@ export const CreateMedicalSubscriptionSchema = z.object({
   providerName: z.string().max(300).optional(),
   notes:        z.string().max(1000).optional(),
 });
+
+// §90 — Portfolio/Product management.
+export const CreatePortfolioSchema = z.object({
+  name: z.string().min(1).max(200),
+});
+export const CreateProductSchema = z.object({
+  name: z.string().min(1).max(200),
+});

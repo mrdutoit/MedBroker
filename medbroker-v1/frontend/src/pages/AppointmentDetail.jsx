@@ -40,7 +40,7 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { useRole, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext';
+import { useRole } from '../context/RoleContext';
 import { useFlags }                           from '../context/FlagContext';
 import { useWindowSize }                      from '../hooks/useWindowSize';
 import { useFetch }                           from '../hooks/useFetch.js';
@@ -462,7 +462,7 @@ function ReturnToLeadsModal({ appointment, onClose, onReturned }) {
 export default function AppointmentDetail() {
   const { id }          = useParams();
   const navigate        = useNavigate();
-  const { role }        = useRole();
+  const { role, productsByPortfolio } = useRole();
   const { flag }        = useFlags();
   const { isMobile }    = useWindowSize();
 
@@ -584,9 +584,7 @@ export default function AppointmentDetail() {
   // Products Sold needs the union across all of them — otherwise a
   // product genuinely sold from a non-primary portfolio would never even
   // appear as a checkbox to record it against.
-  const productsForPortfolio = appt.portfolios.flatMap(name =>
-    PRODUCTS_BY_PORTFOLIO[name === 'Discovery' ? 'disc' : 'mm'] ?? []
-  );
+  const productsForPortfolio = appt.portfolios.flatMap(name => productsByPortfolio[name] ?? []);
 
   function handleMeetingChange(meetingNumber, field, value) {
     setAppt(prev => ({

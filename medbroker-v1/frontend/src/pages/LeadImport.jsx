@@ -48,7 +48,7 @@ import * as XLSX from 'xlsx';
 import { leadsApi, ApiError } from '../services/api.js';
 import { s } from '../styles/tokens.js';
 import { TITLES, JOB_TITLES } from '../constants/leadOptions.js';
-import { PORTFOLIOS } from '../context/RoleContext.jsx';
+import { useRole } from '../context/RoleContext.jsx';
 
 const REQUIRED_COLUMNS = ['title', 'firstName', 'lastName', 'dateOfBirth', 'occupation', 'mobileNumber', 'email'];
 
@@ -74,6 +74,7 @@ function stripEmpty(obj) {
 
 export default function LeadImport() {
   const navigate  = useNavigate();
+  const { portfolios: allPortfolios } = useRole();
   const fileRef   = useRef();
   const [tab, setTab] = useState('csv');
 
@@ -579,7 +580,7 @@ export default function LeadImport() {
           <div style={s.formGroup}>
             <label style={s.formLabel}>Portfolio</label>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
-              {PORTFOLIOS.map(p => {
+              {allPortfolios.map(p => {
                 const checked = form.portfolios.includes(p.name);
                 return (
                   <label

@@ -20,7 +20,7 @@
  */
 
 import { useState } from 'react';
-import { useRole, PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
+import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
 import { useSortableData } from '../hooks/useSortableData.js';
@@ -66,7 +66,7 @@ function SortableTh({ label, activeKey, currentSortKey, currentDirection, reques
   );
 }
 
-function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onProductChange, role }) {
+function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onProductChange, role, allPortfolios, productsByPortfolio }) {
   const needsPortfolio = ['Agent', 'Supervisor', 'Broker'].includes(role);
   const needsProducts  = role === 'Broker';
   if (!needsPortfolio) return null;
@@ -76,7 +76,7 @@ function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onP
       <div style={s.formGroup}>
         <label style={s.formLabel}>Portfolio {role !== 'Supervisor' ? '*' : ''}</label>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
-          {PORTFOLIOS.map(p => {
+          {allPortfolios.map(p => {
             const checked = portfolios.includes(p.name);
             return (
               <label
@@ -105,8 +105,7 @@ function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onP
       </div>
 
       {needsProducts && portfolios.map(portName => {
-        const portId   = portName === 'Discovery' ? 'disc' : 'mm';
-        const allProds = PRODUCTS_BY_PORTFOLIO[portId] || [];
+        const allProds = productsByPortfolio[portName] || [];
         return (
           <div key={portName} style={{ ...s.formGroup }}>
             <label style={{ ...s.formLabel, color:'var(--accent)' }}>{portName} products</label>
@@ -141,6 +140,7 @@ function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onP
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
 function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnlock }) {
+  const { portfolios: allPortfolios, productsByPortfolio } = useRole();
   const isEdit = mode === 'edit';
   const [form, setForm] = useState(
     isEdit
@@ -161,8 +161,7 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
       const next = f.portfolios.includes(name)
         ? f.portfolios.filter(p => p !== name)
         : [...f.portfolios, name];
-      const validPortIds = next.map(p => p === 'Discovery' ? 'disc' : 'mm');
-      const validProds   = validPortIds.flatMap(id => PRODUCTS_BY_PORTFOLIO[id] || []);
+      const validProds = next.flatMap(n => productsByPortfolio[n] || []);
       return { ...f, portfolios: next, products: f.products.filter(pr => validProds.includes(pr)) };
     });
   }
@@ -373,6 +372,8 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
           onPortfolioChange={togglePortfolio}
           onProductChange={toggleProduct}
           role={form.role}
+          allPortfolios={allPortfolios}
+          productsByPortfolio={productsByPortfolio}
         />
 
         <div style={{ ...s.modalFooter, justifyContent: isEdit ? 'space-between' : 'flex-end' }}>

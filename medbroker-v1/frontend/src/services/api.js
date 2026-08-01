@@ -175,6 +175,10 @@ export const leadsApi = {
   checkDuplicates: (rows) => request('/leads/check-duplicates', { method: 'POST', body: JSON.stringify({ rows }) }),
   listSubscriptions: () => request('/leads/subscriptions'),
   createSubscription: (data) => request('/leads/subscriptions', { method: 'POST', body: JSON.stringify(data) }),
+  // §90 — Portfolio/Product management
+  listPortfolios: () => request('/leads/portfolios'),
+  createPortfolio: (name) => request('/leads/portfolios', { method: 'POST', body: JSON.stringify({ name }) }),
+  createProduct: (portfolioId, name) => request(`/leads/portfolios/${portfolioId}/products`, { method: 'POST', body: JSON.stringify({ name }) }),
   // assign — first-time assignment of an unassigned lead to an agent, OR
   //   changing the agent on an already-assigned lead. Same endpoint either
   //   way — the backend distinguishes them itself (checks whether there
