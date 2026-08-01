@@ -31,6 +31,7 @@ const VALID_ACTIONS = [
   'LeadCreated', 'LeadDeleted', 'LeadReopened', 'LeadUpdated',
   'PortalAccountActivated', 'PortalProfileUpdated', 'PortalRegistration',
   'PortalWalkInCheckedIn', 'ProfileUpdated', 'TaskCreated', 'TaskDeleted', 'UserCreated',
+  'SarRequestCreated', 'SarStatusChanged', 'SarDataExported',
 ];
 
 /**

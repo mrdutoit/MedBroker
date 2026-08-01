@@ -80,6 +80,11 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   Vercel's env vars AND notifications.email.enabled
                   switched on (AppAdmin -> Feature Flags) before
                   anything actually sends — neither is done yet.
+  POPIA Subject Access Request processing (§79) — real. AppAdmin ->
+                  Data Requests: log a request against a Lead, track its
+                  status, export everything MedBroker holds about that
+                  Lead (JSON or CSV) once ready to fulfil it. Admin/
+                  GlobalAdmin only.
 
 GATED OFF BY DEFAULT (built, working, just not switched on):
   tasks.enabled — flip in FeatureFlags.jsx (AppAdmin) to see Tasks in
@@ -88,7 +93,6 @@ GATED OFF BY DEFAULT (built, working, just not switched on):
 DELIBERATELY NOT BUILT (real gaps, not yet scoped or blocked on
 something outside this session's control):
   - Token economy: claim model works; Stripe not connected.
-  - POPIA Subject Access Request endpoint: flag exists, nothing built.
   - "Medical Subscription" lead import tab: UI mockup only, no backend.
   - Org-wide entity display for Event/EventAttendee/Task in the Audit
     Log (§76) — shows a raw id rather than a resolved name, a real but
@@ -5035,6 +5039,120 @@ MIGRATION — no schema change (notifications.email.enabled flag already existed
 Plus this Status_Vercel.md.
 
 NEXT: rest of §75's production-readiness list.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+79. POPIA SUBJECT ACCESS REQUEST PROCESSING — 1 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's pick from §75's production-readiness list — the last genuinely
+missing feature from that audit (Medical Subscription import and the
+Entra branch cleanup are the only items left there now, plus the
+process/paperwork items that were never code tasks in the first place).
+Chosen ahead of Medical Subscription import and the token economy
+specifically because this product's whole positioning is FAIS/POPIA
+compliance — shipping without a working way to handle a data subject's
+access request was a real gap in exactly the area meant to be a
+strength, more than either of the other two candidates.
+
+FUNCTION COUNT: routed through the already-existing leads-router.js
+(GET/POST /api/leads/sar-requests, GET/PATCH /api/leads/sar-requests/:id,
+GET .../:id/export) — a genuine domain fit this time (a SAR is always
+tied to a Lead), not just "wherever there's room" the way some earlier
+additions were. Still 12/12, no new function.
+
+DESIGN: a SAR is always tied to a Lead — MedBroker's primary holder of
+personal information about a data subject. If someone requesting access
+isn't in the system as a Lead at all, there's nothing to compile in the
+first place, so leadId is required, not optional, on the new
+SubjectAccessRequest table. Admin/GlobalAdmin only, matching Audit Log's
+access pattern — SAR processing can touch any Lead in the organisation,
+not just a Supervisor's own team, so it doesn't fit the usual
+scoped-visibility model Leads/Appointments/Tasks use.
+
+Two distinct concerns, kept separate: tracking the REQUEST itself
+(who asked, when, status: Received/InProgress/Fulfilled/Rejected, due
+date, notes) versus actually COMPILING what MedBroker holds about that
+Lead (a separate function, compileSubjectData, called specifically at
+export time, not baked into the request-tracking flow).
+
+BUILT:
+  - Migration 017_add_subject_access_request.sql — new
+    SubjectAccessRequest table.
+  - NEW models/sar.js — CreateSarRequestSchema, UpdateSarStatusSchema.
+  - NEW sarService.js — listSarRequests/createSarRequest/
+    updateSarStatus (standard CRUD, matching every other service in this
+    codebase) plus compileSubjectData(leadId), the part that actually
+    fulfils a request: the Lead record itself (ID number DECRYPTED
+    specifically for this export — the one place in the whole app where
+    showing a staff member the plaintext is exactly the point, not a
+    leak; every other view of a Lead never does this), every call
+    attempt, every appointment with full meeting history, every task
+    linked to the lead, and the lead's own audit trail (who's
+    accessed/changed their data — POPIA's accountability angle, not
+    just the raw data itself).
+  - NEW sarHandlers.js — collection/detail/export handlers. Export
+    supports JSON (the full nested compiled structure, the more
+    legally-meaningful format for handing someone their own data) and
+    CSV (flattened to one row, nested arrays JSON-stringified into
+    cells — same pattern already established for Audit Log's
+    changeDetail column, reused rather than reinvented). Every export
+    is itself written to AuditLog (SarDataExported) — separately from
+    SarRequestCreated/SarStatusChanged, so the log shows specifically
+    WHEN the data was actually pulled, not just when the request was
+    logged.
+  - leads-router.js: sar-requests sub-routes added, checked before the
+    generic 1/2-segment :id branches, same defensive-ordering
+    convention as everywhere else.
+  - auditHandlers.js: the three new SAR action types added to the
+    Audit Log's filter dropdown (SarRequestCreated, SarStatusChanged,
+    SarDataExported) — otherwise they'd be recorded but not filterable.
+  - AppAdmin.jsx: new 6th tab, "Data Requests". List with status filter
+    and pagination; a create form with a live Lead search-and-select
+    (reuses leadsApi.list({search}), no new backend needed for that
+    part); expandable rows (same interaction pattern Tasks.jsx already
+    uses) showing notes, one-click status transitions, and per-request
+    Export JSON/CSV buttons.
+  - api.js: sarApi client, including its own export() — same
+    can't-use-request()-because-it's-a-file-not-JSON reasoning as
+    auditApi.export(), same authenticated-fetch-plus-Blob-download
+    pattern, not reinvented.
+
+CAUGHT DURING BUILD, not after: initially wrote the compileSubjectData
+join to AuditLog and the Lead/Appointment id joins without re-checking
+column types first — given the Audit Log cast-failure lesson from §76,
+deliberately checked Task.entityId's actual type (UUID, not VARCHAR the
+way AuditLog.entityId is) before trusting a plain equality comparison
+there was safe, rather than assume the same fix from §76 was needed
+again by default.
+
+VERIFIED: full Vite production build clean (AppAdmin's own bundle grew
+~20KB -> ~29KB, consistent with a new tab, not a red flag); existing
+45-test Vitest suite unaffected; every new/edited backend file passes
+node --check and an ESM import smoke test; every column name used in
+compileSubjectData's queries (productsInterestedIn, customerSigned,
+meeting1Status/2/3, etc.) individually re-checked against the actual
+schema rather than typed from memory.
+
+NOT YET DONE: no email notification to the requestor when their request
+is marked Fulfilled — plausible small follow-up once real email sending
+(§78) has been confirmed working end-to-end, not built as part of this
+entry since it wasn't asked for and would have expanded scope.
+
+MIGRATION:
+  frontend/db/migrations/017_add_subject_access_request.sql (NEW)
+  frontend/db/schema.postgres.sql          (SubjectAccessRequest table added)
+  frontend/api-lib/models/sar.js           (NEW)
+  frontend/api-lib/services/sarService.js  (NEW)
+  frontend/api-lib/handlers/sarHandlers.js (NEW)
+  frontend/api-lib/handlers/auditHandlers.js (new SAR action types added to filter list)
+  frontend/api/leads-router.js             (sar-requests sub-routes added)
+  frontend/src/services/api.js             (sarApi added)
+  frontend/src/pages/AppAdmin.jsx          (Data Requests tab added)
+Plus this Status_Vercel.md.
+
+NEXT: Medical Subscription lead import (the channel itself) and the
+dead Entra-branch cleanup are what's left on §75's original list, plus
+the process/paperwork security items that were never code tasks.
 
 
 

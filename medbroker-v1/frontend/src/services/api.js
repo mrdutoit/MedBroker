@@ -213,6 +213,41 @@ export const leadsApi = {
   delete:  (id)   => request(`/leads/${id}`, { method: 'DELETE' }),
 };
 
+// §79 — POPIA Subject Access Requests. Routed through /api/leads on the
+// backend (no natural top-level fit; same "fold into an existing router"
+// reasoning as every other addition since the 12/12 function ceiling).
+export const sarApi = {
+  list: (page = 1, pageSize = 25, status) => {
+    const params = new URLSearchParams({ page, pageSize, ...(status ? { status } : {}) });
+    return request(`/leads/sar-requests?${params}`);
+  },
+  get:    (id)          => request(`/leads/sar-requests/${id}`),
+  create: (data)         => request('/leads/sar-requests', { method: 'POST', body: JSON.stringify(data) }),
+  updateStatus: (id, data) => request(`/leads/sar-requests/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+  /**
+   * Same reasoning as auditApi.export() — this returns a file, not JSON,
+   * so it can't go through request(). Does its own authenticated fetch
+   * and triggers a browser download.
+   */
+  export: async (id, format) => {
+    const params = new URLSearchParams({ export: format });
+    const token = getToken();
+    const response = await fetch(`${API_BASE}/leads/sar-requests/${id}/export?${params}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!response.ok) throw new ApiError(response.status, `Export failed (${response.status})`);
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="([^"]+)"/);
+    const filename = match ? match[1] : `sar-export.${format}`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  },
+};
+
 // ─── Appointments ─────────────────────────────────────────────────────────────
 
 export const appointmentsApi = {

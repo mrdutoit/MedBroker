@@ -4,12 +4,12 @@
  * These are the configurable reference data entities used throughout the app.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, Fragment } from 'react';
 import { s } from '../styles/tokens.js';
 import { PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
-import { apiMode, systemConfigApi, auditApi, usersApi } from '../services/api.js';
+import { apiMode, systemConfigApi, auditApi, usersApi, sarApi, leadsApi } from '../services/api.js';
 
 // Mirrors auditHandlers.js's VALID_ENTITY_TYPES/VALID_ACTIONS exactly —
 // kept in sync manually (no shared module between frontend/backend in
@@ -114,6 +114,85 @@ export default function AppAdmin() {
   const { data: auditUsersData } = useFetch(() => demoMode ? usersApi.list({}) : Promise.resolve(null), [demoMode]);
   const auditUsers = auditUsersData?.users ?? [];
 
+  // Data Requests (§79 — POPIA SAR) state
+  const [sarPage, setSarPage] = useState(1);
+  const [sarStatusFilter, setSarStatusFilter] = useState('');
+  const [sarExpandedId, setSarExpandedId] = useState(null);
+  const [sarShowCreate, setSarShowCreate] = useState(false);
+  const [sarLeadSearch, setSarLeadSearch] = useState('');
+  const [sarLeadResults, setSarLeadResults] = useState([]);
+  const [sarSelectedLead, setSarSelectedLead] = useState(null);
+  const [sarRequestorName, setSarRequestorName] = useState('');
+  const [sarRequestorEmail, setSarRequestorEmail] = useState('');
+  const [sarReceivedAt, setSarReceivedAt] = useState(() => new Date().toISOString().slice(0, 10));
+  const [sarDueDate, setSarDueDate] = useState('');
+  const [sarNotes, setSarNotes] = useState('');
+  const [sarSaving, setSarSaving] = useState(false);
+  const [sarError, setSarError] = useState(null);
+  const [sarExporting, setSarExporting] = useState(null);
+
+  const { data: sarData, loading: sarLoading, refetch: refetchSar } = useFetch(
+    () => demoMode ? sarApi.list(sarPage, 25, sarStatusFilter || undefined) : Promise.resolve(null),
+    [demoMode, sarPage, sarStatusFilter]
+  );
+  const sarRequests = sarData?.requests ?? [];
+  const sarTotal = sarData?.total ?? 0;
+  const sarTotalPages = Math.max(1, Math.ceil(sarTotal / 25));
+
+  async function handleSarLeadSearch() {
+    if (!sarLeadSearch.trim()) { setSarLeadResults([]); return; }
+    try {
+      const result = await leadsApi.list({ search: sarLeadSearch.trim(), pageSize: 10 });
+      setSarLeadResults(result.leads ?? []);
+    } catch { setSarLeadResults([]); }
+  }
+
+  async function handleSarCreate() {
+    if (!sarSelectedLead || !sarRequestorName.trim() || !sarRequestorEmail.trim() || !sarReceivedAt) return;
+    setSarSaving(true);
+    setSarError(null);
+    try {
+      await sarApi.create({
+        leadId: sarSelectedLead.id,
+        requestorName: sarRequestorName.trim(),
+        requestorEmail: sarRequestorEmail.trim(),
+        receivedAt: sarReceivedAt,
+        dueDate: sarDueDate || undefined,
+        notes: sarNotes || undefined,
+      });
+      await refetchSar();
+      setSarShowCreate(false);
+      setSarSelectedLead(null); setSarLeadSearch(''); setSarLeadResults([]);
+      setSarRequestorName(''); setSarRequestorEmail(''); setSarDueDate(''); setSarNotes('');
+      setSarReceivedAt(new Date().toISOString().slice(0, 10));
+    } catch (err) {
+      setSarError(err.message || 'Could not log the request');
+    } finally {
+      setSarSaving(false);
+    }
+  }
+
+  async function handleSarStatusChange(id, status) {
+    try {
+      await sarApi.updateStatus(id, { status });
+      await refetchSar();
+    } catch (err) {
+      setSarError(err.message || 'Could not update status');
+    }
+  }
+
+  async function handleSarExport(id, format) {
+    setSarExporting(`${id}-${format}`);
+    setSarError(null);
+    try {
+      await sarApi.export(id, format);
+    } catch (err) {
+      setSarError(err.message || 'Export failed');
+    } finally {
+      setSarExporting(null);
+    }
+  }
+
   function resetAuditPageOnFilterChange(setter) {
     return (value) => { setter(value); setAuditPage(1); };
   }
@@ -177,7 +256,7 @@ export default function AppAdmin() {
       <h1 style={{ margin: '0 0 18px', fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)' }}>App Administration</h1>
 
       <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '20px' }}>
-        {[['portfolios', 'Portfolios'], ['products', 'Products'], ['subscriptions', 'Medical Subscriptions'], ['settings', 'System Settings'], ['audit', 'Audit Log']].map(([key, label]) => (
+        {[['portfolios', 'Portfolios'], ['products', 'Products'], ['subscriptions', 'Medical Subscriptions'], ['settings', 'System Settings'], ['audit', 'Audit Log'], ['sar', 'Data Requests']].map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -651,6 +730,189 @@ export default function AppAdmin() {
             </div>
           )}
         </>
+      )}
+
+      {/* Data Requests — POPIA Subject Access Requests (§79) */}
+      {tab === 'sar' && (
+        <div style={{ maxWidth: '900px' }}>
+          <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: '0 0 14px' }}>
+            Track and fulfil POPIA Subject Access Requests — a data subject's right to see what
+            personal information MedBroker holds about them. Every request is tied to a Lead record;
+            fulfilling one compiles everything held about that lead into a downloadable export.
+          </p>
+
+          {sarError && <div style={{ ...s.errorBox, marginBottom: '14px' }}>{sarError}</div>}
+
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', marginBottom: '14px' }}>
+            <select
+              value={sarStatusFilter}
+              onChange={e => { setSarStatusFilter(e.target.value); setSarPage(1); }}
+              style={{ ...s.formInput, width: '160px', padding: '6px 8px', fontSize: '0.8125rem' }}
+            >
+              <option value="">All statuses</option>
+              <option value="Received">Received</option>
+              <option value="InProgress">In Progress</option>
+              <option value="Fulfilled">Fulfilled</option>
+              <option value="Rejected">Rejected</option>
+            </select>
+            <button style={{ ...s.primaryBtn, marginLeft: 'auto' }} onClick={() => setSarShowCreate(v => !v)}>
+              {sarShowCreate ? 'Cancel' : '+ Log New Request'}
+            </button>
+          </div>
+
+          {sarShowCreate && (
+            <div style={{ ...s.card, marginBottom: '16px' }}>
+              <div style={s.cardTitle}>Log a Subject Access Request</div>
+
+              <div style={s.formGroup}>
+                <label style={s.formLabel}>Find the Lead this request is about *</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  <input
+                    type="text" style={{ ...s.formInput, flex: 1 }}
+                    placeholder="Search by name or email…"
+                    value={sarLeadSearch}
+                    onChange={e => setSarLeadSearch(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') handleSarLeadSearch(); }}
+                  />
+                  <button style={s.secondaryBtn} onClick={handleSarLeadSearch}>Search</button>
+                </div>
+                {sarSelectedLead && (
+                  <div style={{ ...s.noticeSuccess, marginTop: '8px', fontSize: '0.8125rem' }}>
+                    Selected: {[sarSelectedLead.title, sarSelectedLead.firstName, sarSelectedLead.lastName].filter(Boolean).join(' ')} ({sarSelectedLead.email})
+                  </div>
+                )}
+                {sarLeadResults.length > 0 && !sarSelectedLead && (
+                  <div style={{ marginTop: '8px', border: '1px solid var(--line)', borderRadius: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+                    {sarLeadResults.map(l => (
+                      <div
+                        key={l.id}
+                        onClick={() => { setSarSelectedLead(l); setSarLeadResults([]); }}
+                        style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '0.8125rem', borderBottom: '1px solid var(--line)' }}
+                        onMouseEnter={e => e.currentTarget.style.background = 'var(--panel2)'}
+                        onMouseLeave={e => e.currentTarget.style.background = ''}
+                      >
+                        {[l.title, l.firstName, l.lastName].filter(Boolean).join(' ')} — {l.email}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ ...s.formGroup, flex: 1 }}>
+                  <label style={s.formLabel}>Requestor name *</label>
+                  <input type="text" style={s.formInput} value={sarRequestorName} onChange={e => setSarRequestorName(e.target.value)} />
+                </div>
+                <div style={{ ...s.formGroup, flex: 1 }}>
+                  <label style={s.formLabel}>Requestor email *</label>
+                  <input type="email" style={s.formInput} value={sarRequestorEmail} onChange={e => setSarRequestorEmail(e.target.value)} />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ ...s.formGroup, flex: 1 }}>
+                  <label style={s.formLabel}>Date received *</label>
+                  <input type="date" style={s.formInput} value={sarReceivedAt} onChange={e => setSarReceivedAt(e.target.value)} />
+                </div>
+                <div style={{ ...s.formGroup, flex: 1 }}>
+                  <label style={s.formLabel}>Target due date</label>
+                  <input type="date" style={s.formInput} value={sarDueDate} onChange={e => setSarDueDate(e.target.value)} />
+                </div>
+              </div>
+
+              <div style={s.formGroup}>
+                <label style={s.formLabel}>Notes</label>
+                <textarea style={{ ...s.formInput, minHeight: '60px' }} value={sarNotes} onChange={e => setSarNotes(e.target.value)} />
+              </div>
+
+              <button
+                style={{ ...s.primaryBtn, opacity: (!sarSelectedLead || !sarRequestorName.trim() || !sarRequestorEmail.trim() || sarSaving) ? 0.5 : 1 }}
+                disabled={!sarSelectedLead || !sarRequestorName.trim() || !sarRequestorEmail.trim() || sarSaving}
+                onClick={handleSarCreate}
+              >
+                {sarSaving ? 'Saving…' : 'Log Request'}
+              </button>
+            </div>
+          )}
+
+          {demoMode && sarLoading && <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading requests…</div>}
+
+          <div style={{ ...s.tableCard, overflowX: 'auto' }}>
+            <table style={{ ...s.table, minWidth: '700px' }}>
+              <thead><tr>
+                <th style={s.th}>Received</th>
+                <th style={s.th}>Lead</th>
+                <th style={s.th}>Requestor</th>
+                <th style={s.th}>Status</th>
+                <th style={s.th}>Due</th>
+                <th style={s.th}></th>
+              </tr></thead>
+              <tbody>
+                {sarRequests.map(r => (
+                  <Fragment key={r.id}>
+                    <tr style={{ ...s.tr, cursor: 'pointer' }} onClick={() => setSarExpandedId(id => id === r.id ? null : r.id)}>
+                      <td style={s.td}>{r.receivedAt}</td>
+                      <td style={s.td}>{r.leadName}</td>
+                      <td style={s.td}>{r.requestorName}</td>
+                      <td style={s.td}>
+                        <span style={{ ...s.badge, fontSize: '0.688rem', background:'var(--panel2)' }}>{r.status}</span>
+                      </td>
+                      <td style={{ ...s.td, color:'var(--mut)' }}>{r.dueDate || '—'}</td>
+                      <td style={s.td}>{sarExpandedId === r.id ? '▲' : '▼'}</td>
+                    </tr>
+                    {sarExpandedId === r.id && (
+                      <tr><td colSpan={6} style={{ ...s.td, background: 'var(--panel2)' }}>
+                        {r.notes && <p style={{ fontSize: '0.8125rem', margin: '0 0 10px' }}>{r.notes}</p>}
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+                          <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>Status:</span>
+                          {['Received', 'InProgress', 'Fulfilled', 'Rejected'].map(s2 => (
+                            <button
+                              key={s2}
+                              onClick={e => { e.stopPropagation(); handleSarStatusChange(r.id, s2); }}
+                              style={{
+                                ...s.secondaryBtn, fontSize: '0.75rem', padding: '4px 10px',
+                                ...(r.status === s2 ? { background: 'var(--accent)', color: '#fff' } : {}),
+                              }}
+                            >
+                              {s2}
+                            </button>
+                          ))}
+                          <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+                            <button
+                              style={{ ...s.secondaryBtn, fontSize: '0.75rem', opacity: sarExporting ? 0.5 : 1 }}
+                              disabled={!!sarExporting}
+                              onClick={e => { e.stopPropagation(); handleSarExport(r.id, 'json'); }}
+                            >
+                              {sarExporting === `${r.id}-json` ? '…' : 'Export JSON'}
+                            </button>
+                            <button
+                              style={{ ...s.secondaryBtn, fontSize: '0.75rem', opacity: sarExporting ? 0.5 : 1 }}
+                              disabled={!!sarExporting}
+                              onClick={e => { e.stopPropagation(); handleSarExport(r.id, 'csv'); }}
+                            >
+                              {sarExporting === `${r.id}-csv` ? '…' : 'Export CSV'}
+                            </button>
+                          </div>
+                        </div>
+                      </td></tr>
+                    )}
+                  </Fragment>
+                ))}
+                {!sarLoading && sarRequests.length === 0 && (
+                  <tr><td colSpan={6} style={{ ...s.td, textAlign: 'center', color:'var(--mut)' }}>No requests logged yet.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          {sarTotalPages > 1 && (
+            <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '14px' }}>
+              <button style={{ ...s.secondaryBtn, opacity: sarPage <= 1 ? 0.5 : 1 }} disabled={sarPage <= 1} onClick={() => setSarPage(p => Math.max(1, p - 1))}>← Previous</button>
+              <span style={{ fontSize: '0.8125rem', color:'var(--mut)' }}>Page {sarPage} of {sarTotalPages}</span>
+              <button style={{ ...s.secondaryBtn, opacity: sarPage >= sarTotalPages ? 0.5 : 1 }} disabled={sarPage >= sarTotalPages} onClick={() => setSarPage(p => Math.min(sarTotalPages, p + 1))}>Next →</button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
