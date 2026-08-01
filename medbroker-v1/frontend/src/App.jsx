@@ -124,37 +124,31 @@ function AppLayout({ children }) {
   // Section labels only rendered when at least one item beneath them is visible
   const showAdminSection = isAdminOrAbove;
 
-  // Unread notification count. Entra branch: unchanged, still the fixed
-  // mock value matching MOCK_NOTIFICATIONS' 4 unread items in
-  // Notifications.jsx. Demo mode (§61): real fetch, own notifications
-  // only (recipientId = self is the only scope notificationHandlers.js
-  // has — no admin/supervisor distinction the way Tasks needed). Same
-  // route-change refetch trade-off as the Tasks badge below — accepted
-  // there already, applied consistently here rather than leaving one
-  // real and one fake, which would read as more broken than both fake.
-  const [mockUnreadCount] = useState(4);
+  // Unread notification count — real fetch, own notifications only
+  // (recipientId = self is the only scope notificationHandlers.js has —
+  // no admin/supervisor distinction the way Tasks needed). Refetched on
+  // every route change, same trade-off as the Tasks badge below: the
+  // query is cheap enough that refetching on navigation beats adding
+  // polling/websocket infrastructure this app doesn't have.
   const { data: notifData } = useFetch(
-    () => demoMode ? notificationsApi.list() : Promise.resolve(null),
-    [demoMode, location.pathname]
+    () => notificationsApi.list(),
+    [location.pathname]
   );
-  const unreadCount = demoMode
-    ? (notifData?.notifications ?? []).filter(n => !n.isRead).length
-    : mockUnreadCount;
+  const unreadCount = (notifData?.notifications ?? []).filter(n => !n.isRead).length;
 
-  // Real pending-task count (§60) — only Tasks has a real backend behind
-  // it (Notifications above is still the mock count). Scoped to the
-  // current user specifically (assignedToId), not the role-scoped list
-  // GET /api/tasks would otherwise return for a Supervisor/Admin — this
-  // badge means "tasks assigned to YOU", not "tasks you can see". Skipped
-  // entirely when the flag is off or there's no real backend to ask.
-  // Refetched on every route change rather than left to go stale after
-  // completing a task on the Tasks page and navigating elsewhere — the
-  // query is cheap (indexed on assignedToId, personal-scale row counts),
-  // so refetching on navigation is a reasonable trade for staying accurate
-  // without adding polling/websocket infrastructure this app doesn't have.
+  // Real pending-task count (§60) — scoped to the current user
+  // specifically (assignedToId), not the role-scoped list GET
+  // /api/tasks would otherwise return for a Supervisor/Admin — this
+  // badge means "tasks assigned to YOU", not "tasks you can see".
+  // Skipped entirely when the flag is off. Refetched on every route
+  // change rather than left to go stale after completing a task on the
+  // Tasks page and navigating elsewhere — the query is cheap (indexed
+  // on assignedToId, personal-scale row counts), so refetching on
+  // navigation is a reasonable trade for staying accurate without
+  // adding polling/websocket infrastructure this app doesn't have.
   const { data: myTaskData } = useFetch(
-    () => (demoMode && showTasks && persona.id) ? tasksApi.list({ assignedToId: persona.id }) : Promise.resolve(null),
-    [demoMode, showTasks, persona.id, location.pathname]
+    () => (showTasks && persona.id) ? tasksApi.list({ assignedToId: persona.id }) : Promise.resolve(null),
+    [showTasks, persona.id, location.pathname]
   );
   const pendingTaskCount = (myTaskData?.tasks ?? []).filter(t => !t.done).length;
 

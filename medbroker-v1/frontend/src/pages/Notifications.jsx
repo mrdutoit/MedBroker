@@ -2,17 +2,13 @@
  * pages/Notifications.jsx
  * In-app notification inbox.
  *
- * BACKEND WIRING (added 28 Jul 2026, §61): only two of the six types this
- * file's own TYPE_ICON table lists are wired to a real backend —
- * LeadAssigned (leadHandlers.js's assign handler) and AppointmentAssigned
- * (appointmentService.assignBroker()), both synchronous, action-driven
- * triggers. AppointmentReminder, CallbackReminder, LeadAutoReturned, and
- * RescheduleReminder are all time-based and need a scheduled job — no
- * Vercel Cron exists anywhere in this stack yet, so those stay
- * unbuilt (see Status.md §61 for the full reasoning). The Entra branch
- * (RoleContext doesn't yet derive a real identity there — see its header
- * comment) still runs entirely on MOCK_NOTIFICATIONS below, covering all
- * six types so the UI/UX can still be demonstrated end-to-end.
+ * BACKEND WIRING (added 28 Jul 2026, §61; scheduled types added via
+ * Vercel Cron, §68): all six types this file's own TYPE_ICON table
+ * lists are wired to a real backend now — LeadAssigned/
+ * AppointmentAssigned are synchronous, action-driven triggers;
+ * AppointmentReminder/CallbackReminder/LeadAutoReturned run off the
+ * daily Cron scan. RescheduleReminder is listed in TYPE_ICON but
+ * unused — confirmed dead code, not a missed requirement (see §68).
  *
  * Also fixed in passing: the unread-row background was a hardcoded
  * rgba(239,246,255,0.3) — a light-mode-only blue tint that never adapted
@@ -24,17 +20,8 @@
 import { useState }      from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { s }              from '../styles/tokens.js';
-import { apiMode, notificationsApi } from '../services/api.js';
+import { notificationsApi } from '../services/api.js';
 import { useFetch }       from '../hooks/useFetch.js';
-
-const MOCK_NOTIFICATIONS = [
-  { id:1, type:'LeadAssigned',      title:'New lead assigned — Dr Priya Naidoo',            body:'Admin User assigned this lead to you. Anaesthesiologist · Netcare Sunninghill.', time:'2 min ago',    read:false },
-  { id:2, type:'AppointmentReminder', title:'Appointment reminder — Dr Sipho Dlamini',      body:'You have an appointment with Dr Sipho Dlamini tomorrow at 14:00. Broker: Riaan Botha.', time:'1 hr ago', read:false },
-  { id:3, type:'CallbackReminder',  title:'Follow-up reminder — Dr Ayesha Moosa',           body:'Callback scheduled for today at 10:00. You set this on 14 May 2026.',            time:'3 hr ago',    read:false },
-  { id:4, type:'AppointmentAssigned', title:'New appointment assigned — Dr Amara Osei',     body:'You have been assigned as broker for this appointment. First meeting: 21 May, 09:30.', time:'Yesterday', read:false },
-  { id:5, type:'LeadAutoReturned',  title:'Lead auto-returned to queue — Dr Ruan de Beer', body:'This lead has been unassigned after 6 months without closure and returned to the queue.', time:'2 days ago', read:true },
-  { id:6, type:'AppointmentReminder', title:'Daily appointment digest — 3 upcoming today',  body:'Dr Priya Naidoo at 10:00, Dr Marco Ferreira at 13:00, Dr Zanele Dube at 15:30.',  time:'Today 07:00', read:true },
-];
 
 const TYPE_ICON = {
   LeadAssigned:         '👤',
@@ -46,26 +33,15 @@ const TYPE_ICON = {
 };
 
 export default function Notifications() {
-  const demoMode = apiMode.DEMO_MODE;
+  // Always self-scoped server-side (see notificationHandlers.js) — no
+  // role/identity filtering needed here.
+  const { data, refetch } = useFetch(() => notificationsApi.list(), []);
 
-  // Demo mode: real fetch, always self-scoped server-side (see
-  // notificationHandlers.js) — no role/identity filtering needed here.
-  const { data, refetch } = useFetch(
-    () => demoMode ? notificationsApi.list() : Promise.resolve(null),
-    [demoMode]
-  );
-  // Entra branch keeps its own local, mutable copy of MOCK_NOTIFICATIONS
-  // so mark-read/mark-all-read still work with no backend behind them —
-  // unchanged behaviour from before this session.
-  const [mockItems, setMockItems] = useState(MOCK_NOTIFICATIONS);
-
-  const items = demoMode
-    ? (data?.notifications ?? []).map(n => ({
-        id: n.id, type: n.type, title: n.title, body: n.body,
-        time: formatDistanceToNow(new Date(n.createdAt), { addSuffix: true }),
-        read: n.isRead,
-      }))
-    : mockItems;
+  const items = (data?.notifications ?? []).map(n => ({
+    id: n.id, type: n.type, title: n.title, body: n.body,
+    time: formatDistanceToNow(new Date(n.createdAt), { addSuffix: true }),
+    read: n.isRead,
+  }));
 
   const [tab, setTab] = useState('all');
 
@@ -79,30 +55,22 @@ export default function Notifications() {
   const unreadCount = items.filter(n => !n.read).length;
 
   async function markAllRead() {
-    if (demoMode) {
-      try {
-        await notificationsApi.markAllRead();
-        refetch();
-      } catch (err) {
-        console.error('Could not mark all notifications read:', err);
-      }
-    } else {
-      setMockItems(prev => prev.map(n => ({ ...n, read: true })));
+    try {
+      await notificationsApi.markAllRead();
+      refetch();
+    } catch (err) {
+      console.error('Could not mark all notifications read:', err);
     }
   }
 
   async function markRead(id) {
-    if (demoMode) {
-      const n = items.find(x => x.id === id);
-      if (!n || n.read) return; // already read — matches the Entra branch's cursor:'default' no-op below
-      try {
-        await notificationsApi.markRead(id);
-        refetch();
-      } catch (err) {
-        console.error('Could not mark notification read:', err);
-      }
-    } else {
-      setMockItems(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+    const n = items.find(x => x.id === id);
+    if (!n || n.read) return; // already read — no-op, matches cursor:'default' below
+    try {
+      await notificationsApi.markRead(id);
+      refetch();
+    } catch (err) {
+      console.error('Could not mark notification read:', err);
     }
   }
 

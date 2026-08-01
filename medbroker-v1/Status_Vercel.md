@@ -5432,6 +5432,50 @@ MIGRATION — no schema change, frontend only:
   frontend/src/pages/UserAdmin.jsx
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+85. DEAD ENTRA-BRANCH CODE CLEANUP — BATCH 2 (NOTIFICATIONS + APP.JSX BADGES) — 1 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Continuing §84. This batch: Notifications.jsx in full, plus the
+isolated notification/task-badge-count portion of App.jsx specifically
+— NOT the rest of App.jsx, which shares foundational machinery with
+RoleContext/AuthContext and is staying in the last, highest-risk batch
+on purpose (see §84's own reasoning).
+
+Notifications.jsx: removed MOCK_NOTIFICATIONS (6 fake entries) and the
+mockItems/setMockItems local state entirely — every code path here was
+already real as of §61/§68 (both action-driven and Cron-scheduled
+notification types), so the mock branch had nothing left to cover that
+the real one didn't already handle. markAllRead/markRead simplified to
+their real-API branch only. Header comment updated — it had described
+RescheduleReminder as one of the "not yet built" scheduled types, which
+was already stale before this cleanup even started (§68 built the
+Cron-scheduled types months ago); confirmed via App.jsx's own Task
+badge comment that RescheduleReminder is actually dead/unused code, not
+a missed requirement, and said so plainly rather than leaving another
+vague "needs building" note.
+
+App.jsx (partial): the unread-notification-count badge and the
+pending-task-count badge each had a demoMode gate — removed both, now
+unconditional fetches. Deliberately did NOT touch the "Preview mode"
+role-switcher UI block still in this file (the ⚠ Preview mode
+dropdown, tied directly to useRole()'s previewRole/setRole) — that's
+entangled with RoleContext's preview-mode machinery and belongs in the
+same pass as RoleContext/AuthContext, not fixed in isolation now where
+it would leave the underlying machinery dangling until that batch.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected.
+
+NOT YET DONE — remaining batches: Tasks.jsx, AppAdmin.jsx, Settings.jsx
+(Category B); RoleContext.jsx, AuthContext.jsx, Login.jsx, and the rest
+of App.jsx (Category C, last).
+
+MIGRATION — no schema change, frontend only:
+  frontend/src/pages/Notifications.jsx
+  frontend/src/App.jsx (partial — badge counts only)
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I
