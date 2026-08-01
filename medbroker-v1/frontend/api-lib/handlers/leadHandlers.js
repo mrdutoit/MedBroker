@@ -6,11 +6,11 @@
  */
 
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
-import { listLeads, createLead, listSources, getLeadById, updateLead, deleteLead, assignLead, reopenLead, logCallAttempt, listCallAttempts, findDuplicate } from '../services/leadService.js';
+import { listLeads, createLead, listSources, listMedicalSubscriptions, createMedicalSubscription, getLeadById, updateLead, deleteLead, assignLead, reopenLead, logCallAttempt, listCallAttempts, findDuplicate } from '../services/leadService.js';
 import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById } from '../services/userService.js';
 import { writeAuditLog, clientIp, listAuditLog } from '../services/auditService.js';
 import { createNotification } from '../services/notificationService.js';
-import { CreateLeadSchema, UpdateLeadSchema, LeadListQuerySchema, AssignLeadSchema, CallAttemptSchema, CheckDuplicatesSchema } from '../models/lead.js';
+import { CreateLeadSchema, UpdateLeadSchema, LeadListQuerySchema, AssignLeadSchema, CallAttemptSchema, CheckDuplicatesSchema, CreateMedicalSubscriptionSchema } from '../models/lead.js';
 import { isUuid } from '../http/helpers.js';
 
 /** GET (list) + POST (create) /api/leads */
@@ -144,6 +144,54 @@ export async function handleLeadSources(req, res) {
       return res.status(status).json(body);
     }
     console.error('leads/sources error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * GET /api/leads/subscriptions — §80. Same role requirement as creating
+ * a lead (Admin/Supervisor/GlobalAdmin). Returns every subscription
+ * (active and inactive) with real stats — the import dropdown filters
+ * to isActive client-side; App Admin's management table uses the full
+ * response, including the stats columns that used to be hardcoded fake
+ * data.
+ * POST /api/leads/subscriptions — creates a new one. Admin/GlobalAdmin
+ * only (tighter than the GET/import-role list — this is a management
+ * action, Supervisors can import against an existing subscription but
+ * shouldn't be creating new ones).
+ */
+export async function handleLeadMedicalSubscriptions(req, res) {
+  try {
+    const claims = await validateToken(req);
+
+    if (req.method === 'GET') {
+      requireRole(claims, ['Admin', 'Supervisor', 'GlobalAdmin']);
+      const subscriptions = await listMedicalSubscriptions();
+      return res.status(200).json({ subscriptions });
+    }
+
+    if (req.method === 'POST') {
+      requireRole(claims, ['Admin', 'GlobalAdmin']);
+      const parsed = CreateMedicalSubscriptionSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+      const newId = await createMedicalSubscription(parsed.data);
+      await writeAuditLog({
+        entityType: 'MedicalSubscription', entityId: newId, action: 'MedicalSubscriptionCreated',
+        performedById: claims.oid, changeDetail: JSON.stringify({ name: parsed.data.name }),
+      });
+      return res.status(201).json({ id: newId });
+    }
+
+    res.setHeader('Allow', 'GET, POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('leads/subscriptions error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

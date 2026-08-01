@@ -9,6 +9,7 @@
  *   POST   /api/leads
  *   GET    /api/leads/sources           (literal, checked before treating
  *   POST   /api/leads/check-duplicates   the segment as an :id — §63)
+ *   GET    /api/leads/subscriptions      (§80 — Medical Subscription import)
  *   GET    /api/leads/sar-requests       (§79 — POPIA SAR processing)
  *   POST   /api/leads/sar-requests
  *   GET    /api/leads/:id
@@ -27,7 +28,7 @@
 import {
   handleLeadsCollection, handleLeadSources, handleLeadById,
   handleLeadAssign, handleLeadReopen, handleLeadCalls, handleLeadAudit,
-  handleLeadCheckDuplicates,
+  handleLeadCheckDuplicates, handleLeadMedicalSubscriptions,
 } from '../api-lib/handlers/leadHandlers.js';
 import {
   handleSarRequestsCollection, handleSarRequestById, handleSarRequestExport,
@@ -49,6 +50,10 @@ export default async function handler(req, res) {
 
   if (segments.length === 1 && segments[0] === 'check-duplicates') {
     return handleLeadCheckDuplicates(req, res);
+  }
+
+  if (segments.length === 1 && segments[0] === 'subscriptions') {
+    return handleLeadMedicalSubscriptions(req, res);
   }
 
   // 'sar-requests' segment — checked before the generic 1/2-segment

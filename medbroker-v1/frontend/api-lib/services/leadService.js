@@ -644,6 +644,47 @@ export async function findDuplicate(email, idNumber) {
  * frontend already expected this endpoint; it just didn't exist yet.
  * @returns {Promise<string[]>}
  */
+/**
+ * Every MedicalSubscription (active and inactive), with real import
+ * stats — backs both the "Medical subscription" import dropdown
+ * (LeadImport.jsx filters to isActive client-side) and App Admin's
+ * management table (§80 — that table previously showed hardcoded fake
+ * stats; this is what replaces them).
+ */
+export async function listMedicalSubscriptions() {
+  return executeQuery(
+    `SELECT ms.id, ms.name, ms.providerName AS "providerName", ms.notes,
+            ms.isActive AS "isActive",
+            COUNT(l.id)::int AS "leadsImported",
+            MAX(l.createdAt) AS "lastImportAt"
+     FROM MedicalSubscription ms
+     LEFT JOIN Lead l ON l.linkedSubscriptionId = ms.id AND l.deletedAt IS NULL
+     WHERE ms.organisationId = @organisationId
+     GROUP BY ms.id, ms.name, ms.providerName, ms.notes, ms.isActive
+     ORDER BY ms.name`,
+    { organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } }
+  );
+}
+
+/**
+ * @param {{name: string, providerName?: string, notes?: string}} data
+ */
+export async function createMedicalSubscription(data) {
+  const newId = crypto.randomUUID();
+  await executeQuery(
+    `INSERT INTO MedicalSubscription (id, organisationId, name, providerName, notes, isActive, createdAt, updatedAt)
+     VALUES (@id, @organisationId, @name, @providerName, @notes, TRUE, NOW(), NOW())`,
+    {
+      id:             { type: sql.UniqueIdentifier, value: newId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+      name:           { type: sql.NVarChar(300),    value: data.name },
+      providerName:   { type: sql.NVarChar(300),    value: data.providerName ?? null },
+      notes:          { type: sql.NVarChar(1000),   value: data.notes ?? null },
+    }
+  );
+  return newId;
+}
+
 export async function listSources() {
   const rows = await executeQuery(
     `SELECT DISTINCT ${SOURCE_LABEL_SELECT} AS "sourceLabel"

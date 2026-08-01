@@ -3,10 +3,11 @@
  * Three import channels:
  *   1. Historical CSV/Excel/JSON — free-text source label, REAL
  *      deduplication (§63 — see below)
- *   2. Medical Subscription — UI mockup only, not wired to anything real;
- *      left as a disabled "coming soon" control rather than the
- *      misleading working-looking button it was before (see its own
- *      comment further down)
+ *   2. Medical Subscription — real (§80). Same underlying file-parse and
+ *      duplicate-check machinery as channel 1, sharing the same state
+ *      and handleFileChange — the only real difference is what each
+ *      imported lead gets tagged with (linkedSubscriptionId, a real
+ *      MedicalSubscription record, instead of a free-text source name).
  *   3. Manual Entry — single lead, free-text source required, now also
  *      real-dedup-checked before submit (§63)
  *
@@ -41,7 +42,7 @@
  * version from his own machine.
  */
 
-import { useState, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import * as XLSX from 'xlsx';
 import { leadsApi, ApiError } from '../services/api.js';
@@ -50,12 +51,6 @@ import { TITLES, JOB_TITLES } from '../constants/leadOptions.js';
 import { PORTFOLIOS } from '../context/RoleContext.jsx';
 
 const REQUIRED_COLUMNS = ['title', 'firstName', 'lastName', 'dateOfBirth', 'occupation', 'mobileNumber', 'email'];
-
-const SUBSCRIPTIONS = [
-  'MedLeads SA — Monthly Bundle',
-  'Healthwise Doctor Database',
-  'SA Medical Register — Q2 2026',
-];
 
 // title, firstName, lastName, dateOfBirth, occupation (Job Title),
 // mobileNumber, and email are the client's real required intake fields —
@@ -99,7 +94,13 @@ export default function LeadImport() {
   // Subscription state — subName only; the tab itself is a disabled
   // preview (§63), no file/import state to back since nothing here does
   // anything real yet.
-  const [subName, setSubName] = useState('');
+  const [subId, setSubId] = useState('');
+  const [subscriptions, setSubscriptions] = useState([]);
+  useEffect(() => {
+    leadsApi.listSubscriptions()
+      .then(r => setSubscriptions(r.subscriptions ?? []))
+      .catch(() => setSubscriptions([])); // non-fatal — dropdown just shows empty if this fails
+  }, []);
 
   // Manual state
   const [form,          setForm]          = useState(BLANK_FORM);
@@ -195,14 +196,19 @@ export default function LeadImport() {
   }
 
   async function handleImport() {
-    if (!csvSource.trim()) { setCsvErrors(['Source name is required']); return; }
+    const isSubscription = tab === 'subscription';
+    if (isSubscription && !subId) { setCsvErrors(['Select a medical subscription']); return; }
+    if (!isSubscription && !csvSource.trim()) { setCsvErrors(['Source name is required']); return; }
     setImporting(true);
     setImportResult(null);
     let ok = 0, fail = 0, skipped = dupeIndices.size;
     for (let i = 0; i < csvRows.length; i++) {
       if (dupeIndices.has(i)) continue; // already known — don't even attempt these
       try {
-        await leadsApi.create(stripEmpty({ ...csvRows[i], leadSource: 'CSVImport', manualSourceName: csvSource }));
+        const tag = isSubscription
+          ? { linkedSubscriptionId: subId }
+          : { leadSource: 'CSVImport', manualSourceName: csvSource };
+        await leadsApi.create(stripEmpty({ ...csvRows[i], ...tag }));
         ok++;
       } catch (err) {
         // A duplicate BETWEEN two rows in this same file (row 5 duplicates
@@ -389,44 +395,116 @@ export default function LeadImport() {
         </div>
       )}
 
-      {/* ── Subscription tab ── */}
-      {/* §63 — this whole channel was a UI mockup with no real backend:
-          the drop zone just toggled a hardcoded fake filename, and the
-          "Import" button did nothing but fake a 1-second spinner before
-          navigating away. Worse, it claimed "Deduplication is active" —
-          actively false, since nothing here ever called the API at all.
-          Kept as a visual preview of the intended feature (this needs its
-          own scoping — which real subscription data sources exist, what
-          format they deliver in — not assumed here) but every control is
-          now honestly disabled rather than looking functional. Matches
-          the same treatment already given to Settings' photo upload. */}
+      {/* ── Subscription tab (§80) ── */}
       {tab === 'subscription' && (
         <div>
-          <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>
-            ℹ This import channel isn't built yet — shown here as a preview of the intended feature only.
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+            <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
+              CSV, Excel (.xlsx), or JSON. Required columns: <strong>title</strong>, <strong>firstName</strong>, <strong>lastName</strong>, <strong>dateOfBirth</strong> (YYYY-MM-DD), <strong>occupation</strong>, <strong>mobileNumber</strong>, <strong>email</strong>
+            </p>
+            <button onClick={() => { const c = 'title,firstName,lastName,dateOfBirth,occupation,mobileNumber,email\n'; const b = new Blob([c], {type:'text/csv'}); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href=u; a.download='template.csv'; a.click(); }} style={s.secondaryBtn}>
+              Download CSV template
+            </button>
           </div>
 
           <div style={s.formGroup}>
             <label style={s.formLabel}>Medical subscription *</label>
-            <select style={s.formInput} value={subName} onChange={e => setSubName(e.target.value)} disabled>
+            <select style={s.formInput} value={subId} onChange={e => setSubId(e.target.value)}>
               <option value="">Select subscription…</option>
-              {SUBSCRIPTIONS.map(s => <option key={s} value={s}>{s}</option>)}
+              {subscriptions.map(sub => <option key={sub.id} value={sub.id}>{sub.name}</option>)}
             </select>
-            <div style={s.formHint}>The selected subscription name will be used as the source label on each imported lead.</div>
+            <div style={s.formHint}>
+              {subscriptions.length === 0
+                ? 'No active subscriptions configured — add one under App Admin \u2192 Medical Subscriptions first.'
+                : 'Every lead imported below will be tagged with this subscription as its source.'}
+            </div>
           </div>
 
+          {/* Drop zone — identical to the CSV tab's, same handleFileChange, same csvFile/csvRows state */}
           <div
+            onClick={() => fileRef.current?.click()}
             style={{
-              border: '2px dashed var(--line)',
-              borderRadius: '8px', padding: '32px', textAlign: 'center', cursor: 'default', marginBottom: '14px',
-              background: 'var(--panel2)', opacity: 0.6,
+              border: `2px dashed ${csvFile ? '#4ade80' : 'var(--line)'}`,
+              borderRadius: '8px', padding: '36px', textAlign: 'center',
+              cursor: 'pointer', marginBottom: '14px',
+              background:csvFile ? 'color-mix(in srgb, var(--live) 10%, var(--panel))' : 'var(--panel2)',
             }}
           >
-            <p style={{ color:'var(--mut)' }}>Coming soon</p>
+            <input ref={fileRef} type="file" accept=".csv,.xlsx,.xls,.json" onChange={handleFileChange} style={{ display: 'none' }} />
+            <div style={{ fontSize: '2rem', marginBottom: '8px' }}>{csvFile ? '✅' : '📁'}</div>
+            {csvFile
+              ? <p style={{ color: '#15803d', fontWeight: 500 }}>{csvFile.name} — {csvRows.length} valid rows found</p>
+              : <p style={{ color:'var(--mut)' }}>Click to select a CSV, Excel, or JSON file</p>
+            }
           </div>
 
-          <button disabled style={{ ...s.primaryBtn, opacity: 0.5, cursor: 'default' }} title="Coming soon">
-            Import Subscription Leads — coming soon
+          {csvFile && csvRows.length > 0 && (
+            <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>
+              {checkingDupes ? (
+                <>⏳ Checking for existing leads with a matching email or ID number…</>
+              ) : dupeCheckError ? (
+                <span style={{ color: '#dc2626' }}>⚠ {dupeCheckError}</span>
+              ) : (
+                <>
+                  ℹ Checked against existing leads by email or ID number.{' '}
+                  <strong>{dupeIndices.size} duplicate{dupeIndices.size !== 1 ? 's' : ''} found</strong>
+                  {dupeIndices.size > 0 ? ' and will be skipped.' : '.'}
+                </>
+              )}
+            </div>
+          )}
+
+          {csvErrors.length > 0 && (
+            <div style={{ ...s.errorBox, marginBottom: '14px' }}>
+              {csvErrors.map((e, i) => <div key={i}>{e}</div>)}
+            </div>
+          )}
+
+          {csvRows.length > 0 && (
+            <div style={{ marginBottom: '14px' }}>
+              <p style={{ fontSize: '0.875rem', fontWeight: 500, color:'var(--ink)', marginBottom: '8px' }}>
+                Preview — first 3 rows:
+              </p>
+              <div style={s.tableCard}>
+                <table style={s.table}>
+                  <thead><tr>
+                    {['title', 'firstName', 'lastName', 'dateOfBirth', 'occupation', 'mobileNumber', 'email'].map(h => (
+                      <th key={h} style={s.th}>{h}</th>
+                    ))}
+                  </tr></thead>
+                  <tbody>
+                    {csvRows.slice(0, 3).map((row, i) => (
+                      <tr key={i}>
+                        {['title', 'firstName', 'lastName', 'dateOfBirth', 'occupation', 'mobileNumber', 'email'].map(h => (
+                          <td key={h} style={s.td}>{row[h] || '—'}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {csvRows.length > 3 && <p style={{ fontSize: '0.75rem', color:'var(--mut)', marginTop: '6px' }}>…and {csvRows.length - 3} more rows</p>}
+            </div>
+          )}
+
+          {importResult && (
+            <div style={{
+              ...s.noticeSuccess, marginBottom: '14px',
+              ...(importResult.fail > 0 ? { background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', borderColor: 'color-mix(in srgb, #dc2626 30%, var(--panel))', color: '#dc2626' } : {}),
+            }}>
+              {importResult.fail === 0
+                ? `✅ Successfully imported ${importResult.ok} leads (${importResult.skipped} duplicates skipped). Redirecting…`
+                : `Imported ${importResult.ok} leads. ${importResult.fail} failed. ${importResult.skipped} duplicates skipped.`
+              }
+            </div>
+          )}
+
+          <button
+            onClick={handleImport}
+            disabled={!subId || importable <= 0 || importing || checkingDupes || !!dupeCheckError}
+            style={{ ...s.primaryBtn, opacity: (!subId || importable <= 0 || checkingDupes || dupeCheckError) ? 0.5 : 1 }}
+          >
+            {importing ? 'Importing…' : checkingDupes ? 'Checking…' : `Import ${importable} Lead${importable !== 1 ? 's' : ''}${dupeIndices.size > 0 ? ` (${dupeIndices.size} skipped)` : ''}`}
           </button>
         </div>
       )}

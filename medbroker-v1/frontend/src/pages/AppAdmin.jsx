@@ -131,6 +131,51 @@ export default function AppAdmin() {
   const [sarError, setSarError] = useState(null);
   const [sarExporting, setSarExporting] = useState(null);
 
+  // Medical Subscriptions (§80) — real, replacing MOCK_SUBSCRIPTIONS.
+  const [subsData, setSubsData] = useState(null);
+  const [subsLoading, setSubsLoading] = useState(false);
+  const [subsError, setSubsError] = useState(null);
+  const [subsShowCreate, setSubsShowCreate] = useState(false);
+  const [subsNewName, setSubsNewName] = useState('');
+  const [subsNewProvider, setSubsNewProvider] = useState('');
+  const [subsNewNotes, setSubsNewNotes] = useState('');
+  const [subsSaving, setSubsSaving] = useState(false);
+
+  async function refetchSubscriptions() {
+    if (!demoMode) return;
+    setSubsLoading(true);
+    setSubsError(null);
+    try {
+      const result = await leadsApi.listSubscriptions();
+      setSubsData(result.subscriptions ?? []);
+    } catch (err) {
+      setSubsError(err.message || 'Could not load subscriptions');
+    } finally {
+      setSubsLoading(false);
+    }
+  }
+  useEffect(() => { refetchSubscriptions(); }, [demoMode]);
+
+  async function handleCreateSubscription() {
+    if (!subsNewName.trim()) return;
+    setSubsSaving(true);
+    setSubsError(null);
+    try {
+      await leadsApi.createSubscription({
+        name: subsNewName.trim(),
+        providerName: subsNewProvider.trim() || undefined,
+        notes: subsNewNotes.trim() || undefined,
+      });
+      await refetchSubscriptions();
+      setSubsShowCreate(false);
+      setSubsNewName(''); setSubsNewProvider(''); setSubsNewNotes('');
+    } catch (err) {
+      setSubsError(err.message || 'Could not create subscription');
+    } finally {
+      setSubsSaving(false);
+    }
+  }
+
   const { data: sarData, loading: sarLoading, refetch: refetchSar } = useFetch(
     () => demoMode ? sarApi.list(sarPage, 25, sarStatusFilter || undefined) : Promise.resolve(null),
     [demoMode, sarPage, sarStatusFilter]
@@ -355,15 +400,50 @@ export default function AppAdmin() {
         </>
       )}
 
-      {/* Subscriptions */}
+      {/* Subscriptions (§80 — real) */}
       {tab === 'subscriptions' && (
         <>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
             <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
-              Medical lead subscriptions. When importing, select a subscription and the name is used as the lead source.
+              Medical lead subscriptions. When importing, select a subscription and it becomes the source for
+              every lead imported against it — see Lead Import's "Medical Subscription" tab.
             </p>
-            <button style={s.primaryBtn}>+ Add Subscription</button>
+            <button style={s.primaryBtn} onClick={() => setSubsShowCreate(v => !v)}>
+              {subsShowCreate ? 'Cancel' : '+ Add Subscription'}
+            </button>
           </div>
+
+          {subsError && <div style={{ ...s.errorBox, marginBottom: '14px' }}>{subsError}</div>}
+
+          {subsShowCreate && (
+            <div style={{ ...s.card, marginBottom: '16px' }}>
+              <div style={s.cardTitle}>New Medical Subscription</div>
+              <div style={{ display: 'flex', gap: '12px' }}>
+                <div style={{ ...s.formGroup, flex: 1 }}>
+                  <label style={s.formLabel}>Name *</label>
+                  <input type="text" style={s.formInput} value={subsNewName} onChange={e => setSubsNewName(e.target.value)} placeholder="e.g. MedLeads SA — Monthly Bundle" />
+                </div>
+                <div style={{ ...s.formGroup, flex: 1 }}>
+                  <label style={s.formLabel}>Provider</label>
+                  <input type="text" style={s.formInput} value={subsNewProvider} onChange={e => setSubsNewProvider(e.target.value)} />
+                </div>
+              </div>
+              <div style={s.formGroup}>
+                <label style={s.formLabel}>Notes</label>
+                <textarea style={{ ...s.formInput, minHeight: '50px' }} value={subsNewNotes} onChange={e => setSubsNewNotes(e.target.value)} />
+              </div>
+              <button
+                style={{ ...s.primaryBtn, opacity: (!subsNewName.trim() || subsSaving) ? 0.5 : 1 }}
+                disabled={!subsNewName.trim() || subsSaving}
+                onClick={handleCreateSubscription}
+              >
+                {subsSaving ? 'Saving…' : 'Add Subscription'}
+              </button>
+            </div>
+          )}
+
+          {demoMode && subsLoading && <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading subscriptions…</div>}
+
           <div style={{ ...s.tableCard, overflowX: 'auto' }}>
             <table style={{ ...s.table, minWidth: '600px' }}>
               <thead><tr>
@@ -372,26 +452,29 @@ export default function AppAdmin() {
                 <th style={s.th}>Leads imported</th>
                 <th style={s.th}>Last import</th>
                 <th style={s.th}>Status</th>
-                <th style={s.th}></th>
               </tr></thead>
               <tbody>
-                {MOCK_SUBSCRIPTIONS.map(sub => (
-                  <tr key={sub.name} style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
+                {(demoMode ? (subsData ?? []) : MOCK_SUBSCRIPTIONS).map(sub => (
+                  <tr key={sub.id ?? sub.name} style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
                     <td style={{ ...s.td, fontWeight: 500 }}>{sub.name}</td>
-                    <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>{sub.provider}</td>
-                    <td style={s.td}>{sub.imported}</td>
-                    <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>{sub.lastImport}</td>
+                    <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>{demoMode ? (sub.providerName || '—') : sub.provider}</td>
+                    <td style={s.td}>{demoMode ? sub.leadsImported : sub.imported}</td>
+                    <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>
+                      {demoMode ? (sub.lastImportAt ? new Date(sub.lastImportAt).toLocaleDateString('en-ZA') : 'Never') : sub.lastImport}
+                    </td>
                     <td style={s.td}>
                       <span style={{ ...s.badge,
-                        background: sub.status === 'Active' ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'color-mix(in srgb, #d97706 14%, var(--panel))',
-                        color:      sub.status === 'Active' ? '#15803d' : '#d97706',
+                        background: (demoMode ? sub.isActive : sub.status === 'Active') ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'color-mix(in srgb, #d97706 14%, var(--panel))',
+                        color:      (demoMode ? sub.isActive : sub.status === 'Active') ? '#15803d' : '#d97706',
                       }}>
-                        {sub.status}
+                        {demoMode ? (sub.isActive ? 'Active' : 'Inactive') : sub.status}
                       </span>
                     </td>
-                    <td style={s.td}><button style={s.linkBtn}>Edit</button></td>
                   </tr>
                 ))}
+                {demoMode && !subsLoading && (subsData ?? []).length === 0 && (
+                  <tr><td colSpan={5} style={{ ...s.td, textAlign: 'center', color:'var(--mut)' }}>No subscriptions yet.</td></tr>
+                )}
               </tbody>
             </table>
           </div>

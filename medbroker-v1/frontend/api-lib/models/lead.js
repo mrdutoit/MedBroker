@@ -152,3 +152,10 @@ export const LeadListQuerySchema = z.object({
   page:            z.coerce.number().int().min(1).default(1),
   pageSize:        z.coerce.number().int().min(1).max(100).default(25),
 });
+
+// §80 — Medical Subscription management (App Admin's own tab).
+export const CreateMedicalSubscriptionSchema = z.object({
+  name:         z.string().min(1).max(300),
+  providerName: z.string().max(300).optional(),
+  notes:        z.string().max(1000).optional(),
+});

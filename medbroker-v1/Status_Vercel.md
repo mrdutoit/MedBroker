@@ -85,6 +85,12 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   status, export everything MedBroker holds about that
                   Lead (JSON or CSV) once ready to fulfil it. Admin/
                   GlobalAdmin only.
+  Medical Subscription lead import (§80) — real now, same underlying
+                  mechanism as CSV import (file upload, real duplicate
+                  check), tagged with linkedSubscriptionId instead of a
+                  free-text source name. AppAdmin's Subscriptions tab is
+                  real too (was hardcoded mock data + a dead "+ Add
+                  Subscription" button before this).
 
 GATED OFF BY DEFAULT (built, working, just not switched on):
   tasks.enabled — flip in FeatureFlags.jsx (AppAdmin) to see Tasks in
@@ -93,7 +99,6 @@ GATED OFF BY DEFAULT (built, working, just not switched on):
 DELIBERATELY NOT BUILT (real gaps, not yet scoped or blocked on
 something outside this session's control):
   - Token economy: claim model works; Stripe not connected.
-  - "Medical Subscription" lead import tab: UI mockup only, no backend.
   - Org-wide entity display for Event/EventAttendee/Task in the Audit
     Log (§76) — shows a raw id rather than a resolved name, a real but
     lower-priority gap than Lead/Appointment/User, which do resolve.
@@ -5153,6 +5158,87 @@ Plus this Status_Vercel.md.
 NEXT: Medical Subscription lead import (the channel itself) and the
 dead Entra-branch cleanup are what's left on §75's original list, plus
 the process/paperwork security items that were never code tasks.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+80. MEDICAL SUBSCRIPTION LEAD IMPORT — 1 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Next item from §75's list — the "Medical Subscription" import channel
+was a UI mockup with no backend at all (§63 had already made it
+honestly disabled rather than fake-functional, but it still didn't do
+anything). Investigated properly before building: MedicalSubscription
+was already a real table (name/providerName/notes/isActive), and
+Lead.linkedSubscriptionId was already a real foreign key to it —
+leadService.createLead() already accepted and inserted
+linkedSubscriptionId, and sourceLabel display already COALESCEd across
+Event/MedicalSubscription/manualSourceName. The DISPLAY side was already
+built; only the actual import mechanism was missing. This turned out to
+simplify the build a lot — "Medical Subscription import" isn't a live
+third-party API integration (no such fields exist on the table at all),
+it's the SAME file-upload/parse/dedupe mechanism as the already-working
+CSV import, just tagging leads with linkedSubscriptionId instead of
+manualSourceName. Confirmed this by reading the CSV tab's actual working
+code (handleFileChange, handleImport) before assuming anything about
+scope.
+
+FUNCTION COUNT: new GET/POST /api/leads/subscriptions sub-route on the
+already-existing leads-router.js — no new function, 12/12 unchanged.
+
+BUILT:
+  - leadService.js: listMedicalSubscriptions() (all subscriptions, with
+    REAL stats — leads imported count, last import date, computed via
+    LEFT JOIN + COUNT/MAX against Lead, not stored/cached) and
+    createMedicalSubscription().
+  - models/lead.js: CreateMedicalSubscriptionSchema.
+  - leadHandlers.js: handleLeadMedicalSubscriptions() — GET (Admin/
+    Supervisor/GlobalAdmin, matches who can import) and POST (Admin/
+    GlobalAdmin only, tighter — creating a subscription is a management
+    action, not an import action).
+  - leads-router.js: subscriptions sub-route added.
+  - LeadImport.jsx: Subscription tab rebuilt from scratch — reuses the
+    EXACT SAME state and handleFileChange as the CSV tab (same drop
+    zone, same real duplicate-check, same preview, same result
+    reporting), swapping only the free-text source-name input for a
+    real subscription dropdown fetched from the new endpoint.
+    handleImport now branches on which tab is active for tagging
+    (linkedSubscriptionId vs manualSourceName) while sharing every other
+    line of the import loop. Removed the dead hardcoded SUBSCRIPTIONS
+    mock array — no longer referenced anywhere once the dropdown is
+    real. Stale header comment fixed (no longer says "UI mockup only").
+
+CAUGHT AND FIXED MID-BUILD, not left for later: while testing, found
+that the import UI's own guidance ("add a subscription under App Admin")
+pointed at a completely dead button — AppAdmin.jsx's "+ Add
+Subscription" had no onClick handler at all, and the whole tab rendered
+hardcoded MOCK_SUBSCRIPTIONS data. Shipping a working import feature
+whose only path to creating a real subscription was a non-functional
+button would have been a half-finished feature, not a complete one — so
+this got fixed in the same delivery rather than flagged as a follow-up:
+AppAdmin.jsx's Subscriptions tab is now real (fetches
+listMedicalSubscriptions(), a working create form posts to the new
+endpoint), MOCK_SUBSCRIPTIONS kept only as the Entra-branch fallback
+(matching every other tab's demoMode-gated pattern), not removed
+entirely.
+
+VERIFIED: full Vite production build clean (AppAdmin's bundle grew
+~29KB -> ~30KB, LeadImport ~347KB -> ~350KB, both consistent with real
+new content, not a red flag); existing 45-test Vitest suite unaffected;
+every new/edited backend file passes node --check and an ESM import
+smoke test.
+
+MIGRATION — no schema change (MedicalSubscription table already existed):
+  frontend/api-lib/services/leadService.js  (listMedicalSubscriptions, createMedicalSubscription added)
+  frontend/api-lib/models/lead.js           (CreateMedicalSubscriptionSchema added)
+  frontend/api-lib/handlers/leadHandlers.js (handleLeadMedicalSubscriptions added)
+  frontend/api/leads-router.js              (subscriptions sub-route added)
+  frontend/src/services/api.js              (listSubscriptions, createSubscription added)
+  frontend/src/pages/LeadImport.jsx         (Subscription tab rebuilt)
+  frontend/src/pages/AppAdmin.jsx           (Subscriptions tab real-wired)
+Plus this Status_Vercel.md.
+
+NEXT: dead Entra-branch cleanup (~8 files, optional, Mark's call on
+priority) is the last item on §75's original list; everything else
+remaining there was process/paperwork, not a code task.
 
 
 
