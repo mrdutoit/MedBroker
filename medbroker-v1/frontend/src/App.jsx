@@ -216,7 +216,7 @@ function AppLayout({ children }) {
           {/* Analytics — visible to all roles; self-service roles go to their own detail */}
           <div style={SECTION}>Analytics</div>
           <NavItem
-            to={isAgent ? '/reports/agent/tm' : isBroker ? '/reports/broker/sb' : '/reports'}
+            to={isAgent ? `/reports/agent/${persona.id}` : isBroker ? `/reports/broker/${persona.id}` : '/reports'}
             label="Reports"
             onClick={closeNav}
           />
@@ -362,7 +362,7 @@ function AppLayout({ children }) {
 
 // ─── AppLayoutWrapper — routes ─────────────────────────────────────────────────
 function AppLayoutWrapper() {
-  const { role } = useRole();
+  const { role, persona } = useRole();
   const { flag } = useFlags();
 
   const isGlobalAdmin  = role === 'GlobalAdmin';
@@ -371,17 +371,22 @@ function AppLayoutWrapper() {
   const isBroker       = role === 'Broker';
   const defaultPath    = isBroker ? '/appointments' : '/leads';
 
-  // Reports drill-down scope. Management and Supervisors are unrestricted (null);
-  // self-service roles may open only their own record. Production derives this id
-  // from the authenticated user — these values match the preview personas.
-  const SELF_REPORT_ID = { Agent: 'tm', Broker: 'sb' };
-  const selfReportId   = SELF_REPORT_ID[role] ?? null;
+  // Reports drill-down scope. Management and Supervisors are unrestricted
+  // (null); self-service roles may open only their own record — the real
+  // logged-in user's id (persona.id), not a placeholder. FIXED 1 Aug 2026:
+  // this used to be a hardcoded { Agent: 'tm', Broker: 'sb' } lookup, a
+  // leftover from before real authentication existed here — its own
+  // comment even said so ("these values match the preview personas").
+  // Once real auth landed, nothing ever came back to replace it, so
+  // every Agent/Broker's own report link 404'd against a real backend
+  // that correctly expects a UUID, not the literal string "tm" or "sb".
+  const selfReportId = (isAgent || isBroker) ? persona.id : null;
 
   // Self-service roles skip the Reports overview and land on their own detail.
   // Management and Supervisors get the overview so they can choose what to view.
   const reportsLanding =
-      isAgent  ? `/reports/agent/${SELF_REPORT_ID.Agent}`
-    : isBroker ? `/reports/broker/${SELF_REPORT_ID.Broker}`
+      isAgent  ? `/reports/agent/${persona.id}`
+    : isBroker ? `/reports/broker/${persona.id}`
     :            null;
 
   return (

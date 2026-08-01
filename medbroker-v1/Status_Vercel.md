@@ -5297,6 +5297,47 @@ MIGRATION — no schema change (isLocked/failedLoginAttempts already existed):
   frontend/src/pages/UserAdmin.jsx          (Locked badge, modal notice, Unlock button)
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+82. FIXED — AGENT/BROKER "REPORTS" LINK BROKEN ("INVALID BROKER ID FORMAT") — 1 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark found this testing as Jane Smith (Broker) — clicking Reports threw
+"Could not load this broker's report. Invalid broker ID format",
+navigating to /reports/broker/sb.
+
+ROOT CAUSE: App.jsx's own comment gave this away immediately — "these
+values match the preview personas" (i.e. the OLD role-switcher preview
+mode this app had before real login existed).
+SELF_REPORT_ID = { Agent: 'tm', Broker: 'sb' } was a hardcoded lookup
+that was always meant to be replaced with the real authenticated user's
+id once real auth landed, and nothing ever came back and did that. Both
+the sidebar's own "Reports" nav link AND the reportsLanding
+redirect logic were building URLs from these literal strings instead of
+the logged-in user's actual id — so every Agent/Broker's own report link
+was broken for every single one of them, not just Jane. Confirmed the
+destination pages (AgentDetail.jsx, BrokerDetail.jsx) were NOT part of
+the bug — both were already correctly rewired to expect a real User.id
+back on 23 Jul (their own header comments say so); only the link
+generation in App.jsx was never updated to match, which is the entire
+bug.
+
+FIX: AppLayoutWrapper now destructures persona from useRole() (it only
+had role before) and uses persona.id — the real logged-in user's id —
+everywhere SELF_REPORT_ID used to be read, for both reportsLanding and
+the value passed to ReportDrillGuard. Same fix applied to the sidebar's
+"Reports" nav link in AppLayout, a separate component that had the exact
+same hardcoded 'tm'/'sb' strings inline.
+
+VERIFIED: grepped the entire frontend for any other reference to these
+placeholder strings after fixing — the only remaining hits are in
+historical comments in AgentDetail.jsx/BrokerDetail.jsx documenting what
+USED to be wrong there before their own 23 Jul fix, not live code. Full
+Vite production build clean; existing 45-test Vitest suite unaffected.
+
+MIGRATION — no backend change, frontend only:
+  frontend/src/App.jsx
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I
