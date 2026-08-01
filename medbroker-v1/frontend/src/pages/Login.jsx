@@ -1,9 +1,7 @@
 /**
  * pages/Login.jsx
- * NEW — local email/password login for demo-backend mode (api.js DEMO_MODE).
- * Only rendered when api.js's apiMode.DEMO_MODE is true and the user isn't
- * authenticated yet — see App.jsx. Not used in preview mode (role switcher
- * stays) or Entra production mode (MSAL redirect flow instead).
+ * Local email/password login. Rendered by App.jsx's AuthGate whenever
+ * there's no authenticated session.
  */
 
 import { useState } from 'react';

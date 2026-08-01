@@ -11,12 +11,12 @@
 
 import { BrowserRouter, Routes, Route, NavLink, Navigate, useNavigate, useParams, useLocation } from 'react-router';
 import { lazy, Suspense, useState } from 'react';
-import { RoleProvider, useRole, PERSONAS } from './context/RoleContext.jsx';
+import { RoleProvider, useRole } from './context/RoleContext.jsx';
 import { FlagProvider, useFlags }           from './context/FlagContext.jsx';
 import { ThemeProvider, useTheme }          from './context/ThemeContext.jsx';
 import { AuthProvider, useAuth }            from './context/AuthContext.jsx';
 import { ProspectAuthProvider, useProspectAuth } from './context/ProspectAuthContext.jsx';
-import { apiMode, tasksApi, notificationsApi } from './services/api.js';
+import { tasksApi, notificationsApi } from './services/api.js';
 import { useWindowSize }                     from './hooks/useWindowSize.js';
 import { useFetch }                          from './hooks/useFetch.js';
 import { Logo }                              from './components/Logo.jsx';
@@ -101,10 +101,10 @@ function ReportDrillGuard({ selfId, fallback, children }) {
 
 // ─── AppLayout ─────────────────────────────────────────────────────────────────
 function AppLayout({ children }) {
-  const { role, setRole, persona } = useRole();
+  const { role, persona }          = useRole();
   const { flag }                   = useFlags();
   const { theme, setTheme, themes } = useTheme();
-  const { demoMode, logout }        = useAuth();
+  const { logout }                 = useAuth();
   const navigate                   = useNavigate();
   const location                   = useLocation();
   const { isMobile, isTablet }     = useWindowSize();
@@ -251,59 +251,26 @@ function AppLayout({ children }) {
             ))}
           </div>
 
-          {demoMode ? (
-            <div style={{
-              background: 'color-mix(in srgb, var(--live) 14%, transparent)',
-              border: '1px solid color-mix(in srgb, var(--live) 34%, transparent)',
-              borderRadius: '10px', padding: '7px 10px', marginBottom: '8px',
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
-            }}>
-              <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: 'var(--live)' }}>
-                ● Signed in
-              </span>
-              <button
-                onClick={() => { logout(); closeNav(); }}
-                style={{
-                  background: 'none', border: '1px solid var(--line)', borderRadius: '7px',
-                  padding: '3px 9px', fontSize: '0.6875rem', color: 'var(--ink)',
-                  cursor: 'pointer', fontFamily: 'inherit',
-                }}
-              >
-                Log out
-              </button>
-            </div>
-          ) : (
-            <div style={{
-              background: 'color-mix(in srgb, var(--limited) 14%, transparent)',
-              border: '1px solid color-mix(in srgb, var(--limited) 34%, transparent)',
-              borderRadius: '10px', padding: '7px 10px', marginBottom: '8px',
-            }}>
-              <div style={{ fontSize: '0.6875rem', fontWeight: 600, color: 'var(--limited)', marginBottom: '5px' }}>
-                ⚠ Preview mode
-              </div>
-              <select
-                value={role}
-                onChange={e => {
-                  const next = e.target.value;
-                  setRole(next);
-                  navigate(next === 'Broker' ? '/appointments' : '/leads');
-                  closeNav();
-                }}
-                style={{
-                  width: '100%', border: '1px solid var(--line)', borderRadius: '7px',
-                  padding: '4px 7px', fontSize: '0.75rem',
-                  background: 'var(--glass)', color: 'var(--ink)',
-                  cursor: 'pointer', fontFamily: 'inherit',
-                }}
-              >
-                <option value="GlobalAdmin">Global Administrator</option>
-                <option value="Admin">Admin</option>
-                <option value="Supervisor">Supervisor</option>
-                <option value="Agent">Agent (T. Molefe)</option>
-                <option value="Broker">Broker (S. van der Berg)</option>
-              </select>
-            </div>
-          )}
+          <div style={{
+            background: 'color-mix(in srgb, var(--live) 14%, transparent)',
+            border: '1px solid color-mix(in srgb, var(--live) 34%, transparent)',
+            borderRadius: '10px', padding: '7px 10px', marginBottom: '8px',
+            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px',
+          }}>
+            <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: 'var(--live)' }}>
+              ● Signed in
+            </span>
+            <button
+              onClick={() => { logout(); closeNav(); }}
+              style={{
+                background: 'none', border: '1px solid var(--line)', borderRadius: '7px',
+                padding: '3px 9px', fontSize: '0.6875rem', color: 'var(--ink)',
+                cursor: 'pointer', fontFamily: 'inherit',
+              }}
+            >
+              Log out
+            </button>
+          </div>
 
           {/* Current user display */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '4px 6px' }}>
@@ -440,19 +407,17 @@ function AppLayoutWrapper() {
   );
 }
 
-// ─── Auth gate — only meaningful in demo-backend mode ──────────────────────────
+// ─── Auth gate ──────────────────────────────────────────────────────────────
 function AuthGate() {
   const { isAuthenticated, user } = useAuth();
 
-  if (apiMode.DEMO_MODE && !isAuthenticated) {
+  if (!isAuthenticated) {
     return <Login />;
   }
 
   // §72 — forced first-login password change. Blocks everything else in
   // the app, same principle as the unauthenticated case above: nothing
-  // else renders until this is resolved. Not gated on DEMO_MODE alone —
-  // user.passwordMustChange is simply always false/undefined outside
-  // demo mode, so this is a no-op there.
+  // else renders until this is resolved.
   if (user?.passwordMustChange) {
     return <ChangePassword forced />;
   }

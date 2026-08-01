@@ -13,21 +13,12 @@
  * sessionStorage only, both here and in ThemeContext.jsx/dateFormat.js,
  * each with a "when a Users API exists, wire this up" comment. It does now
  * (PUT /api/users/me — self-service, separate from the Admin-only
- * PUT /api/users/:id UserAdmin.jsx uses to edit OTHER people). In demo mode,
- * initial values come straight off the authenticated session (useAuth().user
- * — already carries these fields from login, no extra fetch needed) and
+ * PUT /api/users/:id UserAdmin.jsx uses to edit OTHER people). Initial
+ * values come straight off the authenticated session (useAuth().user —
+ * already carries these fields from login, no extra fetch needed) and
  * saves go to the real backend, then patch the cached session via
- * updateUser() so the rest of the app (sidebar avatar, displayName) reflects
- * the change immediately.
- *
- * The non-demo (Entra) branch below is UNCHANGED, still sessionStorage-only
- * — not because no backend exists (api.js's own header notes preview/mock
- * mode was removed entirely on 22 July; the same frontend/api/ backend
- * answers both auth modes), but because RoleContext.jsx's Entra branch
- * doesn't yet derive persona/role from real decoded MSAL claims (its own
- * header still flags that as "not yet wired") — there is no real logged-in
- * user id to save a profile against there yet. Once that lands, this
- * branch collapses to the same real-backend path as demo mode above.
+ * updateUser() so the rest of the app (sidebar avatar, displayName)
+ * reflects the change immediately.
  */
 
 import { useState }     from 'react';
@@ -37,7 +28,7 @@ import { useAuth }       from '../context/AuthContext.jsx';
 import { useTheme }      from '../context/ThemeContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s, colors }     from '../styles/tokens.js';
-import { apiMode, usersApi, ApiError } from '../services/api.js';
+import { usersApi, ApiError } from '../services/api.js';
 import { AVATAR_OPTIONS, avatarColourValue } from '../constants/avatarOptions.js';
 import { getUserTimezone, setUserTimezone, SUPPORTED_TIMEZONES } from '../utils/dateFormat.js';
 
@@ -47,14 +38,11 @@ export default function Settings() {
   const { user, updateUser }   = useAuth();
   const { theme, setTheme, themes } = useTheme();
   const { isMobile }           = useWindowSize();
-  const demoMode = apiMode.DEMO_MODE;
 
-  // Demo mode: real values off the authenticated session. Entra branch:
-  // RoleContext doesn't yet derive a real identity there (see its header) —
-  // same sessionStorage defaults as before this session.
-  const initialDisplayName = demoMode ? (user?.displayName ?? persona.displayName) : persona.displayName;
-  const initialAvatarId    = demoMode ? (user?.avatarColour ?? AVATAR_OPTIONS[0].id) : AVATAR_OPTIONS[0].id;
-  const initialTimezone    = demoMode ? (user?.timezone ?? getUserTimezone()) : getUserTimezone();
+  // Real values off the authenticated session.
+  const initialDisplayName = user?.displayName ?? persona.displayName;
+  const initialAvatarId    = user?.avatarColour ?? AVATAR_OPTIONS[0].id;
+  const initialTimezone    = user?.timezone ?? getUserTimezone();
 
   const [displayName, setDisplayName] = useState(initialDisplayName);
   const [avatarId, setAvatarId]       = useState(initialAvatarId);
@@ -74,52 +62,32 @@ export default function Settings() {
     setSaveStatus('saving');
     setSaveError('');
 
-    if (demoMode) {
-      try {
-        const updated = await usersApi.updateMe({ displayName, avatarColour: avatarId, timezone });
-        updateUser(updated); // patches the cached session — sidebar/persona reflect this immediately
-        setUserTimezone(timezone); // dateFormat.js's own display helpers still read this locally
-        setSavedName(displayName);
-        setSavedAvatarId(avatarId);
-        setSavedTimezone(timezone);
-        setSaveStatus('saved');
-        setTimeout(() => setSaveStatus(null), 2500);
-      } catch (err) {
-        setSaveError(err instanceof ApiError ? err.message : 'Could not save your changes. Please try again.');
-        setSaveStatus(null);
-      }
-      return;
-    }
-
-    // Entra branch — unchanged, no real identity to save against yet
-    // (see the header comment above).
     try {
-      sessionStorage.setItem('mb_displayName', displayName);
-      sessionStorage.setItem('mb_avatarColour', avatarId);
-    } catch (_) {}
-    setUserTimezone(timezone);
-    setTimeout(() => {
+      const updated = await usersApi.updateMe({ displayName, avatarColour: avatarId, timezone });
+      updateUser(updated); // patches the cached session — sidebar/persona reflect this immediately
+      setUserTimezone(timezone); // dateFormat.js's own display helpers still read this locally
       setSavedName(displayName);
       setSavedAvatarId(avatarId);
       setSavedTimezone(timezone);
       setSaveStatus('saved');
       setTimeout(() => setSaveStatus(null), 2500);
-    }, 400);
+    } catch (err) {
+      setSaveError(err instanceof ApiError ? err.message : 'Could not save your changes. Please try again.');
+      setSaveStatus(null);
+    }
   }
 
   // Theme applies instantly on click regardless of the Save button (same UX
-  // as before) — in demo mode it now also persists immediately rather than
-  // waiting on the profile Save, matching that same "instant" semantic.
-  // Best-effort: a failed save here doesn't block the (already-applied)
-  // live theme change, since reverting the swatch after the fact would be
-  // more confusing than a preference that didn't quite make it to the server.
+  // as before), and persists immediately rather than waiting on the profile
+  // Save, matching that same "instant" semantic. Best-effort: a failed save
+  // here doesn't block the (already-applied) live theme change, since
+  // reverting the swatch after the fact would be more confusing than a
+  // preference that didn't quite make it to the server.
   function handleThemeSelect(themeId) {
     setTheme(themeId);
-    if (demoMode) {
-      usersApi.updateMe({ themePreference: themeId })
-        .then(updated => updateUser(updated))
-        .catch(err => console.error('Could not save theme preference:', err));
-    }
+    usersApi.updateMe({ themePreference: themeId })
+      .then(updated => updateUser(updated))
+      .catch(err => console.error('Could not save theme preference:', err));
   }
 
   return (
@@ -202,8 +170,7 @@ export default function Settings() {
           </div>
           <div style={s.formGroup}>
             <label style={s.formLabel}>Email</label>
-            {/* Entra branch shows a placeholder — no real identity there yet (see header comment). */}
-            <input style={{ ...s.formInput, opacity: 0.6 }} value={demoMode ? (user?.email ?? '') : 'user@medbroker.co.za'} disabled />
+            <input style={{ ...s.formInput, opacity: 0.6 }} value={user?.email ?? ''} disabled />
           </div>
           <div style={s.formGroup}>
             <label style={s.formLabel}>Role</label>
@@ -212,17 +179,15 @@ export default function Settings() {
         </div>
 
         {/* ── Security (§72) ─────────────────────────────────────────────── */}
-        {demoMode && (
-          <div style={s.card}>
-            <h2 style={s.cardTitle}>Security</h2>
-            <p style={{ fontSize: '0.8125rem', color:'var(--mut)', margin: '0 0 12px' }}>
-              Change your password. You'll need your current password to do this.
-            </p>
-            <button style={s.secondaryBtn} onClick={() => navigate('/change-password')}>
-              Change password
-            </button>
-          </div>
-        )}
+        <div style={s.card}>
+          <h2 style={s.cardTitle}>Security</h2>
+          <p style={{ fontSize: '0.8125rem', color:'var(--mut)', margin: '0 0 12px' }}>
+            Change your password. You'll need your current password to do this.
+          </p>
+          <button style={s.secondaryBtn} onClick={() => navigate('/change-password')}>
+            Change password
+          </button>
+        </div>
 
         {/* ── Avatar ─────────────────────────────────────────────────────── */}
         <div style={s.card}>

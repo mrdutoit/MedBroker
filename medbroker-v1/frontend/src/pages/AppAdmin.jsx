@@ -9,7 +9,7 @@ import { s } from '../styles/tokens.js';
 import { PORTFOLIOS, PRODUCTS_BY_PORTFOLIO } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
-import { apiMode, systemConfigApi, auditApi, usersApi, sarApi, leadsApi } from '../services/api.js';
+import { systemConfigApi, auditApi, usersApi, sarApi, leadsApi } from '../services/api.js';
 
 // Mirrors auditHandlers.js's VALID_ENTITY_TYPES/VALID_ACTIONS exactly —
 // kept in sync manually (no shared module between frontend/backend in
@@ -28,25 +28,6 @@ const AUDIT_ACTIONS = [
   'PortalWalkInCheckedIn', 'ProfileUpdated', 'TaskCreated', 'TaskDeleted', 'UserCreated',
 ];
 
-const MOCK_AUDIT_LOG = [
-  { id: 1, action: 'Lead assigned',             entity: 'Lead',        entityRef: 'Dr Priya Naidoo',     performedBy: 'Admin User',   role: 'Admin',       timestamp: '2026-05-20 14:32' },
-  { id: 2, action: 'Broker reassigned',          entity: 'Appointment', entityRef: 'Dr Sipho Dlamini',    performedBy: 'Admin User',   role: 'Admin',       timestamp: '2026-05-20 13:15' },
-  { id: 3, action: 'Appointment returned to queue', entity: 'Appointment', entityRef: 'Dr Amara Osei',    performedBy: 'Supervisor One', role: 'Supervisor', timestamp: '2026-05-20 11:04' },
-  { id: 4, action: 'Feature flag updated',       entity: 'FeatureFlag', entityRef: 'tasks.enabled → true', performedBy: 'Global Administrator', role: 'GlobalAdmin', timestamp: '2026-05-20 10:47' },
-  { id: 5, action: 'User created',               entity: 'User',        entityRef: 'Riaan Botha (Broker)', performedBy: 'Admin User',  role: 'Admin',       timestamp: '2026-05-19 16:22' },
-  { id: 6, action: 'System settings updated',    entity: 'SystemConfig', entityRef: 'brokerFreeAppointmentsPerMonth: 10 → 12', performedBy: 'Admin User', role: 'Admin', timestamp: '2026-05-19 15:08' },
-  { id: 7, action: 'Lead auto-returned to queue', entity: 'Lead',       entityRef: 'Dr Ruan de Beer',     performedBy: 'System',       role: 'System',      timestamp: '2026-05-19 07:00' },
-  { id: 8, action: 'Appointment outcome saved',  entity: 'Appointment', entityRef: 'Dr Lerato Mokoena — ClosedWon', performedBy: 'Sandra van der Berg', role: 'Broker', timestamp: '2026-05-18 16:45' },
-  { id: 9, action: 'Lead imported (batch)',      entity: 'LeadImportBatch', entityRef: 'SA Medical Register — Q2 2026 (42 records)', performedBy: 'Admin User', role: 'Admin', timestamp: '2026-05-15 09:30' },
-  { id: 10, action: 'Call outcome logged',       entity: 'CallAttempt', entityRef: 'Dr Zanele Dube — CallbackRequested', performedBy: 'Thabo Molefe', role: 'Agent', timestamp: '2026-05-14 11:22' },
-];
-
-const MOCK_SUBSCRIPTIONS = [
-  { name: 'MedLeads SA — Monthly Bundle',   provider: 'MedLeads SA (Pty) Ltd',  imported: 342, lastImport: '1 May 2026',  status: 'Active' },
-  { name: 'Healthwise Doctor Database',     provider: 'Healthwise Data',         imported: 187, lastImport: '15 Apr 2026', status: 'Active' },
-  { name: 'SA Medical Register — Q2 2026', provider: 'HPCSA Data Services',      imported: 0,   lastImport: 'Never',       status: 'Pending' },
-];
-
 const ALL_PRODUCTS = [
   ...PRODUCTS_BY_PORTFOLIO.disc.map((name, i) => ({ name, portfolio: 'Discovery',          sold: [23,18,14,9,6,11,16,8,12,5][i] ?? 0, status: 'Active' })),
   ...PRODUCTS_BY_PORTFOLIO.mm.map((name, i)   => ({ name, portfolio: 'Money and Medicine', sold: [4,3,2][i] ?? 0,                      status: 'Active' })),
@@ -55,14 +36,13 @@ const ALL_PRODUCTS = [
 export default function AppAdmin() {
   const [tab, setTab] = useState('portfolios');
   const { flag } = useFlags();
-  const demoMode = apiMode.DEMO_MODE;
 
-  // System Settings state (§72 — real-wired to GET/PUT /api/system-config
-  // in demo mode; this whole tab was mock-only before, including
-  // password rotation/lockout, which had real backend enforcement
-  // already but no way for an Admin to actually configure it).
+  // System Settings state (§72 — real-wired to GET/PUT /api/system-config;
+  // this whole tab was mock-only before, including password rotation/
+  // lockout, which had real backend enforcement already but no way for
+  // an Admin to actually configure it).
   const { data: config, loading: configLoading, refetch: refetchConfig } =
-    useFetch(() => demoMode ? systemConfigApi.get() : Promise.resolve(null), [demoMode]);
+    useFetch(() => systemConfigApi.get(), []);
 
   const [monthlyTokens,      setMonthlyTokens]      = useState(10);
   const [autoReturnMonths,   setAutoReturnMonths]    = useState(6);
@@ -76,9 +56,6 @@ export default function AppAdmin() {
   const [saving,             setSaving]              = useState(false);
 
   // Audit Log (§76) — real, paginated. Filters + export added (§77).
-  // demoMode-gated like everything else with a real backend;
-  // MOCK_AUDIT_LOG below is the Entra-branch fallback only, not shown
-  // when a real fetch is possible.
   const [auditPage, setAuditPage] = useState(1);
   const [auditDateFrom, setAuditDateFrom] = useState('');
   const [auditDateTo, setAuditDateTo] = useState('');
@@ -102,16 +79,16 @@ export default function AppAdmin() {
   const auditFiltersKey = JSON.stringify(auditFilters);
 
   const { data: auditData, loading: auditLoading, error: auditError } = useFetch(
-    () => demoMode ? auditApi.list(auditPage, 25, auditFilters) : Promise.resolve(null),
-    [demoMode, auditPage, auditFiltersKey]
+    () => auditApi.list(auditPage, 25, auditFilters),
+    [auditPage, auditFiltersKey]
   );
-  const auditEntries = demoMode ? (auditData?.entries ?? []) : MOCK_AUDIT_LOG;
-  const auditTotal    = demoMode ? (auditData?.total ?? 0) : MOCK_AUDIT_LOG.length;
+  const auditEntries = auditData?.entries ?? [];
+  const auditTotal    = auditData?.total ?? 0;
   const auditTotalPages = Math.max(1, Math.ceil(auditTotal / 25));
 
   // Users list for the "Performed by" filter dropdown — reuses the same
   // endpoint UserAdmin.jsx already calls, no new backend needed.
-  const { data: auditUsersData } = useFetch(() => demoMode ? usersApi.list({}) : Promise.resolve(null), [demoMode]);
+  const { data: auditUsersData } = useFetch(() => usersApi.list({}), []);
   const auditUsers = auditUsersData?.users ?? [];
 
   // Data Requests (§79 — POPIA SAR) state
@@ -131,7 +108,7 @@ export default function AppAdmin() {
   const [sarError, setSarError] = useState(null);
   const [sarExporting, setSarExporting] = useState(null);
 
-  // Medical Subscriptions (§80) — real, replacing MOCK_SUBSCRIPTIONS.
+  // Medical Subscriptions (§80) — real.
   const [subsData, setSubsData] = useState(null);
   const [subsLoading, setSubsLoading] = useState(false);
   const [subsError, setSubsError] = useState(null);
@@ -142,7 +119,6 @@ export default function AppAdmin() {
   const [subsSaving, setSubsSaving] = useState(false);
 
   async function refetchSubscriptions() {
-    if (!demoMode) return;
     setSubsLoading(true);
     setSubsError(null);
     try {
@@ -154,7 +130,7 @@ export default function AppAdmin() {
       setSubsLoading(false);
     }
   }
-  useEffect(() => { refetchSubscriptions(); }, [demoMode]);
+  useEffect(() => { refetchSubscriptions(); }, []);
 
   async function handleCreateSubscription() {
     if (!subsNewName.trim()) return;
@@ -177,8 +153,8 @@ export default function AppAdmin() {
   }
 
   const { data: sarData, loading: sarLoading, refetch: refetchSar } = useFetch(
-    () => demoMode ? sarApi.list(sarPage, 25, sarStatusFilter || undefined) : Promise.resolve(null),
-    [demoMode, sarPage, sarStatusFilter]
+    () => sarApi.list(sarPage, 25, sarStatusFilter || undefined),
+    [sarPage, sarStatusFilter]
   );
   const sarRequests = sarData?.requests ?? [];
   const sarTotal = sarData?.total ?? 0;
@@ -270,11 +246,6 @@ export default function AppAdmin() {
   }, [config]);
 
   async function saveSettings() {
-    if (!demoMode) {
-      setSettingsSaved(true);
-      setTimeout(() => setSettingsSaved(false), 2500);
-      return;
-    }
     setSaving(true);
     setSettingsError(null);
     try {
@@ -442,7 +413,7 @@ export default function AppAdmin() {
             </div>
           )}
 
-          {demoMode && subsLoading && <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading subscriptions…</div>}
+          {subsLoading && <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading subscriptions…</div>}
 
           <div style={{ ...s.tableCard, overflowX: 'auto' }}>
             <table style={{ ...s.table, minWidth: '600px' }}>
@@ -454,25 +425,25 @@ export default function AppAdmin() {
                 <th style={s.th}>Status</th>
               </tr></thead>
               <tbody>
-                {(demoMode ? (subsData ?? []) : MOCK_SUBSCRIPTIONS).map(sub => (
-                  <tr key={sub.id ?? sub.name} style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
+                {(subsData ?? []).map(sub => (
+                  <tr key={sub.id} style={s.tr} onMouseEnter={e => e.currentTarget.style.background='color-mix(in srgb, var(--accent) 6%, var(--panel))'} onMouseLeave={e => e.currentTarget.style.background=""}>
                     <td style={{ ...s.td, fontWeight: 500 }}>{sub.name}</td>
-                    <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>{demoMode ? (sub.providerName || '—') : sub.provider}</td>
-                    <td style={s.td}>{demoMode ? sub.leadsImported : sub.imported}</td>
+                    <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>{sub.providerName || '—'}</td>
+                    <td style={s.td}>{sub.leadsImported}</td>
                     <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>
-                      {demoMode ? (sub.lastImportAt ? new Date(sub.lastImportAt).toLocaleDateString('en-ZA') : 'Never') : sub.lastImport}
+                      {sub.lastImportAt ? new Date(sub.lastImportAt).toLocaleDateString('en-ZA') : 'Never'}
                     </td>
                     <td style={s.td}>
                       <span style={{ ...s.badge,
-                        background: (demoMode ? sub.isActive : sub.status === 'Active') ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'color-mix(in srgb, #d97706 14%, var(--panel))',
-                        color:      (demoMode ? sub.isActive : sub.status === 'Active') ? '#15803d' : '#d97706',
+                        background: sub.isActive ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'color-mix(in srgb, #d97706 14%, var(--panel))',
+                        color:      sub.isActive ? '#15803d' : '#d97706',
                       }}>
-                        {demoMode ? (sub.isActive ? 'Active' : 'Inactive') : sub.status}
+                        {sub.isActive ? 'Active' : 'Inactive'}
                       </span>
                     </td>
                   </tr>
                 ))}
-                {demoMode && !subsLoading && (subsData ?? []).length === 0 && (
+                {!subsLoading && (subsData ?? []).length === 0 && (
                   <tr><td colSpan={5} style={{ ...s.td, textAlign: 'center', color:'var(--mut)' }}>No subscriptions yet.</td></tr>
                 )}
               </tbody>
@@ -488,7 +459,7 @@ export default function AppAdmin() {
             System-wide configuration values. Changes take effect immediately without a deployment.
           </p>
 
-          {demoMode && configLoading && (
+          {configLoading && (
             <div style={{ ...s.noticeInfo, marginBottom: '16px' }}>Loading current settings…</div>
           )}
 
@@ -684,64 +655,62 @@ export default function AppAdmin() {
             </p>
           </div>
 
-          {demoMode && (
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'flex-end', marginBottom: '14px' }}>
-              <div>
-                <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>From</label>
-                <input type="date" style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem' }}
-                  value={auditDateFrom} onChange={e => resetAuditPageOnFilterChange(setAuditDateFrom)(e.target.value)} />
-              </div>
-              <div>
-                <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>To</label>
-                <input type="date" style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem' }}
-                  value={auditDateTo} onChange={e => resetAuditPageOnFilterChange(setAuditDateTo)(e.target.value)} />
-              </div>
-              <div>
-                <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>Entity</label>
-                <select style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem' }}
-                  value={auditEntityType} onChange={e => resetAuditPageOnFilterChange(setAuditEntityType)(e.target.value)}>
-                  <option value="">All</option>
-                  {AUDIT_ENTITY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>Action</label>
-                <select style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem' }}
-                  value={auditAction} onChange={e => resetAuditPageOnFilterChange(setAuditAction)(e.target.value)}>
-                  <option value="">All</option>
-                  {AUDIT_ACTIONS.map(a => <option key={a} value={a}>{a}</option>)}
-                </select>
-              </div>
-              <div>
-                <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>Performed by</label>
-                <select style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem', maxWidth: '180px' }}
-                  value={auditPerformedById} onChange={e => resetAuditPageOnFilterChange(setAuditPerformedById)(e.target.value)}>
-                  <option value="">All</option>
-                  {auditUsers.map(u => <option key={u.id} value={u.id}>{u.displayName}</option>)}
-                </select>
-              </div>
-              {(auditDateFrom || auditDateTo || auditEntityType || auditAction || auditPerformedById) && (
-                <button
-                  style={{ ...s.ghostBtn, fontSize: '0.8125rem' }}
-                  onClick={() => { setAuditDateFrom(''); setAuditDateTo(''); setAuditEntityType(''); setAuditAction(''); setAuditPerformedById(''); setAuditPage(1); }}
-                >
-                  Clear filters
-                </button>
-              )}
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
-                <button style={{ ...s.secondaryBtn, fontSize: '0.8125rem', opacity: exporting ? 0.5 : 1 }}
-                  disabled={!!exporting} onClick={() => handleAuditExport('csv')}>
-                  {exporting === 'csv' ? 'Exporting…' : 'Export CSV'}
-                </button>
-                <button style={{ ...s.secondaryBtn, fontSize: '0.8125rem', opacity: exporting ? 0.5 : 1 }}
-                  disabled={!!exporting} onClick={() => handleAuditExport('json')}>
-                  {exporting === 'json' ? 'Exporting…' : 'Export JSON'}
-                </button>
-              </div>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'flex-end', marginBottom: '14px' }}>
+            <div>
+              <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>From</label>
+              <input type="date" style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem' }}
+                value={auditDateFrom} onChange={e => resetAuditPageOnFilterChange(setAuditDateFrom)(e.target.value)} />
             </div>
-          )}
+            <div>
+              <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>To</label>
+              <input type="date" style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem' }}
+                value={auditDateTo} onChange={e => resetAuditPageOnFilterChange(setAuditDateTo)(e.target.value)} />
+            </div>
+            <div>
+              <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>Entity</label>
+              <select style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem' }}
+                value={auditEntityType} onChange={e => resetAuditPageOnFilterChange(setAuditEntityType)(e.target.value)}>
+                <option value="">All</option>
+                {AUDIT_ENTITY_TYPES.map(t => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>Action</label>
+              <select style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem' }}
+                value={auditAction} onChange={e => resetAuditPageOnFilterChange(setAuditAction)(e.target.value)}>
+                <option value="">All</option>
+                {AUDIT_ACTIONS.map(a => <option key={a} value={a}>{a}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>Performed by</label>
+              <select style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem', maxWidth: '180px' }}
+                value={auditPerformedById} onChange={e => resetAuditPageOnFilterChange(setAuditPerformedById)(e.target.value)}>
+                <option value="">All</option>
+                {auditUsers.map(u => <option key={u.id} value={u.id}>{u.displayName}</option>)}
+              </select>
+            </div>
+            {(auditDateFrom || auditDateTo || auditEntityType || auditAction || auditPerformedById) && (
+              <button
+                style={{ ...s.ghostBtn, fontSize: '0.8125rem' }}
+                onClick={() => { setAuditDateFrom(''); setAuditDateTo(''); setAuditEntityType(''); setAuditAction(''); setAuditPerformedById(''); setAuditPage(1); }}
+              >
+                Clear filters
+              </button>
+            )}
+            <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
+              <button style={{ ...s.secondaryBtn, fontSize: '0.8125rem', opacity: exporting ? 0.5 : 1 }}
+                disabled={!!exporting} onClick={() => handleAuditExport('csv')}>
+                {exporting === 'csv' ? 'Exporting…' : 'Export CSV'}
+              </button>
+              <button style={{ ...s.secondaryBtn, fontSize: '0.8125rem', opacity: exporting ? 0.5 : 1 }}
+                disabled={!!exporting} onClick={() => handleAuditExport('json')}>
+                {exporting === 'json' ? 'Exporting…' : 'Export JSON'}
+              </button>
+            </div>
+          </div>
 
-          {demoMode && auditLoading && (
+          {auditLoading && (
             <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading audit log…</div>
           )}
           {auditError && (
@@ -767,7 +736,7 @@ export default function AppAdmin() {
                     onMouseLeave={e => e.currentTarget.style.background = ''}
                   >
                     <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem', whiteSpace: 'nowrap' }}>
-                      {demoMode ? new Date(entry.performedAt).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' }) : entry.timestamp}
+                      {new Date(entry.performedAt).toLocaleString('en-ZA', { dateStyle: 'medium', timeStyle: 'short' })}
                     </td>
                     <td style={{ ...s.td, fontWeight: 500, fontSize: '0.8125rem' }}>{entry.action}</td>
                     <td style={s.td}>
@@ -775,25 +744,25 @@ export default function AppAdmin() {
                         ...s.badge, fontSize: '0.688rem',
                         background:'var(--panel2)', color:'var(--ink)',
                       }}>
-                        {demoMode ? entry.entityType : entry.entity}
+                        {entry.entityType}
                       </span>
                     </td>
                     <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem', maxWidth: '260px' }}>
                       {entry.entityRef}
                     </td>
                     <td style={{ ...s.td, fontSize: '0.8125rem' }}>
-                      {demoMode ? entry.performedByName : entry.performedBy}
+                      {entry.performedByName}
                     </td>
                   </tr>
                 ))}
-                {demoMode && !auditLoading && auditEntries.length === 0 && (
+                {!auditLoading && auditEntries.length === 0 && (
                   <tr><td colSpan={5} style={{ ...s.td, textAlign: 'center', color:'var(--mut)' }}>No audit log entries yet.</td></tr>
                 )}
               </tbody>
             </table>
           </div>
 
-          {demoMode && auditTotalPages > 1 && (
+          {auditTotalPages > 1 && (
             <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '12px', marginTop: '14px' }}>
               <button
                 style={{ ...s.secondaryBtn, opacity: auditPage <= 1 ? 0.5 : 1 }}
@@ -918,7 +887,7 @@ export default function AppAdmin() {
             </div>
           )}
 
-          {demoMode && sarLoading && <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading requests…</div>}
+          {sarLoading && <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading requests…</div>}
 
           <div style={{ ...s.tableCard, overflowX: 'auto' }}>
             <table style={{ ...s.table, minWidth: '700px' }}>

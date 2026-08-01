@@ -1,9 +1,13 @@
 /**
  * context/AuthContext.jsx
- * NEW — React state layer over services/authStore.js. Only meaningful in
- * demo-backend mode (api.js's DEMO_MODE); in preview mode and Entra
- * production mode this provider is inert (isAuthenticated stays true so
- * nothing gets gated behind a Login page that doesn't apply to those modes).
+ * React state layer over services/authStore.js, gating the app behind
+ * the local-auth Login page.
+ *
+ * FIXED 1 Aug 2026 (§87 — dead Entra-branch cleanup): this used to
+ * branch on apiMode.DEMO_MODE, with an "else" path where this provider
+ * was inert (isAuthenticated hardcoded true, nothing gated behind
+ * Login). That branch never executed in this deployment and has been
+ * removed — this provider is now unconditionally the real auth gate.
  *
  * Usage:
  *   const { isAuthenticated, user, login, logout, updateUser, loading } = useAuth();
@@ -22,32 +26,26 @@
  */
 
 import { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { authApi, apiMode } from '../services/api.js';
+import { authApi } from '../services/api.js';
 import * as authStore from '../services/authStore.js';
 import { useTheme, THEME_IDS } from './ThemeContext.jsx';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
-  const demoMode = apiMode.DEMO_MODE;
   const { setTheme } = useTheme();
 
-  // Preview mode and Entra mode: not gated by this provider at all.
-  // Entra's own MSAL flow handles its authentication separately (see
-  // services/api.js getAccessToken()) — this context only drives the
-  // local-auth Login page used in demo-backend mode.
-  const [user, setUser] = useState(demoMode ? authStore.getUser() : null);
+  const [user, setUser] = useState(authStore.getUser());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const isAuthenticated = demoMode ? user !== null : true;
+  const isAuthenticated = user !== null;
 
   useEffect(() => {
-    if (!demoMode) return undefined;
     // If a request anywhere comes back 401, the session is stale — reflect
     // that here so the app re-renders into the Login page.
     return authStore.onUnauthorized(() => setUser(null));
-  }, [demoMode]);
+  }, []);
 
   const login = useCallback(async (email, password) => {
     setLoading(true);
@@ -87,7 +85,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ demoMode, isAuthenticated, user, login, logout, updateUser, loading, error, setError }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, updateUser, loading, error, setError }}>
       {children}
     </AuthContext.Provider>
   );

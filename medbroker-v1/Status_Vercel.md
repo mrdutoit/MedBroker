@@ -5524,6 +5524,123 @@ MIGRATION — no schema change, frontend only:
   frontend/src/pages/Tasks.jsx
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+87. DEAD ENTRA-BRANCH CODE CLEANUP — BATCH 4 (APPADMIN + SETTINGS) — 1 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Continuing §84/§85/§86. AppAdmin.jsx — the largest remaining file at 31
+references — and Settings.jsx.
+
+AppAdmin.jsx: removed MOCK_AUDIT_LOG and MOCK_SUBSCRIPTIONS entirely.
+Every demoMode ? real : fallback across System Settings, Audit Log
+(including the whole filter UI block, which was wrapped in a single
+{demoMode && (...)} around ~55 lines — unwrapped rather than simplified
+in place, since it's now unconditional), Data Requests/SAR, and
+Subscriptions simplified to its real branch only. saveSettings() had a
+fake "pretend to save" early-return for the non-demo path — removed.
+
+Settings.jsx: removed the entire Entra-branch fallback in handleSave()
+(sessionStorage-only saving, no real backend) and handleThemeSelect()'s
+demoMode guard. Email field and the Security/change-password card
+(previously hidden entirely outside demo mode) simplified to always
+show the real thing. Removed the stale header paragraph explaining why
+the Entra branch was "unchanged" — that reasoning no longer applies to
+anything in this file.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+88. DEAD ENTRA-BRANCH CODE CLEANUP — BATCH 5, FINAL (ROLECONTEXT + AUTHCONTEXT + LOGIN + APP.JSX) — 1 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Completes §84 through §88 — the full dead Entra-branch cleanup Mark
+asked for, confirmed full scope (auth infrastructure + the wider
+demoMode ? real : mock pattern) before starting. This batch was
+deliberately sequenced last: RoleContext.jsx and AuthContext.jsx derive
+role/persona/auth state for the entire app, and every single page
+depends on them — a mistake here doesn't break one page, it breaks
+everything.
+
+RISK MANAGEMENT — done before writing any code, not after: grepped every
+actual import statement pulling from RoleContext.jsx across the whole
+codebase (not just files that mention "demoMode") to get a complete,
+verified picture of what's actually consumed where. This surfaced two
+things worth recording:
+  - PERSONAS was imported by exactly one file outside RoleContext.jsx
+    itself: App.jsx's own dead "Preview mode" role-switcher UI (the
+    same block flagged and deliberately deferred in §85, precisely so
+    it could be fixed together with RoleContext rather than in
+    isolation and leaving RoleContext's machinery looking used when it
+    wasn't).
+  - PORTFOLIOS/PRODUCTS_BY_PORTFOLIO are real, actively-used reference
+    data — confirmed real consumers (AppAdmin.jsx, UserAdmin.jsx,
+    LeadDetail.jsx, LeadImport.jsx) before concluding they were safe to
+    leave completely untouched, not assumed safe because the surrounding
+    file was being cleaned up.
+
+A SPECIFIC CORRECTNESS RISK CAUGHT AND HANDLED, not overlooked: naively
+removing RoleContext's "else" branch and assuming user is always
+truthy would have been wrong. RoleProvider wraps the entire app,
+including the brief render before AuthContext resolves and while the
+Login page itself is showing — user is genuinely null at that moment,
+and a React provider's render function still executes and must
+successfully compute its context value even if nothing is currently
+consuming it. Confirmed by grepping every single useRole() call site
+across the whole app that none of them render before authentication
+succeeds, then kept persona/role defaulting to null (a safe, minimal
+fallback) rather than assuming user is always present. This is the kind
+of check that's easy to skip when a file "obviously" only matters after
+login — it doesn't render only then, it just isn't read until then.
+
+BUILT:
+  - RoleContext.jsx: removed PERSONAS, ROLES, ROLE_STORAGE_KEY,
+    getInitialRole(), previewRole/setPreviewRole, and the sessionStorage-
+    persistence useEffect entirely. PORTFOLIOS/PRODUCTS_BY_PORTFOLIO
+    (real reference data, unrelated to auth) untouched.
+  - AuthContext.jsx: removed the entire demoMode branch — isAuthenticated,
+    the initial user state, and the onUnauthorized subscription are all
+    unconditional now. demoMode removed from the exposed context value
+    (confirmed exactly one consumer existed — App.jsx — fixed in the
+    same batch, see below).
+  - App.jsx: removed the dead "⚠ Preview mode" role-switcher dropdown
+    (deferred from §85 for exactly this reason) — the "Signed in / Log
+    out" state now always renders, unconditionally. Removed the now-
+    unused setRole from its useRole() destructuring (nothing calls it
+    anymore). Simplified AuthGate — was apiMode.DEMO_MODE && 
+    !isAuthenticated, now just !isAuthenticated; comment above it fixed
+    too ("only meaningful in demo-backend mode" no longer true, this is
+    the app's only auth mode). Removed the now-unused apiMode import.
+  - Login.jsx: no code branches existed here (confirmed before editing —
+    it was always a single, real implementation), just a stale header
+    comment claiming it was conditionally rendered only in "demo-backend
+    mode" alongside "preview mode" and "Entra production mode (MSAL
+    redirect flow)" alternatives that don't exist. Fixed the comment;
+    no logic changed.
+
+VERIFIED: full Vite production build clean — the main index bundle
+(containing App.jsx/RoleContext/AuthContext) shrank from 271.87 kB to
+270.09 kB, confirming real removal there too, not just in the page-level
+files. Existing 45-test Vitest suite unaffected. Final comprehensive
+grep across the ENTIRE frontend for Entra/MSAL/demoMode/DEMO_MODE/
+PERSONAS after all edits — every remaining hit checked individually and
+confirmed to be an explanatory comment (either this entry's own "FIXED"
+notes, or SingleSignOn.jsx's already-accurate §75 comment), zero live
+code remaining anywhere.
+
+This closes out §75's original production-readiness list in full —
+every item on it is now either built, fixed, or correctly identified as
+process/paperwork outside the scope of what code changes can address.
+
+MIGRATION — no schema change, frontend only:
+  frontend/src/pages/AppAdmin.jsx
+  frontend/src/pages/Settings.jsx
+  frontend/src/context/RoleContext.jsx
+  frontend/src/context/AuthContext.jsx
+  frontend/src/App.jsx
+  frontend/src/pages/Login.jsx
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I
