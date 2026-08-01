@@ -5338,6 +5338,38 @@ MIGRATION — no backend change, frontend only:
   frontend/src/App.jsx
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+83. FIXED — SINGLE SIGN-ON NAV ITEM NOW HIDDEN WHEN THE FLAG IS OFF — 1 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's request: the Single Sign-On nav item/page was always visible to
+Admin/GlobalAdmin regardless of auth.sso.enabled — inconsistent with
+Tasks/Events, which hide their own nav items when their flag is off.
+
+The existing behaviour had a deliberate-looking comment defending it:
+"reachable regardless of current flag state — you need to get here to
+turn it on". Checked whether that reasoning still held before changing
+anything — it didn't: §75's rewrite of SingleSignOn.jsx made it a purely
+informational page with no flag-toggle control on it at all (confirmed
+by grepping the file for any toggle/onClick/flag-update code — none
+exists). Flag toggling only ever happens via the separate Feature Flags
+page, which isn't affected by this change and stays reachable for
+GlobalAdmin either way. So the original justification no longer applied
+— hiding the nav item doesn't trap anyone from turning the flag back on.
+
+FIX: showSso now requires flag('auth.sso.enabled') in addition to the
+existing isAdminOrAbove role check — same pattern Tasks/Events already
+use. Also gated the /admin/sso ROUTE itself the same way, not just the
+nav link — matches how Tasks/Events block direct URL navigation too,
+not only hide the sidebar entry.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected.
+
+MIGRATION — no backend change, frontend only:
+  frontend/src/App.jsx
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I
