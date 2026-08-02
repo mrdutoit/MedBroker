@@ -31,6 +31,19 @@ const AUDIT_ACTIONS = [
   'ProductCreated', 'ProductStatusChanged', 'ProductDeleted',
 ];
 
+/**
+ * Today's date as YYYY-MM-DD in LOCAL time — for date input defaults.
+ * FIXED 2 Aug 2026, same bug as PeriodSelector.jsx's referenceDateToParam:
+ * new Date().toISOString().slice(0, 10) converts to UTC first, which
+ * silently shows yesterday's date for a couple of hours after local
+ * midnight for anyone east of UTC (South Africa is UTC+2). Building the
+ * string from local accessors directly never touches UTC.
+ */
+function todayLocalDateString() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
 export default function AppAdmin() {
   const [tab, setTab] = useState('portfolios');
   const { flag } = useFlags();
@@ -209,7 +222,7 @@ export default function AppAdmin() {
   const [sarSelectedLead, setSarSelectedLead] = useState(null);
   const [sarRequestorName, setSarRequestorName] = useState('');
   const [sarRequestorEmail, setSarRequestorEmail] = useState('');
-  const [sarReceivedAt, setSarReceivedAt] = useState(() => new Date().toISOString().slice(0, 10));
+  const [sarReceivedAt, setSarReceivedAt] = useState(todayLocalDateString);
   const [sarDueDate, setSarDueDate] = useState('');
   const [sarNotes, setSarNotes] = useState('');
   const [sarSaving, setSarSaving] = useState(false);
@@ -293,7 +306,7 @@ export default function AppAdmin() {
       setSarShowCreate(false);
       setSarSelectedLead(null); setSarLeadSearch(''); setSarLeadResults([]);
       setSarRequestorName(''); setSarRequestorEmail(''); setSarDueDate(''); setSarNotes('');
-      setSarReceivedAt(new Date().toISOString().slice(0, 10));
+      setSarReceivedAt(todayLocalDateString());
     } catch (err) {
       setSarError(err.message || 'Could not log the request');
     } finally {

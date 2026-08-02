@@ -183,6 +183,23 @@ export function getPeriodLabel(period, referenceDate) {
 }
 
 /** referenceDate (a Date or undefined) -> the ISO string reportsApi expects. */
+/**
+ * referenceDate (a Date or undefined) -> the YYYY-MM-DD string reportsApi
+ * expects.
+ *
+ * FIXED 2 Aug 2026 — this used to be referenceDate.toISOString().slice(0, 10),
+ * which converts to UTC before slicing. For anyone east of UTC (South
+ * Africa is UTC+2), a LOCALLY-constructed "1 July, 00:00" silently became
+ * "30 June, 22:00 UTC" once converted — sliced to "2026-06-30", an entire
+ * day (and in this case a whole month) off from what was actually
+ * selected. Building the string directly from the Date object's own
+ * local year/month/day accessors never touches UTC at all, so there's
+ * nothing to shift.
+ */
 export function referenceDateToParam(referenceDate) {
-  return referenceDate ? referenceDate.toISOString().slice(0, 10) : undefined;
+  if (!referenceDate) return undefined;
+  const y = referenceDate.getFullYear();
+  const m = String(referenceDate.getMonth() + 1).padStart(2, '0');
+  const d = String(referenceDate.getDate()).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }

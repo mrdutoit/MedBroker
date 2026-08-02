@@ -6113,6 +6113,60 @@ MIGRATION — no schema change:
   frontend/src/pages/BrokerDetail.jsx         (migrated to the shared component)
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+95. FIXED — TIMEZONE BUG SILENTLY SHIFTED SELECTED REPORT MONTHS BACKWARD — 2 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark found this immediately after §94 shipped: selecting July 2026 in
+Monthly view showed all zeros, but Q3 2026 in Quarterly view — which
+includes July — showed real data, including a visible "Jul" bar in the
+trend chart. Confirmed as a genuine bug before touching anything, not
+assumed: the two screenshots directly contradict each other unless
+something is wrong.
+
+ROOT CAUSE, confirmed with a standalone reproduction before fixing:
+referenceDateToParam() serialised the selected date via
+referenceDate.toISOString().slice(0, 10) — a well-known JS footgun.
+toISOString() converts to UTC BEFORE slicing. For anyone east of UTC —
+South Africa is UTC+2 — a locally-constructed "1 July, 00:00 SAST"
+becomes "30 June, 22:00 UTC" once converted, sliced down to
+"2026-06-30". Verified this exact chain with TZ=Africa/Johannesburg:
+selecting July silently sent June 30 to the backend. The backend (Node
+on Vercel, confirmed no TZ override anywhere in the deployment config,
+so it runs in UTC by default) correctly parses that date-only string as
+30 June — meaning the query that actually ran was for June, not July.
+If June had no matching activity, July's real data was invisible
+without an error anywhere to suggest why.
+
+FIX: build the YYYY-MM-DD string directly from the Date object's own
+local year/month/day accessors, never touching toISOString()/UTC at
+all — nothing to shift when the string is built from the same
+timezone the user selected it in.
+
+FOUND WHILE FIXING, not left for later: grepped the whole frontend for
+the same toISOString().slice(0, 10) pattern once the root cause was
+clear, rather than only patching the one reported symptom. Found it in
+two more places — AppAdmin.jsx's Subject Access Request form defaulted
+its "date received" field the same broken way, which would have shown
+yesterday's date for roughly the first two hours after local midnight
+(the length of South Africa's UTC+2 offset) every single day. Fixed
+both with the same local-accessor approach. Also swept for the
+DIFFERENT, safe pattern (full toISOString() timestamps, not sliced to
+date-only) to confirm those two remaining hits — call-logging
+timestamps in LeadDetail.jsx — are unambiguous, precise instants with
+no such bug, not something that needed touching.
+
+VERIFIED: reproduced the exact broken date-string chain and the fixed
+one standalone with TZ=Africa/Johannesburg before and after the change,
+matching Mark's actual timezone rather than testing under the sandbox's
+own default. Full Vite production build clean; existing 45-test Vitest
+suite unaffected.
+
+MIGRATION — no schema change:
+  frontend/src/components/PeriodSelector.jsx (referenceDateToParam fixed)
+  frontend/src/pages/AppAdmin.jsx             (SAR received-date default fixed, same root cause)
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I
