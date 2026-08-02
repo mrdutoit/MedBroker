@@ -24,6 +24,7 @@ import { s } from '../styles/tokens.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch } from '../hooks/useFetch.js';
 import { reportsApi } from '../services/api.js';
+import { PeriodSelector, getPeriodLabel, referenceDateToParam } from '../components/PeriodSelector.jsx';
 
 const STATUS_COLOUR = {
   Unassigned:            { bg: 'var(--panel2)', colour: 'var(--mut)' },
@@ -53,26 +54,21 @@ const CALL_OUTCOME_COLOURS = {
   'Not Interested': '#ef4444', 'Wrong Number': '#fca5a5',
 };
 
-function getPeriodLabel(period) {
-  const now = new Date();
-  if (period === 'Monthly')   return `Month to date (${now.toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' })})`;
-  if (period === 'Quarterly') return `Quarter to date (Q${Math.floor(now.getMonth() / 3) + 1} ${now.getFullYear()})`;
-  return `Year to date (${now.getFullYear()})`;
-}
-
 export default function AgentDetail() {
   const { id }     = useParams();
   const navigate   = useNavigate();
   const { role }   = useRole();
   const { isMobile } = useWindowSize();
   const [period, setPeriod] = useState('Monthly');
+  const [referenceDate, setReferenceDate] = useState(undefined);
+  const refParam = referenceDateToParam(referenceDate);
 
   // Self-service roles land here directly and have no Reports overview to return
   // to, so the back link is hidden for them. Management/Supervisors arrived from
   // the overview and keep it.
   const showBackToReports = role !== 'Agent' && role !== 'Broker';
 
-  const { data, loading, error } = useFetch(() => reportsApi.agentDetail(id, period), [id, period]);
+  const { data, loading, error } = useFetch(() => reportsApi.agentDetail(id, period, refParam), [id, period, refParam]);
 
   if (loading) {
     return <div style={{ padding: isMobile ? '12px' : '24px' }}><p style={{ color: 'var(--mut)', fontSize: '0.875rem' }}>Loading…</p></div>;
@@ -112,24 +108,14 @@ export default function AgentDetail() {
             Agent Detail — {meta.name}
           </h1>
           <p style={{ margin: '3px 0 0', fontSize: '0.8125rem', color:'var(--mut)' }}>
-            Performance report · {getPeriodLabel(period)} · {meta.region ?? '—'} · {meta.portfolios.length ? meta.portfolios.join(' + ') : 'No portfolio assigned'}
+            Performance report · {getPeriodLabel(period, referenceDate)} · {meta.region ?? '—'} · {meta.portfolios.length ? meta.portfolios.join(' + ') : 'No portfolio assigned'}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', border: '1px solid var(--line)', borderRadius: '8px', overflow: 'hidden' }}>
-            {['Monthly','Quarterly','Yearly'].map(p => (
-              <button key={p} onClick={() => setPeriod(p)} style={{
-                padding: '5px 12px', border: 'none', cursor: 'pointer',
-                fontSize: '0.8125rem', fontFamily: 'inherit', fontWeight: period === p ? 600 : 400,
-                background: period === p ? 'var(--accent)' : 'var(--panel)',
-                color:      period === p ? 'white'   : 'var(--mut)',
-                borderRight: p !== 'Yearly' ? '1px solid var(--line)' : 'none',
-                transition: 'background 0.15s',
-              }}>
-                {p}
-              </button>
-            ))}
-          </div>
+          <PeriodSelector
+            period={period} onPeriodChange={setPeriod}
+            referenceDate={referenceDate} onReferenceDateChange={setReferenceDate}
+          />
         </div>
       </div>
 

@@ -43,6 +43,7 @@ import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch }      from '../hooks/useFetch.js';
 import { reportsApi } from '../services/api.js';
 import { s, colors, CHART_PALETTE } from '../styles/tokens.js';
+import { PeriodSelector, getPeriodLabel, referenceDateToParam } from '../components/PeriodSelector.jsx';
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
 const pct = (n, d) => d === 0 ? '0%' : `${Math.round(n / d * 100)}%`;
@@ -78,18 +79,6 @@ const TREND_LABELS = {
 // Period label — computed from the real current date, not a fixed mock
 // reference date. Matches reportService.js's getPeriodRange() in spirit
 // (doesn't need to match exactly; this is just display copy).
-function getPeriodLabel(period) {
-  const now = new Date();
-  if (period === 'Monthly') {
-    return `Month to date (${now.toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' })})`;
-  }
-  if (period === 'Quarterly') {
-    const q = Math.floor(now.getMonth() / 3) + 1;
-    return `Quarter to date (Q${q} ${now.getFullYear()})`;
-  }
-  return `Year to date (Jan–Dec ${now.getFullYear()})`;
-}
-
 // ─── Trend chart (grouped bars: leads vs closed won) ────────────────────────────
 function TrendChart({ data }) {
   return (
@@ -150,6 +139,8 @@ export default function Reports() {
   const { role, persona } = useRole();
   const { isMobile }      = useWindowSize();
   const [period, setPeriod] = useState('Monthly');
+  const [referenceDate, setReferenceDate] = useState(undefined);
+  const refParam = referenceDateToParam(referenceDate);
 
   // ── Who is viewing ──────────────────────────────────────────────────────────
   // Scoping itself now happens server-side (reportService.js) — these flags
@@ -162,11 +153,11 @@ export default function Reports() {
   const selfView     = isAgentView || isBrokerView;
 
   const { data: summaryData, loading: summaryLoading, error: summaryError } =
-    useFetch(() => reportsApi.summary(period), [period]);
+    useFetch(() => reportsApi.summary(period, refParam), [period, refParam]);
   const { data: brokersData, loading: brokersLoading, error: brokersError } =
-    useFetch(() => reportsApi.brokers(period), [period]);
+    useFetch(() => reportsApi.brokers(period, refParam), [period, refParam]);
   const { data: agentsData, loading: agentsLoading, error: agentsError } =
-    useFetch(() => reportsApi.agents(period), [period]);
+    useFetch(() => reportsApi.agents(period, refParam), [period, refParam]);
 
   const pipeline = summaryData?.pipeline ?? [];
   const trend    = summaryData?.trend ?? [];
@@ -226,24 +217,13 @@ export default function Reports() {
         <div>
           <h1 style={s.pageTitle}>Reports</h1>
           <p style={s.pageSubtitle}>
-            {selfView ? `Your performance · ${getPeriodLabel(period)}` : getPeriodLabel(period)}
+            {selfView ? `Your performance · ${getPeriodLabel(period, referenceDate)}` : getPeriodLabel(period, referenceDate)}
           </p>
         </div>
-        <div style={s.segment}>
-          {['Monthly', 'Quarterly', 'Yearly'].map((p, i) => (
-            <button
-              key={p}
-              onClick={() => setPeriod(p)}
-              style={{
-                ...s.segmentBtn,
-                ...(period === p ? s.segmentBtnActive : {}),
-                borderRight: i !== 2 ? `1px solid ${colors.line}` : 'none',
-              }}
-            >
-              {p}
-            </button>
-          ))}
-        </div>
+        <PeriodSelector
+          period={period} onPeriodChange={setPeriod}
+          referenceDate={referenceDate} onReferenceDateChange={setReferenceDate}
+        />
       </div>
 
       {anyLoading && (

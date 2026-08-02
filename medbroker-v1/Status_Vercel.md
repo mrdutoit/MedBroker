@@ -6041,6 +6041,78 @@ MIGRATION — no schema change:
   frontend/src/pages/FeatureFlags.jsx            (FlagRow resync bug fixed)
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+94. REPORTS — SELECT A SPECIFIC PAST MONTH/QUARTER/YEAR — 2 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Follow-up to the Reports zero-values investigation — confirmed as
+expected "brand new period, no activity yet" behaviour, not a bug, but
+it surfaced a real, genuine gap: there was never a way to look at a
+PAST month/quarter/year, only ever "the one we're in right now".
+
+DESIGN DECISION MADE BEFORE WRITING CODE: distinguishing "viewing the
+current, ongoing period" from "viewing a completed past period" turned
+out to matter for correctness, not just UX. The old getPeriodRange
+always used end = now — correct for an ongoing period (a genuine "to
+date" progress view), but wrong for a past one: clamping a completed
+month's range at "now" would silently exclude any activity in that
+month's later days. Redesigned so a past period's end is that period's
+own actual last moment, and verified this standalone against six cases
+(current/past month, quarter, year) before trusting it, given how easy
+this class of date-boundary math is to get subtly wrong.
+
+BUILT — backend: getPeriodRange/getTrendBuckets in reportService.js now
+accept a referenceDate (any date within the period instance to view;
+defaults to today, preserving existing behaviour when omitted). All
+five report functions (getReportSummary, getAgentReport,
+getBrokerReport, getAgentDetailReport, getBrokerDetailReport) thread it
+through. models/report.js validates it as a real, parseable date rather
+than trusting whatever string arrives. All five reportHandlers.js
+endpoints and all five reportsApi.js client methods updated to match.
+
+BUILT — frontend: a genuinely new shared component,
+components/PeriodSelector.jsx, rather than tripling the picker logic
+across Reports.jsx/AgentDetail.jsx/BrokerDetail.jsx again — all three
+previously had their own independent copy of the simple three-button
+toggle, and building three more independent copies of something this
+much more involved (instance dropdowns, date math, label formatting)
+would have been exactly the kind of drift already found and fixed once
+this session already (AppAdmin's audit-log filter lists silently
+diverging from the backend's own list). Monthly uses a generated
+month/year dropdown (last 24 months); Quarterly a generated quarter
+dropdown (last 8); Yearly a generated year dropdown (last 5) — no
+native HTML quarter/year-only input exists, so all three use the same
+consistent dropdown pattern rather than mixing input types. Switching
+period type resets the instance back to "now" in the new type, not a
+stale carryover. The existing "Month to date (August 2026)" style label
+now correctly drops "to date" for a genuinely completed past period —
+a finished month isn't "to date" of anything.
+
+CAUGHT MID-BUILD: AgentDetail.jsx/BrokerDetail.jsx's existing period
+toggles used ad hoc inline styles, not the shared style tokens
+Reports.jsx's version used (s.segment/s.segmentBtn) — a pre-existing,
+minor visual inconsistency between the three pages. The new shared
+component uses the token-based style consistently, so this incidentally
+unifies the look across all three rather than preserving three
+different variants.
+
+VERIFIED: full Vite production build clean across all three pages plus
+the new component; existing 45-test Vitest suite unaffected; every
+edited backend file passes node --check and an ESM import smoke test.
+Confirmed no local getPeriodLabel duplicates remain in any of the three
+pages after the swap to the shared one.
+
+MIGRATION — no schema change:
+  frontend/api-lib/services/reportService.js  (referenceDate threaded through, period-boundary logic redesigned)
+  frontend/api-lib/models/report.js           (referenceDate validated)
+  frontend/api-lib/handlers/reportHandlers.js (referenceDate passed through on all 5 endpoints)
+  frontend/src/services/api.js                (reportsApi's 5 methods accept referenceDate)
+  frontend/src/components/PeriodSelector.jsx  (NEW — shared period-instance picker)
+  frontend/src/pages/Reports.jsx              (migrated to the shared component)
+  frontend/src/pages/AgentDetail.jsx          (migrated to the shared component)
+  frontend/src/pages/BrokerDetail.jsx         (migrated to the shared component)
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I

@@ -426,9 +426,9 @@ export const auditApi = {
 // matched Reports.jsx's own header comment and was never wired to
 // anything — leftover scaffolding from an earlier design pass.
 export const reportsApi = {
-  summary: (period) => request(`/reports/summary?period=${period}`),
-  brokers: (period) => request(`/reports/brokers?period=${period}`),
-  agents:  (period) => request(`/reports/agents?period=${period}`),
-  agentDetail:  (id, period) => request(`/reports/agent/${id}?period=${period}`),
-  brokerDetail: (id, period) => request(`/reports/broker/${id}?period=${period}`),
+  summary: (period, referenceDate) => request(`/reports/summary?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
+  brokers: (period, referenceDate) => request(`/reports/brokers?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
+  agents:  (period, referenceDate) => request(`/reports/agents?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
+  agentDetail:  (id, period, referenceDate) => request(`/reports/agent/${id}?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
+  brokerDetail: (id, period, referenceDate) => request(`/reports/broker/${id}?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
 };

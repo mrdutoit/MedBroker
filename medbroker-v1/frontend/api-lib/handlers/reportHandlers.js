@@ -44,7 +44,7 @@ export async function handleReportSummary(req, res) {
     const parsed = ReportPeriodQuerySchema.safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    const summary = await getReportSummary(parsed.data.period);
+    const summary = await getReportSummary(parsed.data.period, parsed.data.referenceDate);
     return res.status(200).json(summary);
 
   } catch (err) {
@@ -70,7 +70,7 @@ export async function handleReportBrokers(req, res) {
     const parsed = ReportPeriodQuerySchema.safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    const brokers = await getBrokerReport(parsed.data.period, { role: resolveScopeRole(claims.roles), userId: claims.oid });
+    const brokers = await getBrokerReport(parsed.data.period, { role: resolveScopeRole(claims.roles), userId: claims.oid }, parsed.data.referenceDate);
     return res.status(200).json({ brokers });
 
   } catch (err) {
@@ -96,7 +96,7 @@ export async function handleReportAgents(req, res) {
     const parsed = ReportPeriodQuerySchema.safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    const agents = await getAgentReport(parsed.data.period, { role: resolveScopeRole(claims.roles), userId: claims.oid });
+    const agents = await getAgentReport(parsed.data.period, { role: resolveScopeRole(claims.roles), userId: claims.oid }, parsed.data.referenceDate);
     return res.status(200).json({ agents });
 
   } catch (err) {
@@ -124,7 +124,7 @@ export async function handleAgentDetail(req, res, id) {
     const parsed = ReportPeriodQuerySchema.safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    const report = await getAgentDetailReport(id, parsed.data.period, { role: resolveScopeRole(claims.roles), userId: claims.oid });
+    const report = await getAgentDetailReport(id, parsed.data.period, { role: resolveScopeRole(claims.roles), userId: claims.oid }, parsed.data.referenceDate);
     // null covers both "not found" and "not permitted to view" — same
     // response either way, doesn't leak which case it was.
     if (!report) return res.status(404).json({ error: 'Agent not found' });
@@ -156,7 +156,7 @@ export async function handleBrokerDetail(req, res, id) {
     const parsed = ReportPeriodQuerySchema.safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    const report = await getBrokerDetailReport(id, parsed.data.period, { role: resolveScopeRole(claims.roles), userId: claims.oid });
+    const report = await getBrokerDetailReport(id, parsed.data.period, { role: resolveScopeRole(claims.roles), userId: claims.oid }, parsed.data.referenceDate);
     if (!report) return res.status(404).json({ error: 'Broker not found' });
 
     return res.status(200).json(report);

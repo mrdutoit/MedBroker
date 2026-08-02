@@ -40,37 +40,58 @@ import { resolveOrganisationId } from '../context/tenant.js';
 import { getDirectReportIds } from './userService.js';
 
 // ─── Period → date range ────────────────────────────────────────────────────
-export function getPeriodRange(period, now = new Date()) {
-  const start = new Date(now);
+/**
+ * @param {'Monthly'|'Quarterly'|'Yearly'} period
+ * @param {Date} [referenceDate] - a date within the period instance to view.
+ * Defaults to the actual current moment, i.e. "the period we're in right
+ * now". When this falls within the SAME month/quarter/year as today, `end`
+ * is the actual current moment (a progressive "to date" view of an ongoing
+ * period). When it's an earlier period, `end` is that period's own actual
+ * last moment — a completed month/quarter/year shouldn't have its range
+ * artificially truncated at today, or activity in its later days would be
+ * silently excluded.
+ */
+export function getPeriodRange(period, referenceDate = new Date()) {
+  const actualNow = new Date();
+  const start = new Date(referenceDate);
+  let end;
+
   if (period === 'Monthly') {
     start.setDate(1);
+    const isCurrent = start.getFullYear() === actualNow.getFullYear() && start.getMonth() === actualNow.getMonth();
+    end = isCurrent ? actualNow : new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59, 999);
   } else if (period === 'Quarterly') {
-    const qStartMonth = Math.floor(now.getMonth() / 3) * 3;
+    const qStartMonth = Math.floor(referenceDate.getMonth() / 3) * 3;
     start.setMonth(qStartMonth, 1);
+    const actualQStartMonth = Math.floor(actualNow.getMonth() / 3) * 3;
+    const isCurrent = start.getFullYear() === actualNow.getFullYear() && qStartMonth === actualQStartMonth;
+    end = isCurrent ? actualNow : new Date(start.getFullYear(), qStartMonth + 3, 0, 23, 59, 59, 999);
   } else {
     start.setMonth(0, 1);
+    const isCurrent = start.getFullYear() === actualNow.getFullYear();
+    end = isCurrent ? actualNow : new Date(start.getFullYear(), 11, 31, 23, 59, 59, 999);
   }
   start.setHours(0, 0, 0, 0);
-  return { start, end: now };
+  return { start, end };
 }
 
 // ─── Period → trend buckets ─────────────────────────────────────────────────
-// Monthly: weeks within the current month. Quarterly/Yearly: months within
-// the current quarter/year. Small N (<=12) — one pair of COUNT queries per
+// Monthly: weeks within the viewed month. Quarterly/Yearly: months within
+// the viewed quarter/year. Small N (<=12) — one pair of COUNT queries per
 // bucket in getReportSummary() below is simpler and far more maintainable
 // than dynamic SQL date-bucketing for a low-traffic internal report; not a
 // performance concern at this scale.
-function getTrendBuckets(period, now = new Date()) {
+function getTrendBuckets(period, referenceDate = new Date()) {
+  const { start, end } = getPeriodRange(period, referenceDate);
   const buckets = [];
   if (period === 'Monthly') {
-    const { start } = getPeriodRange('Monthly', now);
     let weekStart = new Date(start);
     let weekNum = 1;
     while (weekStart.getMonth() === start.getMonth()) {
       const weekEnd = new Date(weekStart);
       weekEnd.setDate(weekEnd.getDate() + 6);
       weekEnd.setHours(23, 59, 59, 999);
-      const clampedEnd = weekEnd > now ? now : weekEnd;
+      const clampedEnd = weekEnd > end ? end : weekEnd;
       buckets.push({ label: `W${weekNum}`, start: new Date(weekStart), end: clampedEnd });
       weekStart = new Date(weekStart);
       weekStart.setDate(weekStart.getDate() + 7);
@@ -79,15 +100,14 @@ function getTrendBuckets(period, now = new Date()) {
     }
   } else {
     const monthCount = period === 'Quarterly' ? 3 : 12;
-    const { start } = getPeriodRange(period, now);
     for (let i = 0; i < monthCount; i++) {
       const monthStart = new Date(start.getFullYear(), start.getMonth() + i, 1);
       const monthEnd = new Date(start.getFullYear(), start.getMonth() + i + 1, 0, 23, 59, 59, 999);
       const label = monthStart.toLocaleDateString('en-ZA', { month: 'short' });
-      // Future months (haven't started yet) still get a bucket — zero
-      // activity, same as the mock's "future month" rows — but no query
-      // needed for them, they're always 0.
-      buckets.push({ label, start: monthStart, end: monthEnd, future: monthStart > now });
+      // Future months (haven't started yet, relative to the viewed period's
+      // own end) still get a bucket — zero activity, same as before — but
+      // no query needed for them, they're always 0.
+      buckets.push({ label, start: monthStart, end: monthEnd, future: monthStart > end });
     }
   }
   return buckets;
@@ -98,9 +118,9 @@ function getTrendBuckets(period, now = new Date()) {
  * @param {'Monthly'|'Quarterly'|'Yearly'} period
  * @returns {Promise<{pipeline: Array, trend: Array}>}
  */
-export async function getReportSummary(period) {
+export async function getReportSummary(period, referenceDate) {
   const organisationId = resolveOrganisationId();
-  const { start, end } = getPeriodRange(period);
+  const { start, end } = getPeriodRange(period, referenceDate);
 
   const pipelineRows = await executeQuery(
     `SELECT
@@ -140,7 +160,7 @@ export async function getReportSummary(period) {
     { status: 'Closed Lost',         count: pipelineCounts.ClosedLost ?? 0 },
   ];
 
-  const buckets = getTrendBuckets(period);
+  const buckets = getTrendBuckets(period, referenceDate);
   const trend = [];
   for (const b of buckets) {
     if (b.future) { trend.push({ label: b.label, leads: 0, won: 0 }); continue; }
@@ -183,9 +203,9 @@ export async function getReportSummary(period) {
  * @param {'Monthly'|'Quarterly'|'Yearly'} period
  * @param {{role: string, userId: string}} scope
  */
-export async function getAgentDetailReport(agentId, period, scope) {
+export async function getAgentDetailReport(agentId, period, scope, referenceDate) {
   const organisationId = resolveOrganisationId();
-  const { start, end } = getPeriodRange(period);
+  const { start, end } = getPeriodRange(period, referenceDate);
 
   if (scope.role === 'Agent' && scope.userId !== agentId) return null;
   if (scope.role === 'Supervisor') {
@@ -254,7 +274,7 @@ export async function getAgentDetailReport(agentId, period, scope) {
 
   // Activity trend — calls made + appointments booked per bucket, scoped
   // to this one agent. Same bucket generator getReportSummary() uses.
-  const buckets = getTrendBuckets(period);
+  const buckets = getTrendBuckets(period, referenceDate);
   const activity = [];
   for (const b of buckets) {
     if (b.future) { activity.push({ label: b.label, calls: 0, booked: 0 }); continue; }
@@ -323,9 +343,9 @@ export async function getAgentDetailReport(agentId, period, scope) {
  * @param {'Monthly'|'Quarterly'|'Yearly'} period
  * @param {{role: string, userId: string}} scope
  */
-export async function getBrokerDetailReport(brokerId, period, scope) {
+export async function getBrokerDetailReport(brokerId, period, scope, referenceDate) {
   const organisationId = resolveOrganisationId();
-  const { start, end } = getPeriodRange(period);
+  const { start, end } = getPeriodRange(period, referenceDate);
 
   if (scope.role === 'Agent') return null;
   if (scope.role === 'Broker' && scope.userId !== brokerId) return null;
@@ -452,9 +472,9 @@ export async function getBrokerDetailReport(brokerId, period, scope) {
  * @param {'Monthly'|'Quarterly'|'Yearly'} period
  * @param {{role: string, userId: string}} scope
  */
-export async function getBrokerReport(period, scope) {
+export async function getBrokerReport(period, scope, referenceDate) {
   const organisationId = resolveOrganisationId();
-  const { start, end } = getPeriodRange(period);
+  const { start, end } = getPeriodRange(period, referenceDate);
 
   if (scope.role === 'Agent') return [];
 
@@ -504,9 +524,9 @@ export async function getBrokerReport(period, scope) {
  * @param {'Monthly'|'Quarterly'|'Yearly'} period
  * @param {{role: string, userId: string}} scope
  */
-export async function getAgentReport(period, scope) {
+export async function getAgentReport(period, scope, referenceDate) {
   const organisationId = resolveOrganisationId();
-  const { start, end } = getPeriodRange(period);
+  const { start, end } = getPeriodRange(period, referenceDate);
 
   if (scope.role === 'Broker') return [];
 
