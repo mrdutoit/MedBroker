@@ -44,6 +44,32 @@ function todayLocalDateString() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+/**
+ * Formats an AuditLog entry's changeDetail object into a short, readable
+ * summary — e.g. {value: '1'} -> "value: Yes". FIXED 2 Aug 2026 (Mark
+ * asked why enabling and disabling a flag looked identical in the log):
+ * the Detail column only ever rendered entityRef, which for entity
+ * types with no specific name resolver (FeatureFlag, Portfolio, Product,
+ * Event, Task) falls back to a generic "EntityType: id" string — the
+ * SAME string regardless of what actually changed. changeDetail already
+ * carried the real answer (the backend has always parsed and returned
+ * it), it just was never rendered anywhere. Generic across every action
+ * type rather than one bespoke formatter per action — every mutating
+ * endpoint in this codebase already writes changeDetail as a small,
+ * flat object, so one formatter covers all of them.
+ */
+function formatChangeDetail(changeDetail) {
+  if (!changeDetail || typeof changeDetail !== 'object') return null;
+  const parts = Object.entries(changeDetail).map(([k, v]) => {
+    let displayValue = v;
+    if (v === '1' || v === true) displayValue = 'Yes';
+    else if (v === '0' || v === false) displayValue = 'No';
+    else if (v === null || v === undefined) displayValue = '—';
+    return `${k}: ${displayValue}`;
+  });
+  return parts.join(', ');
+}
+
 export default function AppAdmin() {
   const [tab, setTab] = useState('portfolios');
   const { flag } = useFlags();
@@ -950,7 +976,12 @@ export default function AppAdmin() {
                       </span>
                     </td>
                     <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem', maxWidth: '260px' }}>
-                      {entry.entityRef}
+                      <div>{entry.entityRef}</div>
+                      {formatChangeDetail(entry.changeDetail) && (
+                        <div style={{ fontSize: '0.75rem', color:'var(--mut)', opacity: 0.8, marginTop: '2px' }}>
+                          {formatChangeDetail(entry.changeDetail)}
+                        </div>
+                      )}
                     </td>
                     <td style={{ ...s.td, fontSize: '0.8125rem' }}>
                       {entry.performedByName}

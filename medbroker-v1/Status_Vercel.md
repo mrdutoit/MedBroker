@@ -6167,6 +6167,51 @@ MIGRATION — no schema change:
   frontend/src/pages/AppAdmin.jsx             (SAR received-date default fixed, same root cause)
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+96. FIXED — AUDIT LOG NEVER SHOWED WHAT A CHANGE ACTUALLY WAS — 2 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark noticed enabling and disabling auth.sso.enabled produced identical-
+looking Audit Log rows and asked whether the wrong text gets written for
+disable specifically. Checked before answering: it wasn't wrong text for
+one direction, the Detail column never showed the actual change for
+EITHER direction, for any entity type — not unique to feature flags.
+
+ROOT CAUSE: the Detail column only ever rendered entityRef.
+entityRef resolves to a real, specific name for Lead/Appointment/User
+(see §76), but falls back to a generic "EntityType: id" string for
+everything else — FeatureFlag, Portfolio, Product, Event, Task — the
+SAME fallback text regardless of what the change actually was.
+changeDetail (a small JSON object every mutating endpoint in this
+codebase already writes — {value: '1'} for a flag toggle, {isActive:
+true} for a portfolio/product status change, {name} for a create, etc.)
+has always carried the real answer, and the backend has always
+correctly parsed and returned it in the API response — it just was
+never rendered anywhere in the table.
+
+FIX: a generic formatChangeDetail() renders changeDetail as a compact
+"key: value" summary beneath entityRef, applied uniformly rather than
+building a bespoke formatter per action type — one formatter covers
+every action already writing a small flat object, including the ones
+built later than this fix without any extra work needed for them.
+Boolean-like values ('1'/'0'/true/false) render as Yes/No for
+readability rather than raw stored strings.
+
+CHECKED, NOT ASSUMED: confirmed changeDetail already flows correctly
+from writeAuditLog's JSON.stringify() through listAllAuditLog's
+JSON.parse() to the handler's JSON response, so this needed no backend
+change at all — purely a rendering gap. Also confirmed the CSV/JSON
+export already had its own Detail column showing changeDetail properly
+(built in §77) — this gap was specific to the on-screen table, not
+exports.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected.
+
+MIGRATION — no schema or backend change:
+  frontend/src/pages/AppAdmin.jsx (formatChangeDetail added, Detail column now renders it)
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I
