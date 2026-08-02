@@ -176,9 +176,15 @@ export const leadsApi = {
   listSubscriptions: () => request('/leads/subscriptions'),
   createSubscription: (data) => request('/leads/subscriptions', { method: 'POST', body: JSON.stringify(data) }),
   // §90 — Portfolio/Product management
-  listPortfolios: () => request('/leads/portfolios'),
+  listPortfolios: (includeInactive = false) => request(`/leads/portfolios${includeInactive ? '?includeInactive=true' : ''}`),
   createPortfolio: (name) => request('/leads/portfolios', { method: 'POST', body: JSON.stringify({ name }) }),
   createProduct: (portfolioId, name) => request(`/leads/portfolios/${portfolioId}/products`, { method: 'POST', body: JSON.stringify({ name }) }),
+  updatePortfolio: (id, isActive) => request(`/leads/portfolios/${id}`, { method: 'PUT', body: JSON.stringify({ isActive }) }),
+  deletePortfolio: (id) => request(`/leads/portfolios/${id}`, { method: 'DELETE' }),
+  updateProduct: (portfolioId, productId, isActive) =>
+    request(`/leads/portfolios/${portfolioId}/products/${productId}`, { method: 'PUT', body: JSON.stringify({ isActive }) }),
+  deleteProduct: (portfolioId, productId) =>
+    request(`/leads/portfolios/${portfolioId}/products/${productId}`, { method: 'DELETE' }),
   // assign — first-time assignment of an unassigned lead to an agent, OR
   //   changing the agent on an already-assigned lead. Same endpoint either
   //   way — the backend distinguishes them itself (checks whether there

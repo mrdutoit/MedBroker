@@ -167,3 +167,7 @@ export const CreatePortfolioSchema = z.object({
 export const CreateProductSchema = z.object({
   name: z.string().min(1).max(200),
 });
+// §91 — deactivate/reactivate toggle.
+export const UpdateActiveSchema = z.object({
+  isActive: z.boolean(),
+});

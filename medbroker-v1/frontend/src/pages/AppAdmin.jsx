@@ -31,7 +31,24 @@ const AUDIT_ACTIONS = [
 export default function AppAdmin() {
   const [tab, setTab] = useState('portfolios');
   const { flag } = useFlags();
-  const { portfolios, refetchPortfolios } = useRole();
+  const { refetchPortfolios: refetchSharedPortfolios } = useRole();
+
+  // App Admin's own management fetch — includeInactive=true, unlike the
+  // shared context data every other page reads via useRole(). Without
+  // this, deactivating a portfolio/product would make it vanish from
+  // this page too, and there'd be no way to reactivate it.
+  const { data: portfolioData, refetch: refetchPortfolios } = useFetch(
+    () => leadsApi.listPortfolios(true), []
+  );
+  const portfolios = portfolioData?.portfolios ?? [];
+
+  // Both refetches run together on any change here — this page's own
+  // (includeInactive) view, and the shared active-only one every other
+  // open page reads, so a portfolio/product added or deactivated here
+  // shows up correctly everywhere else immediately too.
+  async function refetchBoth() {
+    await Promise.all([refetchPortfolios(), refetchSharedPortfolios()]);
+  }
 
   // Portfolio/Product creation (§91 — closing the gap Mark flagged:
   // these tabs looked functional but nothing behind the buttons ever
@@ -53,7 +70,7 @@ export default function AppAdmin() {
     setPortError(null);
     try {
       await leadsApi.createPortfolio(portNewName.trim());
-      await refetchPortfolios();
+      await refetchBoth();
       setPortShowCreate(false);
       setPortNewName('');
     } catch (err) {
@@ -69,13 +86,59 @@ export default function AppAdmin() {
     setProdError(null);
     try {
       await leadsApi.createProduct(portfolioId, prodNewName.trim());
-      await refetchPortfolios();
+      await refetchBoth();
       setProdShowCreateFor(null);
       setProdNewName('');
     } catch (err) {
       setProdError(err.message || 'Could not create product');
     } finally {
       setProdSaving(false);
+    }
+  }
+
+  async function handleTogglePortfolioActive(id, isActive) {
+    setPortError(null);
+    try {
+      await leadsApi.updatePortfolio(id, isActive);
+      await refetchBoth();
+    } catch (err) {
+      setPortError(err.message || 'Could not update portfolio');
+    }
+  }
+
+  async function handleDeletePortfolio(id, name) {
+    if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    setPortError(null);
+    try {
+      await leadsApi.deletePortfolio(id);
+      await refetchBoth();
+    } catch (err) {
+      // 409 (still linked to something) arrives with a specific, friendly
+      // message from the backend — surfaced as-is, not replaced with a
+      // generic one, since the whole point is telling the Admin exactly
+      // what's still attached.
+      setPortError(err.message || 'Could not delete portfolio');
+    }
+  }
+
+  async function handleToggleProductActive(portfolioId, productId, isActive) {
+    setProdError(null);
+    try {
+      await leadsApi.updateProduct(portfolioId, productId, isActive);
+      await refetchBoth();
+    } catch (err) {
+      setProdError(err.message || 'Could not update product');
+    }
+  }
+
+  async function handleDeleteProduct(portfolioId, productId, name) {
+    if (!window.confirm(`Delete "${name}"? This cannot be undone.`)) return;
+    setProdError(null);
+    try {
+      await leadsApi.deleteProduct(portfolioId, productId);
+      await refetchBoth();
+    } catch (err) {
+      setProdError(err.message || 'Could not delete product');
     }
   }
 
@@ -363,22 +426,39 @@ export default function AppAdmin() {
           )}
 
           <div style={{ ...s.tableCard, overflowX: 'auto' }}>
-            <table style={{ ...s.table, minWidth: '400px' }}>
+            <table style={{ ...s.table, minWidth: '500px' }}>
               <thead><tr>
                 <th style={s.th}>Portfolio name</th>
                 <th style={s.th}>Products</th>
+                <th style={s.th}>Status</th>
+                <th style={s.th}></th>
               </tr></thead>
               <tbody>
                 {portfolios.map(p => (
-                  <tr key={p.id} style={s.tr}>
+                  <tr key={p.id} style={{ ...s.tr, opacity: p.isActive ? 1 : 0.6 }}>
                     <td style={{ ...s.td, fontWeight: 500 }}>{p.name}</td>
                     <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>
                       {p.products.length} product{p.products.length !== 1 ? 's' : ''}
                     </td>
+                    <td style={s.td}>
+                      <span style={{ ...s.badge, background: p.isActive ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'var(--panel2)', color: p.isActive ? '#15803d' : 'var(--mut)' }}>
+                        {p.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td style={s.td}>
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <button style={s.linkBtn} onClick={() => handleTogglePortfolioActive(p.id, !p.isActive)}>
+                          {p.isActive ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button style={{ ...s.linkBtn, color: '#dc2626' }} onClick={() => handleDeletePortfolio(p.id, p.name)}>
+                          Delete
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
                 {portfolios.length === 0 && (
-                  <tr><td colSpan={2} style={{ ...s.td, textAlign: 'center', color:'var(--mut)' }}>No portfolios yet.</td></tr>
+                  <tr><td colSpan={4} style={{ ...s.td, textAlign: 'center', color:'var(--mut)' }}>No portfolios yet.</td></tr>
                 )}
               </tbody>
             </table>
@@ -397,10 +477,10 @@ export default function AppAdmin() {
               style={{ ...s.formInput, width: '220px', padding: '6px 10px', fontSize: '0.8125rem' }}
               value={prodShowCreateFor ?? ''}
               onChange={e => { setProdShowCreateFor(e.target.value || null); setProdNewName(''); setProdError(null); }}
-              disabled={portfolios.length === 0}
+              disabled={portfolios.every(p => !p.isActive)}
             >
               <option value="">+ Add Product to…</option>
-              {portfolios.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+              {portfolios.filter(p => p.isActive).map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
             </select>
           </div>
 
@@ -425,14 +505,16 @@ export default function AppAdmin() {
           )}
 
           <div style={{ ...s.tableCard, overflowX: 'auto' }}>
-            <table style={{ ...s.table, minWidth: '400px' }}>
+            <table style={{ ...s.table, minWidth: '500px' }}>
               <thead><tr>
                 <th style={s.th}>Product name</th>
                 <th style={s.th}>Portfolio</th>
+                <th style={s.th}>Status</th>
+                <th style={s.th}></th>
               </tr></thead>
               <tbody>
                 {portfolios.flatMap(p => p.products.map(prod => (
-                  <tr key={prod.id} style={s.tr}>
+                  <tr key={prod.id} style={{ ...s.tr, opacity: prod.isActive ? 1 : 0.6 }}>
                     <td style={{ ...s.td, fontWeight: 500 }}>{prod.name}</td>
                     <td style={s.td}>
                       <span style={{ ...s.badge, fontSize: '0.688rem',
@@ -442,10 +524,25 @@ export default function AppAdmin() {
                         {p.name === 'Money and Medicine' ? 'M&M' : p.name}
                       </span>
                     </td>
+                    <td style={s.td}>
+                      <span style={{ ...s.badge, background: prod.isActive ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'var(--panel2)', color: prod.isActive ? '#15803d' : 'var(--mut)' }}>
+                        {prod.isActive ? 'Active' : 'Inactive'}
+                      </span>
+                    </td>
+                    <td style={s.td}>
+                      <div style={{ display: 'flex', gap: '10px' }}>
+                        <button style={s.linkBtn} onClick={() => handleToggleProductActive(p.id, prod.id, !prod.isActive)}>
+                          {prod.isActive ? 'Deactivate' : 'Activate'}
+                        </button>
+                        <button style={{ ...s.linkBtn, color: '#dc2626' }} onClick={() => handleDeleteProduct(p.id, prod.id, prod.name)}>
+                          Delete
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 )))}
                 {portfolios.every(p => p.products.length === 0) && (
-                  <tr><td colSpan={2} style={{ ...s.td, textAlign: 'center', color:'var(--mut)' }}>No products yet.</td></tr>
+                  <tr><td colSpan={4} style={{ ...s.td, textAlign: 'center', color:'var(--mut)' }}>No products yet.</td></tr>
                 )}
               </tbody>
             </table>

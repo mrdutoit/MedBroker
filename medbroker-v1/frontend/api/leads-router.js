@@ -13,6 +13,10 @@
  *   GET    /api/leads/portfolios         (§90 — Portfolio/Product management)
  *   POST   /api/leads/portfolios
  *   POST   /api/leads/portfolios/:id/products
+ *   PUT    /api/leads/portfolios/:id                          (§91 — activate/deactivate)
+ *   DELETE /api/leads/portfolios/:id                          (§91 — guarded delete)
+ *   PUT    /api/leads/portfolios/:portfolioId/products/:productId
+ *   DELETE /api/leads/portfolios/:portfolioId/products/:productId
  *   GET    /api/leads/sar-requests       (§79 — POPIA SAR processing)
  *   POST   /api/leads/sar-requests
  *   GET    /api/leads/:id
@@ -37,7 +41,7 @@ import {
   handleSarRequestsCollection, handleSarRequestById, handleSarRequestExport,
 } from '../api-lib/handlers/sarHandlers.js';
 import {
-  handlePortfoliosCollection, handlePortfolioProducts,
+  handlePortfoliosCollection, handlePortfolioProducts, handlePortfolioById, handleProductById,
 } from '../api-lib/handlers/portfolioHandlers.js';
 import { applyCors, parseSlug } from '../api-lib/http/helpers.js';
 
@@ -67,7 +71,9 @@ export default async function handler(req, res) {
   // literal sub-route here.
   if (segments[0] === 'portfolios') {
     if (segments.length === 1) return handlePortfoliosCollection(req, res);
+    if (segments.length === 2) return handlePortfolioById(req, res, segments[1]);
     if (segments.length === 3 && segments[2] === 'products') return handlePortfolioProducts(req, res, segments[1]);
+    if (segments.length === 4 && segments[2] === 'products') return handleProductById(req, res, segments[1], segments[3]);
     return res.status(404).json({ error: 'Not found' });
   }
 

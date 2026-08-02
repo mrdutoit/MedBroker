@@ -5819,6 +5819,85 @@ already existed and were already correctly related):
   frontend/src/pages/AppAdmin.jsx          (real create UI built)
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+91. REFERENTIAL-INTEGRITY FAILSAFES FOR PORTFOLIO/PRODUCT DELETE — 1 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark asked directly, while implementing §90, whether deleting a
+portfolio/product still linked to leads/appointments/users was guarded
+against. Honest answer at the time: no failsafe existed because delete
+didn't exist at all yet — §90 only ever built create and list.
+
+INVESTIGATED BEFORE BUILDING ANYTHING: checked every actual relationship
+to Portfolio and Product in the schema, not assumed. Five are real,
+FK-constrained relationships that Postgres itself already protects
+(none of them cascade or null out) — Product→Portfolio, LeadPortfolio,
+UserPortfolio, BrokerProduct, AppointmentProduct. One is not:
+Appointment.productsInterestedIn is a JSON-stringified array of product
+NAMES in a plain text column — no foreign key, nothing stopping a
+delete from silently leaving it dangling. This asymmetry is exactly
+what this entry closes.
+
+CAUGHT DURING DESIGN, before writing the delete path: the existing
+listPortfoliosWithProducts() query filtered to isActive = TRUE only —
+meaning the moment something was deactivated, it would vanish from App
+Admin's own management view too, making reactivation impossible through
+the UI. Fixed by adding an includeInactive option: App Admin's own
+fetch now asks for everything (so a deactivated item stays visible to
+be turned back on), while every other consumer — Lead Detail, Lead
+Import, Appointment Detail, User Admin's assignment checkboxes — keeps
+getting the active-only default, which is what they actually want.
+
+BUILT:
+  - portfolioService.js: checkPortfolioDependents() and
+    checkProductDependents() — the latter explicitly pattern-matches
+    the JSON-serialised product name against Appointment.
+    productsInterestedIn (the one relationship with no real FK to lean
+    on), verified standalone against real edge cases before trusting it
+    — including that a name like "Life Insurance" doesn't false-
+    positive against a longer one like "Life Insurance Plus" sharing
+    it as a prefix. setPortfolioActive()/setProductActive() (toggle
+    either direction, not deactivate-only) and deletePortfolio()/
+    deleteProduct() (only ever called by the handler after a dependents
+    check has passed — the function itself doesn't re-check, matching
+    how every other "guarded delete" in this codebase splits the check
+    from the action).
+  - portfolioHandlers.js: PUT for the activate/deactivate toggle, DELETE
+    that checks dependents FIRST and returns a specific 409 naming
+    exactly what's still attached ("still linked to 3 products, 12
+    leads") rather than letting Postgres's own constraint violation
+    reach the caller as a raw, unfriendly database error. The DB-level
+    protection stays in place regardless as the last-resort backstop —
+    this doesn't replace it, it makes the common case give a useful
+    answer instead of an error page.
+  - leads-router.js: PUT/DELETE routes added for both individual
+    portfolios and individual products, still on the same existing
+    router, no new function.
+  - AppAdmin.jsx: Status column, Activate/Deactivate, and Delete
+    controls added to both tables. Confirmation prompt before delete
+    (matching the same window.confirm() precedent used for tasks and
+    events elsewhere in this app). A delete blocked by dependents
+    surfaces the backend's specific message as-is, not replaced with a
+    generic one — the whole point is telling the Admin exactly what's
+    still attached. The "Add Product to…" dropdown now filters to
+    active portfolios only — adding a product under a deactivated
+    portfolio wouldn't make sense.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected; every new/edited backend file passes node --check and
+an ESM import smoke test. The includeInactive boolean logic and the
+product-name pattern-matching were both verified standalone against
+representative cases before being trusted, not just read.
+
+MIGRATION — no schema change (all five FK relationships already existed):
+  frontend/api-lib/services/portfolioService.js  (dependents checks, activate toggle, guarded delete)
+  frontend/api-lib/handlers/portfolioHandlers.js (PUT/DELETE handlers added)
+  frontend/api-lib/models/lead.js                (UpdateActiveSchema added)
+  frontend/api/leads-router.js                   (PUT/DELETE routes added)
+  frontend/src/services/api.js                   (updatePortfolio/deletePortfolio/updateProduct/deleteProduct added)
+  frontend/src/pages/AppAdmin.jsx                (Status/Activate/Deactivate/Delete UI, dual-fetch for includeInactive)
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I
