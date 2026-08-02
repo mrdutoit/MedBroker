@@ -1,23 +1,30 @@
 /**
- * middleware/auth.js — DEMO BACKEND, two auth paths.
+ * middleware/auth.js
  *
- * Path 1 — local JWT (NEW): Authorization: Bearer <token> issued by
- * POST /api/auth/login. Verified via services/authService.js's verifyJwt()
- * (hand-rolled HMAC-SHA256, same style as the real Entra middleware's manual
- * JWT parsing). This is real authentication now, not a bypass.
+ * Authorization: Bearer <token> issued by POST /api/auth/login, verified
+ * via services/authService.js's verifyJwt() (hand-rolled HMAC-SHA256).
  *
- * Path 2 — header bypass (unchanged from the previous session): the
- * x-demo-user-id / x-demo-role headers, kept for quick manual testing
- * without needing to log in first. Only used when no Authorization header
- * is present.
+ * FIXED 2 Aug 2026 — this used to fall back to trusting x-demo-user-id/
+ * x-demo-role headers directly, with no verification at all, whenever
+ * no Authorization header was present. That was a real, live
+ * authentication bypass: anyone who knew or guessed a valid user id
+ * could set two HTTP headers and gain full access as any user in any
+ * role, including GlobalAdmin — no password, no token, nothing. It was
+ * a deliberate testing convenience from before real login existed
+ * (documented in VERCEL_NOTES.md as "useful for quickly testing a role
+ * you haven't created a real user for yet"), and nobody ever came back
+ * to remove it once real authentication was actually built. Removed
+ * entirely, not gated behind an environment check — an app handling
+ * real customer PII and financial data has no safe way to ship a
+ * credential-free entry point, in any environment.
  *
- * Both paths re-check isActive (and, for local JWT, isLocked) against the
- * database after the credential itself checks out — a token or header
- * claiming to be a user isn't sufficient proof of *current* access, same
- * principle as the Azure A3 spec.
+ * Re-checks isActive (and isLocked) against the database after the
+ * token itself checks out — a still-valid token isn't proof of
+ * *current* access, same principle as the original Azure A3 spec this
+ * was ported from.
  *
- * requireRole/authErrorResponse keep the same exported shape as the Azure
- * original so route handlers never change regardless of which path fires.
+ * requireRole/authErrorResponse keep the same exported shape as the
+ * Azure original so route handlers never change regardless.
  */
 
 import { getActiveUserById } from '../services/userService.js';
@@ -31,35 +38,23 @@ import { config } from '../config.js';
 export async function validateToken(req) {
   const authHeader = req.headers['authorization'];
 
-  if (authHeader && authHeader.startsWith('Bearer ')) {
-    if (!config.localAuth.jwtSigningSecret) {
-      throw { status: 500, message: 'JWT_SIGNING_SECRET is not configured on the server' };
-    }
-    const token = authHeader.slice(7);
-    const payload = verifyJwt(token, config.localAuth.jwtSigningSecret); // throws 401 on bad signature/expiry
-
-    // Re-check current status — a still-valid token doesn't mean still active.
-    const user = await getActiveUserById(payload.oid);
-    if (!user) {
-      throw { status: 403, message: 'User is inactive, deleted, or not found in this organisation' };
-    }
-
-    return { oid: payload.oid, roles: [user.role], name: user.displayName };
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    throw { status: 401, message: 'Missing or invalid Authorization header' };
   }
 
-  // Fallback: header bypass for manual testing without a login flow.
-  const userId = req.headers['x-demo-user-id'];
-  const role = req.headers['x-demo-role'];
-  if (!userId || !role) {
-    throw { status: 401, message: 'No Authorization header and no x-demo-user-id/x-demo-role headers — see middleware/auth.js' };
+  if (!config.localAuth.jwtSigningSecret) {
+    throw { status: 500, message: 'JWT_SIGNING_SECRET is not configured on the server' };
   }
+  const token = authHeader.slice(7);
+  const payload = verifyJwt(token, config.localAuth.jwtSigningSecret); // throws 401 on bad signature/expiry
 
-  const user = await getActiveUserById(userId);
+  // Re-check current status — a still-valid token doesn't mean still active.
+  const user = await getActiveUserById(payload.oid);
   if (!user) {
     throw { status: 403, message: 'User is inactive, deleted, or not found in this organisation' };
   }
 
-  return { oid: userId, roles: [role], name: user.displayName };
+  return { oid: payload.oid, roles: [user.role], name: user.displayName };
 }
 
 /**

@@ -247,10 +247,18 @@ Two coexisting auth paths on every protected route, both handled inside
   current `isActive` status is re-checked against the database — a
   still-valid token isn't proof of *current* access, same principle as the
   Azure A3 finding.
-- **Header bypass** (unchanged, kept as a fallback): `x-demo-user-id` /
-  `x-demo-role`, only used when no `Authorization` header is present. Useful
-  for quickly testing a route as a role you haven't created a real user
-  for yet.
+- **Header bypass — REMOVED 2 Aug 2026 (critical security fix).** This
+  used to fall back to trusting `x-demo-user-id`/`x-demo-role` headers
+  directly whenever no `Authorization` header was present — no
+  password, no token, nothing. Anyone who knew or guessed a valid user
+  id could set two HTTP headers and get full access as any user in any
+  role. It was a genuinely useful testing convenience from before real
+  login existed, but nobody ever came back to remove it once real
+  authentication was actually built, and it sat live in an app now
+  handling real customer PII. Every route requires a real
+  `Authorization: Bearer` token now, no exceptions and no environment-
+  based gating — there's no safe way to ship a credential-free entry
+  point into this app, in any environment.
 
 **Password policy is admin-configurable, not hardcoded** — both
 `passwordRotationDays` and `passwordLockoutAttempts` live on `SystemConfig`

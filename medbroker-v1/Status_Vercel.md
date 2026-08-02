@@ -5898,6 +5898,72 @@ MIGRATION — no schema change (all five FK relationships already existed):
   frontend/src/pages/AppAdmin.jsx                (Status/Activate/Deactivate/Delete UI, dual-fetch for includeInactive)
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+92. CRITICAL — REMOVED A LIVE AUTHENTICATION BYPASS — 2 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Found while investigating rate limiting/session revocation (the next
+item on the security list) — not something Mark reported. This is the
+single most serious finding of the whole build.
+
+middleware/auth.js — the function EVERY authenticated API route in this
+app calls to check who's making the request — had a second path:
+whenever no Authorization header was present, it fell back to trusting
+two plain HTTP headers, x-demo-user-id and x-demo-role, DIRECTLY, with
+zero verification. No password. No token. No signature. Anyone who knew
+or could guess a valid user id (UUIDs are guessable in practice more
+often than assumed — sequential creation patterns, leaked ids in error
+messages, etc.) could set two headers on any request and gain full
+access as any user in any role, including GlobalAdmin — every lead's
+personal and medical information, every appointment, full admin
+control, all of it.
+
+CONTEXT: this wasn't a mistake introduced carelessly. VERCEL_NOTES.md
+had it documented as a deliberate, useful testing convenience from
+before real login existed — "quickly testing a route as a role you
+haven't created a real user for yet." The problem is that real
+authentication WAS built (session 14 has covered this extensively —
+local email/password login, JWT, password policy, lockout, all real)
+and this fallback was simply never revisited or removed once it was.
+It sat there, live, unguarded by any environment check, in an app now
+built to handle a real medical insurance brokerage's real customer PII.
+
+CHECKED BEFORE FIXING: confirmed the Lead Portal's own auth
+(portalAuth.js) never had this — its own header comment explicitly says
+so. The exposure was confined to the staff-facing app, not the
+customer-facing portal — still critical, since staff accounts are
+exactly the ones with access to everything. Also confirmed no frontend
+code anywhere ever sent these headers (so nothing legitimate depended
+on this path) and no test/script in the repo relies on it either.
+
+FIX: removed entirely, not gated behind an environment check. Every
+route requires a real Authorization: Bearer token now, no exceptions.
+Also removed the now-dead x-demo-user-id/x-demo-role entries from the
+CORS Access-Control-Allow-Headers list in helpers.js (they permitted
+sending headers that no longer do anything) and updated
+VERCEL_NOTES.md's own description of the auth flow to match.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected. Grepped the entire repository for any remaining
+reference — the only three hits left are portalAuth.js's own comment
+confirming it never had this, this entry's explanation of what was
+removed, and VERCEL_NOTES.md's updated note. Zero live code path
+remains.
+
+RECOMMENDATION: given the severity, if this deployment has been
+reachable at a public URL with real user data in it at any point,
+worth treating this the way any credential-bypass discovery should be
+treated — assume it could have been found and used, not just that it
+probably wasn't. That's a judgement call for Mark and whoever owns risk
+decisions for this engagement, not something Claude can assess from
+here.
+
+MIGRATION — no schema change:
+  frontend/api-lib/middleware/auth.js  (bypass removed entirely)
+  frontend/api-lib/http/helpers.js     (dead CORS header entries removed)
+  frontend/VERCEL_NOTES.md             (auth flow description updated)
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I
