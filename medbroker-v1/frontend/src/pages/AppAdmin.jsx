@@ -18,7 +18,7 @@ import { systemConfigApi, auditApi, usersApi, sarApi, leadsApi } from '../servic
 // (existing entries with that value still show up fine in the
 // unfiltered view either way — this only affects the dropdown, not
 // what data exists).
-const AUDIT_ENTITY_TYPES = ['Appointment', 'Lead', 'Event', 'EventAttendee', 'FeatureFlag', 'Task', 'User'];
+const AUDIT_ENTITY_TYPES = ['Appointment', 'Lead', 'Event', 'EventAttendee', 'FeatureFlag', 'Task', 'User', 'Portfolio', 'Product'];
 const AUDIT_ACTIONS = [
   'AppointmentBrokerAssigned', 'AppointmentCreated', 'AppointmentOutcomeSaved',
   'AppointmentReassigned', 'AppointmentReturnedToLeads', 'AttendeeAdded',
@@ -26,6 +26,9 @@ const AUDIT_ACTIONS = [
   'LeadCreated', 'LeadDeleted', 'LeadReopened', 'LeadUpdated',
   'PortalAccountActivated', 'PortalProfileUpdated', 'PortalRegistration',
   'PortalWalkInCheckedIn', 'ProfileUpdated', 'TaskCreated', 'TaskDeleted', 'UserCreated',
+  'SarRequestCreated', 'SarStatusChanged', 'SarDataExported', 'UserUnlocked',
+  'PortfolioCreated', 'PortfolioStatusChanged', 'PortfolioDeleted',
+  'ProductCreated', 'ProductStatusChanged', 'ProductDeleted',
 ];
 
 export default function AppAdmin() {
@@ -500,6 +503,13 @@ export default function AppAdmin() {
                 onClick={() => handleCreateProduct(prodShowCreateFor)}
               >
                 {prodSaving ? 'Saving…' : 'Add'}
+              </button>
+              <button
+                style={s.ghostBtn}
+                disabled={prodSaving}
+                onClick={() => { setProdShowCreateFor(null); setProdNewName(''); setProdError(null); }}
+              >
+                Cancel
               </button>
             </div>
           )}

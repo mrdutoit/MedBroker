@@ -15,7 +15,7 @@
  * that do not exist yet in the codebase.
  */
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useFlags } from '../context/FlagContext.jsx';
 import { flagsApi } from '../services/api.js';
 import { s }        from '../styles/tokens.js';
@@ -168,6 +168,17 @@ function FlagRow({ meta, rawValue, onSave }) {
   const [saving,     setSaving]     = useState(false);
   const [saved,      setSaved]      = useState(false);
   const [error,      setError]      = useState(null);
+
+  // FIXED — this row keeps the same key across re-renders (it's the same
+  // flag, not a new one), so React never re-runs useState's initializer
+  // when rawValue changes; localValue would silently drift out of sync
+  // with the actual saved value on the server/context after the first
+  // save. Explicitly resyncing here whenever the saved value changes
+  // underneath this row is what a fully-controlled input would do
+  // automatically — this fixes it without restructuring the component.
+  useEffect(() => {
+    setLocalValue(rawValue);
+  }, [rawValue]);
 
   const isDirty   = String(localValue) !== String(rawValue);
   const isLocked  = meta.isPhase2;

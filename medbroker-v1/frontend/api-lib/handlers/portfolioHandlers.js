@@ -15,6 +15,7 @@ import {
   checkPortfolioDependents, checkProductDependents, getProductName,
   setPortfolioActive, setProductActive, deletePortfolio, deleteProduct,
 } from '../services/portfolioService.js';
+import { writeAuditLog, clientIp } from '../services/auditService.js';
 import { CreatePortfolioSchema, CreateProductSchema, UpdateActiveSchema } from '../models/lead.js';
 import { isUuid } from '../http/helpers.js';
 
@@ -35,6 +36,10 @@ export async function handlePortfoliosCollection(req, res) {
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
       const newId = await createPortfolio(parsed.data.name);
+      await writeAuditLog({
+        entityType: 'Portfolio', entityId: newId, action: 'PortfolioCreated',
+        performedById: claims.oid, changeDetail: JSON.stringify({ name: parsed.data.name }), ipAddress: clientIp(req),
+      });
       return res.status(201).json({ id: newId });
     }
 
@@ -68,6 +73,10 @@ export async function handlePortfolioProducts(req, res, portfolioId) {
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
     const newId = await createProduct(portfolioId, parsed.data.name);
+    await writeAuditLog({
+      entityType: 'Product', entityId: newId, action: 'ProductCreated',
+      performedById: claims.oid, changeDetail: JSON.stringify({ name: parsed.data.name, portfolioId }), ipAddress: clientIp(req),
+    });
     return res.status(201).json({ id: newId });
 
   } catch (err) {
@@ -100,6 +109,10 @@ export async function handlePortfolioById(req, res, id) {
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
       await setPortfolioActive(id, parsed.data.isActive);
+      await writeAuditLog({
+        entityType: 'Portfolio', entityId: id, action: 'PortfolioStatusChanged',
+        performedById: claims.oid, changeDetail: JSON.stringify({ isActive: parsed.data.isActive }), ipAddress: clientIp(req),
+      });
       return res.status(200).json({ id, isActive: parsed.data.isActive });
     }
 
@@ -117,6 +130,10 @@ export async function handlePortfolioById(req, res, id) {
         });
       }
       await deletePortfolio(id);
+      await writeAuditLog({
+        entityType: 'Portfolio', entityId: id, action: 'PortfolioDeleted',
+        performedById: claims.oid, ipAddress: clientIp(req),
+      });
       return res.status(200).json({ id, deleted: true });
     }
 
@@ -160,6 +177,10 @@ export async function handleProductById(req, res, portfolioId, productId) {
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
       await setProductActive(productId, parsed.data.isActive);
+      await writeAuditLog({
+        entityType: 'Product', entityId: productId, action: 'ProductStatusChanged',
+        performedById: claims.oid, changeDetail: JSON.stringify({ isActive: parsed.data.isActive }), ipAddress: clientIp(req),
+      });
       return res.status(200).json({ id: productId, isActive: parsed.data.isActive });
     }
 
@@ -180,6 +201,10 @@ export async function handleProductById(req, res, portfolioId, productId) {
         });
       }
       await deleteProduct(productId);
+      await writeAuditLog({
+        entityType: 'Product', entityId: productId, action: 'ProductDeleted',
+        performedById: claims.oid, changeDetail: JSON.stringify({ name }), ipAddress: clientIp(req),
+      });
       return res.status(200).json({ id: productId, deleted: true });
     }
 

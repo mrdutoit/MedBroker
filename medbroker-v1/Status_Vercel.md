@@ -5964,6 +5964,83 @@ MIGRATION — no schema change:
   frontend/VERCEL_NOTES.md             (auth flow description updated)
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+93. THREE TESTING FIXES — PORTFOLIO/PRODUCT AUDIT LOG, FLAG TOGGLE, CANCEL BUTTON — 2 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark found four issues while testing §90/§91. Three fixed here; the
+fourth (Reports showing zero values) needs his input before committing
+to a fix — see the note at the end of this entry.
+
+1. PORTFOLIO/PRODUCT AUDIT LOG — a real gap, not a false alarm.
+   portfolioHandlers.js had zero writeAuditLog() calls anywhere, unlike
+   every other mutating endpoint in this codebase. Added audit logging
+   to all six mutation points: create/status-change/delete for both
+   Portfolio and Product (PortfolioCreated, PortfolioStatusChanged,
+   PortfolioDeleted, ProductCreated, ProductStatusChanged,
+   ProductDeleted). Also found and fixed while in here: the frontend's
+   own copy of the Audit Log's filter dropdown lists (AppAdmin.jsx's
+   AUDIT_ENTITY_TYPES/AUDIT_ACTIONS) had already drifted out of sync
+   with the backend's — missing the SAR and UserUnlocked actions from
+   earlier entries, not just the new Portfolio/Product ones. Both lists
+   brought back in sync together. Entity-name resolution for Portfolio/
+   Product audit entries still shows a raw id rather than a resolved
+   name in the Audit Log table — same already-documented, deliberately
+   deprioritised gap Event/EventAttendee/Task already have; not
+   expanded into a bigger fix here without being asked.
+
+2. FEATURE FLAG TOGGLE — found and fixed a real React anti-pattern.
+   FlagRow's `useState(rawValue)` only ever initialises once on mount;
+   because the row keeps the same key across re-renders (it's the same
+   flag being edited, not a new one), React never re-runs that
+   initialiser when the saved value changes underneath it after a
+   successful save. Added a useEffect to explicitly resync localValue
+   whenever rawValue changes. This is a genuine, real bug pattern and
+   exactly the class of thing that produces "works once, silently
+   doesn't the second time" symptoms — worth being direct that static
+   code review across every layer (Toggle, FlagRow, the page component,
+   api.js, the PATCH handler, the flag service, FlagContext) didn't
+   turn up a second, more definite root cause, so Mark's re-test is
+   what actually confirms this is the fix, not just a plausible one.
+
+3. MISSING CANCEL ON ADD PRODUCT — real gap. The "Add Product to…"
+   control was a dropdown that immediately opened the create form with
+   no way to back out except manually resetting the dropdown or
+   actually creating something — unlike the Portfolios tab, which
+   already had a proper Cancel button. Added one, matching that same
+   pattern.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected; both edited backend handler files pass an ESM import
+smoke test.
+
+4. REPORTS SHOWING ZERO VALUES — investigated, not yet fixed, needs
+   Mark's input. Checked the date-range calculation itself
+   (getPeriodRange) for an off-by-one or timezone bug — it's correct:
+   "Month to date" for August correctly computes [1 Aug 00:00 -> now].
+   Today is 2 Aug — two days into the month. Every summary metric
+   (leads, appointments, policy value) filters by created/updated
+   THIS PERIOD, standard cohort-reporting convention (matches how
+   Salesforce/HubSpot-style "this month" metrics work generally) — if
+   the underlying test/demo data was created in an earlier month, "how
+   much happened since 1 Aug" would correctly show near-zero this early
+   in a brand-new month, which isn't a bug in itself. Could NOT verify
+   this against live data (no DB access) — asked Mark to check whether
+   Quarterly or Yearly view shows real numbers; if it does, that
+   confirms this is expected cohort-period behaviour rather than a
+   broken query, and the real fix (if any) is a UX/default-period
+   question, not a data bug. If Quarterly/Yearly ALSO show zero despite
+   known closed deals existing, that points at something genuinely
+   wrong and changes the diagnosis — worth re-opening this rather than
+   assuming either direction without his answer.
+
+MIGRATION — no schema change:
+  frontend/api-lib/handlers/portfolioHandlers.js (audit logging added to all 6 mutation points)
+  frontend/api-lib/handlers/auditHandlers.js     (Portfolio/Product entity types + actions added)
+  frontend/src/pages/AppAdmin.jsx                (filter lists resynced, Cancel button added)
+  frontend/src/pages/FeatureFlags.jsx            (FlagRow resync bug fixed)
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I

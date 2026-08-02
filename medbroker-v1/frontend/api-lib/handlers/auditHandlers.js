@@ -23,7 +23,7 @@ const MAX_EXPORT_ROWS = 5000;
 // written anywhere in api-lib (see auditService.js's own comment);
 // action values are the full set of literal action strings currently
 // written anywhere in this codebase, same way.
-const VALID_ENTITY_TYPES = ['Appointment', 'Lead', 'Event', 'EventAttendee', 'FeatureFlag', 'Task', 'User'];
+const VALID_ENTITY_TYPES = ['Appointment', 'Lead', 'Event', 'EventAttendee', 'FeatureFlag', 'Task', 'User', 'Portfolio', 'Product'];
 const VALID_ACTIONS = [
   'AppointmentBrokerAssigned', 'AppointmentCreated', 'AppointmentOutcomeSaved',
   'AppointmentReassigned', 'AppointmentReturnedToLeads', 'AttendeeAdded',
@@ -32,6 +32,8 @@ const VALID_ACTIONS = [
   'PortalAccountActivated', 'PortalProfileUpdated', 'PortalRegistration',
   'PortalWalkInCheckedIn', 'ProfileUpdated', 'TaskCreated', 'TaskDeleted', 'UserCreated',
   'SarRequestCreated', 'SarStatusChanged', 'SarDataExported', 'UserUnlocked',
+  'PortfolioCreated', 'PortfolioStatusChanged', 'PortfolioDeleted',
+  'ProductCreated', 'ProductStatusChanged', 'ProductDeleted',
 ];
 
 /**
