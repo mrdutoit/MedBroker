@@ -23,6 +23,14 @@
  * *current* access, same principle as the original Azure A3 spec this
  * was ported from.
  *
+ * SESSION REVOCATION (added 2 Aug 2026, §97): also rejects a token
+ * issued (iat) before the user's sessionsRevokedAt timestamp, if one is
+ * set. A JWT is stateless by design — nothing here does a lookup
+ * against the token itself — so without this, there was no way to
+ * invalidate a specific token before its natural 8-hour expiry. Costs
+ * nothing extra: sessionsRevokedAt is fetched as part of the exact same
+ * getActiveUserById() call already happening for the isActive check.
+ *
  * requireRole/authErrorResponse keep the same exported shape as the
  * Azure original so route handlers never change regardless.
  */
@@ -52,6 +60,20 @@ export async function validateToken(req) {
   const user = await getActiveUserById(payload.oid);
   if (!user) {
     throw { status: 403, message: 'User is inactive, deleted, or not found in this organisation' };
+  }
+
+  // payload.iat is seconds since epoch (JWT convention), always floored to
+  // a whole second; sessionsRevokedAt comes back from Postgres with
+  // sub-second precision. A token freshly signed a few hundred ms after a
+  // revocation — exactly what happens straight after a password change,
+  // where revoke-then-reissue run microseconds apart — could otherwise be
+  // floored to just before the revocation instant and be wrongly rejected
+  // by its own replacement's first request. A small grace window fixes
+  // this without weakening the check: an actually-old, stolen token was
+  // issued minutes or hours earlier, never within 2 seconds of revocation.
+  const REVOCATION_GRACE_MS = 2000;
+  if (user.sessionsRevokedAt && payload.iat * 1000 < new Date(user.sessionsRevokedAt).getTime() - REVOCATION_GRACE_MS) {
+    throw { status: 401, message: 'Session has been revoked. Please log in again.' };
   }
 
   return { oid: payload.oid, roles: [user.role], name: user.displayName };

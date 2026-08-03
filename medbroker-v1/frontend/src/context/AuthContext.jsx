@@ -84,8 +84,18 @@ export function AuthProvider({ children }) {
     setUser(authStore.getUser());
   }, []);
 
+  // §97 — swaps in a fresh token without touching the cached user object.
+  // Needed after a password change: that now revokes every previously-
+  // issued token server-side (so an old, possibly-stolen one can't outlive
+  // the change), and returns a new one for the session that just made the
+  // request — otherwise the user's own change-password action would
+  // immediately log them out.
+  const refreshToken = useCallback((newToken) => {
+    authStore.setSession(newToken, authStore.getUser());
+  }, []);
+
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, updateUser, loading, error, setError }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, updateUser, refreshToken, loading, error, setError }}>
       {children}
     </AuthContext.Provider>
   );

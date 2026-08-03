@@ -6212,6 +6212,90 @@ MIGRATION — no schema or backend change:
   frontend/src/pages/AppAdmin.jsx (formatChangeDetail added, Detail column now renders it)
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+97. SESSION TOKEN REVOCATION — 3 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+First of the three remaining security items from the earlier list
+(rate limiting, session revocation, TLS verification tightening) —
+picked this one first since it's the most direct extension of §92's
+auth-bypass fix and has the clearest security value.
+
+THE GAP: JWTs here are deliberately stateless (no DB lookup needed to
+verify one) — but that also meant there was no way to invalidate a
+specific token before its natural 8-hour expiry. Not on a password
+change (a stolen old token stayed fully valid for however long was left
+on its 8 hours, even after the real password changed), and not via any
+admin action short of fully deactivating the account.
+
+DESIGN: a single sessionsRevokedAt timestamp on User, checked as part
+of the SAME per-request lookup validateToken() already does for the
+isActive/isLocked re-check — no new query, and deliberately not a
+token-blacklist table (which would grow unboundedly and need ongoing
+cleanup, working against the free-tier-friendly approach this project
+already leans on elsewhere). Any token issued (iat) before that
+timestamp gets rejected on its next use.
+
+A REAL RACE CONDITION FOUND AND FIXED DURING BUILD, not left for later:
+verified the revocation-comparison logic standalone before considering
+this done, the same way every other tricky date/time comparison this
+session has been checked rather than trusted on read-through alone.
+That check surfaced a genuine bug: JWT iat is always floored to whole
+seconds, but sessionsRevokedAt (Postgres TIMESTAMPTZ) carries sub-
+second precision. A token signed a few hundred milliseconds after a
+revocation — exactly what happens on a password change, where revoke-
+then-reissue run microseconds apart in the same request — could get
+floored to just before the revocation instant and be wrongly rejected
+by its own replacement's very first request, locking a user out
+immediately after their own password change: the opposite of the
+intent. Fixed with a small (2s) grace window on the comparison;
+verified standalone that this closes the race while a genuinely old,
+stolen token (issued minutes or hours earlier, never within 2 seconds
+of a revocation) is still correctly rejected.
+
+TWO TRIGGER POINTS BUILT:
+  1. Self-service password change (authHandlers.js) — now revokes every
+     previously-issued token, then immediately signs and returns a
+     fresh one for the session that just made the request, so changing
+     your own password doesn't log you out of your own change. Needed
+     getUserPasswordHash() extended to also return email/displayName/
+     role (confirmed it had exactly one caller before extending it) —
+     signJwt() needs all four to issue the replacement token.
+  2. Admin "Force Logout" in User Admin — a new action distinct from
+     Deactivate ("this person shouldn't have access at all") and Unlock
+     ("this account got locked out by failed attempts") — for "I think
+     this session may be compromised" or "they forgot to sign out on a
+     shared computer" without touching the account's standing at all.
+     Always visible in edit mode (unlike Unlock, which only shows when
+     actually locked), with a confirmation prompt given it immediately
+     affects an active session. Wired the exact same way as Unlock —
+     new handler, new route, new audit action, new AuthContext plumbing
+     only where password-change specifically needed it.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected; every new/edited backend file passes node --check and
+an ESM import smoke test; the revocation-timing logic and its grace-
+window fix were both verified standalone against representative cases,
+not just read through.
+
+MIGRATION:
+  frontend/db/migrations/018_add_session_revocation.sql (NEW — User.sessionsRevokedAt)
+  frontend/db/schema.postgres.sql               (same column added, fresh databases)
+  frontend/api-lib/services/userService.js       (revokeUserSessions, getActiveUserById extended, getUserPasswordHash extended)
+  frontend/api-lib/middleware/auth.js            (revocation check + grace-window fix)
+  frontend/api-lib/handlers/authHandlers.js      (password change revokes + reissues)
+  frontend/api-lib/handlers/userHandlers.js      (handleUserForceLogout added)
+  frontend/api-lib/handlers/auditHandlers.js     (UserSessionsRevoked added to filter list)
+  frontend/api/users-router.js                   (force-logout route added)
+  frontend/src/services/api.js                   (usersApi.forceLogout added)
+  frontend/src/context/AuthContext.jsx           (refreshToken added)
+  frontend/src/pages/ChangePassword.jsx          (uses refreshToken with the new token)
+  frontend/src/pages/UserAdmin.jsx               (Force Logout button, filter list synced)
+Plus this Status_Vercel.md.
+
+NEXT: rate limiting on authenticated endpoints, and TLS certificate
+verification tightening — both still outstanding from the same list.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I

@@ -5,7 +5,7 @@
  */
 
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
-import { listUsers, createUserFull, listSupervisors, getUserForAdmin, updateUserFull, getOwnProfile, updateOwnProfile, unlockUser } from '../services/userService.js';
+import { listUsers, createUserFull, listSupervisors, getUserForAdmin, updateUserFull, getOwnProfile, updateOwnProfile, unlockUser, revokeUserSessions } from '../services/userService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
 import { CreateUserSchema, UserListQuerySchema, UpdateUserSchema, UpdateOwnProfileSchema } from '../models/user.js';
 import { isUuid } from '../http/helpers.js';
@@ -215,6 +215,48 @@ export async function handleUserUnlock(req, res, id) {
       return res.status(status).json(body);
     }
     console.error('users/[id]/unlock error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * PUT /api/users/:id/force-logout — §97. Invalidates every currently-
+ * issued token for this user without deactivating or locking the
+ * account — for "I think this person's session may be compromised" or
+ * "they're on a shared computer and forgot to sign out", as distinct
+ * from "this person shouldn't have access at all" (that's Deactivate).
+ * Admin/GlobalAdmin, same role gate as everything else in User Admin.
+ */
+export async function handleUserForceLogout(req, res, id) {
+  if (req.method !== 'PUT') {
+    res.setHeader('Allow', 'PUT, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Admin', 'GlobalAdmin']);
+
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid user ID format' });
+
+    const existing = await getUserForAdmin(id);
+    if (!existing) return res.status(404).json({ error: 'User not found' });
+
+    await revokeUserSessions(id);
+
+    await writeAuditLog({
+      entityType: 'User', entityId: id, action: 'UserSessionsRevoked',
+      performedById: claims.oid, ipAddress: clientIp(req),
+    });
+
+    return res.status(200).json({ id, revoked: true });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('users/[id]/force-logout error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

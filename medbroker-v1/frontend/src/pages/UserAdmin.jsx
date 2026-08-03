@@ -139,7 +139,7 @@ function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onP
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
-function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnlock }) {
+function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnlock, onForceLogout }) {
   const { portfolios: allPortfolios, productsByPortfolio } = useRole();
   const isEdit = mode === 'edit';
   const [form, setForm] = useState(
@@ -234,6 +234,18 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
       await onUnlock();
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not unlock this account.');
+      setSaving(false);
+    }
+  }
+
+  async function handleForceLogout() {
+    if (!window.confirm(`Sign ${user.displayName} out everywhere? They'll need to log in again on every device.`)) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await onForceLogout();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not sign this user out.');
       setSaving(false);
     }
   }
@@ -387,6 +399,9 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
                   {saving ? 'Working…' : 'Unlock Account'}
                 </button>
               )}
+              <button style={s.secondaryBtn} onClick={handleForceLogout} disabled={saving}>
+                {saving ? 'Working…' : 'Force Logout'}
+              </button>
             </div>
           )}
           <div style={{ display: 'flex', gap: '8px' }}>
@@ -438,6 +453,12 @@ export default function UserAdmin() {
     if (!modal?.user) return;
     await usersApi.unlock(modal.user.id);
     await Promise.all([refetchUsers(), refetchSupervisors()]);
+    setModal(null);
+  }
+
+  async function handleModalForceLogout() {
+    if (!modal?.user) return;
+    await usersApi.forceLogout(modal.user.id);
     setModal(null);
   }
 
@@ -595,6 +616,7 @@ export default function UserAdmin() {
           onClose={() => setModal(null)}
           onSave={handleModalSave}
           onUnlock={handleModalUnlock}
+          onForceLogout={handleModalForceLogout}
         />
       )}
     </div>

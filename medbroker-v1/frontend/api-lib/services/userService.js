@@ -353,13 +353,31 @@ export async function updateUserFull(id, data) {
 export async function getActiveUserById(id) {
   return executeQueryOne(
     `SELECT id, displayName AS "displayName", email, role,
-            supervisorId AS "supervisorId", isActive AS "isActive"
+            supervisorId AS "supervisorId", isActive AS "isActive",
+            sessionsRevokedAt AS "sessionsRevokedAt"
      FROM "User"
      WHERE id = @id AND isActive = TRUE AND deletedAt IS NULL AND organisationId = @organisationId`,
     {
       id:             { type: sql.UniqueIdentifier, value: id },
       organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
     }
+  );
+}
+
+/**
+ * §97 — invalidates every currently-issued token for this user; their
+ * very next request with an old token gets rejected by validateToken()'s
+ * iat comparison, same per-request lookup as the isActive/isLocked
+ * check, no separate query. Two callers: authHandlers.js's own change-
+ * password flow (a stolen old token shouldn't outlive a password
+ * change by up to 8 hours) and userHandlers.js's Admin-only "Force
+ * logout" action.
+ * @param {string} userId
+ */
+export async function revokeUserSessions(userId) {
+  await executeQuery(
+    `UPDATE "User" SET sessionsRevokedAt = NOW() WHERE id = @id`,
+    { id: { type: sql.UniqueIdentifier, value: userId } }
   );
 }
 
@@ -620,7 +638,8 @@ export async function wasPasswordUsedThisYear(userId, plaintext) {
  */
 export async function getUserPasswordHash(userId) {
   return executeQueryOne(
-    `SELECT passwordHash AS "passwordHash" FROM "User" WHERE id = @userId AND organisationId = @organisationId`,
+    `SELECT passwordHash AS "passwordHash", email, displayName AS "displayName", role
+     FROM "User" WHERE id = @userId AND organisationId = @organisationId`,
     { userId: { type: sql.UniqueIdentifier, value: userId }, organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } }
   );
 }

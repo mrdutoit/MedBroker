@@ -155,6 +155,13 @@ CREATE TABLE IF NOT EXISTS "User" (
     passwordMustChange      BOOLEAN         NOT NULL DEFAULT FALSE,
     failedLoginAttempts     INT             NOT NULL DEFAULT 0,
     isLocked                BOOLEAN         NOT NULL DEFAULT FALSE,
+    -- §97 (1 Aug 2026, migration 018): any token issued (iat) before this
+    -- timestamp is rejected on its next use — see middleware/auth.js.
+    -- Set on a self-service password change (so a stolen old token stops
+    -- working immediately, not up to 8 hours later) and by an Admin's
+    -- "Force logout" action in User Admin. NULL = no revocation has ever
+    -- happened, every currently-valid token stays valid.
+    sessionsRevokedAt       TIMESTAMPTZ     NULL,
     -- v2.6 (28 July 2026, demo schema only — see migrations/012): self-service
     -- profile preferences Settings.jsx has always had UI for but could only
     -- persist to sessionStorage until now. Store the short id (e.g. 'grad',

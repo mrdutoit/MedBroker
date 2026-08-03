@@ -11,10 +11,11 @@
  *   PUT  /api/users/me      (self-service — any authenticated role)
  *   GET  /api/users/:id
  *   PUT  /api/users/:id
- *   PUT  /api/users/:id/unlock  (§81 — clears a lockout)
+ *   PUT  /api/users/:id/unlock        (§81 — clears a lockout)
+ *   PUT  /api/users/:id/force-logout  (§97 — revokes all sessions)
  */
 
-import { handleUsersCollection, handleUserById, handleUserMe, handleUserUnlock } from '../api-lib/handlers/userHandlers.js';
+import { handleUsersCollection, handleUserById, handleUserMe, handleUserUnlock, handleUserForceLogout } from '../api-lib/handlers/userHandlers.js';
 import { applyCors, parseSlug } from '../api-lib/http/helpers.js';
 
 export default async function handler(req, res) {
@@ -27,6 +28,7 @@ export default async function handler(req, res) {
   if (segments.length === 1 && segments[0] === 'me') return handleUserMe(req, res);
   if (segments.length === 1) return handleUserById(req, res, segments[0]);
   if (segments.length === 2 && segments[1] === 'unlock') return handleUserUnlock(req, res, segments[0]);
+  if (segments.length === 2 && segments[1] === 'force-logout') return handleUserForceLogout(req, res, segments[0]);
 
   return res.status(404).json({ error: 'Not found' });
 }

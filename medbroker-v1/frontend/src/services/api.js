@@ -335,6 +335,7 @@ export const usersApi = {
   create: (data) => request('/users', { method: 'POST', body: JSON.stringify(data) }),
   update: (id, data) => request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
   unlock: (id) => request(`/users/${id}/unlock`, { method: 'PUT' }),
+  forceLogout: (id) => request(`/users/${id}/force-logout`, { method: 'PUT' }),
   listSupervisors: () => request('/users?supervisors=true'),
 };
 

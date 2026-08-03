@@ -11,7 +11,7 @@
 
 import { timingSafeEqual } from 'crypto';
 import { validateToken, authErrorResponse } from '../middleware/auth.js';
-import { getUserByEmailForLogin, recordLoginSuccess, recordLoginFailure, countActiveGlobalAdmins, createLocalUser, getUserPasswordHash, setUserPassword, wasPasswordUsedThisYear } from '../services/userService.js';
+import { getUserByEmailForLogin, recordLoginSuccess, recordLoginFailure, countActiveGlobalAdmins, createLocalUser, getUserPasswordHash, setUserPassword, wasPasswordUsedThisYear, revokeUserSessions } from '../services/userService.js';
 import { verifyPassword, signJwt, hashPassword, checkPasswordComplexity } from '../services/authService.js';
 import { getSystemConfig } from '../services/systemConfigService.js';
 import { LoginSchema, BootstrapAdminSchema, ChangePasswordSchema } from '../models/auth.js';
@@ -190,7 +190,19 @@ export async function handleChangePassword(req, res) {
 
     await setUserPassword(claims.oid, newPassword);
 
-    return res.status(200).json({ message: 'Password changed successfully' });
+    // §97 — invalidate every token issued before this moment (closes the
+    // real gap: previously a password change didn't stop an old, possibly
+    // stolen token from staying valid for its remaining lifetime), then
+    // immediately issue a fresh one for the session that just made this
+    // request, so the user isn't unexpectedly logged out by their own
+    // password change.
+    await revokeUserSessions(claims.oid);
+    const newToken = signJwt(
+      { oid: claims.oid, roles: [existing.role], name: existing.displayName, email: existing.email },
+      config.localAuth.jwtSigningSecret
+    );
+
+    return res.status(200).json({ message: 'Password changed successfully', token: newToken });
 
   } catch (err) {
     if (err.status) {
