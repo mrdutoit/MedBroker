@@ -165,6 +165,11 @@ PERMANENT PATTERNS worth re-reading before touching adjacent code:
   - When something gets built, go back and correct every stale "not
     built yet" claim about it, not just the newest summary — a
     disclaimer alone didn't stop this exact confusion happening twice.
+  - Text input font-size must stay >= 16px (1rem). Below that, iOS
+    Safari auto-zooms the viewport on focus and doesn't zoom back out —
+    the root cause of the Lead Portal zoom bug, §101. Any new form
+    control that doesn't route through tokens.js's shared formInput
+    style needs this checked explicitly.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 21. DEMO BACKEND (Vercel + Neon) — added 21 July 2026
@@ -6532,6 +6537,54 @@ vaguely.
 MIGRATION — no code change, documentation only:
   Status_Vercel.md (this entry)
   Project_Context_Vercel.md (EDGE/TRANSPORT and open-items checklist updated to match)
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+101. LEAD PORTAL — SHOW/HIDE PASSWORD + MOBILE AUTO-ZOOM FIX — 3 Aug 2026 (session 15)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Two bugs Mark found testing on his phone.
+
+1. NO SHOW/HIDE PASSWORD TOGGLE ON THE LEAD PORTAL — confirmed real, and
+   wider than the one screen Mark flagged (Login). All four portal
+   password screens lacked it: PortalLogin.jsx (1 field), PortalRegister.jsx
+   (2), PortalActivate.jsx (2), PortalCheckinConfirm.jsx's walk-in signup
+   (2) — 7 fields total. The staff Login.jsx already had this pattern
+   built; extracted it into a new shared component,
+   frontend/src/components/PasswordInput.jsx, rather than duplicating the
+   toggle JSX seven times. Drop-in replacement for a plain
+   type="password" input — callers keep their own formGroup/label
+   wrapper. Applied across all four portal files. Login.jsx itself left
+   untouched (already correct, not part of the reported bug).
+
+2. PORTAL ZOOMS IN AND DOESN'T USE THE FULL SCREEN — root cause: tokens.js's
+   formInput.fontSize was 0.875rem (14px). iOS Safari auto-zooms the
+   viewport on focus for any text input under 16px and doesn't zoom back
+   out on blur — that's the stuck-zoomed-in behaviour. Fixed by bumping
+   to 1rem (16px). This token is shared by every input/select/textarea
+   in the app, so the fix is global, not portal-scoped — deliberate,
+   since the same bug would hit staff users on mobile too, and the
+   visual difference (2px) is negligible. Flagged to Mark before
+   building since the blast radius is every screen, not just the portal;
+   no objection raised.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected. No backend files touched, so no node --check/ESM
+smoke test needed this round. Re-hydrated from GitHub and diffed all
+five changed files against live state before packaging — no parallel
+changes found.
+
+MIGRATION: none — frontend-only, no schema change.
+
+FILES:
+  frontend/src/components/PasswordInput.jsx  (NEW)
+  frontend/src/styles/tokens.js              (formInput.fontSize 14px -> 16px)
+  frontend/src/pages/portal/PortalLogin.jsx
+  frontend/src/pages/portal/PortalRegister.jsx
+  frontend/src/pages/portal/PortalActivate.jsx
+  frontend/src/pages/portal/PortalCheckinConfirm.jsx
+Plus this Status_Vercel.md.
 
 
 

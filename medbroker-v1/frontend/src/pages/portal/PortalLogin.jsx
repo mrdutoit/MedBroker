@@ -4,6 +4,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router';
 import { PortalCard } from '../../components/PortalCard.jsx';
+import { PasswordInput } from '../../components/PasswordInput.jsx';
 import { useProspectAuth } from '../../context/ProspectAuthContext.jsx';
 import { s } from '../../styles/tokens.js';
 
@@ -43,11 +44,9 @@ export default function PortalLogin() {
         </div>
         <div style={s.formGroup}>
           <label style={s.formLabel} htmlFor="portal-password">Password</label>
-          <input
+          <PasswordInput
             id="portal-password"
-            type="password"
             autoComplete="current-password"
-            style={s.formInput}
             value={password}
             onChange={e => setPassword(e.target.value)}
             required

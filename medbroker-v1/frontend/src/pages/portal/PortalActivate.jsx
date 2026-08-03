@@ -9,6 +9,7 @@
 import { useState } from 'react';
 import { useNavigate, Link } from 'react-router';
 import { PortalCard } from '../../components/PortalCard.jsx';
+import { PasswordInput } from '../../components/PasswordInput.jsx';
 import { useProspectAuth } from '../../context/ProspectAuthContext.jsx';
 import { s } from '../../styles/tokens.js';
 
@@ -69,11 +70,9 @@ export default function PortalActivate() {
         </div>
         <div style={s.formGroup}>
           <label style={s.formLabel} htmlFor="activate-password">Choose a Password</label>
-          <input
+          <PasswordInput
             id="activate-password"
-            type="password"
             autoComplete="new-password"
-            style={s.formInput}
             value={password}
             onChange={e => setPassword(e.target.value)}
             required
@@ -82,11 +81,9 @@ export default function PortalActivate() {
         </div>
         <div style={s.formGroup}>
           <label style={s.formLabel} htmlFor="activate-confirm">Confirm Password</label>
-          <input
+          <PasswordInput
             id="activate-confirm"
-            type="password"
             autoComplete="new-password"
-            style={s.formInput}
             value={confirmPassword}
             onChange={e => setConfirmPassword(e.target.value)}
             required

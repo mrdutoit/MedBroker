@@ -226,8 +226,14 @@ export const s = {
     color: colors.ink700, marginBottom: '5px',
   },
   formInput: {
+    // fontSize is 1rem (16px), not smaller, deliberately: iOS Safari
+    // auto-zooms the viewport on focus for any text input under 16px and
+    // doesn't zoom back out on blur — this was the root cause of the
+    // Lead Portal "zooms in and won't use the full screen" bug Mark found
+    // testing on his phone (3 Aug 2026). Applies app-wide since every
+    // input/select/textarea shares this one token.
     width: '100%', border: `1px solid ${colors.inputBorder}`, borderRadius: radius.sm,
-    padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit',
+    padding: '8px 10px', fontSize: '1rem', fontFamily: 'inherit',
     background: colors.surface, color: colors.ink,
     boxSizing: 'border-box', outline: 'none', transition: 'border-color 0.15s, box-shadow 0.15s',
   },

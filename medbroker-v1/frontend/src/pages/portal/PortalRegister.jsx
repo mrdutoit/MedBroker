@@ -9,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
 import { format } from 'date-fns';
 import { PortalCard } from '../../components/PortalCard.jsx';
+import { PasswordInput } from '../../components/PasswordInput.jsx';
 import { useProspectAuth } from '../../context/ProspectAuthContext.jsx';
 import { portalApi } from '../../services/portalApi.js';
 import { TITLES, JOB_TITLES } from '../../constants/leadOptions.js';
@@ -119,11 +120,11 @@ export default function PortalRegister() {
         </div>
         <div style={s.formGroup}>
           <label style={s.formLabel}>Password *</label>
-          <input type="password" autoComplete="new-password" value={form.password} onChange={set('password')} style={s.formInput} required minLength={12} />
+          <PasswordInput autoComplete="new-password" value={form.password} onChange={set('password')} required minLength={12} />
         </div>
         <div style={s.formGroup}>
           <label style={s.formLabel}>Confirm Password *</label>
-          <input type="password" autoComplete="new-password" value={form.confirmPassword} onChange={set('confirmPassword')} style={s.formInput} required minLength={12} />
+          <PasswordInput autoComplete="new-password" value={form.confirmPassword} onChange={set('confirmPassword')} required minLength={12} />
         </div>
 
         <div style={{ ...s.formGroup, display: 'flex', alignItems: 'flex-start', gap: '8px' }}>
