@@ -2741,6 +2741,12 @@ phase item rather than bolting on an ineffective in-process limiter now —
 real IP/account rate limiting needs the Cloudflare layer to do properly
 in a serverless deployment anyway.
 
+[UPDATE 3 Aug 2026: resolved, see §100 — decision confirmed to defer to
+Vercel's own Pro-plan WAF rather than Cloudflare specifically (no Azure
+origin exists for Cloudflare to sit in front of), with these two
+endpoints named among the priority targets once that Custom Rule is
+actually configured against the customer's real Vercel account.]
+
 VERIFIED against the same local Postgres instance: 6 further checks — a
 Lead seeded with no portal account (simulating Add Attendee's output),
 wrong DOB rejected generically, a wholly nonexistent email rejected with
@@ -6439,6 +6445,93 @@ MIGRATION:
   frontend/src/services/api.js                   (notificationsApi.dismiss/clearRead added)
   frontend/src/pages/Notifications.jsx           (dismiss button, Clear read button)
 Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+100. RATE LIMITING — DECISION: DEFER TO VERCEL PRO WAF, NOT CUSTOM-BUILT — 3 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's decision: since the customer's actual deployment will be on
+Vercel Pro (not Hobby), rate limiting should come from Vercel's own WAF
+rather than a custom Postgres-backed limiter. Asked specifically to be
+explicit about this and confirm it doesn't leave the customer exposed —
+this entry is that explicit account, written after verifying Vercel's
+current documentation directly rather than relying on prior/possibly-
+stale knowledge, given how much this specific claim matters.
+
+VERIFIED (checked Vercel's own current docs, not assumed): WAF rate
+limiting IS a real Pro-plan-and-above capability — this part of the
+existing plan (see Project_Context_Vercel.md's EDGE/TRANSPORT section,
+written 30 Jul 2026) holds up. But there are two important qualifications
+that change what "leave it as is" actually needs to mean in practice:
+
+  1. IT IS NOT AUTOMATIC. Being on the Pro plan makes rate limiting
+     available to configure — it does not rate-limit anything on its
+     own. Vercel's own setup guide is explicit: you must go into the
+     Firewall tab in the Vercel dashboard (or use vercel.json / the
+     @vercel/firewall Rate Limiting SDK), create a Custom Rule, and
+     define which paths, thresholds, algorithm, and follow-up action
+     (log/deny/challenge/429) apply. Nothing here happens by upgrading
+     the plan alone. DDoS mitigation, IP blocking, and basic Custom
+     Rules ARE free and on by default on every plan including Hobby —
+     but rate limiting specifically sits behind this manual
+     configuration step regardless of tier.
+
+  2. IT IS A SEPARATELY METERED COST, not bundled into the flat Pro
+     subscription. Pricing is regional, starting around $0.50 per
+     million ALLOWED requests (requests a rule denies or challenges
+     don't count against this) — small in absolute terms for this
+     application's likely traffic, but worth the customer's admin
+     knowing it's pay-as-you-go on top of the base Pro price, not a
+     capped inclusion.
+
+WHAT THIS MEANS FOR "NOT EXPOSING THE CUSTOMER TO ANY RISK": until
+someone actually configures a Custom Rule in the Firewall tab, this
+application has ZERO rate-limiting protection on any endpoint,
+regardless of being on Pro. That configuration step is a genuine,
+standing action item — not something this delivery can complete on its
+own, since it's a Vercel dashboard action tied to whoever holds the
+customer's actual Vercel account, not a code change. Recorded here so it
+isn't silently assumed "handled" by the tier decision alone.
+
+CONCRETE ACTION ITEM for whoever configures the customer's Vercel
+account (Firewall tab -> Configure -> + New Rule, condition
+@vercel/firewall, per Vercel's own rate-limiting SDK guide):
+highest-priority targets, in order, are the PUBLIC, unauthenticated
+endpoints an attacker could hit with no credentials at all:
+  - POST /api/auth/login              (staff login — brute-force target)
+  - POST /api/portal/login            (customer/lead portal login)
+  - POST /api/portal/register         (portal account creation)
+  - POST /api/portal/activate         (already flagged §-earlier this
+    session as an identity-probing surface — email + DOB guessing,
+    narrow blast radius since it only exposes contact info and
+    appointment status, not medical/financial data, but still a real
+    target)
+  - POST /api/portal/walkin           (no auth at all — spam/junk-data
+    risk, not just brute-force)
+A reasonable starting point for each: a handful of requests per minute
+per IP (e.g. 5-10), action "deny" or "429", reviewed and tightened once
+real traffic patterns are visible. PUT /api/auth/change-password is
+lower priority than the five above — it requires an already-valid
+session token, so an attacker needs a compromised session to reach it
+at all, unlike the public endpoints.
+
+CODE-LEVEL DECISION THIS RESOLVES: no custom Postgres-backed rate
+limiter will be built in api-lib. This was the alternative under
+consideration (see the "what's next" discussion before this entry) —
+correctly not pursued, since it would have added a query to every
+rate-limited request while duplicating something the platform already
+does properly at the edge, before the request even reaches a Function.
+
+STATUS: WAF Custom Rule configuration itself is NOT done as part of this
+delivery — it's a dashboard action against the customer's actual Vercel
+account, which doesn't exist as "the customer's account" during this
+build/demo phase. Flagged here as the explicit, concrete next step for
+whenever the real Pro-tier deployment is stood up, not deferred
+vaguely.
+
+MIGRATION — no code change, documentation only:
+  Status_Vercel.md (this entry)
+  Project_Context_Vercel.md (EDGE/TRANSPORT and open-items checklist updated to match)
 
 
 

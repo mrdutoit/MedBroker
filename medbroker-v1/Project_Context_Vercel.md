@@ -520,6 +520,21 @@ EDGE / TRANSPORT
       - Rate limiting specifically is a Pro-plan-and-above feature, not
         included on Hobby — relevant to the still-open "rate limiting on
         authenticated endpoints" control below.
+      - CONFIRMED 3 Aug 2026 (§100, checked against Vercel's current
+        docs directly): rate limiting is NOT automatic on Pro. Being on
+        the plan only makes it available to configure — someone must
+        create a Custom Rule in the Firewall tab (or vercel.json / the
+        @vercel/firewall SDK) specifying target paths, threshold,
+        algorithm, and action. It's also a separately metered cost
+        (~$0.50/million allowed requests), not bundled into the flat
+        Pro subscription. Mark's decision: defer to this rather than
+        build a custom Postgres-backed limiter, given the customer's
+        real deployment will be on Pro — but the Custom Rule itself
+        still needs to be configured against the customer's actual
+        Vercel account before it does anything. See §100 for the
+        specific endpoints to prioritise (the public,
+        unauthenticated ones — staff/portal login, portal
+        register/activate/walkin) and suggested starting thresholds.
       - Do NOT add Cloudflare in front of Vercel as well — per Vercel's
         own published guidance, running Cloudflare in proxy mode ahead of
         Vercel degrades client signals and creates two overlapping WAF
@@ -528,7 +543,10 @@ EDGE / TRANSPORT
         Azure comparison assumed). One edge security layer, not two.
       - Configure via the Firewall tab in the Vercel dashboard, or
         vercel.json for rule-as-code. Not yet configured beyond the
-        platform defaults — worth an explicit pass before go-live.
+        platform defaults — this is the standing action item, not
+        something this delivery can complete on its own (it's a
+        dashboard action against a real Vercel account, not a code
+        change) — do this before go-live.
   ⬜ Browser security headers (CSP, X-Content-Type-Options, Referrer-
      Policy, Permissions-Policy, HSTS) — vercel.json currently only sets
      Cache-Control on /assets, nothing else. Configure via vercel.json's
@@ -557,15 +575,26 @@ APPLICATION
      prevention all admin-configurable and enforced; manually created
      users always forced to change their password on first login. See
      PasswordHistory above and Status_Vercel.md §72 for the full build.
-  ⬜ Token lifecycle — JWT is a fixed 8-hour expiry (signJwt() default),
-     no refresh-token flow and no explicit revocation/logout-side-effect
-     beyond the client discarding its copy. A stolen token is valid for
-     up to 8 hours with no way to invalidate it early. (Separate concern
-     from password policy above — this is about the SESSION token, not
-     the password itself.)
-  ⬜ Rate limiting on authenticated endpoints — not implemented in
-     api-lib anywhere. Vercel's WAF rate limiting (Pro plan+) is the
-     natural mechanism once prioritised — see EDGE/TRANSPORT above.
+  ✅ Token lifecycle — RESOLVED 3 Aug 2026 (§97). A single
+     sessionsRevokedAt timestamp on User, checked as part of the same
+     per-request lookup validateToken() already does for the isActive/
+     isLocked check — no new query. A self-service password change now
+     revokes every previously-issued token and immediately reissues a
+     fresh one for the session that just made the request; an Admin can
+     also force-logout a specific user without deactivating their
+     account. A stolen token can no longer outlive a password change by
+     up to 8 hours.
+  ⬜ Rate limiting on authenticated endpoints — DECISION 3 Aug 2026
+     (§100): defer to Vercel's Pro-plan WAF rate limiting rather than
+     build a custom Postgres-backed limiter, since the customer's real
+     deployment will be on Pro. Confirmed directly against Vercel's
+     current docs that this is NOT automatic — it requires a Custom
+     Rule actually configured in the Firewall tab against the
+     customer's real Vercel account (dashboard action, not a code
+     change), and it's a separately metered cost on top of the base
+     subscription. Still an open, standing action item until that
+     configuration is actually done — see §100 for the specific
+     endpoints to prioritise and suggested starting thresholds.
   ⬜ Bulk-export / report exfiltration limits — not implemented.
 
 CLOUD POSTURE
