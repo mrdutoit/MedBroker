@@ -181,11 +181,33 @@ function NewTaskModal({ onClose, onSave, assignees }) {
 }
 
 // ─── Task row ───────────────────────────────────────────────────────────────────
-function TaskRow({ task, onToggle, onDelete, isAdmin, canDelete, isMobile, today }) {
+function TaskRow({ task, onToggle, onDelete, onReassign, isAdmin, canDelete, assignees, isMobile, today }) {
   const [expanded, setExpanded] = useState(false);
   const due  = dueMeta(task.dueDate, task.done, today);
   const cat  = CATEGORY_META[task.category] ?? CATEGORY_META.manual;
   const pri  = PRIORITY_META[task.priority] ?? PRIORITY_META.Low;
+
+  // Reassign (§104) — inline edit on the existing "Assigned to" field
+  // rather than a modal, matching the economy of the Delete control
+  // just below it. Any task can be reassigned (system-generated or
+  // manual) — unlike Delete, the backend puts no source restriction on
+  // this (taskHandlers.js's EDIT_FIELDS gate is role-only), so this
+  // isn't scoped down to task.source === 'manual' the way Delete is.
+  const [reassigning, setReassigning] = useState(false);
+  const [pendingAssignee, setPendingAssignee] = useState(task.assignedToId);
+  const [reassignSaving, setReassignSaving] = useState(false);
+
+  async function handleSaveReassign() {
+    if (!pendingAssignee || pendingAssignee === task.assignedToId) { setReassigning(false); return; }
+    setReassignSaving(true);
+    try {
+      await onReassign(task.id, pendingAssignee);
+      setReassigning(false);
+    } catch (err) {
+      console.error('Could not reassign task:', err);
+    }
+    setReassignSaving(false);
+  }
 
   // Comment thread (§71) — lazy-loaded only once a task is actually
   // expanded, not fetched for every row in the list up front.
@@ -324,7 +346,43 @@ function TaskRow({ task, onToggle, onDelete, isAdmin, canDelete, isMobile, today
             </div>
             <div>
               <span style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Assigned to</span>
-              <div style={{ fontSize: '0.8125rem', color:'var(--ink)', marginTop: '2px', fontWeight: 500 }}>{task.assignedTo}</div>
+              {reassigning ? (
+                <div onClick={e => e.stopPropagation()} style={{ display: 'flex', gap: '6px', alignItems: 'center', marginTop: '2px' }}>
+                  <select
+                    value={pendingAssignee}
+                    onChange={e => setPendingAssignee(e.target.value)}
+                    style={{ ...s.formInput, padding: '4px 8px', fontSize: '0.8125rem', width: 'auto' }}
+                    autoFocus
+                  >
+                    {assignees.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
+                  </select>
+                  <button
+                    onClick={handleSaveReassign}
+                    disabled={reassignSaving}
+                    style={{ ...s.linkBtn, padding: '3px 6px', opacity: reassignSaving ? 0.5 : 1 }}
+                  >
+                    {reassignSaving ? '…' : 'Save'}
+                  </button>
+                  <button
+                    onClick={() => { setPendingAssignee(task.assignedToId); setReassigning(false); }}
+                    style={{ ...s.linkBtn, padding: '3px 6px', color: 'var(--mut)' }}
+                  >
+                    Cancel
+                  </button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+                  <span style={{ fontSize: '0.8125rem', color:'var(--ink)', fontWeight: 500 }}>{task.assignedTo}</span>
+                  {isAdmin && (
+                    <button
+                      onClick={e => { e.stopPropagation(); setReassigning(true); }}
+                      style={{ ...s.linkBtn, padding: '2px 5px', fontSize: '0.75rem' }}
+                    >
+                      Reassign
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
             <div>
               <span style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Source</span>
@@ -476,6 +534,17 @@ export default function Tasks() {
     } catch (err) {
       console.error('Could not delete task:', err);
     }
+  }
+
+  // §104 — Mark found the backend already supported this (EDIT_FIELDS
+  // includes assignedToId, gated to Admin/Supervisor) but no control
+  // ever called it — tasksApi.update() was only ever invoked for the
+  // isComplete toggle. Re-throws on failure so TaskRow's own handler can
+  // decide what to do (keep the inline editor open) rather than this
+  // function silently deciding that for every caller.
+  async function reassignTask(id, assignedToId) {
+    await tasksApi.update(id, { assignedToId });
+    refetchTasks();
   }
 
   async function addTask(form) {
@@ -634,8 +703,10 @@ export default function Tasks() {
               task={task}
               onToggle={toggleDone}
               onDelete={deleteTaskHandler}
+              onReassign={reassignTask}
               isAdmin={isAdmin}
               canDelete={canDelete}
+              assignees={assignees}
               isMobile={isMobile}
               today={today}
             />

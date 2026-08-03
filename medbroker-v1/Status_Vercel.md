@@ -6683,6 +6683,54 @@ Plus this Status_Vercel.md.
 
 
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+104. TASK REASSIGNMENT UI — CLOSING A DEAD BACKEND CAPABILITY — 3 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Follow-on from §103 — Mark tried to verify the changeDetail half of that
+fix by reassigning a task, and found there was no way to. Real finding,
+not a misunderstanding on his part: checked directly, tasksApi.update()
+was called in exactly one place in the entire frontend (the isComplete
+checkbox toggle) despite taskHandlers.js's PATCH handler already
+supporting assignedToId (EDIT_FIELDS, gated Admin/Supervisor/GlobalAdmin,
+§98's era) and Tasks.jsx's own header comment claiming "can
+create/reassign/delete." The backend was built expecting this control to
+exist; it never got built. My mistake too — told Mark to test by
+reassigning without checking the UI actually supported it first.
+
+BUILT: inline reassignment on TaskRow's existing "Assigned to" field in
+the expanded detail panel — no new modal. A "Reassign" link (Admin/
+Supervisor/GlobalAdmin only) swaps the static name for a <select> +
+Save/Cancel, sourced from the same `assignees` list already fetched for
+NewTaskModal and the Assignee filter (no extra request). Save calls
+tasksApi.update(id, { assignedToId }) — the same endpoint §103 already
+taught to resolve and store assignedToName in changeDetail, so every
+reassignment done through this control produces a correctly-attributed
+TaskUpdated audit entry with no id shown, automatically.
+
+Deliberately NOT scoped to manual tasks only, unlike Delete just below
+it in the same panel — checked taskHandlers.js's EDIT_FIELDS gate
+specifically and confirmed it's role-only, no source-type restriction,
+so a system-generated task (callback reminder, appointment task, etc.)
+can be reassigned exactly the same way as a manually created one. Would
+have been an easy, wrong assumption to copy Delete's manual-only
+restriction onto this without checking.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected (frontend-only change, no backend logic touched — §103
+already covers backend verification for the update path this now
+actually exercises). Re-hydrated fresh from GitHub and diffed
+Tasks.jsx against live state before packaging — clean, no parallel
+changes.
+
+MIGRATION: none — frontend-only, no schema or backend change.
+
+FILES:
+  frontend/src/pages/Tasks.jsx
+Plus this Status_Vercel.md.
+
+
+
 If picking up a pending item, reference it by section number (e.g. "I
 want to work on §61's remaining Notification types") — same convention
 as before the split.
