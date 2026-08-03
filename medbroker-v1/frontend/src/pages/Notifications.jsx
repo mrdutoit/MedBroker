@@ -3,12 +3,15 @@
  * In-app notification inbox.
  *
  * BACKEND WIRING (added 28 Jul 2026, §61; scheduled types added via
- * Vercel Cron, §68): all six types this file's own TYPE_ICON table
- * lists are wired to a real backend now — LeadAssigned/
- * AppointmentAssigned are synchronous, action-driven triggers;
- * AppointmentReminder/CallbackReminder/LeadAutoReturned run off the
- * daily Cron scan. RescheduleReminder is listed in TYPE_ICON but
- * unused — confirmed dead code, not a missed requirement (see §68).
+ * Vercel Cron, §68; TaskAssigned/TaskDueReminder added §98 — Tasks had
+ * never been wired into notifications at all before then, confirmed
+ * while investigating something Mark noticed testing, not something
+ * that predated this feature): every type this file's own TYPE_ICON
+ * table lists is wired to a real backend now, except RescheduleReminder,
+ * confirmed dead code rather than a missed requirement (see §68).
+ * LeadAssigned/AppointmentAssigned/TaskAssigned are synchronous,
+ * action-driven triggers; AppointmentReminder/CallbackReminder/
+ * LeadAutoReturned/TaskDueReminder run off the daily Cron scan.
  *
  * Also fixed in passing: the unread-row background was a hardcoded
  * rgba(239,246,255,0.3) — a light-mode-only blue tint that never adapted
@@ -30,6 +33,8 @@ const TYPE_ICON = {
   AppointmentAssigned:  '🤝',
   LeadAutoReturned:     '🔄',
   RescheduleReminder:   '📋',
+  TaskAssigned:         '✅',
+  TaskDueReminder:      '⏳',
 };
 
 export default function Notifications() {

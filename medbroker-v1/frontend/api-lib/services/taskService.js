@@ -13,6 +13,7 @@
 
 import { executeQuery, executeQueryOne, sql } from './db.js';
 import { resolveOrganisationId } from '../context/tenant.js';
+import { createNotification } from './notificationService.js';
 
 const TASK_SELECT = `
   t.id, t.type, t.title, t.detail, t.priority,
@@ -125,6 +126,28 @@ export async function createTask(data) {
       dueAt:          { type: sql.DateTimeOffset,   value: data.dueAt ?? null },
     }
   );
+
+  // NOTIFICATION (§98) — one hook here covers every caller of this
+  // function (manual creation via taskHandlers.js, and every system-
+  // generated task from appointmentService.js/leadService.js) rather
+  // than repeating this call at each of the six call sites. No
+  // performer name in the body, matching AppointmentAssigned's own
+  // reasoning (see appointmentService.js) — createTask() only ever
+  // receives a raw createdById, not a resolved display name, and for
+  // system-generated tasks there often isn't a meaningful "performer"
+  // to name anyway. No self-notification guard, matching every other
+  // notification trigger in this codebase (LeadAssigned/
+  // AppointmentAssigned also fire even when the assigner assigns to
+  // themselves) — consistency over cleverness here.
+  await createNotification({
+    recipientId: data.assignedToId,
+    type:        'TaskAssigned',
+    title:       `New task assigned — ${data.title}`,
+    body:        `You have been assigned this task.${data.dueAt ? ` Due ${String(data.dueAt).slice(0, 10)}.` : ''}`,
+    entityType:  'Task',
+    entityId:    newId,
+  });
+
   return newId;
 }
 

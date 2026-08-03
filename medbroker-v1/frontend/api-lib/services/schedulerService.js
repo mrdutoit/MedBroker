@@ -1,13 +1,16 @@
 /**
- * services/schedulerService.js — NEW (§68).
- * The three time-based checks Notifications.jsx's own header comment
- * (§61) named as needing "a scheduled job that doesn't exist in this
- * stack" — Vercel Cron does exist and is genuinely usable on Hobby (up
- * to 100 jobs, once-per-day cadence — confirmed via Vercel's own docs,
- * not assumed), which suits all three checks here anyway; none of them
- * need finer-grained timing. Called once daily from
- * handleScheduledTick() (notificationHandlers.js), itself triggered by
- * vercel.json's crons entry hitting /api/notifications/scheduled-tick.
+ * services/schedulerService.js — NEW (§68); sendTaskDueReminders added
+ * §98 alongside TaskAssigned (see taskService.js's createTask()) —
+ * Tasks had never been wired into notifications at all until then.
+ * The three original time-based checks were what Notifications.jsx's
+ * own header comment (§61) named as needing "a scheduled job that
+ * doesn't exist in this stack" — Vercel Cron does exist and is
+ * genuinely usable on Hobby (up to 100 jobs, once-per-day cadence —
+ * confirmed via Vercel's own docs, not assumed), which suits every
+ * check here; none of them need finer-grained timing. Called once
+ * daily from handleScheduledTick() (notificationHandlers.js), itself
+ * triggered by vercel.json's crons entry hitting
+ * /api/notifications/scheduled-tick.
  *
  * Each function is independently idempotent-by-construction — re-running
  * the same day should not create duplicate notifications, because each
@@ -97,6 +100,39 @@ export async function sendCallbackReminders() {
       body:        `${leadName} asked to be called back today.`,
       entityType:  'Lead',
       entityId:    row.leadId,
+    });
+  }
+  return rows.length;
+}
+
+/**
+ * "TaskDueReminder" — every incomplete Task due today gets its assignee
+ * a same-day reminder, matching AppointmentReminder's exact shape.
+ * Naturally idempotent like the other two checks here — a task only
+ * matches dueAt = today on the one day that's actually true, and a
+ * completed task drops out of the WHERE clause entirely, so there's
+ * nothing to separately track.
+ * @returns {Promise<number>} how many reminders were sent
+ */
+export async function sendTaskDueReminders() {
+  const organisationId = resolveOrganisationId();
+  const rows = await executeQuery(
+    `SELECT id, assignedToId AS "assignedToId", title
+     FROM Task
+     WHERE organisationId = @organisationId
+       AND isComplete = FALSE
+       AND dueAt::date = CURRENT_DATE`,
+    { organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+
+  for (const task of rows) {
+    await createNotification({
+      recipientId: task.assignedToId,
+      type:        'TaskDueReminder',
+      title:       `Task due today — ${task.title}`,
+      body:        `"${task.title}" is due today.`,
+      entityType:  'Task',
+      entityId:    task.id,
     });
   }
   return rows.length;

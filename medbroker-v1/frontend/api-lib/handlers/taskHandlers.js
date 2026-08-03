@@ -13,6 +13,7 @@
 
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
 import { listTasks, getTaskById, createTask, updateTask, deleteTask, listComments, createComment } from '../services/taskService.js';
+import { createNotification } from '../services/notificationService.js';
 import { getDirectReportIds, isAgentOnly, isSupervisorOnly } from '../services/userService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
 import { CreateTaskSchema, UpdateTaskSchema, TaskListQuerySchema, CATEGORY_TO_TYPE, TYPE_TO_CATEGORY, CreateCommentSchema } from '../models/task.js';
@@ -268,6 +269,22 @@ export async function handleTaskById(req, res, id) {
 
       const { dueDate, ...rest } = parsed.data;
       await updateTask(id, dueDate !== undefined ? { ...rest, dueAt: dueDate } : rest);
+
+      // §98 — a genuine reassignment (assignedToId present in this PATCH
+      // AND actually different from who had it before) gets the new
+      // assignee the same TaskAssigned notification createTask() sends
+      // on first creation. Deliberately NOT firing for every edit —
+      // changing the title or priority isn't a new assignment.
+      if (parsed.data.assignedToId && parsed.data.assignedToId !== existing.assignedToId) {
+        await createNotification({
+          recipientId: parsed.data.assignedToId,
+          type:        'TaskAssigned',
+          title:       `Task reassigned to you — ${existing.title}`,
+          body:        `You have been assigned this task.${existing.dueAt ? ` Due ${String(existing.dueAt).slice(0, 10)}.` : ''}`,
+          entityType:  'Task',
+          entityId:    id,
+        });
+      }
 
       await writeAuditLog({
         entityType: 'Task',

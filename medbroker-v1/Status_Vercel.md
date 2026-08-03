@@ -6296,6 +6296,81 @@ Plus this Status_Vercel.md.
 NEXT: rate limiting on authenticated endpoints, and TLS certificate
 verification tightening — both still outstanding from the same list.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+98. FIXED — TASKS NEVER TRIGGERED ANY NOTIFICATION AT ALL — 3 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark noticed Werner had an overdue and a due-today task with zero
+matching notifications, and asked whether this was just old data
+predating the notification feature. Checked before answering: it
+wasn't old data — creating or assigning a task has never triggered a
+notification, for any task, manual or system-generated, since Tasks
+was built. Confirmed by checking every recognised notification type
+(Notifications.jsx's own TYPE_ICON table) and finding none of the six
+related to tasks at all, then confirming zero calls to
+createNotification anywhere in taskHandlers.js/taskService.js.
+
+DESIGN: createTask() is called from six different places across the
+codebase (manual creation via taskHandlers.js, plus five system-
+generated call sites in appointmentService.js and leadService.js) —
+confirmed this before deciding where to hook the notification in, so
+it went into createTask() itself rather than being repeated at each
+call site, covering every task creation path from one place rather
+than needing five more additions done separately (and five more
+chances to miss one).
+
+TWO NEW NOTIFICATION TYPES, matching the two existing trigger
+mechanisms already established in this codebase:
+  - TaskAssigned — synchronous, fires from createTask() on every new
+    task, and again from taskHandlers.js's PATCH path specifically when
+    assignedToId actually changes to someone new (not on every edit —
+    changing a title or priority isn't a reassignment). No performer
+    name in the body, matching AppointmentAssigned's own precedent
+    (createTask() only ever receives a raw createdById, not a resolved
+    display name, and system-generated tasks often don't have a
+    meaningful human "performer" to name anyway). No self-notification
+    guard either, matching every other trigger in this codebase
+    (LeadAssigned/AppointmentAssigned also fire when someone assigns to
+    themselves) — consistency over cleverness.
+  - TaskDueReminder — added to schedulerService.js's daily Cron scan
+    alongside the three existing checks, exact same shape as
+    AppointmentReminder/CallbackReminder: every incomplete task due
+    today gets its assignee a same-day reminder, naturally idempotent
+    (a task only matches "due today" on the one day that's true, and a
+    completed task drops out of the WHERE clause on its own).
+
+CAUGHT AND FIXED MID-EDIT, not shipped broken: a str_replace meant to
+insert the new sendTaskDueReminders() function only matched the first
+line of the following function's doc comment, orphaning the rest of
+that comment as uncommented, unopened text sitting right after the new
+function's closing brace. Caught by checking every function/comment
+boundary in the file after the edit, not just running a syntax check
+and moving on — node --check would likely have still passed against
+the broken intermediate state depending on exactly where the orphaned
+lines landed, so the boundary check specifically is what caught it.
+Fully repaired and re-verified before continuing.
+
+Neither new type needed a schema change (Notification.type is a plain
+VARCHAR with no CHECK constraint) or any change to email delivery
+(confirmed emailService.js/notificationService.js's send path is fully
+generic, no type-specific branching anywhere) — both new types work
+end-to-end, including email, the moment they're created.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected; every new/edited backend file passes node --check and
+an ESM import smoke test; confirmed the Notifications page's own tab
+filters (Assignments/Reminders) correctly bucket both new types purely
+from their names (.includes('Assigned')/.includes('Reminder')) with no
+filter-logic changes needed.
+
+MIGRATION — no schema change:
+  frontend/api-lib/services/taskService.js        (createTask now fires TaskAssigned)
+  frontend/api-lib/handlers/taskHandlers.js        (PATCH fires TaskAssigned on genuine reassignment)
+  frontend/api-lib/services/schedulerService.js    (sendTaskDueReminders added to the daily scan)
+  frontend/api-lib/handlers/notificationHandlers.js (sendTaskDueReminders wired into the scheduled tick)
+  frontend/src/pages/Notifications.jsx             (TYPE_ICON entries added)
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I
