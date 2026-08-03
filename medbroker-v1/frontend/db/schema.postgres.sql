@@ -656,6 +656,10 @@ CREATE TABLE IF NOT EXISTS Notification (
     entityType      VARCHAR(50)     NULL,
     entityId        VARCHAR(100)    NULL,
     isRead          BOOLEAN         NOT NULL DEFAULT FALSE,
+    -- §99 (3 Aug 2026, migration 019): when isRead actually became true —
+    -- isRead alone can't tell a retention policy when to act, only that
+    -- it currently applies. NULL until first marked read.
+    readAt          TIMESTAMPTZ     NULL,
     emailSent       BOOLEAN         NOT NULL DEFAULT FALSE,
     emailSentAt     TIMESTAMPTZ     NULL,
     createdAt       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),

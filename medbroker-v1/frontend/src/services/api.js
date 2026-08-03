@@ -361,6 +361,8 @@ export const notificationsApi = {
   list:         ()          => request('/notifications'),
   markRead:     (id, isRead = true) => request(`/notifications/${id}`, { method: 'PATCH', body: JSON.stringify({ isRead }) }),
   markAllRead:  ()          => request('/notifications/mark-all-read', { method: 'PATCH' }),
+  dismiss:      (id)        => request(`/notifications/${id}`, { method: 'DELETE' }),
+  clearRead:    ()          => request('/notifications/clear-read', { method: 'DELETE' }),
 };
 
 // ─── Feature flags ────────────────────────────────────────────────────────────

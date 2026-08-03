@@ -134,7 +134,7 @@ export async function getNotificationById(id, recipientId) {
  */
 export async function markNotificationRead(id, recipientId, isRead) {
   await executeQuery(
-    `UPDATE Notification SET isRead = @isRead
+    `UPDATE Notification SET isRead = @isRead, readAt = CASE WHEN @isRead THEN NOW() ELSE NULL END
      WHERE id = @id AND recipientId = @recipientId AND organisationId = @organisationId`,
     {
       id:             { type: sql.UniqueIdentifier, value: id },
@@ -148,11 +148,66 @@ export async function markNotificationRead(id, recipientId, isRead) {
 /** @param {string} recipientId */
 export async function markAllNotificationsRead(recipientId) {
   await executeQuery(
-    `UPDATE Notification SET isRead = TRUE
+    `UPDATE Notification SET isRead = TRUE, readAt = NOW()
      WHERE recipientId = @recipientId AND isRead = FALSE AND organisationId = @organisationId`,
     {
       recipientId:    { type: sql.UniqueIdentifier, value: recipientId },
       organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
     }
   );
+}
+
+/**
+ * §99 — a single notification, dismissed by its own recipient. Same
+ * ownership check as markNotificationRead — a recipientId mismatch
+ * means "not found", not "forbidden", so this can't be used to probe
+ * whether a given id exists for someone else.
+ * @param {string} id
+ * @param {string} recipientId
+ */
+export async function deleteNotification(id, recipientId) {
+  await executeQuery(
+    `DELETE FROM Notification WHERE id = @id AND recipientId = @recipientId AND organisationId = @organisationId`,
+    {
+      id:             { type: sql.UniqueIdentifier, value: id },
+      recipientId:    { type: sql.UniqueIdentifier, value: recipientId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+}
+
+/**
+ * §99 — "Clear read" bulk action. Deliberately scoped to already-read
+ * notifications only — an unread one still needs to be seen, clearing
+ * it would be indistinguishable from losing it.
+ * @param {string} recipientId
+ */
+export async function deleteAllReadNotifications(recipientId) {
+  await executeQuery(
+    `DELETE FROM Notification WHERE recipientId = @recipientId AND isRead = TRUE AND organisationId = @organisationId`,
+    {
+      recipientId:    { type: sql.UniqueIdentifier, value: recipientId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+}
+
+/**
+ * §99 — the automatic side of retention, run from the same daily Cron
+ * tick as the reminder checks: any notification read more than 30 days
+ * ago gets cleaned up on its own, without anyone needing to remember to
+ * clear it. Unread notifications are never touched by this, regardless
+ * of age — an old unread notification is still something nobody has
+ * seen yet, not clutter. 30 days is a reasonable default, not
+ * configurable yet; worth revisiting if that turns out to matter.
+ * @returns {Promise<number>} how many were cleaned up
+ */
+export async function cleanupOldReadNotifications() {
+  const result = await executeQuery(
+    `DELETE FROM Notification
+     WHERE isRead = TRUE AND readAt IS NOT NULL AND readAt < NOW() - INTERVAL '30 days'
+     RETURNING id`,
+    {}
+  );
+  return result.length;
 }

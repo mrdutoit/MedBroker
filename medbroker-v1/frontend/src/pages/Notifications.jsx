@@ -13,6 +13,15 @@
  * action-driven triggers; AppointmentReminder/CallbackReminder/
  * LeadAutoReturned/TaskDueReminder run off the daily Cron scan.
  *
+ * RETENTION (added 3 Aug 2026, §99): Mark asked directly whether this
+ * list would just grow forever — it would have, there was no dismiss
+ * action and no automatic cleanup at all. Both now exist: a per-
+ * notification × dismiss, a "Clear read" bulk action for read ones only
+ * (an unread notification still needs to be seen — clearing it would be
+ * indistinguishable from losing it), and an automatic sweep in the same
+ * daily Cron tick that already handles the reminder checks, removing
+ * anything read more than 30 days ago on its own.
+ *
  * Also fixed in passing: the unread-row background was a hardcoded
  * rgba(239,246,255,0.3) — a light-mode-only blue tint that never adapted
  * to Terra/Midnight/Ember, a violation of the INLINE COLOUR ANTI-PATTERN
@@ -79,6 +88,25 @@ export default function Notifications() {
     }
   }
 
+  async function handleDismiss(id, e) {
+    e.stopPropagation(); // sits inside the clickable row — don't also trigger markRead
+    try {
+      await notificationsApi.dismiss(id);
+      refetch();
+    } catch (err) {
+      console.error('Could not dismiss notification:', err);
+    }
+  }
+
+  async function handleClearRead() {
+    try {
+      await notificationsApi.clearRead();
+      refetch();
+    } catch (err) {
+      console.error('Could not clear read notifications:', err);
+    }
+  }
+
   return (
     <div style={{ ...s.page, maxWidth: '760px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
@@ -90,9 +118,14 @@ export default function Notifications() {
             </p>
           )}
         </div>
-        {unreadCount > 0 && (
-          <button style={s.ghostBtn} onClick={markAllRead}>Mark all read</button>
-        )}
+        <div style={{ display: 'flex', gap: '8px' }}>
+          {unreadCount > 0 && (
+            <button style={s.ghostBtn} onClick={markAllRead}>Mark all read</button>
+          )}
+          {items.some(n => n.read) && (
+            <button style={s.ghostBtn} onClick={handleClearRead}>Clear read</button>
+          )}
+        </div>
       </div>
 
       <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '18px' }}>
@@ -143,6 +176,16 @@ export default function Notifications() {
               <p style={{ fontSize: '0.8125rem', color:'var(--mut)', margin: 0, lineHeight: 1.5 }}>{n.body}</p>
             </div>
             <div style={{ width: '8px', height: '8px', borderRadius: '50%', background: n.read ? 'transparent' : 'var(--accent)', flexShrink: 0, marginTop: '6px' }} />
+            <button
+              onClick={(e) => handleDismiss(n.id, e)}
+              title="Dismiss"
+              style={{
+                background: 'none', border: 'none', cursor: 'pointer', color:'var(--mut)',
+                fontSize: '1rem', lineHeight: 1, padding: '2px 4px', flexShrink: 0, marginTop: '2px',
+              }}
+            >
+              ×
+            </button>
           </div>
         ))}
       </div>

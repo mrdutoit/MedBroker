@@ -10,7 +10,7 @@
  */
 
 import { validateToken, authErrorResponse } from '../middleware/auth.js';
-import { listNotificationsForUser, getNotificationById, markNotificationRead, markAllNotificationsRead } from '../services/notificationService.js';
+import { listNotificationsForUser, getNotificationById, markNotificationRead, markAllNotificationsRead, deleteNotification, deleteAllReadNotifications, cleanupOldReadNotifications } from '../services/notificationService.js';
 import { sendAppointmentReminders, sendCallbackReminders, autoReturnStaleLeads, sendTaskDueReminders } from '../services/schedulerService.js';
 import { UpdateNotificationSchema } from '../models/notification.js';
 import { isUuid } from '../http/helpers.js';
@@ -39,14 +39,15 @@ export async function handleScheduledTick(req, res) {
   }
 
   try {
-    const [appointmentReminders, callbackReminders, leadsAutoReturned, taskDueReminders] = await Promise.all([
+    const [appointmentReminders, callbackReminders, leadsAutoReturned, taskDueReminders, notificationsCleanedUp] = await Promise.all([
       sendAppointmentReminders(),
       sendCallbackReminders(),
       autoReturnStaleLeads(),
       sendTaskDueReminders(),
+      cleanupOldReadNotifications(),
     ]);
 
-    return res.status(200).json({ appointmentReminders, callbackReminders, leadsAutoReturned, taskDueReminders });
+    return res.status(200).json({ appointmentReminders, callbackReminders, leadsAutoReturned, taskDueReminders, notificationsCleanedUp });
 
   } catch (err) {
     console.error('notifications/scheduled-tick error:', err);
@@ -100,17 +101,12 @@ export async function handleMarkAllRead(req, res) {
   }
 }
 
-/** PATCH /api/notifications/:id */
+/** PATCH /api/notifications/:id, DELETE /api/notifications/:id */
 export async function handleNotificationById(req, res, id) {
   try {
     const claims = await validateToken(req);
 
     if (!isUuid(id)) return res.status(400).json({ error: 'Invalid notification ID format' });
-
-    if (req.method !== 'PATCH') {
-      res.setHeader('Allow', 'PATCH, OPTIONS');
-      return res.status(405).json({ error: 'Method not allowed' });
-    }
 
     // Scoped to recipientId inside getNotificationById itself — this also
     // doubles as the ownership check (404, not 403, if it's someone
@@ -119,13 +115,27 @@ export async function handleNotificationById(req, res, id) {
     const existing = await getNotificationById(id, claims.oid);
     if (!existing) return res.status(404).json({ error: 'Notification not found' });
 
-    const parsed = UpdateNotificationSchema.safeParse(req.body);
-    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+    if (req.method === 'PATCH') {
+      const parsed = UpdateNotificationSchema.safeParse(req.body);
+      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    await markNotificationRead(id, claims.oid, parsed.data.isRead);
+      await markNotificationRead(id, claims.oid, parsed.data.isRead);
 
-    const updated = await getNotificationById(id, claims.oid);
-    return res.status(200).json(updated);
+      const updated = await getNotificationById(id, claims.oid);
+      return res.status(200).json(updated);
+    }
+
+    if (req.method === 'DELETE') {
+      // §99 — dismissing a single notification. No restriction on
+      // read/unread here (unlike the bulk "Clear read" action below) —
+      // dismissing one at a time is an explicit, individual choice, not
+      // a blanket sweep that could accidentally lose something unseen.
+      await deleteNotification(id, claims.oid);
+      return res.status(200).json({ id, deleted: true });
+    }
+
+    res.setHeader('Allow', 'PATCH, DELETE, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
 
   } catch (err) {
     if (err.status) {
@@ -133,6 +143,29 @@ export async function handleNotificationById(req, res, id) {
       return res.status(status).json(body);
     }
     console.error('notifications/[id] error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** DELETE /api/notifications/clear-read — §99, bulk "Clear read" action */
+export async function handleClearRead(req, res) {
+  try {
+    const claims = await validateToken(req);
+
+    if (req.method !== 'DELETE') {
+      res.setHeader('Allow', 'DELETE, OPTIONS');
+      return res.status(405).json({ error: 'Method not allowed' });
+    }
+
+    await deleteAllReadNotifications(claims.oid);
+    return res.status(200).json({ success: true });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('notifications/clear-read error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

@@ -6371,6 +6371,75 @@ MIGRATION — no schema change:
   frontend/src/pages/Notifications.jsx             (TYPE_ICON entries added)
 Plus this Status_Vercel.md.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+99. THREE FIXES FROM TESTING §98 — DUE-DATE TIMEZONE BUG, MISSING DUE-DATE FIELD, NOTIFICATION RETENTION — 3 Aug 2026 (session 14, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark found three separate things testing §98's task-notification fix.
+All three confirmed real before touching anything, none of them assumed.
+
+1. "OVERDUE 1D" INSTEAD OF "DUE TODAY" — genuine bug, root cause
+   confirmed by reproduction before fixing. new Date("2026-08-03")
+   parses a date-only string as UTC midnight, not local midnight. For
+   anyone east of UTC (South Africa is UTC+2), that instant has already
+   passed by 2am local time — so from that point onward in the day, a
+   task due "today" was computing as overdue by a fraction of a day,
+   which Math.round() pushes down to a full day. Reproduced the exact
+   failure with TZ=Africa/Johannesburg before writing the fix, not just
+   read-through. Fixed by comparing calendar dates directly (year/month/
+   day, both via the local Date constructor) rather than raw millisecond
+   differences against the current moment's time-of-day.
+
+   FOUND WHILE FIXING, not left for later: searched the frontend for the
+   same pattern rather than stopping at the one reported symptom.
+   EventList.jsx's isPast(new Date(event.eventDate)) had the identical
+   root cause — an event happening later today would show as "past"
+   (dimmed) as soon as local time passed 2am, hours before the event
+   itself. Fixed the same way, verified separately. Also checked
+   AppointmentList.jsx's superficially similar-looking date comparison
+   and confirmed it's actually safe (both sides go through
+   .toDateString(), which normalises to local calendar date before
+   comparing) — didn't touch what wasn't broken.
+
+2. DUE DATE NEVER SHOWN ON THE TASK CARD — confirmed real: the expanded
+   task detail grid had Priority/Assigned to/Source/Created by/Created,
+   but no Due Date field at all, even though the data clearly existed
+   (visible only in the coloured badge and the notification text).
+   Added it to the grid, next to Priority.
+
+3. NO WAY TO CLEAR NOTIFICATIONS, NO AUTOMATIC EXPIRY — Mark asked
+   directly whether these would age out on their own. Checked before
+   answering: neither a dismiss action nor any cleanup mechanism existed
+   anywhere — the list would have grown forever. Built both:
+     - Per-notification dismiss (×) and a "Clear read" bulk action,
+       deliberately scoped to already-read notifications only — an
+       unread one still needs to be seen, clearing it would be
+       indistinguishable from losing it.
+     - Automatic cleanup added to the same daily Cron tick that already
+       runs the reminder checks: anything read more than 30 days ago is
+       removed on its own, no action needed. This needed one new column
+       (readAt) — isRead alone can't tell a retention policy WHEN
+       something was read, only that it currently is.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected; every new/edited backend file passes node --check and
+an ESM import smoke test; the date-comparison fixes for both Tasks.jsx
+and EventList.jsx were verified standalone against representative cases
+using Mark's actual timezone before being considered done, not just
+read through.
+
+MIGRATION:
+  frontend/db/migrations/019_add_notification_readat.sql (NEW — Notification.readAt)
+  frontend/db/schema.postgres.sql                (same column, fresh databases)
+  frontend/src/pages/Tasks.jsx                   (daysUntil timezone fix, Due date field added)
+  frontend/src/pages/EventList.jsx               (isPast timezone fix, same root cause)
+  frontend/api-lib/services/notificationService.js (readAt tracking, dismiss/clearRead/cleanup functions)
+  frontend/api-lib/handlers/notificationHandlers.js (DELETE support, handleClearRead, cleanup wired into scheduled tick)
+  frontend/api/notifications-router.js           (clear-read route added)
+  frontend/src/services/api.js                   (notificationsApi.dismiss/clearRead added)
+  frontend/src/pages/Notifications.jsx           (dismiss button, Clear read button)
+Plus this Status_Vercel.md.
+
 
 
 If picking up a pending item, reference it by section number (e.g. "I

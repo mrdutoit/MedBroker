@@ -11,7 +11,7 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { format, isPast } from 'date-fns';
+import { format } from 'date-fns';
 import { s } from '../styles/tokens.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch } from '../hooks/useFetch.js';
@@ -94,7 +94,19 @@ export default function EventList() {
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(auto-fill, minmax(340px, 1fr))', gap: '14px' }}>
             {events.map(event => {
               const ss = STATUS_STYLE[event.status] ?? STATUS_STYLE.Draft;
-              const pastEvent = isPast(new Date(event.eventDate));
+              // FIXED — isPast(new Date(event.eventDate)) compared the
+              // event against the raw current moment, but a date-only
+              // string parses as UTC midnight; for anyone east of UTC
+              // (South Africa is UTC+2) an event happening later TODAY
+              // would show as "past" as soon as local time passed 2am,
+              // hours before the event even started. Comparing calendar
+              // dates directly (year/month/day, both in local time) avoids
+              // the whole class of error — same root cause and fix as
+              // Tasks.jsx's daysUntil().
+              const [evY, evM, evD] = event.eventDate.split('-').map(Number);
+              const eventDateLocal = new Date(evY, evM - 1, evD);
+              const todayLocal = new Date(); todayLocal.setHours(0, 0, 0, 0);
+              const pastEvent = eventDateLocal < todayLocal;
               const attendanceRate = event.rsvpCount > 0
                 ? Math.round((event.attendedCount / event.rsvpCount) * 100)
                 : 0;

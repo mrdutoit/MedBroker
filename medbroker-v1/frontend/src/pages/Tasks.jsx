@@ -68,8 +68,18 @@ const PRIORITY_META = {
 
 function daysUntil(dateStr, today) {
   if (!dateStr) return null;
-  const d = new Date(dateStr);
-  return Math.round((d - today) / 86400000);
+  // Parse Y/M/D directly rather than new Date(dateStr), which interprets
+  // a date-only string as UTC midnight — for anyone east of UTC, that
+  // instant has already passed by a couple of hours into the actual due
+  // date, silently making "due today" look overdue depending on the time
+  // of day this runs. Constructing both dates via the LOCAL Date
+  // constructor and comparing calendar dates directly (not raw
+  // millisecond gaps against the current moment, hours-of-day included)
+  // avoids the whole class of error.
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const dueDateLocal = new Date(y, m - 1, d);
+  const todayLocal = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+  return Math.round((dueDateLocal - todayLocal) / 86400000);
 }
 
 function dueMeta(dateStr, done, today) {
@@ -304,6 +314,12 @@ function TaskRow({ task, onToggle, onDelete, isAdmin, canDelete, isMobile, today
                 }}>
                   {task.priority}
                 </span>
+              </div>
+            </div>
+            <div>
+              <span style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Due date</span>
+              <div style={{ fontSize: '0.8125rem', color:'var(--ink)', marginTop: '2px' }}>
+                {task.dueDate || 'No due date'}
               </div>
             </div>
             <div>
