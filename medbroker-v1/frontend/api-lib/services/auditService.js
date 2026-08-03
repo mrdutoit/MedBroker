@@ -95,6 +95,20 @@ export function clientIp(req) {
  * shipped — see that comment for the full story). Both listAllAuditLog
  * and exportAuditLog build on this exact same base, so there's exactly
  * one place this logic lives, not two that can drift apart.
+ *
+ * EXTENDED 3 Aug 2026 (§103) — Task/Event/EventAttendee added to the
+ * COALESCE, closing the gap this comment used to describe as
+ * deprioritized ("not the one costing the most value to close right
+ * now"). Mark found it costing real value in testing, so all three now
+ * resolve same as Lead/Appointment/User do: Task -> its title,
+ * Event -> its name, EventAttendee -> the attendee's own Lead name (an
+ * attendee IS a lead; there's no separate "attendee name" to show).
+ * FeatureFlag/Portfolio/Product/MedicalSubscription still fall through
+ * to the generic "EntityType: id" string — all three already read fine
+ * that way (a flag's entityId is its own human-readable key; Portfolio/
+ * Product/MedicalSubscription entries' changeDetail already carries the
+ * name directly, per formatChangeDetail() in AppAdmin.jsx), so extending
+ * the join further wasn't worth the extra JOINs for no visible gain.
  */
 const AUDIT_SELECT_BASE = `
        al.id, al.action, al.entityType AS "entityType", al.entityId AS "entityId",
@@ -109,14 +123,23 @@ const AUDIT_SELECT_BASE = `
            CONCAT_WS(' ', l_via_appt.title, l_via_appt.firstName, l_via_appt.lastName)
          END,
          CASE WHEN al.entityType = 'User' THEN eu.displayName END,
+         CASE WHEN al.entityType = 'Task' THEN tk.title END,
+         CASE WHEN al.entityType = 'Event' THEN ev.name END,
+         CASE WHEN al.entityType = 'EventAttendee' THEN
+           CONCAT_WS(' ', l_via_attendee.title, l_via_attendee.firstName, l_via_attendee.lastName)
+         END,
          CONCAT(al.entityType, ': ', al.entityId)
        ) AS "entityRef"
      FROM AuditLog al
-     LEFT JOIN "User" pu       ON al.performedById = pu.id
-     LEFT JOIN Lead l_direct   ON al.entityType = 'Lead' AND al.entityId = l_direct.id::text
-     LEFT JOIN Appointment ap  ON al.entityType = 'Appointment' AND al.entityId = ap.id::text
-     LEFT JOIN Lead l_via_appt ON ap.leadId = l_via_appt.id
-     LEFT JOIN "User" eu       ON al.entityType = 'User' AND al.entityId = eu.id::text`;
+     LEFT JOIN "User" pu           ON al.performedById = pu.id
+     LEFT JOIN Lead l_direct       ON al.entityType = 'Lead' AND al.entityId = l_direct.id::text
+     LEFT JOIN Appointment ap      ON al.entityType = 'Appointment' AND al.entityId = ap.id::text
+     LEFT JOIN Lead l_via_appt     ON ap.leadId = l_via_appt.id
+     LEFT JOIN "User" eu           ON al.entityType = 'User' AND al.entityId = eu.id::text
+     LEFT JOIN Task tk             ON al.entityType = 'Task' AND al.entityId = tk.id::text
+     LEFT JOIN Event ev            ON al.entityType = 'Event' AND al.entityId = ev.id::text
+     LEFT JOIN EventAttendee eatt  ON al.entityType = 'EventAttendee' AND al.entityId = eatt.id::text
+     LEFT JOIN Lead l_via_attendee ON eatt.leadId = l_via_attendee.id`;
 
 /**
  * Builds the WHERE clause + params shared by listAllAuditLog and

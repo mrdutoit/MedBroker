@@ -723,3 +723,28 @@ export async function listCallAttempts(leadId) {
     }
   );
 }
+
+/**
+ * Resolve a lead's display name for writing into an AuditLog changeDetail
+ * blob — mirrors userService.js's getUserDisplayNameById() (same 24 Jul
+ * 2026 pattern), added 3 Aug 2026 to close the raw-leadId gap Mark found
+ * in Task/Appointment/Event audit entries. Deliberately NOT filtered by
+ * any active/deleted flag — an audit entry is a historical record, and a
+ * since-deleted lead should still show its real name rather than going
+ * blank. Concatenation order matches every other lead-name build in this
+ * codebase (title, firstName, lastName via CONCAT_WS so a missing title
+ * doesn't leave a stray leading space).
+ * @param {string} id
+ * @returns {Promise<string|null>}
+ */
+export async function getLeadDisplayNameById(id) {
+  const row = await executeQueryOne(
+    `SELECT CONCAT_WS(' ', title, firstName, lastName) AS "displayName" FROM Lead
+     WHERE id = @id AND organisationId = @organisationId`,
+    {
+      id:             { type: sql.UniqueIdentifier, value: id },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+  return row?.displayName ?? null;
+}

@@ -12,6 +12,7 @@ import {
   listEventAttendees, getEventReport, addAttendee, setAttendeeAttendance, deleteAttendee,
 } from '../services/eventService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
+import { getLeadDisplayNameById } from '../services/leadService.js';
 import { CreateEventSchema, UpdateEventStatusSchema, AddAttendeeSchema, SetAttendanceSchema } from '../models/event.js';
 import { isUuid } from '../http/helpers.js';
 
@@ -191,7 +192,12 @@ export async function handleEventAttendees(req, res, id) {
       entityId: id,
       action: 'AttendeeAdded',
       performedById: claims.oid,
-      changeDetail: { leadId: result.leadId, createdNewLead: result.createdNewLead, alreadyRegistered: result.alreadyRegistered },
+      changeDetail: {
+        leadId: result.leadId,
+        leadName: await getLeadDisplayNameById(result.leadId),
+        createdNewLead: result.createdNewLead,
+        alreadyRegistered: result.alreadyRegistered,
+      },
       ipAddress: clientIp(req),
     });
 
@@ -264,12 +270,14 @@ export async function handleEventAttendeeDelete(req, res, id, attendeeId) {
     const deleted = await deleteAttendee(id, attendeeId);
     if (!deleted) return res.status(404).json({ error: 'Attendee not found on this event' });
 
+    const event = await getEventById(id);
+
     await writeAuditLog({
       entityType: 'EventAttendee',
       entityId: attendeeId,
       action: 'AttendeeRemoved',
       performedById: claims.oid,
-      changeDetail: { eventId: id },
+      changeDetail: { eventId: id, eventName: event?.name ?? null },
       ipAddress: clientIp(req),
     });
 

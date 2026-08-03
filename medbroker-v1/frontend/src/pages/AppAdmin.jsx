@@ -57,16 +57,33 @@ function todayLocalDateString() {
  * type rather than one bespoke formatter per action — every mutating
  * endpoint in this codebase already writes changeDetail as a small,
  * flat object, so one formatter covers all of them.
+ *
+ * EXTENDED 3 Aug 2026 (§103) — Mark found raw UUIDs still showing here
+ * (assignedToId on a TaskCreated entry) even though several write sites
+ * DO resolve a name alongside the id (assignedToName, brokerName,
+ * leadName, supervisorName, etc — see auditService.js callers). This
+ * function just wasn't hiding the id once a matching name existed. Fix
+ * is generic, not per-key: any key ending in "Id" is suppressed if a
+ * sibling "<sameprefix>Name" key exists in the same object, since that
+ * name is strictly more readable and the id adds nothing on screen (it's
+ * still in the raw export for anyone who needs it — this only affects
+ * the on-screen summary).
  */
 function formatChangeDetail(changeDetail) {
   if (!changeDetail || typeof changeDetail !== 'object') return null;
-  const parts = Object.entries(changeDetail).map(([k, v]) => {
-    let displayValue = v;
-    if (v === '1' || v === true) displayValue = 'Yes';
-    else if (v === '0' || v === false) displayValue = 'No';
-    else if (v === null || v === undefined) displayValue = '—';
-    return `${k}: ${displayValue}`;
-  });
+  const keys = Object.keys(changeDetail);
+  const suppressedIdKeys = new Set(
+    keys.filter(k => k.endsWith('Id') && keys.includes(`${k.slice(0, -2)}Name`))
+  );
+  const parts = Object.entries(changeDetail)
+    .filter(([k]) => !suppressedIdKeys.has(k))
+    .map(([k, v]) => {
+      let displayValue = v;
+      if (v === '1' || v === true) displayValue = 'Yes';
+      else if (v === '0' || v === false) displayValue = 'No';
+      else if (v === null || v === undefined) displayValue = '—';
+      return `${k}: ${displayValue}`;
+    });
   return parts.join(', ');
 }
 

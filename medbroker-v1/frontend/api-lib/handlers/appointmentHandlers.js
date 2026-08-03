@@ -12,6 +12,7 @@ import {
 } from '../services/appointmentService.js';
 import { findMatchingBrokers } from '../services/brokerMatchingService.js';
 import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById } from '../services/userService.js';
+import { getLeadDisplayNameById } from '../services/leadService.js';
 import { writeAuditLog, clientIp, listAuditLog } from '../services/auditService.js';
 import {
   CreateAppointmentSchema, AppointmentListQuerySchema, AssignBrokerSchema,
@@ -97,7 +98,12 @@ export async function handleAppointmentsCollection(req, res) {
         entityId: newId,
         action: 'AppointmentCreated',
         performedById: claims.oid,
-        changeDetail: { leadId: parsed.data.leadId, brokerId: parsed.data.brokerId ?? null },
+        changeDetail: {
+          leadId: parsed.data.leadId,
+          leadName: await getLeadDisplayNameById(parsed.data.leadId),
+          brokerId: parsed.data.brokerId ?? null,
+          brokerName: parsed.data.brokerId ? await getUserDisplayNameById(parsed.data.brokerId) : null,
+        },
         ipAddress: clientIp(req),
       });
 

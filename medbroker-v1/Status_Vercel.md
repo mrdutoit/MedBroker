@@ -72,6 +72,11 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   org-wide. Was showing ten hardcoded fake entries
                   unconditionally before this. Filters (date range,
                   Entity, Action, Performed By) + CSV/JSON export (§77).
+                  Detail column shows what actually changed, not just
+                  which entity (§96), and every entity type — including
+                  Task/Event/EventAttendee, previously a raw id — now
+                  resolves to a readable name, with ids never shown
+                  redundantly alongside a resolved name (§103).
   Email notifications (§78) — real, built on standard SMTP
                   (nodemailer) rather than any provider's proprietary
                   API, deliberately, so it's swappable for a customer's
@@ -108,9 +113,6 @@ GATED OFF BY DEFAULT (built, working, just not switched on):
 DELIBERATELY NOT BUILT (real gaps, not yet scoped or blocked on
 something outside this session's control):
   - Token economy: claim model works; Stripe not connected.
-  - Org-wide entity display for Event/EventAttendee/Task in the Audit
-    Log (§76) — shows a raw id rather than a resolved name, a real but
-    lower-priority gap than Lead/Appointment/User, which do resolve.
 
 CURRENT SECURITY / DEPENDENCY STATE (as of 30 Jul 2026):
   - react-router: migrated 6->7 (7.18.2). The open-redirect + SSR-
@@ -6584,6 +6586,99 @@ FILES:
   frontend/src/pages/portal/PortalRegister.jsx
   frontend/src/pages/portal/PortalActivate.jsx
   frontend/src/pages/portal/PortalCheckinConfirm.jsx
+Plus this Status_Vercel.md.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+103. AUDIT LOG — RAW IDs REPLACED WITH RESOLVED NAMES — 3 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark caught this in testing (screenshot: a TaskCreated entry showing
+"Task: da8e2fe0-..." and "assignedToId: aa56191c-...") and asked for the
+full fix, not just the one entry. Confirmed real and traced to two
+distinct causes rather than one bug:
+
+1. entityRef fallback — the gap already named in §76/§0's "DELIBERATELY
+   NOT BUILT" list (Event/EventAttendee/Task showing a raw
+   "EntityType: id" string). Deprioritized before; Mark's testing found
+   it costing real value.
+2. changeDetail raw ids — separate, newer issue. §96's formatChangeDetail()
+   generically dumps every changeDetail key as-is. Some write sites
+   already resolve a name before writing (LeadAssigned/LeadReassigned/
+   AppointmentBrokerAssigned/AppointmentReassigned, all pre-existing) —
+   TaskCreated never got that treatment, and neither had several others
+   once actually checked (grepped every writeAuditLog call site rather
+   than assuming Task was the only one).
+
+SCOPE, CONFIRMED BY GREP NOT ASSUMPTION — every write site that stored a
+raw person/entity id with no matching name:
+  - TaskCreated, TaskUpdated: assignedToId
+  - AppointmentCreated: leadId, brokerId
+  - Event AttendeeAdded: leadId
+  - Event AttendeeRemoved: eventId
+  - UserUpdated (admin editing someone): supervisorId
+
+FIX (backend — resolve at write time, same pattern as the existing
+LeadAssigned/AppointmentBrokerAssigned code, id kept alongside name, not
+replaced):
+  - NEW leadService.js:getLeadDisplayNameById() — mirrors
+    userService.js's existing getUserDisplayNameById() exactly (same
+    signature, same "not filtered by deleted/inactive, audit is a
+    historical record" reasoning).
+  - taskHandlers.js: TaskCreated now resolves assignedToName;
+    TaskUpdated resolves assignedToName only when a PATCH actually
+    touches assignedToId (no wasted query on ordinary edits).
+  - appointmentHandlers.js: AppointmentCreated resolves leadName +
+    brokerName (brokerName only when a broker was actually assigned at
+    booking time).
+  - eventHandlers.js: AttendeeAdded resolves leadName; AttendeeRemoved
+    resolves eventName (needed one extra getEventById() call — deleteAttendee()
+    doesn't return the event itself).
+  - userHandlers.js: UserUpdated resolves supervisorName when
+    supervisorId is part of the PATCH. Deliberately did NOT resolve
+    portfolios/products (also raw-id arrays on this same schema) —
+    multi-value name resolution is a different shape of fix, and both
+    are already visible by name on their own Portfolio/Product audit
+    entries, so this isn't a silently-reintroduced version of the same
+    gap, just a consciously separate one.
+
+FIX (backend — entityRef, auditService.js's AUDIT_SELECT_BASE): extended
+the COALESCE to resolve Task -> its title, Event -> its name,
+EventAttendee -> the attendee's own Lead name (an attendee IS a lead;
+there's no separate name to show). FeatureFlag/Portfolio/Product/
+MedicalSubscription deliberately left on the generic fallback — all four
+already read fine that way (flag's entityId IS its readable key;
+Portfolio/Product/Subscription changeDetail already carries the name
+directly), so extending the join further had no visible payoff.
+
+FIX (frontend — AppAdmin.jsx's formatChangeDetail()): resolving the name
+at write time isn't sufficient by itself — without this, the Detail
+column would show BOTH the id and the name side by side, not replace
+one with the other. Generic suppression rule, not per-key special-casing:
+any key ending in "Id" is hidden from the on-screen summary if a sibling
+"<sameprefix>Name" key exists in the same object. Applies automatically
+to every existing resolved-name pair (brokerName, agentName,
+previousBrokerName, previousAgentName, newAgentName) as well as the five
+new ones from this fix — one rule, not six.
+
+VERIFIED: node --check + ESM import smoke test (DATABASE_URL stubbed,
+since config.js throws without one — confirmed this is pre-existing
+sandbox behaviour, not something new) on all 6 edited backend files;
+full Vite production build clean; existing 45-test Vitest suite
+unaffected. Re-hydrated fresh from GitHub and diffed all 7 changed files
+against live state before packaging — clean, no parallel changes.
+
+MIGRATION: none — logic-only fix, no schema change.
+
+FILES:
+  frontend/api-lib/services/leadService.js   (NEW getLeadDisplayNameById)
+  frontend/api-lib/services/auditService.js  (entityRef COALESCE extended)
+  frontend/api-lib/handlers/taskHandlers.js
+  frontend/api-lib/handlers/appointmentHandlers.js
+  frontend/api-lib/handlers/eventHandlers.js
+  frontend/api-lib/handlers/userHandlers.js
+  frontend/src/pages/AppAdmin.jsx            (formatChangeDetail suppression rule)
 Plus this Status_Vercel.md.
 
 

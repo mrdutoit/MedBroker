@@ -5,7 +5,7 @@
  */
 
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
-import { listUsers, createUserFull, listSupervisors, getUserForAdmin, updateUserFull, getOwnProfile, updateOwnProfile, unlockUser, revokeUserSessions } from '../services/userService.js';
+import { listUsers, createUserFull, listSupervisors, getUserForAdmin, updateUserFull, getOwnProfile, updateOwnProfile, unlockUser, revokeUserSessions, getUserDisplayNameById } from '../services/userService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
 import { CreateUserSchema, UserListQuerySchema, UpdateUserSchema, UpdateOwnProfileSchema } from '../models/user.js';
 import { isUuid } from '../http/helpers.js';
@@ -153,7 +153,14 @@ export async function handleUserById(req, res, id) {
               : parsed.data.isActive === true  ? 'UserReactivated'
               : 'UserUpdated',
         performedById: claims.oid,
-        changeDetail: parsed.data,
+        // supervisorId resolved to a name (same pattern as agentId/brokerId
+        // elsewhere) — portfolios/products stay as raw id arrays here
+        // deliberately: multi-value name resolution is a different shape of
+        // problem, and both are already visible by name on their own
+        // Portfolio/Product audit entries, so leaving them isn't a silent gap.
+        changeDetail: parsed.data.supervisorId
+          ? { ...parsed.data, supervisorName: await getUserDisplayNameById(parsed.data.supervisorId) }
+          : parsed.data,
         ipAddress: clientIp(req),
       });
 

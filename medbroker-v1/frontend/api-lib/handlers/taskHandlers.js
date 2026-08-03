@@ -14,7 +14,7 @@
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
 import { listTasks, getTaskById, createTask, updateTask, deleteTask, listComments, createComment } from '../services/taskService.js';
 import { createNotification } from '../services/notificationService.js';
-import { getDirectReportIds, isAgentOnly, isSupervisorOnly } from '../services/userService.js';
+import { getDirectReportIds, isAgentOnly, isSupervisorOnly, getUserDisplayNameById } from '../services/userService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
 import { CreateTaskSchema, UpdateTaskSchema, TaskListQuerySchema, CATEGORY_TO_TYPE, TYPE_TO_CATEGORY, CreateCommentSchema } from '../models/task.js';
 import { isUuid } from '../http/helpers.js';
@@ -137,7 +137,11 @@ export async function handleTasksCollection(req, res) {
         entityId: newId,
         action: 'TaskCreated',
         performedById: claims.oid,
-        changeDetail: { assignedToId: parsed.data.assignedToId, category: parsed.data.category },
+        changeDetail: {
+          assignedToId: parsed.data.assignedToId,
+          assignedToName: await getUserDisplayNameById(parsed.data.assignedToId),
+          category: parsed.data.category,
+        },
         ipAddress: clientIp(req),
       });
 
@@ -293,7 +297,9 @@ export async function handleTaskById(req, res, id) {
               : parsed.data.isComplete === false ? 'TaskReopened'
               : 'TaskUpdated',
         performedById: claims.oid,
-        changeDetail: parsed.data,
+        changeDetail: parsed.data.assignedToId
+          ? { ...parsed.data, assignedToName: await getUserDisplayNameById(parsed.data.assignedToId) }
+          : parsed.data,
         ipAddress: clientIp(req),
       });
 
