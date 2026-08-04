@@ -481,8 +481,23 @@ export async function getBrokerReport(period, scope, referenceDate) {
   const rows = await executeQuery(
     `SELECT
        u.id, u.displayName AS "name",
-       COUNT(a.id) AS "appts",
-       COUNT(a.id) FILTER (WHERE a.status = 'ClosedWon') AS "signed",
+       -- COUNT(DISTINCT a.id), not COUNT(a.id) — §106/§107 bug fix.
+       -- Mark caught this: a broker with 2 portfolios showed exactly
+       -- double the real appts/signed counts here vs the correct,
+       -- single-broker getBrokerDetailReport() below. Root cause: this
+       -- query also joins UserPortfolio/Portfolio (to build the
+       -- "portfolios" array), and a broker with N portfolios fans out
+       -- to N appointment rows per real appointment — a plain COUNT()
+       -- counts every duplicate. DISTINCT collapses them back to one
+       -- per real appointment id, exactly the same defensive pattern
+       -- getAgentReport() below already uses correctly for its own
+       -- (worse — three-way) fan-out from joining Lead/CallAttempt/
+       -- Appointment all in one query. policyValue was already immune
+       -- to this (scalar subquery, not a join) — this brings appts/
+       -- signed up to the same standard rather than restructuring the
+       -- whole query, since DISTINCT alone fully closes the gap here.
+       COUNT(DISTINCT a.id) AS "appts",
+       COUNT(DISTINCT a.id) FILTER (WHERE a.status = 'ClosedWon') AS "signed",
        COALESCE(array_agg(DISTINCT p.name) FILTER (WHERE p.name IS NOT NULL), ARRAY[]::text[]) AS "portfolios",
        -- Scalar subquery, not a direct JOIN to AppointmentProduct — a
        -- direct join would fan out one row per product sold, silently

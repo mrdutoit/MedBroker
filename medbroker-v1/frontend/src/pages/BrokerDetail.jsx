@@ -18,14 +18,14 @@
  * The broker is identified by the :id URL param (a real User.id now).
  */
 
-import { useParams, useNavigate } from 'react-router';
+import { useParams, useNavigate, useSearchParams } from 'react-router';
 import { useState } from 'react';
 import { useRole } from '../context/RoleContext.jsx';
 import { s } from '../styles/tokens.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch } from '../hooks/useFetch.js';
 import { reportsApi } from '../services/api.js';
-import { PeriodSelector, getPeriodLabel, referenceDateToParam } from '../components/PeriodSelector.jsx';
+import { PeriodSelector, getPeriodLabel, referenceDateToParam, paramToReferenceDate } from '../components/PeriodSelector.jsx';
 
 const PRODUCT_COLOURS = ['#3b82f6', '#3b82f6', '#6366f1', '#06b6d4', '#06b6d4', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444', '#f97316'];
 
@@ -57,8 +57,18 @@ export default function BrokerDetail() {
   const navigate   = useNavigate();
   const { role }   = useRole();
   const { isMobile } = useWindowSize();
-  const [period, setPeriod] = useState('Monthly');
-  const [referenceDate, setReferenceDate] = useState(undefined);
+
+  // §107 — arriving from Reports.jsx's "View →" carries the period that
+  // was selected there via ?period=&ref=; a direct link or bookmark with
+  // neither param present falls back to the same Monthly/now default
+  // this page always had, so existing links keep working unchanged.
+  // useState(() => ...) (lazy init) reads the URL only once, on mount —
+  // this page's own PeriodSelector, not the URL, owns the value from
+  // then on, same as every other page with a PeriodSelector.
+  const [searchParams] = useSearchParams();
+  const validPeriod = ['Monthly', 'Quarterly', 'Yearly'].includes(searchParams.get('period'));
+  const [period, setPeriod] = useState(() => validPeriod ? searchParams.get('period') : 'Monthly');
+  const [referenceDate, setReferenceDate] = useState(() => paramToReferenceDate(searchParams.get('ref')));
   const refParam = referenceDateToParam(referenceDate);
 
   // Self-service roles land here directly and have no Reports overview to return

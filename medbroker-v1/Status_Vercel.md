@@ -6842,6 +6842,71 @@ explicit request so neither gets lost in the meantime.
 
 
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+107. REPORTS — BOTH §106 ITEMS FIXED — 3-4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Both items from §106 built, per Mark's go-ahead.
+
+1. PERIOD RETAINED ACROSS NAVIGATION — Reports.jsx's "View →" now passes
+   the selected period as a URL query param (?period=...&ref=...) to
+   both BrokerDetail.jsx and AgentDetail.jsx, which read it on mount
+   (lazy useState init, read once) instead of always defaulting to
+   Monthly/now. A direct link or bookmark with neither param present
+   behaves exactly as before — nothing about existing links changes.
+   New helper: PeriodSelector.jsx's paramToReferenceDate() (reverse of
+   the existing referenceDateToParam()), built local-component-first
+   deliberately (new Date(y, m-1, d), not new Date(paramString)) to stay
+   consistent with this codebase's established UTC-vs-local caution
+   elsewhere (taskHandlers.js's toDateOnly()). period value validated
+   against the three real enum values before use — a malformed or
+   tampered URL falls back to Monthly, not an invalid state. Query
+   params chosen over React Router location state specifically because
+   they survive a refresh, back button, or a copied/shared link.
+
+2. SIGNED/APPOINTMENTS COUNT FAN-OUT — FIXED, and via a cleaner fix than
+   originally proposed in §106. Original plan was to restructure
+   getBrokerReport() with scalar subqueries (mirroring policyValue in
+   the same query). Actual fix: just added DISTINCT to the two COUNT()
+   calls — COUNT(DISTINCT a.id) / COUNT(DISTINCT a.id) FILTER(...) —
+   after noticing getAgentReport() a few dozen lines below in the same
+   file already handles an even harder version of this exact problem
+   (three separate one-to-many joins — Lead, CallAttempt, Appointment —
+   all fanning out against each other simultaneously) correctly, purely
+   through COUNT(DISTINCT ...). Matching that existing, already-proven
+   pattern is a smaller, lower-risk diff than a query rewrite, and
+   brings both broker-report functions in this file to the same
+   defensive standard. Checked getAgentDetailReport() and
+   getReportSummary() for the same class of bug while in this file —
+   both already correct (former already uses DISTINCT throughout;
+   latter's only per-row join is a LATERAL+LIMIT-1, which can't fan out).
+
+VERIFIED: node --check + ESM import smoke test on reportService.js;
+full Vite production build clean; existing 45-test Vitest suite
+unaffected (no test coverage over this SQL specifically — noted as a
+gap, not something addressed in this pass). Could not empirically
+verify the exact before/after numbers against live data — no DB access
+from the sandbox, ever; verification here is by direct code comparison
+against the sibling function's already-correct, already-relied-on
+pattern, which is the strongest verification available in this
+environment. Mark should confirm the fix against real numbers once
+deployed — William Barclay-Beuthin (2 portfolios) is the natural test
+case, same as the bug report itself. Re-hydrated fresh from GitHub and
+diffed all 5 changed files before packaging — clean, no parallel
+changes.
+
+MIGRATION: none — logic-only fix, no schema change.
+
+FILES:
+  frontend/src/components/PeriodSelector.jsx  (NEW paramToReferenceDate)
+  frontend/src/pages/Reports.jsx
+  frontend/src/pages/BrokerDetail.jsx
+  frontend/src/pages/AgentDetail.jsx
+  frontend/api-lib/services/reportService.js
+Plus this Status_Vercel.md.
+
+
+
 If picking up a pending item, reference it by section number (e.g. "I
 want to work on §61's remaining Notification types") — same convention
 as before the split.

@@ -203,3 +203,25 @@ export function referenceDateToParam(referenceDate) {
   const d = String(referenceDate.getDate()).padStart(2, '0');
   return `${y}-${m}-${d}`;
 }
+
+/**
+ * Reverse of referenceDateToParam() — added 4 Aug 2026 (§107) so a period
+ * selected on Reports.jsx can survive the trip to BrokerDetail.jsx/
+ * AgentDetail.jsx via a URL query param, not just the API's own request
+ * param. Deliberately builds the Date from explicit local
+ * year/month/day components, not `new Date(param)` — a bare ISO
+ * date-only string parses as UTC midnight, and re-deriving it from that
+ * is exactly the kind of UTC-vs-local shift this codebase has already
+ * been bitten by elsewhere (see taskHandlers.js's toDateOnly() comment).
+ * Returns undefined (not null) on anything unparseable, matching
+ * referenceDate's own "undefined = default to now" convention used
+ * throughout every page that has a PeriodSelector.
+ */
+export function paramToReferenceDate(param) {
+  if (!param) return undefined;
+  const [y, m, d] = param.split('-').map(Number);
+  if (!y || !m || !d || Number.isNaN(y) || Number.isNaN(m) || Number.isNaN(d)) return undefined;
+  const date = new Date(y, m - 1, d);
+  return Number.isNaN(date.getTime()) ? undefined : date;
+}
+

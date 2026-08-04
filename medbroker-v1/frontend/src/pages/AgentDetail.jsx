@@ -17,14 +17,14 @@
  * mock key like 'tm').
  */
 
-import { useParams, useNavigate } from 'react-router';
+import { useParams, useNavigate, useSearchParams } from 'react-router';
 import { useState } from 'react';
 import { useRole } from '../context/RoleContext.jsx';
 import { s } from '../styles/tokens.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch } from '../hooks/useFetch.js';
 import { reportsApi } from '../services/api.js';
-import { PeriodSelector, getPeriodLabel, referenceDateToParam } from '../components/PeriodSelector.jsx';
+import { PeriodSelector, getPeriodLabel, referenceDateToParam, paramToReferenceDate } from '../components/PeriodSelector.jsx';
 
 const STATUS_COLOUR = {
   Unassigned:            { bg: 'var(--panel2)', colour: 'var(--mut)' },
@@ -59,8 +59,16 @@ export default function AgentDetail() {
   const navigate   = useNavigate();
   const { role }   = useRole();
   const { isMobile } = useWindowSize();
-  const [period, setPeriod] = useState('Monthly');
-  const [referenceDate, setReferenceDate] = useState(undefined);
+
+  // §107 — same fix as BrokerDetail.jsx; see that file's comment for the
+  // full reasoning. Kept identical deliberately rather than factored into
+  // a shared hook — two three-line blocks was judged not worth a new
+  // shared file for, but if a third detail page needs this, that's the
+  // trigger to extract one.
+  const [searchParams] = useSearchParams();
+  const validPeriod = ['Monthly', 'Quarterly', 'Yearly'].includes(searchParams.get('period'));
+  const [period, setPeriod] = useState(() => validPeriod ? searchParams.get('period') : 'Monthly');
+  const [referenceDate, setReferenceDate] = useState(() => paramToReferenceDate(searchParams.get('ref')));
   const refParam = referenceDateToParam(referenceDate);
 
   // Self-service roles land here directly and have no Reports overview to return

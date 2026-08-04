@@ -142,6 +142,14 @@ export default function Reports() {
   const [referenceDate, setReferenceDate] = useState(undefined);
   const refParam = referenceDateToParam(referenceDate);
 
+  // §107 — carries the currently-selected period across to BrokerDetail/
+  // AgentDetail's own View link, which otherwise silently resets to
+  // "this month" on arrival (Mark caught this: select July, drill into a
+  // broker, land back on whatever "now" is). URL query param, not router
+  // state, deliberately — survives a refresh, back button, or a shared/
+  // copied link, none of which state-based navigation would.
+  const detailLinkQuery = `?period=${period}${refParam ? `&ref=${refParam}` : ''}`;
+
   // ── Who is viewing ──────────────────────────────────────────────────────────
   // Scoping itself now happens server-side (reportService.js) — these flags
   // only control which SECTIONS of the page render, not which rows within
@@ -158,6 +166,7 @@ export default function Reports() {
     useFetch(() => reportsApi.brokers(period, refParam), [period, refParam]);
   const { data: agentsData, loading: agentsLoading, error: agentsError } =
     useFetch(() => reportsApi.agents(period, refParam), [period, refParam]);
+
 
   const pipeline = summaryData?.pipeline ?? [];
   const trend    = summaryData?.trend ?? [];
@@ -332,7 +341,7 @@ export default function Reports() {
                     </div>
                   </td>
                   <td style={s.td}>
-                    <button style={s.viewBtn} onClick={() => navigate(`/reports/broker/${b.id}`)}>
+                    <button style={s.viewBtn} onClick={() => navigate(`/reports/broker/${b.id}${detailLinkQuery}`)}>
                       View →
                     </button>
                   </td>
@@ -387,7 +396,7 @@ export default function Reports() {
                   </div>
                 </td>
                 <td style={s.td}>
-                  <button style={s.viewBtn} onClick={() => navigate(`/reports/agent/${a.id}`)}>
+                  <button style={s.viewBtn} onClick={() => navigate(`/reports/agent/${a.id}${detailLinkQuery}`)}>
                     View →
                   </button>
                 </td>
