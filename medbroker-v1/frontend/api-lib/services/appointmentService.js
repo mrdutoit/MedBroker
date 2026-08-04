@@ -11,9 +11,11 @@
  * is how the full set for one Lead is retrieved — see LeadDetail.jsx's
  * "Appointment History" card.
  *
- * Scope: the ASSIGN model only — see models/appointment.js header for why
- * the CLAIM model (broker self-serve + token economy) is deliberately not
- * built here.
+ * UPDATED §117 (4 Aug 2026) — the CLAIM model (appointments.claimModel =
+ * 'claim') is now real: claimAppointment() and listAvailableToClaim()
+ * below. See tokenService.js for the token-debit side of claiming, and
+ * models/appointment.js's header for the current staging (Stripe payment
+ * is still deferred — this entry only covers the 'none' provider path).
  */
 
 import { executeQuery, executeQueryOne, sql } from './db.js';
@@ -21,6 +23,7 @@ import { computeAppointmentStatus } from './appointmentStatusService.js';
 import { getActiveUserById, resolvePortfolioIds } from './userService.js';
 import { createTask, deleteTasksForEntity, reassignTasksForEntity } from './taskService.js';
 import { createNotification } from './notificationService.js';
+import { debitTokensForClaim, refundTokens } from './tokenService.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
 // ── Shared SELECT fragments ─────────────────────────────────────────────────
@@ -47,11 +50,19 @@ const APPOINTMENT_SELECT = `
   a.meeting3Date AS "meeting3Date", a.meeting3Status AS "meeting3Status",
   a.meeting3Feedback AS "meeting3Feedback",
   a.customerSigned AS "customerSigned", a.isBrokerSwitch AS "isBrokerSwitch",
+  a.claimTokenCost AS "claimTokenCost", a.claimedAt AS "claimedAt",
   a.createdAt AS "createdAt", a.updatedAt AS "updatedAt",
   l.id AS "leadId", l.title, l.firstName AS "firstName", l.lastName AS "lastName",
   l.email AS "leadEmail", l.mobileNumber AS "leadMobile", l.occupation,
   COALESCE(ev.name, ms.name, l.manualSourceName) AS "sourceLabel",
   ag.displayName AS "agentName",
+  -- §117 — the claim pool's own listing already filters on this (agent's
+  -- region matching the requesting broker's own BrokerRegion rows, see
+  -- listAvailableToClaim() below) but didn't SELECT it for display until
+  -- now; every other consumer of this shared SELECT just ignores the
+  -- extra column, same reasoning as adding entraObjectId to
+  -- USER_LIST_SELECT (userService.js, §114).
+  ag.region AS "agentRegion",
   br.displayName AS "brokerName"`;
 
 const APPOINTMENT_JOINS = `
@@ -313,11 +324,11 @@ export async function createAppointment(data) {
     `INSERT INTO Appointment (
        id, organisationId, leadId, status, agentId, brokerId, portfolioId,
        firstAppointmentDate, firstAppointmentTime, firstAppointmentAddress,
-       productsInterestedIn, currentInsurer, createdAt, updatedAt
+       productsInterestedIn, currentInsurer, claimTokenCost, createdAt, updatedAt
      ) VALUES (
        @id, @organisationId, @leadId, @status, @agentId, @brokerId, @portfolioId,
        @firstAppointmentDate, @firstAppointmentTime, @firstAppointmentAddress,
-       @productsInterestedIn, @currentInsurer, NOW(), NOW()
+       @productsInterestedIn, @currentInsurer, @claimTokenCost, NOW(), NOW()
      )`,
     {
       id:                      { type: sql.UniqueIdentifier, value: newId },
@@ -332,6 +343,11 @@ export async function createAppointment(data) {
       firstAppointmentAddress: { type: sql.NVarChar(500),     value: data.firstAppointmentAddress ?? null },
       productsInterestedIn:    { type: sql.NVarChar(sql.MAX), value: data.productsInterestedIn ? JSON.stringify(data.productsInterestedIn) : null },
       currentInsurer:          { type: sql.NVarChar(200),     value: data.currentInsurer ?? null },
+      // §117 — only meaningful for an Unassigned appointment (data.brokerId
+      // omitted), but stored regardless of status; a directly-booked
+      // appointment (status Assigned) never reads this field since it
+      // never enters the claim pool.
+      claimTokenCost:          { type: sql.Int,                value: data.claimTokenCost ?? 0 },
     }
   );
 
@@ -452,6 +468,132 @@ export async function assignBroker(id, brokerId) {
       entityId:    id,
     });
   }
+}
+
+/**
+ * §117 — brokers self-serving from the Unassigned appointment pool, when
+ * appointments.claimModel = 'claim'. Broker-only at the route layer
+ * (appointmentHandlers.js) — this is explicitly the SELF-service action
+ * the claim model is for, not an Admin/Supervisor action on someone's
+ * behalf (that's assignBroker()/reassignAppointment() above, unchanged
+ * and still exactly what the assign model uses).
+ *
+ * ORDERING, DELIBERATE: debits tokens FIRST, then attempts the atomic
+ * claim (guarded UPDATE ... WHERE status = 'Unassigned'), and refunds if
+ * the claim lost the race (someone else claimed it between this broker
+ * loading the list and clicking Claim). Debit-then-claim rather than
+ * claim-then-debit specifically so a broker who can't afford an
+ * appointment never sees it flash to "claimed" and then revert — they
+ * just get the insufficient-tokens error immediately, appointment
+ * untouched. See tokenService.js's header for why both steps are each a
+ * single guarded UPDATE rather than a multi-statement transaction (none
+ * available in this stack).
+ * @param {string} id - appointment id
+ * @param {string} brokerId
+ */
+export async function claimAppointment(id, brokerId) {
+  const organisationId = resolveOrganisationId();
+
+  const appt = await executeQueryOne(
+    `SELECT a.status, a.claimTokenCost AS "claimTokenCost", a.agentId AS "agentId",
+            a.firstAppointmentDate AS "firstAppointmentDate", a.firstAppointmentTime AS "firstAppointmentTime",
+            l.title, l.firstName AS "firstName", l.lastName AS "lastName"
+     FROM Appointment a LEFT JOIN Lead l ON a.leadId = l.id
+     WHERE a.id = @id AND a.organisationId = @organisationId`,
+    { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  if (!appt) throw { status: 404, message: 'Appointment not found' };
+  if (appt.status !== 'Unassigned') {
+    throw { status: 409, message: 'This appointment is no longer available to claim' };
+  }
+
+  const cost = appt.claimTokenCost ?? 0;
+  if (cost > 0) {
+    await debitTokensForClaim(brokerId, id, cost); // throws 400 if insufficient tokens
+  }
+
+  const claimed = await executeQueryOne(
+    `UPDATE Appointment
+     SET brokerId = @brokerId, status = 'Claimed', claimedByBrokerId = @brokerId, claimedAt = NOW(), updatedAt = NOW()
+     WHERE id = @id AND organisationId = @organisationId AND status = 'Unassigned'
+     RETURNING id`,
+    {
+      id:             { type: sql.UniqueIdentifier, value: id },
+      brokerId:       { type: sql.UniqueIdentifier, value: brokerId },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+    }
+  );
+
+  if (!claimed) {
+    if (cost > 0) await refundTokens(brokerId, id, cost);
+    throw { status: 409, message: 'This appointment is no longer available to claim' };
+  }
+
+  const leadName = [appt.title, appt.firstName, appt.lastName].filter(Boolean).join(' ');
+  const dateLabel = shortDateLabel(appt.firstAppointmentDate);
+  const whenLabel = [dateLabel, appt.firstAppointmentTime].filter(Boolean).join(', ');
+  await createNotification({
+    recipientId: appt.agentId,
+    type:        'AppointmentAssigned', // same notification type assignBroker() uses — this IS an assignment from the agent's point of view, just self-served rather than admin-picked
+    title:       `Appointment claimed — ${leadName}`,
+    body:        `A broker has claimed this appointment.${whenLabel ? ` First meeting: ${whenLabel}.` : ''}`,
+    entityType:  'Appointment',
+    entityId:    id,
+  });
+}
+
+/**
+ * The claim pool a broker actually sees — Unassigned appointments
+ * (claimModel = 'claim' is enforced at the route layer, not here) whose
+ * agent's region matches one of THIS broker's own regions (BrokerRegion)
+ * and whose productsInterestedIn overlaps this broker's own product
+ * specialisation (BrokerProduct) — mirrors brokerMatchingService.
+ * findMatchingBrokers()'s own region+product eligibility rule exactly,
+ * just inverted (a broker looking up their own matches, rather than a
+ * lead being matched against all brokers). An appointment with no
+ * productsInterestedIn recorded is shown to every region-matched broker
+ * rather than excluded — treating "no product recorded" as "no product
+ * filter" is the safer default; the alternative (hide it from everyone)
+ * would make an appointment permanently unclaimable over a data-entry gap.
+ *
+ * Product matching happens in JS, not SQL — productsInterestedIn is a
+ * JSON-text column (see getAppointmentById's own JSON.parse), and
+ * matching it against a Postgres TEXT column would mean fragile JSON-in-
+ * SQL string matching for no real benefit; fetching this broker's own
+ * product names once and intersecting in JS is simpler and exactly as
+ * correct.
+ * @param {string} brokerId
+ */
+export async function listAvailableToClaim(brokerId) {
+  const organisationId = resolveOrganisationId();
+
+  const brokerProducts = await executeQuery(
+    `SELECT prod.name FROM BrokerProduct bp JOIN Product prod ON prod.id = bp.productId WHERE bp.brokerId = @brokerId`,
+    { brokerId: { type: sql.UniqueIdentifier, value: brokerId } }
+  );
+  const brokerProductNames = new Set(brokerProducts.map(p => p.name));
+
+  const candidates = await executeQuery(
+    `SELECT ${APPOINTMENT_SELECT} ${APPOINTMENT_JOINS}
+     WHERE a.status = 'Unassigned' AND a.organisationId = @organisationId
+       AND EXISTS (
+         SELECT 1 FROM BrokerRegion br WHERE br.brokerId = @brokerId AND br.region = ag.region
+       )
+     ORDER BY a.firstAppointmentDate ASC, a.firstAppointmentTime ASC`,
+    {
+      brokerId:       { type: sql.UniqueIdentifier, value: brokerId },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+    }
+  );
+
+  return candidates.filter((appt) => {
+    const interested = appt.productsInterestedIn ? JSON.parse(appt.productsInterestedIn) : [];
+    if (interested.length === 0) return true; // no product recorded — show to every region-matched broker, see header comment
+    return interested.some((name) => brokerProductNames.has(name));
+  }).map((appt) => ({
+    ...appt,
+    productsInterestedIn: appt.productsInterestedIn ? JSON.parse(appt.productsInterestedIn) : [],
+  }));
 }
 
 /**

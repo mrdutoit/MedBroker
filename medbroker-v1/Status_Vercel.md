@@ -91,7 +91,13 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
   Appointments    Full CRUD, assign/reassign broker & agent, return-to-
                   leads, outcome recording, broker matching, Appointment
                   History card on Lead Detail (surfaces the full
-                  one-to-many set, not just the most recent)
+                  one-to-many set, not just the most recent). Claim model
+                  (appointments.claimModel = 'claim') is real as of §117 —
+                  self-serve claiming, TokenLedger, monthly free
+                  allocation with lazy reset (no cron in this stack).
+                  Stripe payment (appointments.tokens.paymentProvider =
+                  'stripe') still NOT wired — manual admin top-up
+                  ('none' provider) is the only funding path so far.
   Users           Admin CRUD + real self-service profile (PUT /users/me
                   — theme/avatar/timezone, structurally separate schema
                   from the admin-editing-someone-else route)
@@ -217,7 +223,12 @@ what's actually live right now):
 
 DELIBERATELY NOT BUILT (real gaps, not yet scoped or blocked on
 something outside this session's control):
-  - Token economy: claim model works; Stripe not connected.
+  - Token economy: claim model + TokenLedger are real as of §117.
+    Stripe payment specifically ('stripe' provider) is what's still not
+    connected — manual admin top-up ('none' provider) is fully built and
+    is the only funding path today. Needs Mark's explicit go-ahead to
+    start, same gate as every staged piece this session (see §117 for
+    the full design already settled for when that happens).
 
 FLAGGED, NOT BUILT — small, explicitly scoped-out while doing adjacent
 work, worth revisiting if the same question comes up again:
@@ -7959,9 +7970,190 @@ correction) are built and verified by this session but NOT YET DEPLOYED.
 and is unchanged) — a straight drag-and-drop-and-deploy, same as §116's
 comment-only change. No migration for either.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+117. TOKEN ECONOMY STAGE 1 — CLAIM MODEL + TOKENLEDGER REAL, STRIPE STILL DEFERRED — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark asked to build the Stripe feature. Investigation before writing any
+code found the actual scope was bigger than the "claim model works;
+Stripe not connected" line this file's §0 previously carried — that was
+wrong, corrected in conversation before this entry: the CLAIM model
+(appointments.claimModel = 'claim') had ZERO backend implementation.
+TokenLedger/TokenTransaction were schema-only ("Phase 2 stub", Section
+14), and AppointmentList.jsx's entire claim UI — Available to Claim tab,
+token balance, Buy Tokens modal — was mock data, by its own header
+comment's own admission. Stripe had nothing real to connect a payment to.
+
+Mark chose to stage it, same shape as the SSO staging: real claim/token
+backend first (this entry), Stripe checkout/webhook after, only once
+Mark gives the explicit go-ahead — same gate every staged piece this
+session has used. This entry is the "before" half; Stripe is NOT built.
+
+ARCHITECTURE DECISIONS MADE, WORTH KNOWING ABOUT:
+
+  NO CRON FOR THE MONTHLY FREE-TOKEN RESET. TokenLedger.freeRemaining is
+  meant to reset every calendar month to SystemConfig.
+  brokerFreeAppointmentsPerMonth. This Vercel stack has no scheduled-job
+  infrastructure (same gap that's kept Notifications' own scheduled
+  pieces on hold). Solved the same way §111/§112's KMS/demo1 format
+  detection solves an analogous problem: LAZY reset-on-read.
+  getCurrentTokenLedger() (tokenService.js) checks whether periodStart
+  is before the current month on every call and resets right then if so.
+  A broker who never touches the token economy in a given month just
+  never gets reset that month — harmless, nothing reads an unused ledger
+  either. Recurring design language in this codebase for "no scheduler
+  available," not a one-off improvisation.
+
+  NO MULTI-STATEMENT TRANSACTIONS EXIST IN THIS STACK (confirmed by
+  reading db.js, not assumed — executeQuery has no BEGIN/COMMIT wrapper,
+  every call is one statement against the pool). claimAppointment()
+  (appointmentService.js) and debitTokensForClaim()/manualTopUp()
+  (tokenService.js) are each written as single, GUARDED, atomic UPDATEs
+  (WHERE freeRemaining >= @x AND balance >= @y, or WHERE status =
+  'Unassigned') rather than read-then-write, so a genuine race (two
+  brokers claiming the same appointment, or a balance changing between
+  check and debit) fails the guard and throws cleanly instead of
+  silently corrupting a balance or double-assigning an appointment.
+  claimAppointment() debits tokens BEFORE attempting the claim
+  (deliberate ordering — a broker who can't afford an appointment never
+  sees it flash to "claimed" and then revert), and refunds
+  (refundTokens()) if the claim itself then loses the race.
+
+  AVAILABLE-TO-CLAIM FILTERING mirrors brokerMatchingService.
+  findMatchingBrokers()'s own region+product eligibility rule exactly —
+  a broker only ever sees appointments they'd have been eligible for if
+  an Admin had manually matched them instead (BrokerRegion + BrokerProduct,
+  same tables, same join shape, just inverted — a broker looking up their
+  own matches instead of a lead being matched against all brokers). An
+  appointment with no productsInterestedIn recorded is shown to every
+  region-matched broker rather than hidden from everyone — the safer
+  default; the alternative would make an appointment permanently
+  unclaimable over a data-entry gap. Product matching happens in JS
+  (fetch the broker's own product names once, intersect against the
+  parsed productsInterestedIn JSON), not fragile JSON-in-SQL matching.
+
+  'NONE' PAYMENT PROVIDER IS FULLY BUILT, NOT A STOPGAP — matches the
+  flag's own description ("manual top-up by admin only") exactly.
+  UserAdmin.jsx's edit modal gained a "Token Balance (Admin)" section —
+  visible for Admin+GlobalAdmin editing a Broker specifically (broader
+  gate than §114's Sign-in Identity section, which is GlobalAdmin-only —
+  this matches the top-up endpoint's own actual Admin+GlobalAdmin scope)
+  — showing current free/paid balance with an add-tokens input. Stays
+  open on save (unlike link-identity, which closes) since an Admin
+  topping up a balance plausibly wants to check the new total or top up
+  again, not leave immediately.
+
+FRONTEND: AppointmentList.jsx's mock data (ALL_APPOINTMENTS,
+MY_APPOINTMENTS, AVAILABLE_TO_CLAIM) is gone. Turned out MY_APPOINTMENTS
+was redundant the whole time it existed — the real apptData fetch already
+correctly scopes to a Broker's own appointments server-side (listAppointments
+sets filters.brokerId = claims.oid for Broker role, confirmed by reading
+handleAppointmentsCollection, not assumed), for BOTH claim and assign
+model, since claiming sets brokerId same as assigning does. The claim-
+model "My Appointments" tab was rendering mock data next to a perfectly
+good real data source sitting unused in the same file. Available to
+Claim and the token balance card are both real now (appointmentsApi.
+listAvailableToClaim(), appointmentsApi.tokens.me()); claiming calls PUT
+/api/appointments/:id/claim and refetches all three (appointments,
+available pool, token balance) rather than the old local-state mock-row
+append. BuyTokensModal's 'none'-provider message was already accurate
+("contact your administrator") — left as-is.
+
+ONE BUG CAUGHT MID-BUILD, WORTH FLAGGING: while adding a SQL comment to
+APPOINTMENT_SELECT (appointmentService.js), a `//` (JS-style) slipped in
+alongside the surrounding `--` (SQL-style) comment markers. Since this
+whole SELECT is a JS template literal containing raw SQL text, that `//`
+would have been sent to Postgres as-is — not a JS syntax error (node
+--check passed fine), a malformed SQL string that would only have
+surfaced as a runtime query failure. Caught by literally extracting and
+reading the assembled SQL text before moving on, not by any automated
+check — worth remembering that node --check/ESM smoke tests don't
+validate SQL embedded in template literals; anything touching a raw SQL
+comment block deserves that same manual read-the-actual-string step.
+
+NOT IN THIS DELIVERY:
+  - Stripe checkout + webhook + credential storage (stage 2) — needs
+    Mark's explicit go-ahead, same gate this entry needed. Design already
+    settled in conversation: jose-adjacent raw-body handling for webhook
+    signature verification (Vercel auto-parses req.body; the fix is
+    reading the raw stream before anything touches it — confirmed via
+    Vercel's own docs/community answers, not assumed), folded into
+    appointments-router.js (still 12/12), an encrypted DB-backed
+    credentials store (reusing encryption.js's envelope encryption, NOT
+    SystemConfig — that table's GET is open to any staff member by
+    design, wrong place for secrets) with a shared "Integrations"
+    settings UI Mark specifically wants to also cover SMTP credentials
+    once built.
+  - Any actual SMTP credential UI — same "Integrations" page as Stripe
+    when that gets built; nodemailer still reads process.env.SMTP_* only.
+  - broker.tokenIncentives.enabled (bonus tokens for closed deals) —
+    Phase2-tagged flag, untouched, no indication Mark wants this yet.
+
+TESTED how this session's other database-touching work has been tested:
+node --check + ESM import smoke test on every backend file, full Vite
+production build (JSX/import correctness), existing 55-test Vitest suite
+unaffected (no new test file this entry — tokenService.js's core logic
+is small enough guarded UPDATEs that unit-testing them meaningfully would
+need a real or mocked Postgres connection, unlike entraAuthService.js's
+pure-function verification core; flagged rather than faked). Cannot
+verify an actual claim, a real race condition, or the lazy monthly reset
+against a live database from this sandbox — same caveat as every other
+piece of database-dependent work this session.
+
+MIGRATION: none. TokenLedger, TokenTransaction, and Appointment.
+claimedByBrokerId/claimedAt/claimTokenCost all already existed in
+schema.postgres.sql, anticipating exactly this (Section 14's own "Phase 2
+stub" label was accurate prophecy, not aspirational — confirmed via
+direct inspection before writing a line of this entry's code).
+
+Project_Context_Vercel.md also updated this entry: the CLAIM MODEL flag
+section corrected (was describing claim mode as unbuilt with Stripe as
+the missing piece; now describes what's actually real vs still deferred),
+and the Appointment entity's status enum corrected to include 'Claimed'
+— missing from that list entirely, unrelated to this entry's own work but
+caught while in the area.
+
+FILES:
+  frontend/api-lib/models/appointment.js         (claimTokenCost, TokenTopUpSchema)
+  frontend/api-lib/services/tokenService.js      (NEW)
+  frontend/api-lib/services/appointmentService.js (claimAppointment, listAvailableToClaim, claimTokenCost wired into createAppointment, agentRegion added to APPOINTMENT_SELECT)
+  frontend/api-lib/handlers/appointmentHandlers.js (5 new handlers)
+  frontend/api/appointments-router.js            (claim/available-to-claim/tokens routes — still 12/12)
+  frontend/src/services/api.js                   (appointmentsApi.claim/listAvailableToClaim/tokens.*)
+  frontend/src/pages/AppointmentList.jsx          (mock data removed, real wiring throughout)
+  frontend/src/pages/UserAdmin.jsx                (Token Balance admin section)
+Plus this Status_Vercel.md and Project_Context_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 15 PAUSED HERE — 4 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed everything through §113 deployed cleanly, no errors seen.
+The AWS KMS code path (§111/§112) is deployed and visible in Feature
+Flags but deliberately untested end-to-end — the flag stays off until a
+paying customer exists, so this remains verified-by-code-review only,
+not exercised live; worth remembering next session that "deployed
+successfully" here means the flag-off/demo1 path was exercised by
+normal use, not the KMS path itself. Migration 020 confirmed already
+run by Mark before this session's end; safe to leave alone (re-running
+it is a no-op by design, confirmed and explained when he asked).
+
+§114 (Entra SSO stage 1+2) — CONFIRMED LIVE. Not from Mark saying so
+directly; the pre-packaging re-hydration for §115 pulled a fresh copy of
+main and the entra-login route was already present, which only happens
+if the §114 zip was deployed. Noted here as observed evidence, not
+assumed — worth being precise about the difference given this file's own
+"don't conflate seed defaults with live state" lesson (§109).
+
+§115 (Lead Portal httpOnly cookie), §116 (audit log comment correction),
+and §117 (token economy stage 1) are built and verified by this session
+but NOT YET DEPLOYED. None of the three need new env vars or a
+migration — straight drag-and-drop-and-deploy for all three.
+
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
-at the top of this file for what's next — stages 3+4 of Entra SSO, only
-once Mark explicitly says to start, same gate as before.
+at the top of this file for what's next — stages 3+4 of Entra SSO and
+stage 2 (Stripe) of the token economy, both only once Mark explicitly
+says to start, same gate as before.
 
 
 

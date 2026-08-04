@@ -26,72 +26,12 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
-import { appointmentsApi, usersApi } from '../services/api.js';
+import { appointmentsApi, usersApi, ApiError } from '../services/api.js';
 import { useFetch } from '../hooks/useFetch.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s, APPT_STATUS_META, MEETING_STATUS_META, PORTFOLIO_META } from '../styles/tokens.js';
 
-// ─── Claim-model mock data ──────────────────────────────────────────────────
-// Everything below is specifically for the claim model (brokers
-// self-serving from an available-appointments pool + token economy) —
-// a separate, larger feature with a real payment-provider dependency
-// that stays deliberately mocked, not part of the assign-model wiring
-// this page otherwise uses real data for. See models/appointment.js's
-// header (backend) for the full reasoning on why claim model isn't built.
-const ALL_APPOINTMENTS = [
-  { id:'A1', leadName:'Dr Priya Naidoo',     leadEmail:'p.naidoo@netcare.co.za',
-    occupation:'Anaesthesiologist',   portfolio:'Discovery',
-    source:'Wits Career Fair 2026',    status:'Assigned',   brokerCode:'SB',
-    brokerName:'Sandra van der Berg',  agentName:'Thabo Molefe',
-    firstDate:'Today · 10:00',    isToday:true,  m1:'Pending',    m2:null,          signed:null  },
-  { id:'A2', leadName:'Dr Sipho Dlamini',    leadEmail:'s.dlamini@wits.ac.za',
-    occupation:'General Practitioner',portfolio:'Discovery',
-    source:'Wits Career Fair 2026',    status:'Unassigned', brokerCode:'',
-    brokerName:'—',                    agentName:'Naledi van Wyk',
-    firstDate:'Tomorrow · 14:00', isToday:false, m1:'Pending',    m2:null,          signed:null  },
-  { id:'A3', leadName:'Dr Amara Osei',       leadEmail:'a.osei@mediclinic.co.za',
-    occupation:'Cardiologist',        portfolio:'M&M',
-    source:'MedLeads SA — Monthly',    status:'ClosedWon',  brokerCode:'SB',
-    brokerName:'Sandra van der Berg',  agentName:'Kabelo Petersen',
-    firstDate:'14 May 2026',      isToday:false, m1:'Seen',       m2:'Seen',        signed:'Yes' },
-  { id:'A4', leadName:'Dr Lerato Mokoena',   leadEmail:'l.mokoena@life.co.za',
-    occupation:'Orthopaedic Surgeon', portfolio:'Discovery',
-    source:'Manual — Referral',        status:'InProgress', brokerCode:'SB',
-    brokerName:'Sandra van der Berg',  agentName:'Thabo Molefe',
-    firstDate:'21 May 2026',      isToday:false, m1:'Seen',       m2:null,          signed:null  },
-  { id:'A5', leadName:'Dr James van Rooyen', leadEmail:'j.vanrooyen@uhw.co.za',
-    occupation:'Radiologist',         portfolio:'Discovery',
-    source:'Healthwise Doctor DB',     status:'Assigned',   brokerCode:'PJ',
-    brokerName:'Pieter Joubert',       agentName:'Bongani Ntuli',
-    firstDate:'22 May 2026',      isToday:false, m1:'Pending',    m2:null,          signed:null  },
-  { id:'A6', leadName:'Dr Ayesha Moosa',     leadEmail:'a.moosa@sunward.co.za',
-    occupation:'Psychiatrist',        portfolio:'M&M',
-    source:'Manual — Referral',        status:'Unassigned', brokerCode:'',
-    brokerName:'—',                    agentName:'Thabo Molefe',
-    firstDate:'23 May 2026',      isToday:false, m1:'Pending',    m2:null,          signed:null  },
-  { id:'A7', leadName:'Dr Marco Ferreira',   leadEmail:'m.ferreira@netcare.co.za',
-    occupation:'Neurologist',         portfolio:'M&M',
-    source:'MedLeads SA — Monthly',    status:'ClosedLost', brokerCode:'RB',
-    brokerName:'Riaan Botha',          agentName:'Naledi van Wyk',
-    firstDate:'24 May 2026',      isToday:false, m1:'Seen',       m2:'Seen',        signed:'No'  },
-  { id:'A8', leadName:'Dr Zanele Dube',      leadEmail:'z.dube@charlotte.co.za',
-    occupation:'Gynaecologist',       portfolio:'Discovery',
-    source:'Wits Career Fair 2026',    status:'Unassigned', brokerCode:'',
-    brokerName:'—',                    agentName:'Kabelo Petersen',
-    firstDate:'25 May 2026',      isToday:false, m1:'Pending',    m2:null,          signed:null  },
-];
-
-// Unassigned appointments matched to Sandra van der Berg's region and portfolios
-const AVAILABLE_TO_CLAIM = [
-  { id:'C1', leadName:'Dr Sipho Dlamini',  occupation:'General Practitioner', portfolio:'Discovery', date:'Tomorrow · 14:00', region:'Gauteng',  source:'Wits Career Fair 2026',  token:'Free'    },
-  { id:'C2', leadName:'Dr Fatima Essop',   occupation:'Paediatrician',        portfolio:'Discovery', date:'22 May · 09:30',  region:'Gauteng',  source:'SA Medical Register Q2', token:'Free'    },
-  { id:'C3', leadName:'Dr Marco Ferreira', occupation:'Neurologist',          portfolio:'M&M',       date:'23 May · 11:00',  region:'Gauteng',  source:'MedLeads SA — Monthly',  token:'Free'    },
-  { id:'C4', leadName:'Dr Zanele Dube',    occupation:'Gynaecologist',        portfolio:'Discovery', date:'25 May · 14:00',  region:'Limpopo',  source:'Wits Career Fair 2026',  token:'1 token' },
-  { id:'C5', leadName:'Dr Ruan de Beer',   occupation:'Dermatologist',        portfolio:'Discovery', date:'27 May · 10:00',  region:'Gauteng',  source:'MedLeads SA — Monthly',  token:'1 token' },
-];
-
-const MY_APPOINTMENTS = ALL_APPOINTMENTS.filter(a => a.brokerCode === 'SB');
-const PORTFOLIOS      = ['Discovery', 'M&M'];
+const PORTFOLIOS = ['Discovery', 'M&M'];
 
 // ─── Badge helpers ─────────────────────────────────────────────────────────────
 function MeetingBadge({ status }) {
@@ -312,10 +252,9 @@ export default function AppointmentList() {
   // Assign and Reassign buttons are hidden when claimModel = 'claim'.
   const showAssignActions = canManage && claimModel === 'assign';
 
-  // Monthly token allocation from SystemConfig (configurable in AppAdmin → System Settings)
-  // Default 10 — matches SystemConfig.brokerFreeAppointmentsPerMonth seed value
-  const monthlyAllocation = 10;
-  const tokenBalance      = 7; // mock — in production read from TokenLedger
+  // §117 — real now. monthlyAllocation/tokenLedger come from the tokens.me
+  // fetch below (server-computed, includes the lazy monthly-reset value —
+  // see tokenService.js), not a hardcoded constant.
 
   const [activeTab,      setActiveTab]      = useState('mine');
   const [statusFilter,   setStatusFilter]   = useState('Active');
@@ -323,20 +262,22 @@ export default function AppointmentList() {
   const [sourceFilter,   setSourceFilter]   = useState('');
   const [portfolioFilter,setPortfolioFilter]= useState('');
   const [brokerFilter,   setBrokerFilter]   = useState('');
-  // Tracks appointments claimed this session as full row objects so they
-  // render in the My Appointments table immediately, without a round trip.
-  // In production, claiming triggers PUT /api/appointments/:id/claim which
-  // sets assignedBrokerId and status = Assigned; the table is then re-fetched.
-  const [claimedAppointments, setClaimedAppointments] = useState([]);
   const [assignTarget,   setAssignTarget]   = useState(null);
   const [isAssignMode,   setIsAssignMode]   = useState(false);
   const [showBuyTokens,  setShowBuyTokens]  = useState(false);
+  // §117 — claim-in-flight tracking (disables the Claim button for the
+  // specific row being claimed) and a surfaced error (insufficient
+  // tokens, lost the race to another broker, etc.) — no more local-state
+  // mock appending; a successful claim refetches real data instead.
+  const [claimingId,     setClaimingId]     = useState(null);
+  const [claimError,     setClaimError]     = useState(null);
 
-  // Real data — assign model only (claim-mode's AVAILABLE_TO_CLAIM stays
-  // mock; wiring that is a separate, larger piece of work, see
-  // models/appointment.js header). Row-level scoping (own bookings for
-  // Agent, own assignments for Broker, direct reports for Supervisor) is
-  // already applied server-side — nothing extra needed client-side for that.
+  // Real data — assign model AND claim model both, as of §117. Row-level
+  // scoping (own bookings for Agent, own assignments for Broker, direct
+  // reports for Supervisor) is already applied server-side — nothing
+  // extra needed client-side for that, and this already correctly
+  // includes a broker's own Claimed appointments too (claiming sets
+  // brokerId server-side, same column this list already filters on).
   const { data: apptData, loading: apptLoading, refetch: refetchAppts } = useFetch(
     () => appointmentsApi.list({}), []
   );
@@ -344,6 +285,21 @@ export default function AppointmentList() {
   const realBrokers = brokersData?.users ?? [];
   const { data: agentsData } = useFetch(() => usersApi.list({ role: 'Agent' }), []);
   const realAgents = agentsData?.users ?? [];
+
+  // §117 — only fetched for a Broker under the claim model; resolving to
+  // an empty/null result rather than not calling useFetch at all for
+  // other roles (hooks must run unconditionally either way), avoiding a
+  // guaranteed 403 network call for every non-Broker page load.
+  const { data: availableData, loading: availableLoading, refetch: refetchAvailable } = useFetch(
+    () => (isBroker && claimModel === 'claim') ? appointmentsApi.listAvailableToClaim() : Promise.resolve({ appointments: [] }),
+    [isBroker, claimModel]
+  );
+  const { data: tokenData, refetch: refetchTokens } = useFetch(
+    () => (isBroker && tokensEnabled) ? appointmentsApi.tokens.me() : Promise.resolve(null),
+    [isBroker, tokensEnabled]
+  );
+  const tokenLedger       = tokenData?.ledger ?? { freeRemaining: 0, balance: 0 };
+  const monthlyAllocation = tokenData?.monthlyAllocation ?? 0;
 
   const today = new Date().toDateString();
   const realAppointments = (apptData?.appointments ?? []).map(a => ({
@@ -370,6 +326,23 @@ export default function AppointmentList() {
     signed:      a.customerSigned === true ? 'Yes' : a.customerSigned === false ? 'No' : null,
     brokerId:    a.brokerId ?? null, // real id, used directly by the Assign/Reassign modal
     agentId:     a.agentId,
+  }));
+
+  // §117 — the claim pool. Only ever non-empty for a Broker under
+  // claimModel = 'claim' (availableData resolves to { appointments: [] }
+  // otherwise, see the useFetch call above), so no extra role check
+  // needed here.
+  const availableAppointments = (availableData?.appointments ?? []).map(a => ({
+    id:             a.id,
+    leadName:       `${a.title ?? ''} ${a.firstName} ${a.lastName}`.trim(),
+    occupation:     a.occupation,
+    portfolios:     (a.portfolios ?? [a.portfolio]).map(p => p === 'Money and Medicine' ? 'M&M' : p),
+    date:           a.firstAppointmentDate
+                      ? `${new Date(a.firstAppointmentDate).toDateString() === today ? 'Today' : new Date(a.firstAppointmentDate).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })} · ${(a.firstAppointmentTime ?? '').slice(0, 5)}`
+                      : '—',
+    region:         a.agentRegion ?? '—',
+    source:         a.sourceLabel ?? '—',
+    claimTokenCost: a.claimTokenCost ?? 0,
   }));
 
   // apptLoading (checked below, near the top of the render) keeps
@@ -408,9 +381,30 @@ export default function AppointmentList() {
   const inProgress  = myAppts.filter(a => a.status === 'InProgress').length;
   const todayCount  = myAppts.filter(a => a.isToday).length;
   const closedWon   = myAppts.filter(a => a.status === 'ClosedWon').length;
-  const claimedIds  = new Set(claimedAppointments.map(a => a.id));
-  const availCount  = AVAILABLE_TO_CLAIM.filter(a => !claimedIds.has(a.id)).length;
+  // §117 — claimed appointments now show up in myAppts naturally (real
+  // data, status='Claimed', brokerCode=this broker's own id) — no
+  // separate claimedAppointments list to merge in any more.
+  const claimedCount = myAppts.filter(a => a.status === 'Claimed').length;
+  const availCount  = availableAppointments.length;
   const hasFilter  = statusFilter !== 'Active' || search || sourceFilter || portfolioFilter || brokerFilter;
+
+  // §117 — the actual claim action. Debit-then-claim ordering, race
+  // handling, and the refund-on-lost-race path all live server-side
+  // (appointmentService.claimAppointment/tokenService.debitTokensForClaim)
+  // — this is just the call + refetch + surfaced error.
+  async function handleClaim(id) {
+    setClaimError(null);
+    setClaimingId(id);
+    try {
+      await appointmentsApi.claim(id);
+      await Promise.all([refetchAppts(), refetchAvailable(), refetchTokens()]);
+      setActiveTab('mine');
+    } catch (err) {
+      setClaimError(err instanceof ApiError ? err.message : 'Could not claim this appointment.');
+    } finally {
+      setClaimingId(null);
+    }
+  }
 
   const subtitleMap = {
     GlobalAdmin: 'All appointments across all brokers',
@@ -574,7 +568,8 @@ export default function AppointmentList() {
   // ── Token card ────────────────────────────────────────────────────────────────
   function TokenCard() {
     if (!tokensEnabled) return null;
-    const pct = Math.round((tokenBalance / monthlyAllocation) * 100);
+    const { freeRemaining, balance } = tokenLedger;
+    const pct = monthlyAllocation > 0 ? Math.round((freeRemaining / monthlyAllocation) * 100) : 0;
     return (
       <div style={{ background:'var(--panel)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px 16px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '16px' }}>
         <div style={{ flex: 1 }}>
@@ -586,12 +581,22 @@ export default function AppointmentList() {
               <div style={{ height: '100%', borderRadius: '4px', background: pct > 30 ? 'var(--accent)' : '#dc2626', width: `${pct}%`, transition: 'width 0.3s' }} />
             </div>
             <span style={{ fontSize: '0.875rem', fontWeight: 600, color: pct > 30 ? 'var(--accent)' : '#dc2626', whiteSpace: 'nowrap' }}>
-              {tokenBalance} / {monthlyAllocation} free remaining
+              {freeRemaining} / {monthlyAllocation} free remaining
             </span>
           </div>
-          {tokenBalance === 0 && (
+          {balance > 0 && (
+            <div style={{ fontSize: '0.75rem', color:'var(--mut)', marginTop: '4px' }}>
+              + {balance} paid token{balance === 1 ? '' : 's'} available
+            </div>
+          )}
+          {freeRemaining === 0 && balance === 0 && (
             <div style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: '4px' }}>
-              Free allocation exhausted — additional claims cost 1 token each.
+              Free allocation exhausted — additional claims cost tokens you don't currently have.
+            </div>
+          )}
+          {freeRemaining === 0 && balance > 0 && (
+            <div style={{ fontSize: '0.75rem', color: '#d97706', marginTop: '4px' }}>
+              Free allocation exhausted — further claims will use your paid tokens.
             </div>
           )}
         </div>
@@ -656,7 +661,7 @@ export default function AppointmentList() {
         <>
           <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '18px' }}>
             {[
-              { key: 'mine',      label: 'My Appointments',    badge: MY_APPOINTMENTS.length + claimedAppointments.length },
+              { key: 'mine',      label: 'My Appointments',    badge: myAppts.length },
               { key: 'available', label: 'Available to Claim', badge: availCount },
             ].map(tab => (
               <button key={tab.key} onClick={() => setActiveTab(tab.key)} style={{
@@ -682,9 +687,9 @@ export default function AppointmentList() {
               <TokenCard />
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: '12px', marginBottom: '16px' }}>
                 {[
-                  { label: 'Total assigned',    value: MY_APPOINTMENTS.length + claimedAppointments.length, colour: 'var(--accent)' },
-                  { label: 'Today',             value: MY_APPOINTMENTS.filter(a => a.isToday).length, colour: '#d97706' },
-                  { label: 'Closed Won',        value: MY_APPOINTMENTS.filter(a => a.status === 'ClosedWon').length, colour: '#15803d' },
+                  { label: 'Total assigned',    value: myAppts.length, colour: 'var(--accent)' },
+                  { label: 'Today',             value: todayCount, colour: '#d97706' },
+                  { label: 'Closed Won',        value: closedWon, colour: '#15803d' },
                 ].map(m => (
                   <div key={m.label} style={s.metricCard}>
                     <div style={{ fontSize: '0.688rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '4px' }}>{m.label}</div>
@@ -692,10 +697,10 @@ export default function AppointmentList() {
                   </div>
                 ))}
               </div>
-              <AppointmentsTable rows={[...MY_APPOINTMENTS, ...claimedAppointments]} showBroker={false} />
-              {claimedAppointments.length > 0 && (
+              <AppointmentsTable rows={myAppts} showBroker={false} />
+              {claimedCount > 0 && (
                 <div style={{ ...s.noticeSuccess, marginTop: '10px' }}>
-                  ✓ {claimedAppointments.length} appointment{claimedAppointments.length !== 1 ? 's' : ''} claimed successfully.
+                  ✓ {claimedCount} appointment{claimedCount !== 1 ? 's' : ''} claimed.
                 </div>
               )}
             </>
@@ -706,15 +711,19 @@ export default function AppointmentList() {
               <div style={{ ...s.noticeWarn, marginBottom: '14px', display: 'flex', gap: '8px' }}>
                 <span style={{ flexShrink: 0 }}>⚡</span>
                 <span>
-                  <strong>Claim model active.</strong> Appointments matched to your region (Gauteng) and portfolios.
-                  {tokensEnabled ? ` ${tokenBalance} of ${monthlyAllocation} free claims remaining this month.` : ' All claims are currently free.'}
+                  <strong>Claim model active.</strong> Appointments matched to your registered region(s) and portfolios.
+                  {tokensEnabled ? ` ${tokenLedger.freeRemaining} of ${monthlyAllocation} free claims remaining this month.` : ' All claims are currently free.'}
                 </span>
               </div>
+              {claimError && <div style={{ ...s.errorBox, marginBottom: '14px' }}>{claimError}</div>}
               <TokenCard />
               <div style={{ fontSize: '0.875rem', fontWeight: 600, color:'var(--ink)', marginBottom: '10px', display: 'flex', alignItems: 'center', gap: '8px' }}>
                 Available to claim
                 <span style={{ ...s.badge, background: 'color-mix(in srgb, #d97706 14%, var(--panel))', color: '#d97706', fontSize: '0.75rem' }}>{availCount} unassigned</span>
               </div>
+              {availableLoading && (
+                <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading available appointments…</div>
+              )}
               <div style={{ ...s.tableCard, overflowX: 'auto' }}>
                 <table style={{ ...s.table, minWidth: '680px' }}>
                   <thead>
@@ -730,7 +739,7 @@ export default function AppointmentList() {
                     </tr>
                   </thead>
                   <tbody>
-                    {AVAILABLE_TO_CLAIM.filter(a => !claimedIds.has(a.id)).map(a => (
+                    {availableAppointments.map(a => (
                       <tr key={a.id} style={s.tr}
                         onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
                         onMouseLeave={e => e.currentTarget.style.background = ''}>
@@ -741,48 +750,24 @@ export default function AppointmentList() {
                         <td style={{ ...s.td, fontSize: '0.8125rem', color:'var(--mut)' }}>{a.region}</td>
                         <td style={{ ...s.td, fontSize: '0.75rem', color:'var(--mut)' }}>{a.source}</td>
                         <td style={s.td}>
-                          <span style={{ ...s.badge, fontSize: '0.688rem', background: a.token === 'Free' ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'color-mix(in srgb, #d97706 14%, var(--panel))', color: a.token === 'Free' ? '#15803d' : '#d97706' }}>
-                            {a.token}
+                          <span style={{ ...s.badge, fontSize: '0.688rem', background: a.claimTokenCost === 0 ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'color-mix(in srgb, #d97706 14%, var(--panel))', color: a.claimTokenCost === 0 ? '#15803d' : '#d97706' }}>
+                            {a.claimTokenCost === 0 ? 'Free' : `${a.claimTokenCost} token${a.claimTokenCost === 1 ? '' : 's'}`}
                           </span>
                         </td>
                         <td style={s.td}>
-                          <button style={s.primaryBtn} onClick={() => {
-                            // Map the Available-to-Claim shape into a full appointment row.
-                            // In production this is a PUT /api/appointments/:id/claim that
-                            // sets assignedBrokerId and status = Assigned server-side;
-                            // the list is then re-fetched. In preview we derive it locally.
-                            const claimed = {
-                              id:         a.id,
-                              leadName:   a.leadName,
-                              leadEmail:  '',
-                              occupation: a.occupation,
-                              portfolio:  a.portfolio,
-                              source:     a.source,
-                              status:     'Assigned',
-                              brokerCode: 'SB',
-                              brokerName: 'Sandra van der Berg',
-                              agentName:  '—',
-                              firstDate:  a.date,
-                              isToday:    false,
-                              m1:         'Pending',
-                              m2:         null,
-                              signed:     null,
-                            };
-                            setClaimedAppointments(prev => [...prev, claimed]);
-                            setActiveTab('mine');
-                          }}>
-                            Claim
+                          <button style={s.primaryBtn} onClick={() => handleClaim(a.id)} disabled={claimingId === a.id}>
+                            {claimingId === a.id ? 'Claiming…' : 'Claim'}
                           </button>
                         </td>
                       </tr>
                     ))}
-                    {availCount === 0 && (
+                    {availCount === 0 && !availableLoading && (
                       <tr><td colSpan={8} style={{ textAlign: 'center', padding: '36px', color:'var(--mut)' }}>No available appointments right now.</td></tr>
                     )}
                   </tbody>
                 </table>
                 <div style={{ padding: '9px 14px', fontSize: '0.75rem', color:'var(--mut)', borderTop: '1px solid var(--line)', background:'var(--panel2)' }}>
-                  Matched to your region (Gauteng) and portfolios (Discovery, M&M).
+                  Matched to your registered region(s) and portfolios.
                 </div>
               </div>
             </>

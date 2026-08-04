@@ -8,17 +8,35 @@
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
 import {
   listAppointments, createAppointment, getAppointmentById, assignBroker,
-  reassignAppointment, returnToLeads, saveOutcome,
+  reassignAppointment, returnToLeads, saveOutcome, claimAppointment, listAvailableToClaim,
 } from '../services/appointmentService.js';
 import { findMatchingBrokers } from '../services/brokerMatchingService.js';
-import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById } from '../services/userService.js';
+import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById, getActiveUserById } from '../services/userService.js';
 import { getLeadDisplayNameById } from '../services/leadService.js';
 import { writeAuditLog, clientIp, listAuditLog } from '../services/auditService.js';
+import { getCurrentTokenLedger, manualTopUp, listTokenTransactions } from '../services/tokenService.js';
+import { getSystemConfig } from '../services/systemConfigService.js';
+import { getFlagMeta } from '../services/flagService.js';
 import {
   CreateAppointmentSchema, AppointmentListQuerySchema, AssignBrokerSchema,
-  ReassignAppointmentSchema, SaveOutcomeSchema, BrokerMatchingQuerySchema,
+  ReassignAppointmentSchema, SaveOutcomeSchema, BrokerMatchingQuerySchema, TokenTopUpSchema,
 } from '../models/appointment.js';
 import { isUuid } from '../http/helpers.js';
+
+/**
+ * True if appointments.claimModel is currently set to 'claim'. Checked at
+ * the route layer for every §117 claim-model endpoint (claim, available-
+ * to-claim) — same "flag genuinely gates behaviour, not just frontend
+ * visibility" pattern auth.sso.enabled/security.kmsEncryption.enabled
+ * already established. Deliberately NOT checked for the token-ledger/
+ * top-up endpoints below — an Admin should still be able to view/top-up a
+ * broker's balance even if the org has since switched back to 'assign'
+ * (their existing balance doesn't just stop existing).
+ */
+async function isClaimModelEnabled() {
+  const meta = await getFlagMeta('appointments.claimModel');
+  return meta?.value === 'claim';
+}
 
 /** GET (list) + POST (create) /api/appointments */
 /**
@@ -373,6 +391,194 @@ export async function handleAppointmentOutcome(req, res, id) {
       return res.status(status).json(body);
     }
     console.error('appointments/[id]/outcome error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * PUT /api/appointments/:id/claim — §117. Broker ONLY — this is the
+ * self-service action the claim model exists for, deliberately not
+ * extended to Admin/Supervisor/GlobalAdmin (those roles have
+ * assign/reassign for exactly this reason — claiming on someone else's
+ * behalf isn't what "claim" means here).
+ */
+export async function handleAppointmentClaim(req, res, id) {
+  if (req.method !== 'PUT') {
+    res.setHeader('Allow', 'PUT, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Broker']);
+
+    if (!(await isClaimModelEnabled())) {
+      return res.status(403).json({ error: 'Appointment claiming is not enabled for this deployment' });
+    }
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid appointment ID format' });
+
+    await claimAppointment(id, claims.oid);
+
+    await writeAuditLog({
+      entityType: 'Appointment',
+      entityId: id,
+      action: 'AppointmentClaimed',
+      performedById: claims.oid,
+      changeDetail: {},
+      ipAddress: clientIp(req),
+    });
+
+    return res.status(200).json({ success: true });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('appointments/[id]/claim error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** GET /api/appointments/available-to-claim — §117. Broker only. */
+export async function handleAvailableToClaim(req, res) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Broker']);
+
+    if (!(await isClaimModelEnabled())) {
+      return res.status(403).json({ error: 'Appointment claiming is not enabled for this deployment' });
+    }
+
+    const appointments = await listAvailableToClaim(claims.oid);
+    return res.status(200).json({ appointments });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('appointments/available-to-claim error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * GET /api/appointments/tokens/me — §117. Broker's own current balance +
+ * recent transaction history. Not gated on isClaimModelEnabled() —
+ * deliberately (see this file's top comment): a broker's existing balance
+ * doesn't stop existing just because the org switched back to 'assign'.
+ */
+export async function handleTokenLedgerMe(req, res) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Broker']);
+
+    const ledger = await getCurrentTokenLedger(claims.oid);
+    const transactions = await listTokenTransactions(claims.oid);
+    const { brokerFreeAppointmentsPerMonth } = await getSystemConfig();
+    return res.status(200).json({ ledger, transactions, monthlyAllocation: brokerFreeAppointmentsPerMonth });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('appointments/tokens/me error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * GET /api/appointments/tokens/:brokerId — §117. Admin/GlobalAdmin only —
+ * same scope as the top-up action below, deliberately not extended to
+ * Supervisor (Broker isn't part of the Agent->Supervisor hierarchy
+ * getDirectReportIds() resolves, so there's no natural "which brokers is
+ * this Supervisor allowed to see" rule to apply here anyway).
+ */
+export async function handleTokenLedgerByBroker(req, res, brokerId) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Admin', 'GlobalAdmin']);
+
+    if (!isUuid(brokerId)) return res.status(400).json({ error: 'Invalid broker ID format' });
+    const broker = await getActiveUserById(brokerId);
+    if (!broker || broker.role !== 'Broker') return res.status(404).json({ error: 'Broker not found' });
+
+    const ledger = await getCurrentTokenLedger(brokerId);
+    const transactions = await listTokenTransactions(brokerId);
+    const { brokerFreeAppointmentsPerMonth } = await getSystemConfig();
+    return res.status(200).json({ ledger, transactions, monthlyAllocation: brokerFreeAppointmentsPerMonth, brokerName: broker.displayName });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('appointments/tokens/[brokerId] error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * PUT /api/appointments/tokens/:brokerId/topup — §117. Admin/GlobalAdmin
+ * only. The ENTIRE appointments.tokens.paymentProvider = 'none' path —
+ * see tokenService.manualTopUp()'s own header for why this isn't a
+ * stopgap standing in for Stripe.
+ */
+export async function handleTokenTopUp(req, res, brokerId) {
+  if (req.method !== 'PUT') {
+    res.setHeader('Allow', 'PUT, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Admin', 'GlobalAdmin']);
+
+    if (!isUuid(brokerId)) return res.status(400).json({ error: 'Invalid broker ID format' });
+    const broker = await getActiveUserById(brokerId);
+    if (!broker || broker.role !== 'Broker') return res.status(404).json({ error: 'Broker not found' });
+
+    const parsed = TokenTopUpSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    await manualTopUp(brokerId, parsed.data.amount, claims.oid);
+
+    await writeAuditLog({
+      entityType: 'TokenLedger',
+      entityId: brokerId,
+      action: 'TokenManualTopUp',
+      performedById: claims.oid,
+      changeDetail: { brokerId, brokerName: broker.displayName, amount: parsed.data.amount },
+      ipAddress: clientIp(req),
+    });
+
+    const ledger = await getCurrentTokenLedger(brokerId);
+    const { brokerFreeAppointmentsPerMonth } = await getSystemConfig();
+    return res.status(200).json({ ledger, monthlyAllocation: brokerFreeAppointmentsPerMonth });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('appointments/tokens/[brokerId]/topup error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

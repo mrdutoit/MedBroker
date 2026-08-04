@@ -116,11 +116,13 @@ Lead
 
 Appointment
   status: Unassigned | Assigned | InProgress | ClosedWon | ClosedLost |
-          ReturnedToLeads
+          ReturnedToLeads | Claimed
   Child of Lead. Won/Lost outcome (customerSigned) lives here, not on Lead.
   claimModel flag switches between Admin/Supervisor-assigns-broker vs
   Broker-self-claims-from-a-queue (token economy attaches to claim mode
-  specifically — see FEATURE FLAG SYSTEM).
+  specifically — see FEATURE FLAG SYSTEM). claimedByBrokerId/claimedAt/
+  claimTokenCost are all real now (§117) — set by claimAppointment()
+  (appointmentService.js) when a broker claims from the pool.
 
 Task
   type: Callback | Appointment | Reschedule | Reminder | Outcome | Manual
@@ -242,10 +244,19 @@ Tier: Phase2 (features NOT YET BUILT — toggling has no effect)
 
 CLAIM MODEL flag (appointments.claimModel):
   'assign' — Admin/Supervisor assigns brokers to appointments.
-  'claim'  — Brokers self-select from an Available to Claim queue;
-             claiming is immediate (no admin confirmation step).
-             Token economy (Stripe) attaches here but Stripe itself
-             isn't wired — payment provider flag exists, connection doesn't.
+  'claim'  — Brokers self-select from an Available to Claim queue
+             (region + product matched, same rule brokerMatchingService.js
+             uses for the assign model's own matching); claiming is
+             immediate (no admin confirmation step), and debits
+             TokenLedger via tokenService.js. REAL as of §117 (4 Aug 2026)
+             — was frontend-mock-only before that (see models/appointment.js's
+             pre-§117 header if ever curious what the staging note used to
+             say). Stripe payment (appointments.tokens.paymentProvider =
+             'stripe') is still NOT wired — §117 only built the 'none'
+             provider path (manual top-up by Admin/GlobalAdmin, via
+             UserAdmin.jsx's Token Balance section on a Broker's edit
+             modal). See Status_Vercel.md §117 for the full build and
+             the Stripe staging this continues from.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

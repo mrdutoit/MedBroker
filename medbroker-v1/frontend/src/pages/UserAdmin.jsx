@@ -24,7 +24,7 @@ import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
 import { useSortableData } from '../hooks/useSortableData.js';
-import { usersApi, ApiError } from '../services/api.js';
+import { usersApi, appointmentsApi, ApiError } from '../services/api.js';
 import { REGIONS } from '../constants/leadOptions.js';
 import { s } from '../styles/tokens.js';
 
@@ -139,10 +139,14 @@ function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onP
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
-function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnlock, onForceLogout, onLinkIdentity }) {
+function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnlock, onForceLogout, onLinkIdentity, onTopUp }) {
   const { role, portfolios: allPortfolios, productsByPortfolio } = useRole();
   const isEdit = mode === 'edit';
   const isGlobalAdmin = role === 'GlobalAdmin';
+  // §117 — broader than isGlobalAdmin above; the token top-up endpoint is
+  // Admin+GlobalAdmin (matches every other broker-management action on
+  // this page), unlike link-identity's GlobalAdmin-only scope.
+  const isAdminOrAbove = role === 'Admin' || isGlobalAdmin;
   const [form, setForm] = useState(
     isEdit
       ? {
@@ -169,6 +173,20 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
   });
   const [identitySaving, setIdentitySaving] = useState(false);
   const [identityError, setIdentityError]   = useState(null);
+
+  // §117 — token balance + manual top-up. Only relevant for a Broker;
+  // only fetched when this modal is actually showing one (isEdit &&
+  // isAdminOrAbove && user.role === 'Broker'), same "resolve to null
+  // rather than skip the hook" pattern AppointmentList.jsx's own §117
+  // fetches use, since hooks must run unconditionally either way.
+  const showTokenSection = isEdit && isAdminOrAbove && user?.role === 'Broker';
+  const { data: tokenData, loading: tokenLoading, refetch: refetchTokenLedger } = useFetch(
+    () => showTokenSection ? appointmentsApi.tokens.forBroker(user.id) : Promise.resolve(null),
+    [showTokenSection, user?.id]
+  );
+  const [topUpAmount, setTopUpAmount] = useState('');
+  const [topUpSaving, setTopUpSaving] = useState(false);
+  const [topUpError, setTopUpError]   = useState(null);
 
   function togglePortfolio(name) {
     setForm(f => {
@@ -290,6 +308,32 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
     }
   }
 
+  // §117 — deliberately does NOT close the modal on success, unlike
+  // handleLinkIdentity above: an Admin topping up a broker's balance is
+  // plausibly going to check the new total or top up again, not leave
+  // immediately — closing on every save would be a worse flow for a
+  // number-entry action like this one. Clears the input and refetches
+  // the ledger instead.
+  async function handleTopUp() {
+    setTopUpError(null);
+    const amount = Number(topUpAmount);
+    if (!Number.isInteger(amount) || amount < 1) {
+      setTopUpError('Enter a whole number of at least 1.');
+      return;
+    }
+
+    setTopUpSaving(true);
+    try {
+      await onTopUp(amount);
+      setTopUpAmount('');
+      await refetchTokenLedger();
+    } catch (err) {
+      setTopUpError(err instanceof ApiError ? err.message : 'Could not top up this broker\u2019s balance.');
+    } finally {
+      setTopUpSaving(false);
+    }
+  }
+
   return (
     <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ ...s.modal, width: '520px' }}>
@@ -385,6 +429,62 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
               <button style={s.secondaryBtn} onClick={handleLinkIdentity} disabled={identitySaving}>
                 {identitySaving ? 'Saving…' : 'Update Identity'}
               </button>
+            </div>
+          </div>
+        )}
+
+        {/* §117 — token balance + manual top-up: Admin+GlobalAdmin (broader
+            than Sign-in Identity's GlobalAdmin-only scope above — this
+            matches PUT /api/appointments/tokens/:brokerId/topup's actual
+            gate), edit mode only, Broker role only. The ENTIRE 'none'
+            payment-provider path — see tokenService.manualTopUp()'s header
+            for why this isn't a stopgap standing in for Stripe. */}
+        {showTokenSection && (
+          <div style={{
+            border: '1px solid var(--line)', borderRadius: '8px',
+            padding: '12px 14px', marginBottom: '16px', background: 'var(--panel2)',
+          }}>
+            <div style={{ fontSize: '0.8125rem', fontWeight: 600, marginBottom: '10px' }}>
+              Token Balance <span style={{ fontWeight: 400, color: 'var(--mut)' }}>(Admin)</span>
+            </div>
+
+            {tokenLoading && <div style={{ fontSize: '0.8125rem', color: 'var(--mut)' }}>Loading balance…</div>}
+
+            {tokenData?.ledger && (
+              <div style={{ display: 'flex', gap: '18px', marginBottom: '12px', fontSize: '0.8125rem' }}>
+                <div>
+                  <div style={{ color: 'var(--mut)', fontSize: '0.688rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Free remaining</div>
+                  <div style={{ fontWeight: 600, fontSize: '1.125rem' }}>{tokenData.ledger.freeRemaining} / {tokenData.monthlyAllocation}</div>
+                </div>
+                <div>
+                  <div style={{ color: 'var(--mut)', fontSize: '0.688rem', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Paid balance</div>
+                  <div style={{ fontWeight: 600, fontSize: '1.125rem' }}>{tokenData.ledger.balance}</div>
+                </div>
+              </div>
+            )}
+
+            {topUpError && <div style={{ ...s.errorBox, marginBottom: '10px' }}>{topUpError}</div>}
+
+            <div style={{ display: 'flex', gap: '8px', alignItems: 'flex-end' }}>
+              <div style={{ ...s.formGroup, marginBottom: 0, flex: 1 }}>
+                <label style={s.formLabel}>Add tokens</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  style={s.formInput}
+                  value={topUpAmount}
+                  onChange={e => setTopUpAmount(e.target.value)}
+                  placeholder="e.g. 10"
+                />
+              </div>
+              <button style={s.secondaryBtn} onClick={handleTopUp} disabled={topUpSaving || !topUpAmount}>
+                {topUpSaving ? 'Adding…' : 'Top Up'}
+              </button>
+            </div>
+            <div style={s.formHint}>
+              Manual top-up — the only way to add paid tokens while Stripe payment isn't
+              connected yet. Adds to the paid balance, not the monthly free allocation.
             </div>
           </div>
         )}
@@ -581,6 +681,17 @@ export default function UserAdmin() {
     setModal(null);
   }
 
+  // §117 — deliberately does NOT touch modal state or refetchUsers/
+  // refetchSupervisors at all, unlike every handler above: a token
+  // top-up changes nothing about the User row itself (role, email,
+  // identity, active status), only TokenLedger, which this page's own
+  // user list doesn't display. UserModal's own refetchTokenLedger (via
+  // useFetch) handles refreshing the balance shown in the modal.
+  async function handleModalTopUp(amount) {
+    if (!modal?.user) return;
+    await appointmentsApi.tokens.topUp(modal.user.id, amount);
+  }
+
   return (
     <div style={s.page}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
@@ -723,6 +834,7 @@ export default function UserAdmin() {
           onUnlock={handleModalUnlock}
           onForceLogout={handleModalForceLogout}
           onLinkIdentity={handleModalLinkIdentity}
+          onTopUp={handleModalTopUp}
         />
       )}
     </div>

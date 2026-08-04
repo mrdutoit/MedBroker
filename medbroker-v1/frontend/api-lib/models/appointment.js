@@ -7,13 +7,13 @@
  * assignBroker/reassign/returnToLeads/saveOutcome), matching the pattern
  * of every other domain wired so far.
  *
- * Scope: the ASSIGN model only (appointments.claimModel = 'assign', the
- * flag's current default). The CLAIM model — brokers self-serving from an
- * available-appointments pool, plus the token economy (TokenLedger,
- * TokenTransaction, Stripe payment) — is a separate, larger feature with
- * its own real external dependency (a payment provider) and stays fully
- * mocked in the frontend for now, same boundary reasoning as the SSO/OAuth
- * work: not something to half-build.
+ * UPDATED §117 (4 Aug 2026) — the CLAIM model (appointments.claimModel =
+ * 'claim') is now real: brokers self-serve from an available-appointments
+ * pool, and claiming debits TokenLedger (see tokenService.js). Stripe
+ * payment (appointments.tokens.paymentProvider = 'stripe') is still a
+ * separate, deliberately deferred piece — see Status_Vercel.md §117 for
+ * the full staging reasoning. 'none' provider (the only one this entry
+ * builds) means manual top-up by an Admin/GlobalAdmin only.
  */
 
 import { z } from 'zod';
@@ -49,6 +49,12 @@ export const CreateAppointmentSchema = z.object({
   firstAppointmentAddress: z.string().max(500).optional(),
   currentInsurer:          z.string().max(200).optional(),
   productsInterestedIn:    z.array(z.string()).optional(), // product NAMEs, stored as JSON text — see appointmentService.js
+  // NEW §117 — only meaningful when brokerId is omitted (an Unassigned
+  // appointment headed for the claim pool, not a directly-booked one).
+  // Optional, defaults to 0 (free) server-side when omitted — a Supervisor/
+  // Admin/GlobalAdmin can set this to mark an appointment as costing
+  // tokens to claim; leaving it unset means any broker can claim for free.
+  claimTokenCost:          z.number().int().min(0).max(100).optional(),
 });
 
 /**
@@ -128,4 +134,16 @@ export const BrokerMatchingQuerySchema = z.object({
   date: z.string().date('Must be a valid date (YYYY-MM-DD)'),
   time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/, 'Must be a valid time (HH:mm)'),
   leadId: z.string().uuid().optional(),
+});
+
+// ── Token economy (§117, 4 Aug 2026) ────────────────────────────────────────
+
+/**
+ * PUT /api/appointments/tokens/:brokerId/topup — Admin/GlobalAdmin only.
+ * 'none' payment provider's whole mechanism (per the flag's own
+ * description: "manual top-up by admin only"). No Stripe involved — this
+ * is the entire 'none' path, not a stopgap for it.
+ */
+export const TokenTopUpSchema = z.object({
+  amount: z.number().int().min(1).max(1000),
 });

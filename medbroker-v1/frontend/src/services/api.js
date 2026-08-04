@@ -312,6 +312,27 @@ export const appointmentsApi = {
     request(`/appointments/${id}/outcome`, { method: 'POST', body: JSON.stringify(data) }),
   // auditLog — change history for AppointmentDetail.jsx's Change Log panel.
   auditLog: (id) => request(`/appointments/${id}/audit`),
+
+  // ── Claim model + token economy (§117, 4 Aug 2026) ─────────────────────
+  // claim — broker self-service; brokerId comes from the authenticated
+  //   caller server-side, never sent in the body.
+  //   Server-side: debits TokenLedger (if claimTokenCost > 0), transitions
+  //   status Unassigned → Claimed, notifies the agent, writes AuditLog
+  //   entry with action='AppointmentClaimed'.
+  claim: (id) => request(`/appointments/${id}/claim`, { method: 'PUT' }),
+  // listAvailableToClaim — the pool a broker can see: Unassigned
+  //   appointments matching their own region + product specialisation.
+  listAvailableToClaim: () => request('/appointments/available-to-claim'),
+  // tokens.me — the broker's own current balance + recent transactions.
+  // tokens.forBroker/topUp — Admin/GlobalAdmin managing a specific
+  //   broker's balance; topUp is the entire 'none' payment-provider path
+  //   (manual top-up only, no Stripe yet — see Status_Vercel.md §117).
+  tokens: {
+    me:         ()               => request('/appointments/tokens/me'),
+    forBroker:  (brokerId)       => request(`/appointments/tokens/${brokerId}`),
+    topUp:      (brokerId, amount) =>
+      request(`/appointments/tokens/${brokerId}/topup`, { method: 'PUT', body: JSON.stringify({ amount }) }),
+  },
 };
 
 // ─── Broker matching ──────────────────────────────────────────────────────────
