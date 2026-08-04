@@ -1,8 +1,20 @@
 /**
  * middleware/auth.js
  *
- * Authorization: Bearer <token> issued by POST /api/auth/login, verified
- * via services/authService.js's verifyJwt() (hand-rolled HMAC-SHA256).
+ * Staff auth token, verified via services/authService.js's verifyJwt()
+ * (hand-rolled HMAC-SHA256). UPDATED §113 (4 Aug 2026): read from the
+ * httpOnly mb_session cookie (getAuthCookie(), http/helpers.js) set by
+ * POST /api/auth/login — previously an Authorization: Bearer header,
+ * which meant the raw token had to pass through a JSON response body and
+ * live somewhere JS-readable (sessionStorage) to get attached to
+ * subsequent requests, making it a theft target for any XSS vector. An
+ * httpOnly cookie is never readable by JavaScript at all, injected or
+ * not, closing that off. This is a full cutover, not a dual-support
+ * transition — there is no legitimate non-browser caller of this app's
+ * staff routes, so keeping the header path alive alongside the cookie
+ * would only be extra attack surface for no real benefit, the same
+ * reasoning that removed the old x-demo-user-id bypass entirely rather
+ * than gating it (see below).
  *
  * FIXED 2 Aug 2026 — this used to fall back to trusting x-demo-user-id/
  * x-demo-role headers directly, with no verification at all, whenever
@@ -38,22 +50,22 @@
 import { getActiveUserById } from '../services/userService.js';
 import { verifyJwt } from '../services/authService.js';
 import { config } from '../config.js';
+import { getAuthCookie } from '../http/helpers.js';
 
 /**
  * @param {import('http').IncomingMessage} req
  * @returns {Promise<{ oid: string, roles: string[], name: string }>}
  */
 export async function validateToken(req) {
-  const authHeader = req.headers['authorization'];
+  const token = getAuthCookie(req);
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw { status: 401, message: 'Missing or invalid Authorization header' };
+  if (!token) {
+    throw { status: 401, message: 'Not logged in' };
   }
 
   if (!config.localAuth.jwtSigningSecret) {
     throw { status: 500, message: 'JWT_SIGNING_SECRET is not configured on the server' };
   }
-  const token = authHeader.slice(7);
   const payload = verifyJwt(token, config.localAuth.jwtSigningSecret); // throws 401 on bad signature/expiry
 
   // Re-check current status — a still-valid token doesn't mean still active.

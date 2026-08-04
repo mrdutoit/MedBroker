@@ -89,7 +89,11 @@ INSERT INTO FeatureFlag (flagKey, label, description, valueType, value, allowedV
 
     ('popia.subjectAccessRequest.enabled', 'POPIA subject access requests',
      'Enable the admin endpoint and UI for processing POPIA data subject access requests.',
-     'boolean', '0', NULL, 'Phase2', FALSE, TRUE)
+     'boolean', '0', NULL, 'Phase2', FALSE, TRUE),
+
+    ('security.kmsEncryption.enabled', 'AWS KMS-backed field encryption',
+     'When on, new Lead.idNumber values are encrypted using AWS KMS (kms1 format) instead of the local DEMO_ENCRYPTION_KEY (demo1 format). Off by default so the app works with zero AWS setup — turn on only after KMS_MASTER_KEY_ID, AWS_REGION, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY are all set and verified, since encrypt() does not silently fall back if this is on but AWS is not actually configured. Values already encrypted under either format stay readable regardless of this flag''s current value.',
+     'boolean', '0', NULL, 'Core', FALSE, FALSE)
 
 ON CONFLICT (flagKey) DO NOTHING;
 

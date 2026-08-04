@@ -172,9 +172,9 @@ work, worth revisiting if the same question comes up again:
     (§103) — deliberately excluded from that fix as a different shape of
     problem (multi-value resolution, not single-reference).
   - Settings -> photo upload: honest disabled "coming soon" stub, not
-    built. Next in Mark's build queue (§109), paired with a storage
-    architecture decision (Vercel Blob vs. base64-in-Postgres) still to
-    be confirmed before building.
+    built. Deliberately parked (§110) — Mark doesn't want to take on a
+    paid dependency (Vercel Blob) for a feature with no clear business
+    value unless a customer actually asks for it.
   - GlobalAdmin guide's §2.2 Flag Reference table describes
     popia.subjectAccessRequest.enabled as dead/unwired — stale as of
     §109, which actually wired it up. Needs a docx correction pass
@@ -206,6 +206,24 @@ CURRENT SECURITY / DEPENDENCY STATE (as of 30 Jul 2026):
     Neon's certificate. Low practical risk (same trusted cloud
     infrastructure), not the strictest possible config. Tracked, not
     urgent — see §70 for the full finding and how to tighten it later.
+  - Lead.idNumber field-level encryption: KMS-hardened as of §111 — AWS
+    KMS now does the master-key wrapping step that used to be a raw key
+    in a Vercel env var. Requires KMS_MASTER_KEY_ID/AWS_REGION/
+    AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY all set before deploying, or
+    Lead creation/update breaks for any lead with an ID number — see
+    §111 for the full deployment sequencing warning.
+  - Session token storage: httpOnly cookie now (§113), not sessionStorage
+    — JavaScript, including injected/malicious JS via XSS, can never
+    read it. Was sessionStorage before (JS-readable, exposed to token
+    theft via any XSS vector); this closes that off. SameSite=Strict,
+    Secure hardcoded on. CORS's permissive Origin-reflection policy
+    stays safe with a cookie in play specifically because of that
+    SameSite=Strict setting plus never setting Access-Control-Allow-
+    Credentials — see §113 for the full reasoning; that pairing is
+    load-bearing, not incidental. No CSP header configured either
+    (checked frontend/vercel.json) — no defense-in-depth against XSS
+    beyond React's own default JSX escaping, still an open item if ever
+    wanted.
   - Still queued, lowest priority (dev-tooling only, zero production
     exposure): ESLint v10 + the still-missing eslint.config.js (lint
     genuinely cannot run at all right now); Vite v8 + Vitest v4 major
@@ -7130,6 +7148,414 @@ FILES:
   frontend/src/pages/FeatureFlags.jsx
   frontend/db/feature-flags.postgres.sql
   frontend/db/migrations/020_correct_popia_sar_flag_tier.sql  (NEW)
+Plus this Status_Vercel.md.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+110. ENCRYPTION Q&A, PHOTO UPLOAD PARKED, SSO SCOPED (NOT YET BUILT) — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+1. PHOTO UPLOAD — PARKED. Mark decided not to add a paid dependency
+   (Vercel Blob) for a feature with no clear business value unless a
+   customer actually asks for it. Removed from the active build queue;
+   still listed as a known gap (honest disabled "coming soon" stub) but
+   no longer "next up."
+
+2. ENCRYPTION — investigated and answered in chat, no code changed.
+   Summary for the record:
+   - Passwords: bcrypt, 12 rounds (authService.js). Never stored or
+     logged in plaintext beyond the initial HTTPS POST at login/creation.
+   - Field-level encryption: ONLY Lead.idNumber (SA ID numbers) —
+     AES-256-GCM envelope encryption (per-value data key wrapped by a
+     master key from DEMO_ENCRYPTION_KEY) plus an HMAC-SHA256 blind
+     index (ID_NUMBER_INDEX_KEY) for exact-match duplicate lookup
+     without decrypting every row (encryption.js). Nothing else gets
+     this treatment — email, mobile number, names all rely solely on
+     Neon's storage-level encryption at rest, not application-level
+     field encryption.
+   - IMPORTANT CAVEAT, surfaced plainly to Mark: encryption.js's own
+     header comment says "DO NOT use this file... for real POPIA-
+     classified data. Seed/demo data only" — the master-key-in-an-env-
+     var approach is explicitly flagged internally as weaker than the
+     ported-from Azure version's Key-Vault-backed envelope encryption
+     (HSM-backed custody/rotation/access-audit, none of which a bare
+     env var provides). This is the single most POPIA-relevant finding
+     from this investigation. Not fixed — a real architecture decision
+     (what replaces a bare env var as master-key custody on Vercel) if
+     Mark wants it hardened; not raised as an immediate action item
+     since he didn't ask for a fix, only an explanation.
+   - Transit: HTTPS browser<->API (Vercel-terminated, automatic).
+     API<->Neon: TLS, but with rejectUnauthorized: false (§70, already
+     tracked, low priority) — encrypted, certificate not verified.
+   - Client-side (the "in the UI" part of the question): the session
+     JWT is signed (HS256), not encrypted (standard JWS, not JWE) — its
+     claims (user id, roles, name, email; never a password) are base64-
+     readable by anyone holding the token, which is normal for JWTs
+     generally, not a flaw specific to this app. Stored in
+     sessionStorage (authStore.js) — tab-scoped, cleared on tab close,
+     but still JS-readable (same XSS exposure profile as localStorage
+     would have); an httpOnly cookie would be more XSS-resistant but
+     isn't what's built.
+
+3. SSO — FULL BUILD REQUESTED, SCOPED BUT NOT YET STARTED. Mark answered
+   all five open design questions from §109 and asked for the whole
+   thing built. Given the security-critical nature and genuine size of
+   this, investigated what actually exists before proposing a plan
+   rather than guessing at scope.
+   FOUND: there's real, substantial, currently-DEAD frontend groundwork,
+   ported over from the original Azure build, never wired up or
+   removed:
+     - @azure/msal-browser + @azure/msal-react are already in
+       package.json.
+     - authConfig.js has a complete MSAL config (client id/authority
+       from VITE_ENTRA_CLIENT_ID/VITE_ENTRA_AUTHORITY env vars, scopes,
+       sessionStorage cache, logger) — its own comment says "Import
+       msalInstance into App.jsx and wrap with MsalProvider," which
+       never happened.
+     - api.js has a working-looking getAccessToken()/getMsalInstance()
+       pair (silent token acquisition falling back to redirect) — but
+       nothing in the entire frontend calls it. Dead code.
+     - App.jsx has a comment referencing "MsalProvider + Authenticated
+       Template" that was never implemented.
+   FOUND, backend: middleware/auth.js's validateToken() ONLY verifies
+   the local hand-rolled HS256 JWT (verifyJwt()) — zero code path for
+   validating an actual Entra-issued token (no JWKS fetch, no issuer/
+   audience/tenant checks). Confirmed by reading the file in full, not
+   just grepping. This is the genuinely missing piece, not a refinement
+   of something that exists.
+   RECOMMENDATION, not yet confirmed with Mark in writing but implied
+   strongly by the evidence: build Entra ID first, not Google — the
+   dead MSAL code, entraObjectId/m365UserPrincipalName schema columns,
+   and the GlobalAdmin guide's own M365 email setup precedent (§4.6) all
+   already point that direction; googleUid has nothing beyond the bare
+   schema column, no client library even installed.
+   Mark's five answered design decisions, for when this actually gets
+   built:
+     (a) Email mismatch: GlobalAdmin gets a "link this identity" manual
+         action, AND the ability to correct a user's email (typo fix)
+         — email editing isn't currently exposed anywhere in User Admin;
+         confirmed this needs building too, not just the SSO-linking
+         piece.
+     (b) New SSO identity, no local match: JIT-provision, feeding into
+         the same admin visibility as (a) rather than silently
+         succeeding with no review trail.
+     (c) Password fallback: a toggle allowing local login to coexist
+         with SSO temporarily, plus a separate, deliberate "hard commit"
+         action to fully disable it once verified — not an immediate
+         all-or-nothing cutover.
+     (d) Offboarding: someone removed from the SSO directory should
+         auto-deactivate their MedBroker account. This specifically
+         requires a scheduled job calling Microsoft Graph API to check
+         current directory membership (same daily-scan pattern already
+         used for lead auto-return/notifications) — needs real Graph
+         API application permissions registered against the customer's
+         actual Entra tenant, which is IT coordination on Mark's side,
+         not something buildable/testable from this sandbox alone.
+     (e) Role source of truth stays MedBroker-managed (agreed) — but
+         account creation itself should still auto-provision from SSO,
+         which (b) already covers; role/permissions remain a separate,
+         Admin-set concern from account existence.
+   NOT YET BUILT — this is a multi-stage undertaking (dead-code review
+   and wiring, a wholly new backend Entra-token-validation layer,
+   email-matching/JIT-provisioning logic, a link-identity admin UI,
+   email-correction UI, the password-fallback toggle+hard-commit, and
+   the offboarding sync job) and deserves a focused, staged delivery
+   rather than one giant unreviewable change, given how security-
+   critical authentication code is. Proposed staging back to Mark in
+   chat; awaiting confirmation on provider choice and stage order before
+   writing the actual token-validation code. Also worth noting for
+   whenever this is built: testing an actual OAuth handshake needs a
+   real Entra tenant — nothing here can be verified end-to-end from the
+   sandbox the way the rest of this session's fixes were.
+
+FILES: none this entry — investigation and design discussion only, no
+code changed. Plus this Status_Vercel.md.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+111. KMS-HARDENED ID-NUMBER ENCRYPTION SHIPPED; JWT STORAGE RISK ASSESSED, NOT YET FIXED; GOOGLE SSO DEFERRED — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Three follow-ups from §110's encryption Q&A.
+
+1. GOOGLE SSO — deferred to a future release, customer-demand-driven, not
+   part of the current Entra-first build. No code, documentation only.
+
+2. ID-NUMBER ENCRYPTION — HARDENED, AWS KMS-BACKED. Mark: "this must be
+   fixed." Built, not just discussed.
+   Root problem being fixed: DEMO_ENCRYPTION_KEY was a raw AES-256 master
+   key sitting directly in a Vercel environment variable — readable by
+   anyone with project access, no rotation, no access log, no revocation.
+   encryption.js's own header comment already said as much ("DO NOT use
+   this file... for real POPIA-classified data").
+   Fix: AWS KMS now does the envelope-wrapping step that DEMO_ENCRYPTION_KEY
+   used to do locally. Chosen over a self-hosted option (e.g. Vault)
+   specifically to avoid introducing a new standing service to run —
+   stays a managed API call, consistent with the Vercel+Neon-only
+   philosophy already established for this project. The actual master
+   key material now never exists inside Vercel at all — only a narrowly-
+   scoped IAM credential (kms:Encrypt/Decrypt/GenerateDataKey on one key,
+   nothing else) does, picked up automatically by the AWS SDK's own
+   credential chain, never handled directly in application code.
+   BACKWARD COMPATIBILITY, deliberate, not a stopgap: encrypt() now always
+   produces a new 'kms1' format; decrypt() reads BOTH 'kms1' and the
+   original 'demo1' format, branching on the version marker every payload
+   already carries. This avoids a disruptive one-time re-encryption
+   migration — any Lead.idNumber encrypted before this delivery stays
+   permanently decryptable, since DEMO_ENCRYPTION_KEY and its decrypt
+   path are kept, not removed. Verified with a synthetic test: manually
+   constructed an old-format demo1 payload exactly as the pre-§111
+   encrypt() would have, confirmed the new decrypt() still reads it
+   correctly.
+   New dependency: @aws-sdk/client-kms (^3.1102.0). Checked npm audit
+   before and interpreted the result carefully — installing it surfaced
+   8 pre-existing vulnerabilities (vite/vitest/react-router/xlsx/esbuild/
+   brace-expansion), all already tracked in this file's own Security/
+   Dependency State section from before this change; none are from the
+   new package itself, confirmed by name-matching the audit output.
+   New env vars, config.js (both optional() at that layer — encryption.js
+   itself throws a clear, actionable error at call time if missing, same
+   pattern as DEMO_ENCRYPTION_KEY's own existing error message):
+     KMS_MASTER_KEY_ID, AWS_REGION
+   Plus AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY, read automatically by
+   the AWS SDK's default credential chain — never referenced directly in
+   this app's own code.
+   *** DEPLOYMENT WARNING, repeated here and in the file's own header
+   comment: encrypt() now throws rather than silently falling back to
+   the weaker scheme if KMS_MASTER_KEY_ID/AWS_REGION are unset. DO NOT
+   deploy this file until the AWS KMS key and a scoped IAM credential
+   actually exist — otherwise Lead creation/update will start failing
+   for any lead with an ID number the moment this ships. Needs Mark to:
+   create/use an AWS account, create a KMS key, create an IAM policy
+   scoped to only that key's Encrypt/Decrypt/GenerateDataKey actions,
+   generate an access key pair, set all four env vars in Vercel. Same
+   "needs real customer/account-side infrastructure before it takes
+   effect" pattern as WAF configuration and SSO's offboarding sync. ***
+
+3. SESSION TOKEN STORAGE — RISK ASSESSED HONESTLY, RECOMMENDATION GIVEN,
+   NOT YET BUILT — Mark asked whether the signed-not-encrypted JWT is a
+   "massive risk" and whether it can be fixed.
+   Answer given: no, not a massive risk — signed-only (JWS, not JWE) is
+   near-universal JWT practice, and the claims inside (user id, role,
+   name, email — never a password) aren't confidential in a way that
+   matters here; a stolen token grants full impersonation regardless of
+   whether its payload was encrypted, since encryption doesn't prevent
+   theft or replay, only reading the claims. Encrypting the JWT payload
+   specifically would not have meaningfully reduced actual risk.
+   The REAL, well-targeted fix identified instead: the token currently
+   lives in sessionStorage (authStore.js) — JS-readable, so exposed to
+   theft via any XSS vector exactly like localStorage would be. Checked
+   frontend/vercel.json while answering this — confirmed there's no CSP
+   header configured at all, meaning no defense-in-depth against XSS
+   beyond React's own default JSX escaping. Moving the token to an
+   httpOnly cookie would close the actual theft vector (JS, including
+   injected/malicious JS, can never read an httpOnly cookie's value at
+   all) — a materially bigger, more invasive change than encrypting the
+   JWT would have been: touches the login response (Set-Cookie instead
+   of/alongside a JSON token), every subsequent request's auth handling,
+   and needs CSRF consideration (SameSite=Strict is likely sufficient
+   for this app specifically — single-origin SPA, no legitimate cross-
+   site request need — but that's a design call, not yet confirmed with
+   Mark).
+   NOT YET BUILT — flagged as a real, correctly-targeted recommendation,
+   awaiting Mark's go-ahead given the size/invasiveness relative to what
+   he'd literally asked about (encryption, not storage location).
+
+VERIFIED (item 2 only — items 1 and 3 are documentation/discussion, no
+code): node --check + ESM import smoke test on encryption.js and
+config.js; confirmed encrypt() throws cleanly (not silently) without KMS
+config; confirmed decrypt() still reads a manually-constructed old-format
+demo1 payload correctly; full Vite production build clean; existing
+45-test Vitest suite unaffected. Re-hydrated fresh from GitHub and
+diffed all 3 changed files before packaging — clean, no parallel
+changes. Could not test the actual AWS KMS call path itself — no real
+AWS account/credentials available from the sandbox; verified by code
+review against the documented KMS API shape, same "no live infrastructure
+to test against" caveat already applied to WAF and the Reports fan-out fix.
+
+MIGRATION: none — no schema change. Deployment sequencing warning above
+takes the place of a migration note here; read it before deploying.
+
+FILES:
+  frontend/api-lib/services/encryption.js   (KMS-backed, demo1 kept for backward compat)
+  frontend/api-lib/config.js                (kms.masterKeyId / kms.region added)
+  frontend/package.json                     (@aws-sdk/client-kms added)
+Plus this Status_Vercel.md.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+112. AWS KMS FLAG-GATED — APP WORKS WITH OR WITHOUT AWS CONFIGURED — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§111 shipped KMS as mandatory — encrypt() threw if unconfigured, which
+would have broken Lead creation the moment it deployed, before Mark had
+set up AWS. Mark asked for the wiring to stay, without forcing that
+sequencing.
+
+Built: security.kmsEncryption.enabled (Core tier, off by default — same
+safe-by-default convention as every flag in this table). Checked via
+getFlagMeta() (services/flagService.js), the same server-side flag-read
+pattern already established by notifications.email.enabled — this is a
+real precedent in this codebase for backend BEHAVIOUR gates, distinct
+from the frontend-visibility-only pattern tasks.enabled/
+popia.subjectAccessRequest.enabled use.
+  - Flag off (default, every fresh deploy until Mark deliberately turns
+    it on): encrypt() uses the original DEMO_ENCRYPTION_KEY-wrapped
+    'demo1' scheme — app works with zero AWS setup.
+  - Flag on: encrypt() uses KMS ('kms1'). If AWS isn't actually
+    configured at this point, throws a clear, actionable error —
+    deliberately NOT a silent fallback. Turning the flag on is a
+    deliberate statement that KMS is ready; silently downgrading at that
+    point would look like hardening is active when it isn't, which is
+    worse than a loud failure.
+  - decrypt() unaffected by the flag either way — always reads whichever
+    format ('kms1' or 'demo1') a given value actually carries, so
+    flipping the flag never breaks reading anything already encrypted
+    under the other scheme.
+
+New migration: 021_add_kms_encryption_flag.sql (an INSERT, not an
+UPDATE like 020 — this is a brand-new flag key, not a metadata
+correction on an existing one).
+
+VERIFIED: node --check + ESM import smoke test on encryption.js/
+config.js; full Vite production build clean; existing 45-test Vitest
+suite unaffected. Re-hydrated fresh from GitHub and diffed all changed
+files before packaging — clean.
+
+FILES:
+  frontend/api-lib/services/encryption.js
+  frontend/src/context/FlagContext.jsx
+  frontend/src/pages/FeatureFlags.jsx
+  frontend/db/feature-flags.postgres.sql
+  frontend/db/migrations/021_add_kms_encryption_flag.sql  (NEW)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+113. SESSION TOKEN MOVED TO AN HTTPONLY COOKIE — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Full cutover, not a dual-support transition — staff auth (DEMO_MODE /
+local email+password path only; the still-dead Entra/MSAL path in
+api.js is untouched, it never used sessionStorage in the first place)
+now transports its session token via an httpOnly cookie instead of a
+JSON response body cached in sessionStorage. Closes the actual XSS
+theft vector §111's original question was really about — encrypting the
+JWT payload (what was literally asked back then) would not have helped;
+this does, because JavaScript — including injected/malicious JavaScript
+— can never read an httpOnly cookie's value at all.
+
+NEW (http/helpers.js): setAuthCookie(), clearAuthCookie(), getAuthCookie().
+No new dependency added for cookie parsing — Cookie headers are a
+simple k=v; k2=v2 format and this app only ever needs to read the one
+cookie it itself sets, not handle arbitrary third-party cookie
+complexity a general-purpose parser exists for. Unit-tested the parser
+directly (6 cases: single cookie, among others, URL-encoded value, no
+cookie header, cookie header without mb_session, whitespace around a
+pair) — all pass. This is real, run test coverage, not just a code-
+review claim, unlike most of this session's backend changes which
+can't be exercised without a live DB.
+
+Cookie attributes, deliberate: SameSite=Strict (this app has no
+legitimate cross-site request or top-level-navigation-into-the-app flow
+that needs anything looser — Strict is correct here, not just cautious),
+Secure hardcoded on regardless of NODE_ENV (Vercel serves everything
+over HTTPS including previews, so there's no real case this breaks),
+maxAge matching signJwt()'s own 8-hour default (cookie and token expire
+together).
+
+CORS RE-EXAMINED, NOT JUST LEFT ALONE: http/helpers.js's applyCors() had
+a comment claiming safety specifically because "none of these routes use
+cookies" — no longer true, and leaving that stale would have been
+exactly the kind of claim this project's own PERMANENT PATTERNS section
+warns against. Corrected: the permissive Origin-reflection approach
+stays safe with a cookie in play, but now specifically BECAUSE (1) the
+cookie is SameSite=Strict, so a browser never attaches it to a cross-
+site request regardless of what this function does with Origin, and
+(2) this function never sets Access-Control-Allow-Credentials: true. If
+either of those two things ever changes, this needs re-examining — it
+is not safe on its own merits, only safe because of those two
+constraints holding together. Documented as a load-bearing pair, not a
+one-off comment fix.
+
+BACKEND — full list:
+  - middleware/auth.js's validateToken(): reads getAuthCookie(req)
+    instead of the Authorization header. No dual-path kept — same
+    reasoning as why the old x-demo-user-id bypass was removed entirely
+    rather than gated: no legitimate non-browser caller of staff routes
+    exists, so a second path would be extra attack surface for nothing.
+  - authHandlers.js: handleLogin and handleChangePassword both now call
+    setAuthCookie() and no longer return token in their JSON body.
+  - NEW handleLogout — didn't exist before. With sessionStorage, logout
+    was a pure frontend action; an httpOnly cookie can only be cleared
+    server-side, so a real endpoint is now required for logout to do
+    anything at all. Deliberately skips validateToken() — logging out
+    an already-invalid/expired session should still succeed in clearing
+    whatever cookie the browser has, not error.
+  - auth-router.js: routes POST /api/auth/logout to the new handler.
+    No new Vercel function — same consolidated dispatcher file as
+    login/change-password/bootstrap-admin, checked against the 12/12
+    function cap before adding.
+
+FRONTEND — full list:
+  - authStore.js: rewritten. No token field in the stored session at
+    all anymore — only { user }, a pure display-data cache (name, role,
+    avatar colour). getToken() removed entirely, nothing calls it.
+    setSession() is now one argument (user), not two.
+  - api.js: request()'s DEMO_MODE branch no longer builds an
+    Authorization header at all; every fetch call (including the two
+    direct-fetch file-download functions — SAR export, Audit Log
+    export — that couldn't go through request()) now sets
+    credentials: 'same-origin' explicitly, which is what actually gets
+    mb_session attached. New authApi.logout(). ENTRA_MODE branch
+    (still dead code, not yet wired to anything) left untouched — MSAL-
+    acquired tokens are correctly sent as Bearer headers per OAuth2
+    convention, a cookie isn't the right transport for that path and
+    this doesn't try to force it to be.
+  - AuthContext.jsx: login() calls setSession(userWithFlag) (one arg).
+    logout() is now async, calls authApi.logout() first (server clears
+    the cookie), then always clears local display state regardless of
+    whether that network call succeeded — a logout the user asked for
+    should never appear to silently do nothing just because they're
+    offline. refreshToken() removed entirely — there was nothing left
+    for it to do once change-password stopped returning a token to pass
+    around; the server-side re-set cookie already handles session
+    continuity on its own.
+  - ChangePassword.jsx: dropped the refreshToken(result.token) call and
+    the now-unused result variable along with it.
+
+SCOPE BOUNDARY, DELIBERATE: Lead Portal auth (ProspectAuthContext,
+portalAuthStore.js, middleware/portalAuth.js) is a structurally separate
+system with its own JWT secret and was NOT touched — Mark's question was
+about the staff session token specifically. Flagging this explicitly
+since it's a real, deliberate scope decision, not an oversight — Portal
+auth still uses the same sessionStorage-based pattern staff auth used to,
+if Mark wants that hardened too later.
+
+VERIFIED: node --check + ESM import smoke test on all edited backend
+files; full Vite production build clean; existing 45-test Vitest suite
+unaffected; the cookie-parsing logic specifically unit-tested (6 cases,
+all pass — see above). Could not test an actual browser round-trip
+(login -> cookie set -> subsequent request -> logout -> cookie cleared)
+— no live browser or deployed environment available from the sandbox;
+this is the same "verified by code review and whatever can be unit-
+tested standalone, not full integration" caveat already applied to every
+other backend change this session that touches infrastructure this
+environment can't reach. Re-hydrated fresh from GitHub and diffed all 8
+changed files before packaging — clean, no parallel changes.
+
+MIGRATION: none — no schema change.
+
+FILES:
+  frontend/api-lib/http/helpers.js
+  frontend/api-lib/middleware/auth.js
+  frontend/api-lib/handlers/authHandlers.js
+  frontend/api/auth-router.js
+  frontend/src/services/authStore.js
+  frontend/src/services/api.js
+  frontend/src/context/AuthContext.jsx
+  frontend/src/pages/ChangePassword.jsx
 Plus this Status_Vercel.md.
 
 

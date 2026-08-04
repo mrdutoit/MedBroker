@@ -1,23 +1,35 @@
 /**
  * services/authStore.js
- * NEW — plain (non-React) module holding the local-auth session: JWT + user.
+ * NEW — plain (non-React) module holding the local-auth session: user only.
  *
- * Kept outside React so services/api.js (a plain module, no hooks) can read
- * the current token synchronously on every request without prop-drilling it
- * through every API call. context/AuthContext.jsx wraps this in React state
- * for components that need to re-render on login/logout; this module is the
+ * UPDATED §113 (4 Aug 2026): no longer stores a token at all. The staff
+ * JWT now lives in an httpOnly cookie (set by POST /api/auth/login,
+ * see api-lib/http/helpers.js's setAuthCookie()) — JavaScript is never
+ * given the raw token to hold in the first place, so there's nothing
+ * here to protect it from being read by an injected script the way
+ * sessionStorage-held credentials always were. The browser attaches the
+ * cookie to every same-origin request automatically; services/api.js no
+ * longer needs to manually attach an Authorization header for the
+ * DEMO_MODE (local-auth) path at all.
+ *
+ * Kept outside React so services/api.js (a plain module, no hooks) can
+ * read the current user synchronously without prop-drilling it through
+ * every API call. context/AuthContext.jsx wraps this in React state for
+ * components that need to re-render on login/logout; this module is the
  * single source of truth underneath it.
  *
  * Persisted to sessionStorage — same pattern as RoleContext's preview-role
  * persistence and Settings.jsx's display name/avatar: survives a refresh,
- * clears when the tab closes. A JWT surviving a refresh is the whole point
- * (so logging in isn't required on every page reload); tab-scoped clearing
- * is an intentional trade-off, not an oversight.
+ * clears when the tab closes. This is now purely a display-data cache
+ * (name, role, avatar colour, etc. — nothing an attacker couldn't already
+ * see by looking over the user's shoulder), not a credential store. If
+ * the cookie has expired or was never set, the first API call simply
+ * 401s and the app redirects to Login regardless of what's cached here.
  */
 
 const STORAGE_KEY = 'medbroker.session';
 
-let session = loadFromStorage(); // { token, user } | null
+let session = loadFromStorage(); // { user } | null
 let unauthorizedHandlers = [];
 
 function loadFromStorage() {
@@ -25,7 +37,7 @@ function loadFromStorage() {
     const raw = sessionStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed?.token && parsed?.user) return parsed;
+    if (parsed?.user) return parsed;
   } catch {
     // corrupted or inaccessible sessionStorage — treat as logged out
   }
@@ -41,10 +53,6 @@ function persist() {
   }
 }
 
-export function getToken() {
-  return session?.token ?? null;
-}
-
 export function getUser() {
   return session?.user ?? null;
 }
@@ -54,11 +62,10 @@ export function isAuthenticated() {
 }
 
 /**
- * @param {string} token
  * @param {{id: string, displayName: string, email: string, role: string}} user
  */
-export function setSession(token, user) {
-  session = { token, user };
+export function setSession(user) {
+  session = { user };
   persist();
 }
 
@@ -83,9 +90,10 @@ export function clearSession() {
 
 /**
  * Register a callback fired whenever a request comes back 401 while a
- * session was active — services/api.js calls this so a stale/expired token
- * clears itself and the app can redirect to Login without every call site
- * having to check for it individually.
+ * session was active — services/api.js calls this so a stale/expired
+ * (or already-cleared, server-side) cookie clears the cached display
+ * data and the app can redirect to Login, rather than every page having
+ * to check for it individually.
  * @param {() => void} handler
  */
 export function onUnauthorized(handler) {

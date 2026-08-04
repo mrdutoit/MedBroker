@@ -16,6 +16,7 @@ import { verifyPassword, signJwt, hashPassword, checkPasswordComplexity } from '
 import { getSystemConfig } from '../services/systemConfigService.js';
 import { LoginSchema, BootstrapAdminSchema, ChangePasswordSchema } from '../models/auth.js';
 import { config } from '../config.js';
+import { setAuthCookie, clearAuthCookie } from '../http/helpers.js';
 
 /**
  * POST /api/auth/login — email + password, returns a signed JWT.
@@ -70,8 +71,14 @@ export async function handleLogin(req, res) {
       config.localAuth.jwtSigningSecret
     );
 
+    // §113 — the token now goes in an httpOnly cookie, not the JSON body.
+    // Previously returning it in the response meant it had to be cached
+    // somewhere JS-readable (sessionStorage) to attach to later requests
+    // — an httpOnly cookie is never readable by JS at all, closing off
+    // that theft vector regardless of any XSS elsewhere on the page.
+    setAuthCookie(res, token);
+
     return res.status(200).json({
-      token,
       user: {
         id: user.id, displayName: user.displayName, email: user.email, role: user.role,
         avatarColour: user.avatarColour, themePreference: user.themePreference, timezone: user.timezone,
@@ -202,7 +209,10 @@ export async function handleChangePassword(req, res) {
       config.localAuth.jwtSigningSecret
     );
 
-    return res.status(200).json({ message: 'Password changed successfully', token: newToken });
+    // §113 — re-issued the same way login does: cookie, not JSON body.
+    setAuthCookie(res, newToken);
+
+    return res.status(200).json({ message: 'Password changed successfully' });
 
   } catch (err) {
     if (err.status) {
@@ -212,4 +222,24 @@ export async function handleChangePassword(req, res) {
     console.error('auth/change-password error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
+}
+
+/**
+ * POST /api/auth/logout (§113) — clears the httpOnly session cookie.
+ * Didn't exist before this: with the token in sessionStorage, "logout"
+ * was purely a frontend action (clear the store). An httpOnly cookie
+ * can only be cleared by the server that set it — JavaScript has no way
+ * to touch it at all, which is the whole point of using one — so a real
+ * endpoint is now required for logout to actually do anything.
+ * No validateToken() call here deliberately: logging out an already-
+ * invalid or expired session should still succeed in clearing whatever
+ * cookie the browser has, rather than erroring.
+ */
+export async function handleLogout(req, res) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  clearAuthCookie(res);
+  return res.status(200).json({ message: 'Logged out' });
 }

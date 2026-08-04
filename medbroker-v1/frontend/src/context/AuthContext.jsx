@@ -57,7 +57,10 @@ export function AuthProvider({ children }) {
       // persisted anywhere before — a page refresh right after login
       // would have silently lost it, since only data.user was stored.
       const userWithFlag = { ...data.user, passwordMustChange: !!data.passwordMustChange };
-      authStore.setSession(data.token, userWithFlag);
+      // §113 — no token to pass anymore; it's already in an httpOnly
+      // cookie the server just set (setAuthCookie(), authHandlers.js).
+      // setSession() now only ever caches non-sensitive display data.
+      authStore.setSession(userWithFlag);
       setUser(userWithFlag);
       if (data.user.themePreference && THEME_IDS.includes(data.user.themePreference)) {
         setTheme(data.user.themePreference);
@@ -71,7 +74,21 @@ export function AuthProvider({ children }) {
     }
   }, [setTheme]);
 
-  const logout = useCallback(() => {
+  // §113 — logout is now a real server round-trip, not just a local
+  // state clear: an httpOnly cookie can only be cleared by the server
+  // that set it, JavaScript has no way to touch it directly (that's the
+  // whole point of using one). Clears local display-data state either
+  // way, even if the network call itself fails — a logout the user
+  // asked for should never appear to silently do nothing.
+  const logout = useCallback(async () => {
+    try {
+      await authApi.logout();
+    } catch {
+      // Server round-trip failed (offline, etc.) — still clear local
+      // state below so the UI reflects "logged out" regardless. Worst
+      // case the cookie outlives its own expiry window server-side,
+      // same as it always would on a hard browser crash.
+    }
     authStore.clearSession();
     setUser(null);
   }, []);
@@ -84,18 +101,8 @@ export function AuthProvider({ children }) {
     setUser(authStore.getUser());
   }, []);
 
-  // §97 — swaps in a fresh token without touching the cached user object.
-  // Needed after a password change: that now revokes every previously-
-  // issued token server-side (so an old, possibly-stolen one can't outlive
-  // the change), and returns a new one for the session that just made the
-  // request — otherwise the user's own change-password action would
-  // immediately log them out.
-  const refreshToken = useCallback((newToken) => {
-    authStore.setSession(newToken, authStore.getUser());
-  }, []);
-
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, updateUser, refreshToken, loading, error, setError }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, updateUser, loading, error, setError }}>
       {children}
     </AuthContext.Provider>
   );

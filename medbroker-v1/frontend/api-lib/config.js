@@ -29,6 +29,23 @@ export const config = {
     masterKeyBase64: optional('DEMO_ENCRYPTION_KEY'),
   },
 
+  // §111 (4 Aug 2026) — AWS KMS-backed envelope wrapping, replacing the
+  // demoEncryption master key above for all NEW encrypt() calls. This is
+  // the real fix for encryption.js's own "DO NOT use this for real
+  // POPIA-classified data" warning — the actual AES key material never
+  // exists in Vercel at all this way, only a scoped IAM credential that
+  // can ask KMS to wrap/unwrap on the app's behalf. See encryption.js's
+  // header comment for the full design and the 'kms1'/'demo1' format-
+  // marker backward-compatibility story. Both fields optional() at this
+  // layer, not required() — encryption.js itself throws a clear,
+  // actionable error at call time if they're missing when actually
+  // needed, matching demoEncryption's own established pattern, rather
+  // than crashing every cold start before a single request is served.
+  kms: {
+    masterKeyId: optional('KMS_MASTER_KEY_ID'),
+    region:      optional('AWS_REGION'),
+  },
+
   security: {
     blindIndexKey: optional('ID_NUMBER_INDEX_KEY'),
   },

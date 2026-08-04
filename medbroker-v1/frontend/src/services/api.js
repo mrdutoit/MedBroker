@@ -16,7 +16,7 @@
  * page always fetches for real. See VERCEL_NOTES.md for the removal.
  */
 
-import { getToken, notifyUnauthorized } from './authStore.js';
+import { getUser, notifyUnauthorized } from './authStore.js';
 
 const API_BASE       = import.meta.env.VITE_API_BASE_URL ?? '/api';
 const ENTRA_MODE      = !!import.meta.env.VITE_ENTRA_CLIENT_ID;
@@ -102,12 +102,14 @@ function formatErrorBody(error) {
 
 async function request(path, options = {}) {
   let authHeader;
-  if (options.skipAuth) {
-    // Login itself — there's no token yet to attach.
+  if (options.skipAuth || DEMO_MODE) {
+    // §113 — DEMO_MODE (local staff auth) no longer attaches a manual
+    // Authorization header at all. The token lives in an httpOnly cookie
+    // now (mb_session, set by POST /api/auth/login) — the browser
+    // attaches it automatically on every same-origin request, same as
+    // it always has for skipAuth: true calls that genuinely have no
+    // token yet (login itself, logout).
     authHeader = undefined;
-  } else if (DEMO_MODE) {
-    const token = getToken();
-    authHeader = token ? `Bearer ${token}` : undefined;
   } else {
     const token = await getAccessToken();
     authHeader = `Bearer ${token}`;
@@ -115,6 +117,11 @@ async function request(path, options = {}) {
 
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
+    // Explicit, not relying on fetch's same-origin default — this is
+    // what actually gets the mb_session cookie attached for DEMO_MODE.
+    // Harmless for the ENTRA_MODE branch above, which authenticates via
+    // the Authorization header instead and doesn't depend on this.
+    credentials: 'same-origin',
     headers: {
       'Content-Type':  'application/json',
       ...(authHeader ? { 'Authorization': authHeader } : {}),
@@ -124,9 +131,10 @@ async function request(path, options = {}) {
 
   if (response.status === 204) return null;
 
-  // Demo mode: a 401 on an authenticated call means the token is gone/expired —
-  // clear the session and let AuthContext's subscribers (App.jsx) redirect to
-  // Login, rather than every page having to special-case this itself.
+  // Demo mode: a 401 on an authenticated call means the session cookie is
+  // gone/expired — clear the cached display data and let AuthContext's
+  // subscribers (App.jsx) redirect to Login, rather than every page
+  // having to special-case this itself.
   if (DEMO_MODE && response.status === 401 && !options.skipAuth) {
     notifyUnauthorized();
   }
@@ -152,6 +160,12 @@ export const apiMode = { DEMO_MODE, ENTRA_MODE };
 export const authApi = {
   login: (email, password) =>
     request('/auth/login', { method: 'POST', skipAuth: true, body: JSON.stringify({ email, password }) }),
+  // §113 — logout is now a real endpoint, not just a local state clear.
+  // skipAuth: true because a caller here has nothing to lose by trying —
+  // logging out an already-expired session should still succeed in
+  // clearing whatever cookie the browser has.
+  logout: () =>
+    request('/auth/logout', { method: 'POST', skipAuth: true }),
   changePassword: (currentPassword, newPassword) =>
     request('/auth/change-password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) }),
 };
@@ -243,9 +257,11 @@ export const sarApi = {
    */
   export: async (id, format) => {
     const params = new URLSearchParams({ export: format });
-    const token = getToken();
+    // §113 — credentials: 'same-origin' attaches the mb_session cookie;
+    // no manual Authorization header needed anymore, same change as
+    // request() above.
     const response = await fetch(`${API_BASE}/leads/sar-requests/${id}/export?${params}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: 'same-origin',
     });
     if (!response.ok) throw new ApiError(response.status, `Export failed (${response.status})`);
     const blob = await response.blob();
@@ -390,20 +406,18 @@ export const auditApi = {
   /**
    * Export can't go through request() — that helper always parses the
    * response as JSON, but a CSV export is plain text, not JSON. This
-   * does its own authenticated fetch (same token logic request() uses
-   * internally), reads the response as a Blob, and triggers a browser
-   * download via a temporary <a> element — the standard way to handle
-   * an authenticated file download, since a plain <a href> link can't
-   * carry an Authorization header the way this endpoint requires.
+   * does its own authenticated fetch (credentials: 'same-origin' attaches
+   * the mb_session cookie, §113 — no more manual token logic), reads the
+   * response as a Blob, and triggers a browser download via a temporary
+   * <a> element.
    * @param {'csv'|'json'} format
    * @param {Object} filters
    */
   export: async (format, filters = {}) => {
     const cleanFilters = Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== undefined && v !== null && v !== ''));
     const params = new URLSearchParams({ export: format, ...cleanFilters });
-    const token = getToken();
     const response = await fetch(`${API_BASE}/flags/audit-log?${params}`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      credentials: 'same-origin',
     });
     if (!response.ok) {
       throw new ApiError(response.status, `Export failed (${response.status})`);

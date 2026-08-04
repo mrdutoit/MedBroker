@@ -15,14 +15,26 @@ export const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
  *
  * Reflects whatever Origin the request actually sent (including the literal
  * string "null", which is what a file:// page sends) rather than a single
- * hardcoded FRONTEND_ORIGIN. This isn't a loosened security boundary: none
- * of these routes use cookies, so there's no cross-site-cookie risk CORS
- * would otherwise be protecting against — every route is authorized by an
- * explicit Authorization: Bearer token or a request-body secret
- * (BOOTSTRAP_SECRET), both of which a browser never attaches automatically
- * the way it would a cookie. Restricting Origin here would only break
+ * hardcoded FRONTEND_ORIGIN. Restricting Origin here would only break
  * legitimate callers (this demo's bootstrap-admin.html, Postman-style tools,
  * a future frontend on a different domain) without adding real protection.
+ *
+ * UPDATED §113 (4 Aug 2026) — staff auth now uses an httpOnly cookie
+ * (setAuthCookie() below), which changes the reasoning this comment used
+ * to give (it used to say "none of these routes use cookies, so there's
+ * no cross-site-cookie risk" — no longer true, corrected rather than left
+ * stale). The permissive Origin reflection stays SAFE despite that,
+ * specifically because of two things that must both remain true:
+ *   1. The auth cookie is SameSite=Strict (see setAuthCookie) — a browser
+ *      never attaches a Strict cookie to a cross-site request at all,
+ *      fetch/XHR included, regardless of what this function does with
+ *      the Origin header.
+ *   2. This function never sets Access-Control-Allow-Credentials: true.
+ *      Without that header, even a browser willing to attach credentials
+ *      wouldn't get to read the response back into cross-origin JS.
+ * If either of those ever changes, this Origin-reflection approach needs
+ * re-examining — it is not safe on its own merits with a cookie in play,
+ * only safe because of those two constraints holding together.
  *
  * Found by testing this against a real browser via Playwright, not by
  * inspection — a hardcoded Access-Control-Allow-Origin silently breaks any
@@ -41,6 +53,71 @@ export function applyCors(req, res) {
     return true;
   }
   return false;
+}
+
+const AUTH_COOKIE_NAME = 'mb_session';
+
+/**
+ * Sets the staff-auth session cookie (§113) — replaces returning the raw
+ * JWT in a JSON response body, which let it be cached/logged/read by any
+ * JS on the page, including injected/malicious JS via XSS. An httpOnly
+ * cookie is never readable by JavaScript at all, by design, regardless
+ * of what runs on the page.
+ *
+ * SameSite=Strict, not Lax or None — this app is a single-origin SPA
+ * with no legitimate cross-site request or top-level-navigation-into-
+ * the-app flow that would need a looser setting, so Strict is both safe
+ * and correct here, not just the cautious default. Secure is forced on
+ * regardless of NODE_ENV — Vercel serves everything over HTTPS, including
+ * preview deployments, so there's no real local-HTTP case this would
+ * break, and hardcoding it removes an easy way to accidentally ship a
+ * non-Secure cookie.
+ *
+ * maxAge matches signJwt()'s own default (8 hours) — the cookie and the
+ * token it carries should expire together, not have the cookie outlive
+ * a token that's already invalid, or vice versa.
+ * @param {import('http').ServerResponse} res
+ * @param {string} token
+ * @param {number} [maxAgeSeconds]
+ */
+export function setAuthCookie(res, token, maxAgeSeconds = 8 * 60 * 60) {
+  res.setHeader('Set-Cookie',
+    `${AUTH_COOKIE_NAME}=${token}; Max-Age=${maxAgeSeconds}; Path=/; HttpOnly; Secure; SameSite=Strict`
+  );
+}
+
+/**
+ * Clears the staff-auth session cookie (logout, §113). Max-Age=0 is the
+ * standard way to tell a browser to delete a cookie immediately — an
+ * expired past date works too, but Max-Age=0 doesn't depend on the
+ * client's clock being correct.
+ * @param {import('http').ServerResponse} res
+ */
+export function clearAuthCookie(res) {
+  res.setHeader('Set-Cookie',
+    `${AUTH_COOKIE_NAME}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Strict`
+  );
+}
+
+/**
+ * Reads the staff-auth token out of the incoming Cookie header. No
+ * dependency added for this — Cookie headers are a simple `k=v; k2=v2`
+ * format, and this app only ever needs to read the one cookie it itself
+ * set, not handle arbitrary third-party cookie edge cases a general-
+ * purpose parser exists for.
+ * @param {import('http').IncomingMessage} req
+ * @returns {string|null}
+ */
+export function getAuthCookie(req) {
+  const header = req.headers['cookie'];
+  if (!header) return null;
+  for (const pair of header.split(';')) {
+    const eq = pair.indexOf('=');
+    if (eq === -1) continue;
+    const key = pair.slice(0, eq).trim();
+    if (key === AUTH_COOKIE_NAME) return decodeURIComponent(pair.slice(eq + 1).trim());
+  }
+  return null;
 }
 
 /**

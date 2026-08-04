@@ -29,7 +29,7 @@ const COMPLEXITY_HINTS = [
 ];
 
 export default function ChangePassword({ forced = false }) {
-  const { updateUser, refreshToken, logout } = useAuth();
+  const { updateUser, logout } = useAuth();
   const navigate = useNavigate();
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword]         = useState('');
@@ -49,12 +49,14 @@ export default function ChangePassword({ forced = false }) {
     setSubmitting(true);
     setError(null);
     try {
-      const result = await authApi.changePassword(currentPassword, newPassword);
-      // §97 — the old token was just revoked server-side (so a stolen one
-      // can't outlive this change); result.token is the fresh replacement
-      // for THIS session specifically, so the user isn't logged out by
-      // their own password change.
-      refreshToken(result.token);
+      await authApi.changePassword(currentPassword, newPassword);
+      // §97/§113 — the old session was just revoked server-side (so a
+      // stolen cookie can't outlive this change) and a fresh one issued
+      // for THIS session specifically, via a re-set httpOnly cookie
+      // (authHandlers.js) — nothing for the frontend to do with a token
+      // anymore, it never sees one. Without this, the user's own
+      // password change would otherwise log them out via the revocation
+      // it just triggered.
       // Clears passwordMustChange in the persisted session — see
       // AuthContext's updateUser() and authHandlers.js's own comment on
       // why this endpoint always clears it, whether it was a forced

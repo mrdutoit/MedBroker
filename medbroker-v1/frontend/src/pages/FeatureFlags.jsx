@@ -74,6 +74,21 @@ const FLAG_META = [
     description: 'Enable the Tasks page. Tasks are generated automatically from appointment events, callbacks, and rescheduling activity.',
     valueType: 'boolean', requiresRestart: false, isPhase2: false,
   },
+  {
+    // §112 — Core, not Operational: this changes fundamental backend
+    // security behaviour (which encryption backend protects Lead ID
+    // numbers), not a UI/workflow preference. Off by default,
+    // deliberately, so the app keeps working with zero AWS setup — see
+    // encryption.js's header comment for the required env vars before
+    // turning this on, and requiresRestart: this doesn't literally
+    // require a redeploy (Vercel serverless functions read env vars
+    // fresh per invocation), but IS the kind of flag that should only be
+    // flipped after real AWS infrastructure exists, not casually.
+    key: 'security.kmsEncryption.enabled', tier: 'Core',
+    label: 'AWS KMS-backed field encryption',
+    description: 'Encrypt new Lead ID numbers using AWS KMS instead of a local key. Requires KMS_MASTER_KEY_ID, AWS_REGION, AWS_ACCESS_KEY_ID, and AWS_SECRET_ACCESS_KEY to be set and verified first — this does not silently fall back if turned on without AWS configured. Already-encrypted values stay readable either way.',
+    valueType: 'boolean', requiresRestart: true, isPhase2: false,
+  },
   // ── Operational ─────────────────────────────────────────────────────────────
   {
     key: 'leads.importCsv.enabled', tier: 'Operational',
