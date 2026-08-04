@@ -16,7 +16,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useFetch } from '../hooks/useFetch.js';
-import { leadsApi, usersApi } from '../services/api.js';
+import { leadsApi, usersApi, systemConfigApi } from '../services/api.js';
 import { formatDistanceToNow } from 'date-fns';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
@@ -187,6 +187,18 @@ export default function LeadList() {
     ? (agentsData.users ?? agentsData).filter(u => u.role === 'Agent')
     : [];
 
+  // §108 — the "Leads are automatically returned..." banner used to
+  // hardcode "6 months" regardless of what App Admin -> System Settings
+  // actually had configured (SystemConfig.leadAutoUnassignMonths, real
+  // default 6 but Admin-editable). GET /api/system-config was Admin/
+  // GlobalAdmin-only before this — opened up to any authenticated role
+  // specifically so this banner (seen by every Agent) can show the real
+  // number, since Agents can't reach App Admin to check it themselves.
+  // Falls back to 6 (the schema default) while loading or on any error,
+  // matching the number the banner always showed before this fix.
+  const { data: sysConfigData } = useFetch(() => systemConfigApi.get(), []);
+  const autoUnassignMonths = sysConfigData?.leadAutoUnassignMonths ?? 6;
+
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0;
   const hasFilter  = activeStatus !== 'Active' || search || agentFilter || occFilter || sourceFilter;
 
@@ -227,7 +239,7 @@ export default function LeadList() {
       <div style={{ ...s.noticeInfo, marginBottom: '14px', fontSize: '0.8125rem' }}>
         ℹ Leads with a booked appointment show a Converted status and stay in this list.
         Switch to the Active tab to see only leads still being worked. Leads are automatically
-        returned to the queue after 6 months without closure.
+        returned to the queue after {autoUnassignMonths} {autoUnassignMonths === 1 ? 'month' : 'months'} without closure.
       </div>
 
       {/* Status chips */}

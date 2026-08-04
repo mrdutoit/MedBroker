@@ -495,14 +495,14 @@ export default function Tasks() {
   const { data: userData } = useFetch(() => isAdmin ? usersApi.list() : Promise.resolve(null), [isAdmin]);
   const assignees = (userData?.users ?? []).map(u => ({ value: u.id, label: u.displayName }));
 
-  // §105 — reassignment targets for a Supervisor are their own team
-  // (themselves + direct reports), not the org-wide list NewTaskModal
-  // and the Assignee filter still use — deliberately not touching those
-  // two, since Mark's ask was specifically about reassignment. Backend
-  // enforces the same restriction independently (taskHandlers.js) — this
-  // is about not showing options that would just get rejected, not the
-  // actual security boundary.
-  const reassignTargets = (role === 'Supervisor')
+  // §108 — team-scoped assignee list, now used everywhere a Supervisor
+  // picks or filters by assignee: NewTaskModal's "Assign to", the
+  // Assignee filter, and TaskRow's Reassign control. §105 only scoped
+  // Reassign; Mark asked for the other two to match. A Supervisor sees
+  // themselves + direct reports only; Admin/GlobalAdmin still see the
+  // full org (assignees, unchanged). Renamed from reassignTargets now
+  // that it's no longer reassignment-specific.
+  const teamScopedAssignees = (role === 'Supervisor')
     ? (userData?.users ?? [])
         .filter(u => u.id === persona.id || u.supervisorId === persona.id)
         .map(u => ({ value: u.id, label: u.displayName }))
@@ -650,7 +650,7 @@ export default function Tasks() {
             style={{ ...s.formInput, maxWidth: '160px', padding: '5px 8px', fontSize: '0.8125rem' }}
           >
             <option value="All">All</option>
-            {assignees.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
+            {teamScopedAssignees.map(a => <option key={a.value} value={a.value}>{a.label}</option>)}
           </select>
         )}
         {isAdmin && (
@@ -719,7 +719,7 @@ export default function Tasks() {
               onReassign={reassignTask}
               isAdmin={isAdmin}
               canDelete={canDelete}
-              assignees={reassignTargets}
+              assignees={teamScopedAssignees}
               isMobile={isMobile}
               today={today}
             />
@@ -729,7 +729,7 @@ export default function Tasks() {
 
       {/* ── New Task modal ───────────────────────────────────────────────── */}
       {showNew && (
-        <NewTaskModal onClose={() => setShowNew(false)} onSave={addTask} assignees={assignees} />
+        <NewTaskModal onClose={() => setShowNew(false)} onSave={addTask} assignees={teamScopedAssignees} />
       )}
     </div>
   );

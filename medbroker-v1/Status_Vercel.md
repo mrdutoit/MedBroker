@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status (VERCEL VERSION)
 ==================================================
-Last updated: 30 July 2026
+Last updated: 4 August 2026
 Scope: this file tracks ONLY the Vercel + Neon Postgres deployment —
 frontend/api/ + frontend/api-lib/ + frontend/src/. It does NOT cover the
 separate Azure Functions/Azure SQL codebase (api/src/, infra/), which is
@@ -27,7 +27,11 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
   Leads           Full CRUD, assignment, call logging, reopen, audit log,
                   real duplicate detection (check-duplicates batch
                   endpoint + create-time 409), CSV/Excel/JSON bulk import
-                  via SheetJS, formula-injection hardening
+                  via SheetJS, formula-injection hardening. The auto-
+                  return banner shows the org's real configured period
+                  now, not a hardcoded "6 months" (§108) — the auto-
+                  return job itself always used the real value; only the
+                  banner text was wrong.
   Appointments    Full CRUD, assign/reassign broker & agent, return-to-
                   leads, outcome recording, broker matching, Appointment
                   History card on Lead Detail (surfaces the full
@@ -37,11 +41,24 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   from the admin-editing-someone-else route)
   Flags           Full GET/PATCH, tiered (Core/Operational/Phase2)
   Reports         Pipeline + broker-activity, server-enforced Supervisor
-                  team-scoping
+                  team-scoping. Broker Performance table's Appointments/
+                  Signed counts were silently doubled for any broker
+                  with 2+ portfolios (a JOIN fan-out bug) — fixed §107.
+                  Selected period now carries from Reports through to
+                  BrokerDetail/AgentDetail's "View →" via a URL query
+                  param (§107) — one-way only, deliberately; navigating
+                  back to Reports still resets to the current month.
   Events          Full backend — registration, dual QR codes
                   (registration vs attendance), walk-in check-in
   Lead Portal     Public self-service registration + venue check-in,
-                  own separate auth (ProspectAuthContext, own JWT secret)
+                  own separate auth (ProspectAuthContext, own JWT secret).
+                  All four password screens (Login, Register, Activate,
+                  walk-in Check-in) have a Show/Hide toggle now (§101);
+                  the "zooms in and won't use the full screen" mobile
+                  bug is fixed too (§101 — was a 14px input font-size,
+                  under iOS Safari's 16px auto-zoom threshold; this was
+                  a global tokens.js fix, so it also applies to every
+                  staff-side input, not just the portal).
   Tasks           Full REST API, all five generation rules event-driven
                   off real actions (no scheduled job needed), cascade
                   reassign/delete when the Lead/Appointment a task is
@@ -50,7 +67,15 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   sidebar badge (own incomplete-task count), creator
                   tracking (createdById, §69) — a creator's own tasks
                   are always visible to them regardless of who they're
-                  assigned to, plus a "Created by me" filter
+                  assigned to, plus a "Created by me" filter. Reassign
+                  is real now too (§104) — was in the backend
+                  (taskHandlers.js) but had no UI control at all until
+                  this session. A Supervisor's assignee targets are
+                  team-scoped (self + direct reports) everywhere this
+                  now comes up — Reassign (§105), NewTaskModal's "Assign
+                  to", and the Assignee filter (§108) — with the actual
+                  restriction enforced server-side on both POST and
+                  PATCH, not just hidden in the dropdown.
   Notifications   All 5 real-data-driven types now generate for real:
                   LeadAssigned + AppointmentAssigned (action-driven, §61)
                   and AppointmentReminder + CallbackReminder +
@@ -107,12 +132,34 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   portfolio/product shows up everywhere immediately.
 
 GATED OFF BY DEFAULT (built, working, just not switched on):
-  tasks.enabled — flip in FeatureFlags.jsx (AppAdmin) to see Tasks in
-  the nav/routes at all.
+  - tasks.enabled — flip in FeatureFlags.jsx (AppAdmin) to see Tasks in
+    the nav/routes at all.
+  - notifications.email.enabled — flip AND set SMTP_HOST/SMTP_USER/
+    SMTP_PASSWORD/SMTP_FROM in Vercel's env vars (§78) — neither done
+    yet, so no notification email has ever actually sent.
+  - auth.sso.enabled — off, local email/password only. No real SSO
+    provider wired up for this deployment regardless of the flag.
 
 DELIBERATELY NOT BUILT (real gaps, not yet scoped or blocked on
 something outside this session's control):
   - Token economy: claim model works; Stripe not connected.
+
+FLAGGED, NOT BUILT — small, explicitly scoped-out while doing adjacent
+work, worth revisiting if the same question comes up again:
+  - popia.subjectAccessRequest.enabled — dead flag metadata (§103). The
+    Data Requests / POPIA SAR feature is fully live for Admin/GlobalAdmin
+    and does not check this flag at all; the flag itself is still seeded
+    Phase2/off. Mark's call whether to wire it up properly or retire it.
+  - Reports period retention (§107) is one-way — Reports -> BrokerDetail/
+    AgentDetail carries the selected period; navigating back to Reports
+    does not carry it back, always resets to the current month. Confirmed
+    with Mark as expected/acceptable as-is.
+  - AppAdmin Audit Log: a User's portfolio/product array assignments
+    still show as raw id arrays in changeDetail, not resolved names
+    (§103) — deliberately excluded from that fix as a different shape of
+    problem (multi-value resolution, not single-reference).
+  - Settings -> photo upload: honest disabled "coming soon" stub, not
+    built.
 
 CURRENT SECURITY / DEPENDENCY STATE (as of 30 Jul 2026):
   - react-router: migrated 6->7 (7.18.2). The open-redirect + SSR-
@@ -6903,6 +6950,72 @@ FILES:
   frontend/src/pages/BrokerDetail.jsx
   frontend/src/pages/AgentDetail.jsx
   frontend/api-lib/services/reportService.js
+Plus this Status_Vercel.md.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+108. LEADS AUTO-RETURN BANNER + TASK ASSIGNEE SCOPING COMPLETED — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Two unrelated fixes, both from the same go-ahead.
+
+1. LEADS AUTO-RETURN BANNER — Mark caught this reading the LeadList.jsx
+   notice against App Admin's System Settings (his screenshot showed
+   3 months configured). Investigated: the MECHANISM was already
+   correct — schedulerService.js's daily job genuinely reads
+   SystemConfig.leadAutoUnassignMonths (falls back to 6 only if unset),
+   not a hardcoded value. The BANNER was the bug — a literal hardcoded
+   "6 months" string in LeadList.jsx with zero connection to the actual
+   config. Fixed by making it accurate rather than generic (an Agent —
+   the audience for this exact banner — can't reach App Admin to check
+   the real number themselves, so pointing them there instead of just
+   showing it would have made the generic version actively worse).
+   Required loosening GET /api/system-config from Admin/GlobalAdmin-only
+   to any authenticated role — PUT is unchanged, still Admin/GlobalAdmin
+   only. Nothing in that config is sensitive (call-attempt limits, this
+   period, password rotation days), so this was a deliberate, considered
+   read/write split, not a blanket opening. LeadList.jsx now fetches the
+   real value and interpolates it, with correct month/months singular
+   handling, falling back to 6 (the schema default) on load/error —
+   same number the banner always showed before, so nothing gets worse
+   in a failure case.
+
+2. TASK ASSIGNEE SCOPING — CLOSING THE OTHER TWO GAPS FROM §105 —
+   Mark asked for a plain explanation of the §105 recap line, then asked
+   for both remaining gaps closed to match Reassign. Done:
+   - NewTaskModal's "Assign to" field: now team-scoped for a Supervisor
+     (self + direct reports), same as Reassign — AND, unlike Reassign at
+     the time it first shipped, this one got server-side enforcement in
+     the SAME delivery rather than as a follow-up fix. POST /api/tasks
+     now runs the identical Supervisor-target check the PATCH handler
+     already had.
+   - The Assignee filter dropdown: also team-scoped now. This one was
+     UI-only, deliberately no backend change — the underlying task list
+     was already correctly scoped server-side regardless of what filter
+     value a Supervisor picked (canSeeTask() never depended on the
+     filter), so there was no security gap here to begin with, just an
+     inconsistent, wider-than-necessary dropdown.
+   Refactor: the Supervisor-scoped list built for Reassign in §105
+   (reassignTargets) is now the single list feeding all three controls —
+   renamed teamScopedAssignees since it's no longer reassignment-
+   specific. Admin/GlobalAdmin unaffected throughout — still see the
+   full org in all three places, exactly as before.
+
+VERIFIED: node --check + ESM import smoke test on both edited backend
+files; full Vite production build clean; existing 45-test Vitest suite
+unaffected. Re-hydrated fresh from GitHub and diffed all 4 changed files
+before packaging — clean, no parallel changes. No new Vercel function —
+system-config.js already existed, only its internal role-gate logic
+moved; function count stays 12/12.
+
+MIGRATION: none — logic-only, no schema change.
+
+FILES:
+  frontend/api/system-config.js               (GET role gate loosened)
+  frontend/api-lib/handlers/taskHandlers.js    (POST target validation added)
+  frontend/src/pages/Tasks.jsx                 (teamScopedAssignees used by all 3 controls)
+  frontend/src/pages/LeadList.jsx              (banner now reads the real config value)
 Plus this Status_Vercel.md.
 
 

@@ -118,6 +118,19 @@ export async function handleTasksCollection(req, res) {
       const parsed = CreateTaskSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
+      // §108 — same restriction as PATCH's reassignment check just above:
+      // a Supervisor may only create a task assigned to themselves or a
+      // direct report, not anyone org-wide. This was the one gap §105
+      // didn't close — NewTaskModal's "Assign to" field had no server-
+      // side check at all before this. Admin/GlobalAdmin unrestricted.
+      if (isSupervisorOnly(claims.roles) && !isAdminRole(claims.roles)) {
+        const reportIds = await getDirectReportIds(claims.oid);
+        const allowedTargets = new Set([claims.oid, ...reportIds]);
+        if (!allowedTargets.has(parsed.data.assignedToId)) {
+          return res.status(403).json({ error: 'A Supervisor can only create a task for themselves or a direct report' });
+        }
+      }
+
       const newId = await createTask({
         assignedToId: parsed.data.assignedToId,
         createdById:  claims.oid,
