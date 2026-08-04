@@ -22,6 +22,45 @@ original file — only this summary block at the top is newly written.
 0. CURRENT STATE — READ THIS FIRST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+NEXT ACTION, per Mark (4 Aug 2026, end of session 15): build Entra ID
+SSO, stage 1+2 together — do not start this without Mark explicitly
+saying so first, since he wants to finish deploying/testing everything
+already delivered before any more work begins. When he does give the
+go-ahead, don't re-derive the design from scratch — it's already fully
+scoped:
+  - Provider decision made: Entra ID first, not Google. Google is a
+    future release, customer-demand-driven — do not build it now.
+  - Full investigation of what already exists (dead MSAL frontend code,
+    zero backend Entra-token validation, the entraObjectId/googleUid/
+    passwordHash schema columns already anticipating this) is in §109 —
+    read that before writing any code, it changes what stage 1/2 actually
+    involve (reviving/wiring dead code + a wholly new backend validation
+    layer, not starting from nothing).
+  - Mark's five answered design decisions are in §109 too: email-mismatch
+    handling (GlobalAdmin gets a manual "link this identity" action, plus
+    email-correction, neither of which exists in User Admin yet — confirmed
+    while scoping, not assumed); JIT provisioning for new identities,
+    feeding into the same admin review surface as the link-identity
+    action; a password-fallback toggle with a separate deliberate "hard
+    commit" step to fully disable it later; offboarding auto-deactivation
+    via a Microsoft Graph API directory-membership sync job (needs real
+    IT coordination on Mark's side — app registration, Graph API
+    permissions against the customer's actual Entra tenant — not
+    buildable/testable from this sandbox alone); role/authorization
+    stays MedBroker-managed regardless of SSO group membership, SSO only
+    proves identity.
+  - Proposed staging (§110's chat response, not repeated in full here):
+    (1) foundation — email correction + link-identity for GlobalAdmin,
+    (2) core Entra validation — JWKS, email-matching, JIT provisioning,
+    (3) password-fallback toggle + offboarding sync, (4) frontend MSAL
+    wiring. Mark asked for stage 1+2 together as the next delivery.
+  - Cannot be end-to-end tested from this sandbox — no real Entra tenant
+    available. Verify by code review + whatever can be unit-tested
+    standalone (matching how §113's cookie-parsing logic was unit-tested
+    even though the full login round-trip couldn't be), same caveat
+    already applied to every other piece of infrastructure this sandbox
+    can't reach (WAF, AWS KMS, migrations).
+
 FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
   Auth            Local email/password, JWT, 8-hour expiry
   Leads           Full CRUD, assignment, call logging, reopen, audit log,
@@ -7568,6 +7607,24 @@ FILES:
   frontend/src/context/AuthContext.jsx
   frontend/src/pages/ChangePassword.jsx
 Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 15 PAUSED HERE — 4 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed everything through §113 deployed cleanly, no errors seen.
+The AWS KMS code path (§111/§112) is deployed and visible in Feature
+Flags but deliberately untested end-to-end — the flag stays off until a
+paying customer exists, so this remains verified-by-code-review only,
+not exercised live; worth remembering next session that "deployed
+successfully" here means the flag-off/demo1 path was exercised by
+normal use, not the KMS path itself. Migration 020 confirmed already
+run by Mark before this session's end; safe to leave alone (re-running
+it is a no-op by design, confirmed and explained when he asked).
+
+Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
+at the top of this file for exactly what to pick up and how — Entra ID
+SSO, stage 1+2, only once Mark explicitly says to start.
 
 
 

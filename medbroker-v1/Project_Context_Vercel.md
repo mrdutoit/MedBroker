@@ -453,6 +453,44 @@ if it starts with =, +, -, or @ (neutralizeFormulaInjection() in
 leadService.js's createLead(), applied unconditionally — manual entry
 too). Closed 28 Jul 2026; don't reintroduce a raw-write path that skips it.
 
+FEATURE FLAGS, TWO DIFFERENT ENFORCEMENT PATTERNS — know which one a new
+flag needs before building it. Most flags (tasks.enabled,
+popia.subjectAccessRequest.enabled) are frontend-visibility-only: they
+gate a nav item/tab/route client-side via useFlags(), never re-checked
+server-side, because the real security boundary for those features is
+role (requireRole()), already enforced independently. A smaller set
+(notifications.email.enabled, security.kmsEncryption.enabled, §112) gate
+actual backend BEHAVIOUR — which code path runs, not just what's visible
+— and those are read server-side via getFlagMeta() (services/
+flagService.js), a live DB query, not the frontend's cached FlagContext
+value. Don't assume a new flag only needs the frontend pattern just
+because most existing ones use it — ask whether the flag is hiding a UI
+element or actually changing what the server does, and pick accordingly.
+
+STAFF SESSION AUTH: httpOnly cookie (mb_session), not a bearer token in
+sessionStorage — changed 4 Aug 2026, §113. setAuthCookie()/
+clearAuthCookie()/getAuthCookie() in http/helpers.js; every request from
+the frontend needs credentials: 'same-origin' explicitly set for the
+cookie to attach (services/api.js's request() and the two direct-fetch
+export functions all do this — match that pattern for any new direct-
+fetch call that bypasses request()). The permissive CORS Origin-
+reflection in applyCors() is safe with this cookie in play ONLY because
+of two things holding together: SameSite=Strict on the cookie, and
+Access-Control-Allow-Credentials never being set to true. Don't loosen
+either without re-examining CORS at the same time — see applyCors()'s
+own comment for the full reasoning. Lead Portal auth (a structurally
+separate JWT/cookie boundary, ProspectAuthContext) was NOT changed by
+this and still uses the old sessionStorage pattern — tracked as a
+backlog item in Status_Vercel.md §0, not an oversight.
+
+MANAGED KEY/SECRET SERVICES ON THIS STACK: AWS KMS, not a self-hosted
+option (Vault, etc.) — chosen 4 Aug 2026 for encryption.js's field-level
+encryption (§111/§112) specifically to avoid adding a standing service
+to run and maintain; stays a managed API call, consistent with the
+Vercel+Neon-only infrastructure philosophy elsewhere in this project.
+Precedent for any future "we need real secret/key custody, not an env
+var" need on this stack.
+
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 9. MOCK DATA — PREVIEW PERSONAS
