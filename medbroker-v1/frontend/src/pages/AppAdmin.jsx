@@ -436,7 +436,18 @@ export default function AppAdmin() {
       <h1 style={{ margin: '0 0 18px', fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)' }}>App Administration</h1>
 
       <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '20px' }}>
-        {[['portfolios', 'Portfolios'], ['products', 'Products'], ['subscriptions', 'Medical Subscriptions'], ['settings', 'System Settings'], ['audit', 'Audit Log'], ['sar', 'Data Requests']].map(([key, label]) => (
+        {[['portfolios', 'Portfolios'], ['products', 'Products'], ['subscriptions', 'Medical Subscriptions'], ['settings', 'System Settings'], ['audit', 'Audit Log'],
+          // §109 — Data Requests only shown when the flag that's supposed
+          // to gate it is actually on. Before this it was unconditionally
+          // visible to every Admin/GlobalAdmin regardless of the flag's
+          // value (§103's finding) — same pattern as tasks.enabled gating
+          // the Tasks nav item in App.jsx: frontend-only, not re-checked
+          // server-side, since role (Admin/GlobalAdmin) is the real
+          // security boundary here and that's already enforced in
+          // sarHandlers.js. The flag is about whether this capability
+          // exists for a given deployment at all, same as every other
+          // feature flag in this app.
+          ...(flag('popia.subjectAccessRequest.enabled') ? [['sar', 'Data Requests']] : [])].map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -1035,7 +1046,7 @@ export default function AppAdmin() {
       )}
 
       {/* Data Requests — POPIA Subject Access Requests (§79) */}
-      {tab === 'sar' && (
+      {tab === 'sar' && flag('popia.subjectAccessRequest.enabled') && (
         <div style={{ maxWidth: '900px' }}>
           <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: '0 0 14px' }}>
             Track and fulfil POPIA Subject Access Requests — a data subject's right to see what

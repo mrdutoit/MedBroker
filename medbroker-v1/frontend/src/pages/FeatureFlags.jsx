@@ -117,17 +117,22 @@ const FLAG_META = [
     description: 'Show the third meeting section on the Appointment Detail page.',
     valueType: 'boolean', requiresRestart: false, isPhase2: false,
   },
+  {
+    // §109 — moved here from Phase 2. Was miscategorised as "not yet
+    // implemented" even after the Data Requests feature (AppAdmin.jsx)
+    // shipped for real (§79) — the flag just never actually gated it
+    // until this delivery. Matches migration 020 / feature-
+    // flags.postgres.sql's own tier correction for the same flag.
+    key: 'popia.subjectAccessRequest.enabled', tier: 'Operational',
+    label: 'POPIA subject access requests',
+    description: 'Enable the Data Requests tab in App Admin for logging and fulfilling POPIA subject access requests against a Lead.',
+    valueType: 'boolean', requiresRestart: false, isPhase2: false,
+  },
   // ── Phase 2 — features not yet built ────────────────────────────────────────
   {
     key: 'broker.tokenIncentives.enabled', tier: 'Phase2',
     label: 'Broker deal incentives',
     description: 'Award bonus tokens to brokers who close deals. Not yet implemented.',
-    valueType: 'boolean', requiresRestart: false, isPhase2: true,
-  },
-  {
-    key: 'popia.subjectAccessRequest.enabled', tier: 'Phase2',
-    label: 'POPIA subject access requests',
-    description: 'Enable the admin endpoint and UI for processing POPIA data subject access requests. Not yet implemented.',
     valueType: 'boolean', requiresRestart: false, isPhase2: true,
   },
 ];

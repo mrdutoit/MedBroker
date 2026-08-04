@@ -114,7 +114,10 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   Data Requests: log a request against a Lead, track its
                   status, export everything MedBroker holds about that
                   Lead (JSON or CSV) once ready to fulfil it. Admin/
-                  GlobalAdmin only.
+                  GlobalAdmin only. Properly flag-gated now too (§109) —
+                  popia.subjectAccessRequest.enabled actually controls
+                  whether the tab appears, closing the gap where it was
+                  unconditionally visible regardless of the flag's value.
   Medical Subscription lead import (§80) — real now, same underlying
                   mechanism as CSV import (file upload, real duplicate
                   check), tagged with linkedSubscriptionId instead of a
@@ -131,14 +134,28 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   useRole() hook, not a hardcoded constant, so a new
                   portfolio/product shows up everywhere immediately.
 
-GATED OFF BY DEFAULT (built, working, just not switched on):
-  - tasks.enabled — flip in FeatureFlags.jsx (AppAdmin) to see Tasks in
-    the nav/routes at all.
-  - notifications.email.enabled — flip AND set SMTP_HOST/SMTP_USER/
-    SMTP_PASSWORD/SMTP_FROM in Vercel's env vars (§78) — neither done
-    yet, so no notification email has ever actually sent.
-  - auth.sso.enabled — off, local email/password only. No real SSO
-    provider wired up for this deployment regardless of the flag.
+SEED DEFAULTS (NOT necessarily current live state — Claude has no live DB
+access, ever, so this section only reflects what a brand-new database
+gets on first creation, per feature-flags.postgres.sql's ON CONFLICT DO
+NOTHING inserts. Any of these may already be flipped in the real
+deployment — check Feature Flags in the app itself, not this file, for
+what's actually live right now):
+  - tasks.enabled — seeded off. Mark has been actively testing Tasks all
+    session, so this is almost certainly already on in the real
+    deployment — this file previously kept describing it as "off by
+    default" in a way that read as a current-state claim; that was the
+    seed value, not a live check, and shouldn't have been repeated as
+    if it were one.
+  - notifications.email.enabled — seeded off. Still needs SMTP_HOST/
+    SMTP_USER/SMTP_PASSWORD/SMTP_FROM set in Vercel's env vars regardless
+    of the flag's live value (§78) — that part IS independently
+    verifiable (env vars aren't visible from Feature Flags), so still
+    worth calling out as outstanding until Mark confirms otherwise.
+  - auth.sso.enabled — seeded off, and no real SSO provider is wired up
+    in the code regardless of the flag's live value (confirmed by
+    grepping for entraObjectId/googleUid usage — see §109's SSO
+    continuity design notes for the full picture). Toggling this flag
+    on its own does not enable working SSO login.
 
 DELIBERATELY NOT BUILT (real gaps, not yet scoped or blocked on
 something outside this session's control):
@@ -146,10 +163,6 @@ something outside this session's control):
 
 FLAGGED, NOT BUILT — small, explicitly scoped-out while doing adjacent
 work, worth revisiting if the same question comes up again:
-  - popia.subjectAccessRequest.enabled — dead flag metadata (§103). The
-    Data Requests / POPIA SAR feature is fully live for Admin/GlobalAdmin
-    and does not check this flag at all; the flag itself is still seeded
-    Phase2/off. Mark's call whether to wire it up properly or retire it.
   - Reports period retention (§107) is one-way — Reports -> BrokerDetail/
     AgentDetail carries the selected period; navigating back to Reports
     does not carry it back, always resets to the current month. Confirmed
@@ -159,7 +172,13 @@ work, worth revisiting if the same question comes up again:
     (§103) — deliberately excluded from that fix as a different shape of
     problem (multi-value resolution, not single-reference).
   - Settings -> photo upload: honest disabled "coming soon" stub, not
-    built.
+    built. Next in Mark's build queue (§109), paired with a storage
+    architecture decision (Vercel Blob vs. base64-in-Postgres) still to
+    be confirmed before building.
+  - GlobalAdmin guide's §2.2 Flag Reference table describes
+    popia.subjectAccessRequest.enabled as dead/unwired — stale as of
+    §109, which actually wired it up. Needs a docx correction pass
+    whenever documentation is next touched.
 
 CURRENT SECURITY / DEPENDENCY STATE (as of 30 Jul 2026):
   - react-router: migrated 6->7 (7.18.2). The open-redirect + SSR-
@@ -7016,6 +7035,101 @@ FILES:
   frontend/api-lib/handlers/taskHandlers.js    (POST target validation added)
   frontend/src/pages/Tasks.jsx                 (teamScopedAssignees used by all 3 controls)
   frontend/src/pages/LeadList.jsx              (banner now reads the real config value)
+Plus this Status_Vercel.md.
+
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+109. TASKS DOCUMENTATION FIX, SSO CONTINUITY DESIGN, POPIA FLAG WIRED UP — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Three things from one message.
+
+1. STOPPED CONFLATING SEED DEFAULTS WITH LIVE STATE — Mark pushed back,
+   fairly, on Tasks repeatedly being described as "gated off by default"
+   when he's been actively testing it all session. Root cause: §0's
+   "GATED OFF BY DEFAULT" section was describing feature-flags.postgres
+   .sql's seed values (ON CONFLICT DO NOTHING — only applies to a
+   brand-new database) as if they were the current live state of Mark's
+   actual deployment, which Claude has no way to check (no live DB
+   access, ever). Reworded that whole section to be explicit about this
+   distinction for all three flags it covers, not just Tasks — the same
+   conflation applied equally to notifications.email.enabled and
+   auth.sso.enabled, just hadn't been called out yet.
+
+2. SSO USER-RECORD CONTINUITY — design discussion, no code (SSO itself
+   isn't built for this deployment). Mark asked how manually-created
+   User records would map/merge with SSO identities to preserve
+   continuity and data integrity. Checked the actual schema before
+   answering rather than reasoning in the abstract: it already has the
+   right shape for this — entraObjectId and googleUid columns already
+   exist on "User" (each with its own partial unique index, NULL-safe),
+   passwordHash is nullable ("NULL = SSO-only user" per the schema's own
+   comment), and email has a hard UNIQUE constraint. Confirmed via grep
+   that neither entraObjectId nor googleUid is referenced ANYWHERE in
+   actual application logic — the schema anticipated SSO, nothing was
+   ever wired to it.
+   Recommended design, given that foundation: match by email at first
+   SSO login (case-insensitive, same organisation) and backfill
+   entraObjectId/googleUid onto the EXISTING User row rather than
+   creating a new one. Every foreign key in the system (Lead.assignedAgentId,
+   Appointment.brokerId/agentId, Task.assignedToId, AuditLog.performedById,
+   CallAttempt.agentId, Report queries) already points at User.id, never
+   at "how they authenticate" — so continuity is automatic and complete
+   the moment the row is the same row, no separate merge step needed for
+   history to keep working. Flagged the real open decisions for when this
+   actually gets built: (a) email-mismatch handling — a manual admin
+   "link this identity" fallback, or a hard precondition that SSO and
+   local emails match before flipping the flag; (b) just-in-time
+   provisioning defaults for a genuinely new SSO identity with no
+   matching local row — safe default role, Admin fills in the rest since
+   SSO claims won't carry portfolio/region/supervisor; (c) whether local
+   password stays as a break-glass fallback once SSO is on, or gets
+   disabled entirely; (d) whether SSO directory removal should
+   auto-deactivate the MedBroker account or require a manual step.
+   Recommended role/authorization stay MedBroker-managed regardless
+   (SSO proves identity, not authorization) — matches this app's
+   existing FAIS/POPIA compliance posture.
+
+3. POPIA SAR FLAG — ACTUALLY WIRED UP NOW (Mark's build queue, item 1).
+   §103 found this flag didn't gate anything; §106's GlobalAdmin guide
+   entry documented it as a discrepancy rather than silently fixing it,
+   deferring the call to Mark. He chose "wire it up," not "retire it."
+   Built: AppAdmin.jsx's Data Requests tab (both the tab button and its
+   content panel) now only renders when popia.subjectAccessRequest.enabled
+   is on — matches tasks.enabled's existing frontend-only gating pattern
+   in App.jsx exactly (checked: tasks.enabled isn't re-verified server-
+   side either; role, not the flag, is the actual security boundary,
+   already enforced in sarHandlers.js's requireRole(['Admin',
+   'GlobalAdmin'])). Also corrected the flag's own stale metadata, which
+   was still Phase2/"not yet implemented" even after §79 shipped the real
+   feature: feature-flags.postgres.sql's seed (for future fresh installs)
+   and FeatureFlags.jsx's local display metadata (moved from the "Phase
+   2 — not yet built" section to Operational) both updated, plus a new
+   migration (020) to correct the tier on Mark's already-live database,
+   since editing the seed file alone doesn't retroactively fix an
+   existing row.
+   NOT YET DONE: the GlobalAdmin guide's own §2.2 Flag Reference table
+   (built in this session's earlier docs pass) describes this exact flag
+   as dead/unwired metadata — now stale given this fix. Flagged here so
+   it isn't lost; will need the same docx edit-and-verify process as
+   the rest of that document whenever documentation is next touched.
+
+VERIFIED: full Vite production build clean; existing 45-test Vitest
+suite unaffected (no test coverage over feature-flag gating specifically
+— pre-existing state, not something this pass changed). Re-hydrated
+fresh from GitHub and diffed all 3 changed files plus confirmed the new
+migration file before packaging — clean.
+
+MIGRATION: yes — 020_correct_popia_sar_flag_tier.sql. Metadata-only
+UPDATE (tier/isPhase2), not a structural change, but still needs running
+against Neon like any other migration in this list; safe to re-run.
+
+FILES:
+  frontend/src/pages/AppAdmin.jsx
+  frontend/src/pages/FeatureFlags.jsx
+  frontend/db/feature-flags.postgres.sql
+  frontend/db/migrations/020_correct_popia_sar_flag_tier.sql  (NEW)
 Plus this Status_Vercel.md.
 
 

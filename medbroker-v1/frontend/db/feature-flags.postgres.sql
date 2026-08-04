@@ -101,3 +101,16 @@ SET    tier     = 'Core',
        isPhase2 = FALSE
 WHERE  flagKey  = 'tasks.enabled'
   AND  (tier != 'Core' OR isPhase2 != FALSE);
+
+-- §109 (4 Aug 2026) — this flag now actually gates the Data Requests
+-- feature (AppAdmin.jsx), which was previously live for Admin/GlobalAdmin
+-- regardless of this flag's value (§103's finding — dead metadata, not a
+-- real gate). Reclassified Phase2 -> Operational to match every other
+-- built-and-gated admin capability in this table (leads.importCsv.enabled,
+-- reports.agentDetail.enabled, etc.) — Phase2 means "not built, roadmap
+-- marker only," which stopped being true the moment the gate went live.
+UPDATE FeatureFlag
+SET    tier     = 'Operational',
+       isPhase2 = FALSE
+WHERE  flagKey  = 'popia.subjectAccessRequest.enabled'
+  AND  (tier != 'Operational' OR isPhase2 != FALSE);
