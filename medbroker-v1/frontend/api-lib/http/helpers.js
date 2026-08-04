@@ -23,18 +23,22 @@ export const isUuid = (v) => typeof v === 'string' && UUID_RE.test(v);
  * (setAuthCookie() below), which changes the reasoning this comment used
  * to give (it used to say "none of these routes use cookies, so there's
  * no cross-site-cookie risk" — no longer true, corrected rather than left
- * stale). The permissive Origin reflection stays SAFE despite that,
- * specifically because of two things that must both remain true:
- *   1. The auth cookie is SameSite=Strict (see setAuthCookie) — a browser
- *      never attaches a Strict cookie to a cross-site request at all,
- *      fetch/XHR included, regardless of what this function does with
- *      the Origin header.
+ * stale). UPDATED AGAIN §115 (4 Aug 2026) — the Lead Portal's prospect
+ * session now also uses an httpOnly cookie (setPortalAuthCookie() below),
+ * a second, separate cookie, not a shared one (see that function's own
+ * header comment for why the two must never be conflated). Both cookies
+ * rely on the SAME two properties to keep this permissive Origin-
+ * reflection approach safe, so the reasoning below now covers both:
+ *   1. Both cookies are SameSite=Strict — a browser never attaches a
+ *      Strict cookie to a cross-site request at all, fetch/XHR included,
+ *      regardless of what this function does with the Origin header.
  *   2. This function never sets Access-Control-Allow-Credentials: true.
  *      Without that header, even a browser willing to attach credentials
  *      wouldn't get to read the response back into cross-origin JS.
- * If either of those ever changes, this Origin-reflection approach needs
- * re-examining — it is not safe on its own merits with a cookie in play,
- * only safe because of those two constraints holding together.
+ * If either of those ever changes, for either cookie, this Origin-
+ * reflection approach needs re-examining — it is not safe on its own
+ * merits with a cookie in play, only safe because of those two
+ * constraints holding together.
  *
  * Found by testing this against a real browser via Playwright, not by
  * inspection — a hardcoded Access-Control-Allow-Origin silently breaks any
@@ -116,6 +120,68 @@ export function getAuthCookie(req) {
     if (eq === -1) continue;
     const key = pair.slice(0, eq).trim();
     if (key === AUTH_COOKIE_NAME) return decodeURIComponent(pair.slice(eq + 1).trim());
+  }
+  return null;
+}
+
+const PORTAL_AUTH_COOKIE_NAME = 'mb_portal_session';
+
+/**
+ * §115 (4 Aug 2026) — Lead Portal equivalent of setAuthCookie() above,
+ * closing the same sessionStorage XSS-theft vector §113 closed for staff
+ * auth, now for the prospect-facing session. A DELIBERATELY SEPARATE
+ * cookie, not the same one reused — mirrors the boundary
+ * middleware/portalAuth.js's own header comment already establishes for
+ * the two JWT signing secrets (config.localAuth vs config.portalAuth):
+ * a staff session and a prospect session must never be able to collide
+ * or be mistaken for one another, even in the same browser (e.g. a
+ * broker testing the portal flow while also signed in to MedBroker
+ * itself). Same SameSite=Strict / Secure / HttpOnly reasoning as
+ * setAuthCookie() — see that function's comment, not repeated here.
+ * maxAge matches issuePortalToken()'s signJwt() call, which — like
+ * staff login — uses the 8-hour default.
+ * @param {import('http').ServerResponse} res
+ * @param {string} token
+ * @param {number} [maxAgeSeconds]
+ */
+export function setPortalAuthCookie(res, token, maxAgeSeconds = 8 * 60 * 60) {
+  res.setHeader('Set-Cookie',
+    `${PORTAL_AUTH_COOKIE_NAME}=${token}; Max-Age=${maxAgeSeconds}; Path=/; HttpOnly; Secure; SameSite=Strict`
+  );
+}
+
+/**
+ * Clears the portal session cookie (§115) — the Lead Portal previously had
+ * no logout endpoint at all (nothing to clear server-side while the token
+ * lived only in sessionStorage); handlePortalLogout (portalHandlers.js) is
+ * new specifically because this cookie now needs a server-side clear.
+ * @param {import('http').ServerResponse} res
+ */
+export function clearPortalAuthCookie(res) {
+  res.setHeader('Set-Cookie',
+    `${PORTAL_AUTH_COOKIE_NAME}=; Max-Age=0; Path=/; HttpOnly; Secure; SameSite=Strict`
+  );
+}
+
+/**
+ * Reads the portal session token — same k=v; k2=v2 parsing as
+ * getAuthCookie() above, deliberately duplicated rather than
+ * parameterising one shared function with a cookie-name argument: two
+ * tiny, obviously-separate functions is less error-prone here than one
+ * function a caller could accidentally call with the wrong name and
+ * silently cross the staff/portal boundary this file otherwise keeps
+ * structurally impossible to cross.
+ * @param {import('http').IncomingMessage} req
+ * @returns {string|null}
+ */
+export function getPortalAuthCookie(req) {
+  const header = req.headers['cookie'];
+  if (!header) return null;
+  for (const pair of header.split(';')) {
+    const eq = pair.indexOf('=');
+    if (eq === -1) continue;
+    const key = pair.slice(0, eq).trim();
+    if (key === PORTAL_AUTH_COOKIE_NAME) return decodeURIComponent(pair.slice(eq + 1).trim());
   }
   return null;
 }

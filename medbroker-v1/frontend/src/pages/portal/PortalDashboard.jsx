@@ -51,8 +51,8 @@ export default function PortalDashboard() {
 
   useEffect(load, []);
 
-  function handleLogout() {
-    logout();
+  async function handleLogout() {
+    await logout();
     navigate('/portal/login', { replace: true });
   }
 

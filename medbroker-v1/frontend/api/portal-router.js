@@ -11,12 +11,13 @@
  *   GET  /api/portal/checkin-events/:checkinToken  event context for the attendance landing page (public)
  *   POST /api/portal/walkin                    on-the-spot signup + check-in, no prior account (public)
  *   POST /api/portal/login                     email + password (public)
- *   GET  /api/portal/me                        own profile (portal JWT)
- *   PUT  /api/portal/me                        update own contact details (portal JWT)
- *   POST /api/portal/checkin                    confirm attendance, already authenticated (portal JWT)
+ *   POST /api/portal/logout                    clears the session cookie (§115, public)
+ *   GET  /api/portal/me                        own profile (portal cookie)
+ *   PUT  /api/portal/me                        update own contact details (portal cookie)
+ *   POST /api/portal/checkin                    confirm attendance, already authenticated (portal cookie)
  */
 import {
-  handlePortalEventLookup, handlePortalRegister, handlePortalLogin,
+  handlePortalEventLookup, handlePortalRegister, handlePortalLogin, handlePortalLogout,
   handlePortalMe, handlePortalCheckin, handlePortalActivate,
   handlePortalCheckinEventLookup, handlePortalWalkIn,
 } from '../api-lib/handlers/portalHandlers.js';
@@ -33,6 +34,7 @@ export default async function handler(req, res) {
   if (segments.length === 1 && segments[0] === 'activate') return handlePortalActivate(req, res);
   if (segments.length === 1 && segments[0] === 'walkin')   return handlePortalWalkIn(req, res);
   if (segments.length === 1 && segments[0] === 'login')    return handlePortalLogin(req, res);
+  if (segments.length === 1 && segments[0] === 'logout')   return handlePortalLogout(req, res);
   if (segments.length === 1 && segments[0] === 'me')       return handlePortalMe(req, res);
   if (segments.length === 1 && segments[0] === 'checkin')  return handlePortalCheckin(req, res);
 

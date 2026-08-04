@@ -500,9 +500,14 @@ of two things holding together: SameSite=Strict on the cookie, and
 Access-Control-Allow-Credentials never being set to true. Don't loosen
 either without re-examining CORS at the same time — see applyCors()'s
 own comment for the full reasoning. Lead Portal auth (a structurally
-separate JWT/cookie boundary, ProspectAuthContext) was NOT changed by
-this and still uses the old sessionStorage pattern — tracked as a
-backlog item in Status_Vercel.md §0, not an oversight.
+separate JWT/cookie boundary, ProspectAuthContext) got the SAME
+treatment as of §115 (4 Aug 2026) — its own httpOnly cookie
+(mb_portal_session), its own setPortalAuthCookie()/clearPortalAuthCookie()/
+getPortalAuthCookie() trio, deliberately not the staff functions
+parameterised with a different name — see http/helpers.js for why. Both
+cookies coexist safely in the same browser: separate names, separate
+signing secrets (config.localAuth vs config.portalAuth), same SameSite=
+Strict/no-credentials-header CORS reasoning applying to both.
 
 MANAGED KEY/SECRET SERVICES ON THIS STACK: AWS KMS, not a self-hosted
 option (Vault, etc.) — chosen 4 Aug 2026 for encryption.js's field-level

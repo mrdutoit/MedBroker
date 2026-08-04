@@ -1,12 +1,16 @@
 /**
  * services/portalApi.js — NEW, 24 Jul 2026.
  * Deliberately separate from services/api.js — that client attaches the
- * STAFF token from authStore.js. Reusing it here would mean a prospect's
- * requests either carry no auth or, worse, whatever staff token happens
- * to be sitting in the same browser. This client only ever attaches the
- * portal token from portalAuthStore.js.
+ * STAFF session cookie's implied auth. Reusing it here would risk a
+ * prospect's requests carrying staff auth or vice versa.
+ *
+ * UPDATED §115 (4 Aug 2026): no longer attaches a manual Authorization
+ * header. The portal token lives in an httpOnly cookie now
+ * (mb_portal_session, set by the register/activate/login/walkin routes) —
+ * the browser attaches it automatically on every same-origin request,
+ * same cutover §113 already made for services/api.js's DEMO_MODE path.
  */
-import { getPortalToken, notifyPortalUnauthorized } from './portalAuthStore.js';
+import { notifyPortalUnauthorized } from './portalAuthStore.js';
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
 
@@ -37,14 +41,13 @@ function formatErrorBody(error) {
 }
 
 async function request(path, options = {}) {
-  const token = options.skipAuth ? null : getPortalToken();
-  const authHeader = token ? `Bearer ${token}` : undefined;
-
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
+    // §115 — explicit, not relying on fetch's same-origin default. This
+    // is what actually gets the mb_portal_session cookie attached/set.
+    credentials: 'same-origin',
     headers: {
       'Content-Type': 'application/json',
-      ...(authHeader ? { 'Authorization': authHeader } : {}),
       ...(options.headers ?? {}),
     },
   });
@@ -76,6 +79,12 @@ export const portalApi = {
   getCheckinEvent: (checkinToken)  => request(`/portal/checkin-events/${checkinToken}`, { skipAuth: true }),
   walkIn:          (data)          => request('/portal/walkin', { method: 'POST', skipAuth: true, body: JSON.stringify(data) }),
   login:           (email, password) => request('/portal/login', { method: 'POST', skipAuth: true, body: JSON.stringify({ email, password }) }),
+  // §115 — logout is now a real endpoint (an httpOnly cookie can only be
+  // cleared server-side), not just a local state clear. skipAuth: true —
+  // same reasoning as staff's authApi.logout(): logging out shouldn't
+  // itself trigger notifyPortalUnauthorized() on a 401 if the session
+  // had already expired.
+  logout:          () => request('/portal/logout', { method: 'POST', skipAuth: true }),
   getMe:           ()               => request('/portal/me'),
   updateMe:        (data)           => request('/portal/me', { method: 'PUT', body: JSON.stringify(data) }),
   checkin:         (checkinToken)   => request('/portal/checkin', { method: 'POST', body: JSON.stringify({ checkinToken }) }),

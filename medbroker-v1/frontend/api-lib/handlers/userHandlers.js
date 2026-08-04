@@ -154,10 +154,18 @@ export async function handleUserById(req, res, id) {
               : 'UserUpdated',
         performedById: claims.oid,
         // supervisorId resolved to a name (same pattern as agentId/brokerId
-        // elsewhere) — portfolios/products stay as raw id arrays here
-        // deliberately: multi-value name resolution is a different shape of
-        // problem, and both are already visible by name on their own
-        // Portfolio/Product audit entries, so leaving them isn't a silent gap.
+        // elsewhere). portfolios/products are NOT raw ids needing the same
+        // treatment — CORRECTED §116 (4 Aug 2026): this comment previously
+        // claimed they "stay as raw id arrays... deliberately," which was
+        // wrong. UpdateUserSchema.portfolios/.products are z.array(z.string())
+        // of NAMES (see models/user.js's own header comment) — the frontend
+        // checkboxes operate on p.name throughout (UserAdmin.jsx), and
+        // resolvePortfolioIds()/resolveProductIds() (userService.js) convert
+        // those names to ids only for the separate Portfolio/Product
+        // join-table sync, never mutating parsed.data itself. So
+        // changeDetail below has always logged readable names for these two
+        // fields — confirmed by tracing the full chain, not assumed. Mark
+        // caught this stale claim; see Status_Vercel.md §116 for the fix.
         changeDetail: parsed.data.supervisorId
           ? { ...parsed.data, supervisorName: await getUserDisplayNameById(parsed.data.supervisorId) }
           : parsed.data,

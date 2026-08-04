@@ -25,7 +25,7 @@ export function ProspectAuthProvider({ children }) {
     setError(null);
     try {
       const data = await portalApi.register({ qrToken, ...profileData, password });
-      portalAuthStore.setPortalSession(data.token);
+      portalAuthStore.setPortalAuthenticated();
       setIsAuthenticated(true);
       return data;
     } catch (err) {
@@ -41,7 +41,7 @@ export function ProspectAuthProvider({ children }) {
     setError(null);
     try {
       const data = await portalApi.walkIn({ checkinToken, ...profileData, password });
-      portalAuthStore.setPortalSession(data.token);
+      portalAuthStore.setPortalAuthenticated();
       setIsAuthenticated(true);
       return data;
     } catch (err) {
@@ -57,7 +57,7 @@ export function ProspectAuthProvider({ children }) {
     setError(null);
     try {
       const data = await portalApi.activate({ email, dateOfBirth, password });
-      portalAuthStore.setPortalSession(data.token);
+      portalAuthStore.setPortalAuthenticated();
       setIsAuthenticated(true);
       return data;
     } catch (err) {
@@ -73,7 +73,7 @@ export function ProspectAuthProvider({ children }) {
     setError(null);
     try {
       const data = await portalApi.login(email, password);
-      portalAuthStore.setPortalSession(data.token);
+      portalAuthStore.setPortalAuthenticated();
       setIsAuthenticated(true);
       return data;
     } catch (err) {
@@ -84,7 +84,17 @@ export function ProspectAuthProvider({ children }) {
     }
   }, []);
 
-  const logout = useCallback(() => {
+  // §115 — logout is now a real endpoint (an httpOnly cookie can only be
+  // cleared server-side, not by clearing local state), matching the
+  // async, always-clear-local-state-regardless pattern AuthContext.jsx's
+  // own logout() already uses for staff.
+  const logout = useCallback(async () => {
+    try {
+      await portalApi.logout();
+    } catch {
+      // Server round-trip failed (offline, etc.) — still clear local
+      // state below so the UI reflects "logged out" regardless.
+    }
     portalAuthStore.clearPortalSession();
     setIsAuthenticated(false);
   }, []);

@@ -9,11 +9,20 @@
  * token still wouldn't carry `type: 'portal'` and would be rejected here,
  * and a portal token wouldn't carry `roles` and would fail requireRole()
  * on the staff side.
+ *
+ * UPDATED §115 (4 Aug 2026): reads from the httpOnly mb_portal_session
+ * cookie (getPortalAuthCookie(), http/helpers.js) instead of an
+ * Authorization: Bearer header — same reasoning and same full cutover
+ * (not dual-support) as §113 already applied to middleware/auth.js for
+ * staff: no legitimate non-browser caller of portal routes exists, so
+ * keeping the header path alive alongside the cookie would only be extra
+ * attack surface for no real benefit.
  */
 
 import { verifyJwt } from '../services/authService.js';
 import { getActivePortalAccountById } from '../services/leadPortalService.js';
 import { config } from '../config.js';
+import { getPortalAuthCookie } from '../http/helpers.js';
 
 /**
  * @param {import('http').IncomingMessage} req
@@ -24,12 +33,11 @@ export async function validatePortalToken(req) {
     throw { status: 500, message: 'PORTAL_JWT_SIGNING_SECRET is not configured on the server' };
   }
 
-  const authHeader = req.headers['authorization'];
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    throw { status: 401, message: 'No Authorization header' };
+  const token = getPortalAuthCookie(req);
+  if (!token) {
+    throw { status: 401, message: 'Not logged in' };
   }
 
-  const token = authHeader.slice(7);
   const payload = verifyJwt(token, config.portalAuth.jwtSigningSecret); // throws 401 on bad signature/expiry
 
   if (payload.type !== 'portal') {

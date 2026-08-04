@@ -23,10 +23,19 @@ original file — only this summary block at the top is newly written.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 NEXT ACTION, per Mark (4 Aug 2026, session 15, §114): Entra ID SSO stage
-1+2 is BUILT (see §114 for the full delivery) — Mark still needs to
-`npm install`, set ENTRA_TENANT_ID/ENTRA_CLIENT_ID in Vercel, and deploy
-before it's live. Stages 3 (password-fallback toggle + offboarding sync)
-and 4 (frontend MSAL wiring — the actual "Sign in with Microsoft" button)
+1+2 — CONFIRMED LIVE (see §115's opening note: the pre-packaging
+re-hydration for that entry pulled main and found the entra-login route
+already present). §115 (Lead Portal httpOnly cookie, closing the gap this
+NEXT ACTION section used to list under Lead Portal auth) and §116 (audit
+log comment correction) are BUILT but not yet confirmed deployed — see
+those entries. No open action item from Mark right now beyond what's
+already listed in §0's other sections (CURRENT SECURITY/DEPENDENCY STATE,
+FLAGGED NOT BUILT, DELIBERATELY NOT BUILT) — token economy/Stripe was
+raised as a candidate but Mark hasn't given a go-ahead on it, same
+"wait and see" posture as AWS KMS.
+
+Stages 3 (password-fallback toggle + offboarding sync) and 4 (frontend
+MSAL wiring — the actual "Sign in with Microsoft" button) of Entra SSO
 remain, and — same gate as stage 1+2 needed — do not start either without
 Mark explicitly saying so first; he'll likely want to deploy/test stage
 1+2 before more SSO work begins, same reasoning as before. Stage 4
@@ -98,7 +107,9 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
   Events          Full backend — registration, dual QR codes
                   (registration vs attendance), walk-in check-in
   Lead Portal     Public self-service registration + venue check-in,
-                  own separate auth (ProspectAuthContext, own JWT secret).
+                  own separate auth (ProspectAuthContext, own JWT secret,
+                  own httpOnly cookie as of §115 — mb_portal_session,
+                  same hardening staff auth got in §113).
                   All four password screens (Login, Register, Activate,
                   walk-in Check-in) have a Show/Hide toggle now (§101);
                   the "zooms in and won't use the full screen" mobile
@@ -214,29 +225,16 @@ work, worth revisiting if the same question comes up again:
     AgentDetail carries the selected period; navigating back to Reports
     does not carry it back, always resets to the current month. Confirmed
     with Mark as expected/acceptable as-is.
-  - AppAdmin Audit Log: a User's portfolio/product array assignments
-    still show as raw id arrays in changeDetail, not resolved names
-    (§103) — deliberately excluded from that fix as a different shape of
-    problem (multi-value resolution, not single-reference).
   - Settings -> photo upload: honest disabled "coming soon" stub, not
     built. Deliberately parked (§110) — Mark doesn't want to take on a
     paid dependency (Vercel Blob) for a feature with no clear business
     value unless a customer actually asks for it.
-  - Lead Portal auth (ProspectAuthContext, portalAuthStore.js, middleware/
-    portalAuth.js): still on the pre-§113 pattern staff auth used to use
-    — token cached in sessionStorage, JS-readable, same XSS exposure
-    profile §113 closed off for staff. Deliberately out of scope for
-    §113 (Mark's question was about the staff session specifically), not
-    an oversight — flagged here explicitly so it doesn't drop off. Same
-    fix shape would apply if/when tackled: httpOnly cookie, its own
-    Set-Cookie/logout endpoint, matching portalAuth's existing separate-
-    JWT-secret boundary from staff auth (never conflate the two cookies
-    either, if this gets built — same reasoning that keeps the two JWT
-    signing secrets apart today).
-  - GlobalAdmin guide's §2.2 Flag Reference table describes
-    popia.subjectAccessRequest.enabled as dead/unwired — stale as of
-    §109, which actually wired it up. Needs a docx correction pass
-    whenever documentation is next touched.
+  - GlobalAdmin guide's §2.2 Flag Reference table has TWO stale entries
+    now: popia.subjectAccessRequest.enabled (described as dead/unwired,
+    stale since §109 actually wired it up) and auth.sso.enabled/
+    auth.sso.provider (still described by their pre-§114 meaning). Needs
+    a single docx correction pass whenever documentation is next touched
+    — same edit-and-verify process as the rest of that document.
 
 CURRENT SECURITY / DEPENDENCY STATE (as of 30 Jul 2026):
   - react-router: migrated 6->7 (7.18.2). The open-redirect + SSR-
@@ -7785,6 +7783,156 @@ FILES:
 Plus this Status_Vercel.md and Project_Context_Vercel.md.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+115. LEAD PORTAL SESSION MOVED TO AN HTTPONLY COOKIE — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Closes the exact gap §113 deliberately left open at the time ("Lead
+Portal auth... still on the pre-§113 pattern... flagged here explicitly
+so it doesn't drop off"). Same fix shape as promised there: httpOnly
+cookie, a real logout endpoint, the two cookies never conflated.
+
+Full cutover, not dual-support — same reasoning as §113: no legitimate
+non-browser caller of portal routes exists, so keeping the Authorization-
+header path alive alongside the cookie would only be extra attack
+surface for nothing.
+
+BACKEND:
+  - http/helpers.js: NEW setPortalAuthCookie()/clearPortalAuthCookie()/
+    getPortalAuthCookie() — a SEPARATE cookie (mb_portal_session), not
+    the staff mb_session cookie reused. Deliberately duplicated rather
+    than parameterising setAuthCookie() with a cookie-name argument: two
+    small, obviously-distinct functions are harder to misuse than one
+    function a caller could accidentally invoke with the wrong name and
+    silently cross the staff/portal boundary this file otherwise keeps
+    structurally impossible to cross — same reasoning that already keeps
+    the two JWT signing secrets (config.localAuth vs config.portalAuth)
+    apart. Same SameSite=Strict/Secure/HttpOnly attributes as
+    setAuthCookie(), same 8-hour maxAge (matches issuePortalToken()'s
+    signJwt() default).
+  - middleware/portalAuth.js: validatePortalToken() reads
+    getPortalAuthCookie(req) instead of the Authorization header.
+  - handlers/portalHandlers.js: handlePortalRegister, handlePortalActivate,
+    handlePortalLogin, handlePortalWalkIn all call setPortalAuthCookie()
+    now and no longer return token in their JSON body. handlePortalWalkIn
+    keeps attendanceType in its response body — confirmed
+    PortalCheckinConfirm.jsx actually reads that field before removing
+    anything else from the response, not assumed safe to drop. NEW
+    handlePortalLogout — didn't exist before (nothing to clear
+    server-side while the token lived only in sessionStorage); skips
+    validatePortalToken() deliberately, same "logging out an
+    already-invalid session should still succeed" reasoning as staff's
+    handleLogout.
+  - api/portal-router.js: routes POST /api/portal/logout to the new
+    handler. No new Vercel Function — still 12/12, same consolidated
+    dispatcher file as every other portal route.
+
+FRONTEND:
+  - portalAuthStore.js: rewritten. No token field at all anymore — holds
+    only a lightweight { authenticated: true } flag (not even display
+    data, unlike authStore.js's { user } — the Lead Portal never shows
+    cached profile data before its own fetch, PortalDashboard always
+    calls portalApi.getMe() on mount regardless). getPortalToken()
+    removed entirely, nothing calls it. setPortalAuthenticated() replaces
+    setPortalSession(token).
+  - portalApi.js: request() no longer attaches a manual Authorization
+    header at all; every call now sets credentials: 'same-origin'
+    explicitly, which is what actually gets mb_portal_session attached.
+    New portalApi.logout().
+  - ProspectAuthContext.jsx: registerAndLogin/walkInAndLogin/
+    activateAccount/login all call setPortalAuthenticated() (no
+    argument) instead of setPortalSession(data.token). logout() is now
+    async, calls portalApi.logout() first (server clears the cookie),
+    then always clears local display state regardless of whether that
+    network call succeeded — same pattern AuthContext.jsx's own logout()
+    already established for staff.
+  - PortalDashboard.jsx: handleLogout is now async, awaits logout()
+    before navigating.
+
+SCOPE BOUNDARY, DELIBERATE: staff auth (mb_session) untouched by this
+entry — already done, §113. The two cookies are structurally independent
+(separate names, separate signing secrets) and this entry only ever
+touched the portal side.
+
+VERIFIED: node --check + ESM import smoke test on all edited backend
+files; full Vite production build clean; existing 55-test Vitest suite
+unaffected (no test coverage over cookie parsing specifically for the
+portal path — mirrors staff's own §113 gap; getPortalAuthCookie() reuses
+the same parsing logic getAuthCookie() already has real coverage-by-
+inspection for, not a new untested code path). Could not test an actual
+browser round-trip (register/login -> cookie set -> subsequent request
+-> logout -> cookie cleared) — no live browser or deployed environment
+reachable from the sandbox, same caveat as §113's own verification.
+Re-hydrated fresh from GitHub and diffed all 9 changed files before
+packaging — clean, no parallel changes.
+
+MIGRATION: none — no schema change.
+
+FILES:
+  frontend/api-lib/http/helpers.js
+  frontend/api-lib/middleware/portalAuth.js
+  frontend/api-lib/handlers/portalHandlers.js
+  frontend/api/portal-router.js
+  frontend/src/services/portalAuthStore.js
+  frontend/src/services/portalApi.js
+  frontend/src/context/ProspectAuthContext.jsx
+  frontend/src/pages/portal/PortalDashboard.jsx
+Plus this Status_Vercel.md and Project_Context_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+116. AUDIT LOG "RAW ID ARRAYS" FLAG WAS A MISDIAGNOSIS, NOT A GAP — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark challenged §0's "AppAdmin Audit Log: a User's portfolio/product
+array assignments still show as raw id arrays in changeDetail" bullet,
+believing it was already fixed. Checked the actual code rather than
+trusting either claim — he was right, and the real story is more
+specific than "already fixed elsewhere": it was never broken. §103's own
+entry (3 Aug 2026) is where the mischaracterization was introduced —
+it described UserUpdated's changeDetail as carrying "raw-id arrays" for
+portfolios/products and deliberately chose not to resolve them, and that
+description then propagated into §0's outstanding-items list. Traced the
+full chain instead of re-describing it from memory:
+  - models/user.js's own header comment: UpdateUserSchema.portfolios/
+    .products are z.array(z.string()) of NAMES — "matches UserAdmin.jsx's
+    checkbox state exactly (form.portfolios / form.products are arrays
+    of names, resolved against Portfolio/Product by userService.js)".
+  - UserAdmin.jsx: togglePortfolio(name)/toggleProduct(name) and the
+    checkbox `checked` state all operate on p.name throughout — confirmed
+    by reading the component, not the comment describing it.
+  - userService.js: updateUserFull() calls resolvePortfolioIds(data.portfolios)/
+    resolveProductIds(data.products) to convert names to ids ONLY for the
+    UserPortfolio/BrokerProduct join-table sync (syncUserPortfolios/
+    syncUserProducts) — these return a NEW id array, they never mutate
+    data.portfolios/data.products itself.
+  - userHandlers.js's handleUserById: changeDetail is built from
+    parsed.data directly (spread, plus supervisorName when relevant) —
+    the same parsed.data whose portfolios/products fields were never
+    touched by the id-resolution step above. Always names, every time.
+
+FIX: corrected the stale comment at the actual write site (userHandlers.js)
+so a future reader doesn't reach the same wrong conclusion §103 did, and
+removed the corresponding bullet from §0's FLAGGED, NOT BUILT list.
+Deliberately did NOT rewrite §103's historical entry itself — same
+"leave history alone, correct forward" convention already established
+(e.g. §109's seed-vs-live-state correction) — this entry is the
+correction, not a silent edit of the record.
+
+No code behaviour changed by this entry — the audit log has been showing
+readable portfolio/product names for User updates the whole time; this
+was a documentation-and-comment fix, not a functional one.
+
+VERIFIED: read-only investigation (models/user.js, UserAdmin.jsx,
+userService.js, userHandlers.js all traced directly against the live
+GitHub source), plus the comment edit itself was included in this
+session's node --check pass on userHandlers.js (§115, same file).
+
+MIGRATION: none.
+
+FILES:
+  frontend/api-lib/handlers/userHandlers.js  (comment only, no logic change)
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SESSION 15 PAUSED HERE — 4 Aug 2026
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -7798,17 +7946,22 @@ normal use, not the KMS path itself. Migration 020 confirmed already
 run by Mark before this session's end; safe to leave alone (re-running
 it is a no-op by design, confirmed and explained when he asked).
 
-§114 (Entra SSO stage 1+2) is built and verified by this session but NOT
-YET DEPLOYED — Mark still needs to run `npm install` (new jose
-dependency), set ENTRA_TENANT_ID/ENTRA_CLIENT_ID in Vercel's env vars
-(only required once auth.sso.enabled is actually turned on —
-validateEntraToken() throws a clear error if missing at that point, same
-pattern as every other optional() config value in this app), and deploy.
-No migration to run for this one.
+§114 (Entra SSO stage 1+2) — CONFIRMED LIVE. Not from Mark saying so
+directly; the pre-packaging re-hydration for §115 pulled a fresh copy of
+main and the entra-login route was already present, which only happens
+if the §114 zip was deployed. Noted here as observed evidence, not
+assumed — worth being precise about the difference given this file's own
+"don't conflate seed defaults with live state" lesson (§109).
+
+§115 (Lead Portal httpOnly cookie) and §116 (audit log comment
+correction) are built and verified by this session but NOT YET DEPLOYED.
+§115 needs no new env vars (PORTAL_JWT_SIGNING_SECRET already existed
+and is unchanged) — a straight drag-and-drop-and-deploy, same as §116's
+comment-only change. No migration for either.
 
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
 at the top of this file for what's next — stages 3+4 of Entra SSO, only
-once Mark explicitly says to start, same gate as this entry needed.
+once Mark explicitly says to start, same gate as before.
 
 
 

@@ -1,6 +1,15 @@
 /**
  * api-lib/handlers/portalHandlers.js — NEW, 24 Jul 2026.
  * Route handlers for the self-service Lead Portal.
+ *
+ * UPDATED §115 (4 Aug 2026): every handler that issues a session
+ * (register, activate, login, walkin) now sets it via setPortalAuthCookie()
+ * (an httpOnly cookie) instead of returning the raw JWT in the JSON
+ * response body — same fix §113 already applied to staff auth, now
+ * closing the identical sessionStorage-XSS-theft vector on the
+ * prospect-facing side. handlePortalLogout is new for the same reason
+ * §113 needed a new handleLogout: an httpOnly cookie can only be cleared
+ * server-side, so "logout" stopped being a purely client-side action.
  */
 import { validatePortalToken, portalAuthErrorResponse } from '../middleware/portalAuth.js';
 import { hashPassword, verifyPassword, signJwt } from '../services/authService.js';
@@ -16,6 +25,7 @@ import {
   PortalRegisterSchema, PortalLoginSchema, PortalUpdateMeSchema, PortalCheckinSchema,
   PortalActivateSchema, PortalWalkInSchema,
 } from '../models/leadPortal.js';
+import { setPortalAuthCookie, clearPortalAuthCookie } from '../http/helpers.js';
 
 function issuePortalToken(account) {
   return signJwt(
@@ -113,7 +123,8 @@ export async function handlePortalRegister(req, res) {
     });
 
     const token = issuePortalToken(result);
-    return res.status(201).json({ token });
+    setPortalAuthCookie(res, token);
+    return res.status(201).json({});
 
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
@@ -150,7 +161,8 @@ export async function handlePortalActivate(req, res) {
     });
 
     const token = issuePortalToken(result);
-    return res.status(201).json({ token });
+    setPortalAuthCookie(res, token);
+    return res.status(201).json({});
 
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
@@ -191,7 +203,8 @@ export async function handlePortalLogin(req, res) {
     await recordPortalLoginSuccess(account.id);
 
     const token = issuePortalToken({ portalAccountId: account.id, leadId: account.leadId });
-    return res.status(200).json({ token });
+    setPortalAuthCookie(res, token);
+    return res.status(200).json({});
 
   } catch (err) {
     console.error('portal/login error:', err);
@@ -272,7 +285,11 @@ export async function handlePortalWalkIn(req, res) {
     });
 
     const token = issuePortalToken(result);
-    return res.status(201).json({ token, attendanceType: 'walkin' });
+    setPortalAuthCookie(res, token);
+    // attendanceType stays in the body (unlike the other issuing handlers
+    // above, which now return {}) — PortalCheckinConfirm.jsx's walk-in
+    // flow reads data.attendanceType from this response directly.
+    return res.status(201).json({ attendanceType: 'walkin' });
 
   } catch (err) {
     if (err.status) return res.status(err.status).json({ error: err.message });
@@ -324,4 +341,20 @@ export async function handlePortalCheckin(req, res) {
     console.error('portal/checkin error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
+}
+
+/**
+ * POST /api/portal/logout — §115. Clears the httpOnly portal session
+ * cookie. Deliberately skips validatePortalToken() — same reasoning as
+ * staff's handleLogout: logging out an already-invalid/expired session
+ * should still succeed in clearing whatever cookie the browser has, not
+ * error.
+ */
+export async function handlePortalLogout(req, res) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  clearPortalAuthCookie(res);
+  return res.status(200).json({ message: 'Logged out' });
 }
