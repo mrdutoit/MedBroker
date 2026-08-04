@@ -22,12 +22,17 @@ original file — only this summary block at the top is newly written.
 0. CURRENT STATE — READ THIS FIRST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-NEXT ACTION, per Mark (4 Aug 2026, end of session 15): build Entra ID
-SSO, stage 1+2 together — do not start this without Mark explicitly
-saying so first, since he wants to finish deploying/testing everything
-already delivered before any more work begins. When he does give the
-go-ahead, don't re-derive the design from scratch — it's already fully
-scoped:
+NEXT ACTION, per Mark (4 Aug 2026, session 15, §114): Entra ID SSO stage
+1+2 is BUILT (see §114 for the full delivery) — Mark still needs to
+`npm install`, set ENTRA_TENANT_ID/ENTRA_CLIENT_ID in Vercel, and deploy
+before it's live. Stages 3 (password-fallback toggle + offboarding sync)
+and 4 (frontend MSAL wiring — the actual "Sign in with Microsoft" button)
+remain, and — same gate as stage 1+2 needed — do not start either without
+Mark explicitly saying so first; he'll likely want to deploy/test stage
+1+2 before more SSO work begins, same reasoning as before. Stage 4
+specifically also needs a real Entra app registration only Mark can
+create. When he does give the go-ahead, don't re-derive the design from
+scratch — it's already fully scoped, same as stage 1+2 was:
   - Provider decision made: Entra ID first, not Google. Google is a
     future release, customer-demand-driven — do not build it now.
   - Full investigation of what already exists (dead MSAL frontend code,
@@ -62,7 +67,10 @@ scoped:
     can't reach (WAF, AWS KMS, migrations).
 
 FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
-  Auth            Local email/password, JWT, 8-hour expiry
+  Auth            Local email/password, JWT, 8-hour expiry. Entra ID SSO
+                  login (POST /api/auth/entra-login) built §114 but not
+                  yet reachable from the UI — stage 4 (the actual "Sign
+                  in with Microsoft" button) isn't built.
   Leads           Full CRUD, assignment, call logging, reopen, audit log,
                   real duplicate detection (check-duplicates batch
                   endpoint + create-time 409), CSV/Excel/JSON bulk import
@@ -7609,6 +7617,174 @@ FILES:
 Plus this Status_Vercel.md.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+114. ENTRA ID SSO — STAGE 1+2 BUILT — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark gave the explicit go-ahead §0 was waiting on. Built exactly the
+already-scoped plan from §109/§110 — no scope re-derivation. Both stages
+delivered together, per Mark's own request.
+
+ARCHITECTURE DECISION (stated once here, not repeated per-file — see each
+file's own header comment for the same reasoning): Entra validation is
+deliberately NOT wired into middleware/auth.js as a second per-request
+auth path. An Entra ID token is verified ONCE, at login
+(POST /api/auth/entra-login). On success the app issues its OWN local
+session JWT/httpOnly cookie — exactly what local-auth login already
+issues. Every subsequent request goes through the one existing session
+path (middleware/auth.js: isActive re-check, sessionsRevokedAt, role),
+regardless of how the session started. This is a real scope reduction
+from what §110's "wholly new backend Entra-token-validation layer"
+phrasing implied — that layer exists (entraAuthService.js) but plugs in
+only at the login boundary, not duplicated into every request's
+validation path. Matches design decision (e): SSO only proves identity;
+role/authorization/session-revocation/isActive stay entirely
+MedBroker-managed, the same way for every user regardless of auth path.
+
+STAGE 1 — FOUNDATION:
+  NEW PUT /api/users/:id/link-identity — GlobalAdmin ONLY (tighter than
+  every other User Admin route, which is Admin+GlobalAdmin), matching
+  design decision (a). Corrects a user's email and/or manually links or
+  unlinks an Entra Object ID (send entraObjectId: null to unlink).
+  Neither existed anywhere in User Admin before this — confirmed absent
+  by reading UserAdmin.jsx and models/user.js before writing anything,
+  not assumed from the §110 investigation alone. Unique-constraint
+  conflicts (email or entraObjectId already in use) return a 409 with a
+  message naming which field conflicted, not a generic error — Postgres
+  reports the actual constraint name (UQ_User_Email vs
+  UQ_User_EntraObjectId, folded lowercase since both are unquoted in
+  schema.postgres.sql) and the handler branches on it. Two audit actions
+  (UserEmailCorrected, UserIdentityLinked/Unlinked), written per field
+  actually touched when a single call changes both.
+  FRONTEND: UserAdmin.jsx's edit modal gained a "Sign-in Identity
+  (GlobalAdmin only)" section — visible only when role === 'GlobalAdmin'
+  AND editing an existing user, with its own Update Identity button
+  (separate save action, separate endpoint, separate audit semantics from
+  the main Save Changes button above it). This is also the review surface
+  a JIT-provisioned SSO user (stage 2, created inactive — see below) or an
+  email-mismatch case gets resolved through: same admin-visible list
+  every other user shows up in, not a new page.
+
+STAGE 2 — CORE ENTRA VALIDATION:
+  NEW api-lib/services/entraAuthService.js — the actual JWKS/RS256
+  validation layer §110 found completely missing (middleware/auth.js's
+  validateToken() had zero code path for an Entra-issued token). Uses
+  `jose` (NEW dependency) rather than hand-rolling, unlike authService.js's
+  local HMAC JWT — verifying a THIRD PARTY's rotating public key set is a
+  different problem from signing/verifying with a secret this app
+  controls, and jose is the standard library built specifically for it.
+  verifyEntraIdToken() is a pure core (JWKS resolver + expected
+  issuer/audience/tenant passed in explicitly) wrapped by
+  validateEntraToken() (real config: ENTRA_TENANT_ID/ENTRA_CLIENT_ID, NEW
+  backend env vars — deliberately separate from the VITE_-prefixed pair
+  authConfig.js already has, since those are Vite build-time-only and a
+  Vercel Function needs its own server-side copies). Validates issuer,
+  audience, expiry, signature via Microsoft's real JWKS endpoint, PLUS a
+  second belt-and-braces check that the token's own tid claim matches the
+  configured tenant (redundant with the issuer check in the honest case,
+  cheap insurance against a too-loose issuer configuration).
+  NEW POST /api/auth/entra-login (auth-router.js, no new Vercel Function —
+  still 12/12, checked before adding). Gated on auth.sso.enabled — a real
+  backend-BEHAVIOUR flag check (getFlagMeta, same pattern
+  security.kmsEncryption.enabled established, §112), not just a
+  frontend-visibility gate; 403s immediately if SSO isn't turned on for
+  the deployment. Matching order, per §109's design (backfill onto the
+  EXISTING row rather than ever duplicating someone who already has a
+  local account, so every FK already pointing at their user id — Lead.
+  assignedAgentId, Appointment.brokerId, AuditLog.performedById, etc. —
+  keeps working with no separate merge step):
+    1. entraObjectId already linked -> that IS the user.
+    2. No oid match, email matches an unlinked local row -> auto-backfill
+       entraObjectId onto it, log them in.
+    3. Email matches a row already linked to a DIFFERENT entraObjectId ->
+       genuine mismatch, 409, don't silently relink — resolved via stage
+       1's link-identity route.
+    4. No match at all -> JIT-provision (userService.jitProvisionSsoUser)
+       a new row, INACTIVE, role='Agent' (design decision (b)'s "safe
+       default role, Admin fills in the rest") — isActive=FALSE IS the
+       review gate; the row is real and immediately visible in User Admin,
+       but middleware/auth.js's isActive check blocks all access until a
+       GlobalAdmin reviews and activates it. Login itself 403s with a
+       clear "pending administrator approval" message, an
+       SsoUserJitProvisioned audit entry is written (performedById: null
+       — the identity provider triggered this, not a MedBroker user).
+
+NOT IN THIS DELIVERY, unchanged from §110's staging (stages 3+4, do not
+start either without Mark's explicit go-ahead, same as this one needed —
+stage 4 specifically needs a real Entra app registration only Mark can
+create):
+  - Password-fallback toggle + hard-commit, offboarding sync via Graph
+    API directory-membership checks (stage 3).
+  - Frontend MSAL wiring — the actual "Sign in with Microsoft" button;
+    authConfig.js, App.jsx's MsalProvider comment, api.js's dead
+    ENTRA_MODE branch are all untouched (stage 4). POST /api/auth/
+    entra-login exists and works correctly when called, but nothing in
+    the UI calls it yet — auth.sso.enabled stays off by default, and even
+    turned on, there's no button.
+  - GlobalAdmin guide docx's §2.2 Flag Reference table still describes
+    auth.sso.enabled/auth.sso.provider by their pre-§114 meaning — same
+    "flagged, not fixed inline" treatment §109 gave the POPIA SAR flag's
+    stale doc entry; needs the same docx edit-and-verify pass whenever
+    documentation is next touched.
+
+TESTABILITY: cannot test an actual OAuth handshake or a real Neon insert
+from this sandbox — no live Entra tenant, no live DB connection, same
+caveat as every other piece of infrastructure this environment can't
+reach. What COULD be given real, run coverage, was: NEW
+entraAuthService.test.js (10 tests) signs real tokens against a
+locally-generated RSA keypair and locally-hosted JWKS (jose's own
+createLocalJWKSet) and drives verifyEntraIdToken() directly — valid
+token accepted with correct claim extraction (including the
+preferred_username -> email fallback and the lowercase/trim normalisation),
+and separately rejects: wrong signing key, expired, wrong audience, wrong
+issuer, mismatched tid despite a superficially-plausible issuer, missing
+oid, missing any email claim. This is the same standard §113's
+cookie-parsing tests set — real assertions against real logic, not a
+code-review-only claim. Also fixed, incidentally: this was the first test
+file to import anything that transitively touches api-lib/config.js,
+which throws eagerly at import time without DATABASE_URL set — added a
+placeholder-only DATABASE_URL to vite.config.js's new `test.env` block
+(never actually connected to; db.js's getPool() is lazy) so `vitest run`
+doesn't need a live database for tests that don't need one. A real,
+generically useful fix, not specific to this one test file.
+
+VERIFIED: node --check + ESM import smoke test on every new/edited
+backend file; full 55-test Vitest suite passes (45 pre-existing + 10
+new); full Vite production build clean. Re-hydrated fresh from GitHub and
+diffed all 14 changed/new files before packaging — clean, no parallel
+changes landed upstream.
+
+MIGRATION: none. entraObjectId, passwordHash (nullable), and their unique
+indexes (UQ_User_EntraObjectId, UQ_User_Email) already existed in
+schema.postgres.sql, anticipating exactly this — confirmed via §109's own
+investigation before writing a line of this delivery's code.
+
+Project_Context_Vercel.md also updated this entry: the User entity
+section's stale "some future SSO path — not currently exercised" note
+and §5's auth.sso.enabled/auth.sso.provider flag descriptions ("not wired
+to anything real") both corrected to reflect stage 1+2 now being real.
+NOT touched: the RoleContext.jsx/PERSONAS paragraph in §3 is ALSO stale
+(describes a preview role-switcher §87 already removed entirely, as if
+it still exists as a fallback) — pre-existing inaccuracy, unrelated to
+this delivery's scope, flagging rather than fixing so it isn't lost.
+
+FILES:
+  frontend/package.json                              (jose dependency)
+  frontend/vite.config.js                             (test.env DATABASE_URL placeholder)
+  frontend/api-lib/config.js                          (config.entra)
+  frontend/api-lib/services/entraAuthService.js       (NEW)
+  frontend/api-lib/services/entraAuthService.test.js  (NEW)
+  frontend/api-lib/services/userService.js            (SSO support functions, entraObjectId in USER_LIST_SELECT)
+  frontend/api-lib/handlers/userHandlers.js           (handleUserLinkIdentity)
+  frontend/api-lib/handlers/authHandlers.js           (handleEntraLogin)
+  frontend/api-lib/models/user.js                     (LinkIdentitySchema)
+  frontend/api-lib/models/auth.js                     (EntraLoginSchema)
+  frontend/api/auth-router.js                         (entra-login route)
+  frontend/api/users-router.js                        (link-identity route)
+  frontend/src/services/api.js                        (usersApi.linkIdentity)
+  frontend/src/pages/UserAdmin.jsx                     (Sign-in Identity section)
+Plus this Status_Vercel.md and Project_Context_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SESSION 15 PAUSED HERE — 4 Aug 2026
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -7622,9 +7798,17 @@ normal use, not the KMS path itself. Migration 020 confirmed already
 run by Mark before this session's end; safe to leave alone (re-running
 it is a no-op by design, confirmed and explained when he asked).
 
+§114 (Entra SSO stage 1+2) is built and verified by this session but NOT
+YET DEPLOYED — Mark still needs to run `npm install` (new jose
+dependency), set ENTRA_TENANT_ID/ENTRA_CLIENT_ID in Vercel's env vars
+(only required once auth.sso.enabled is actually turned on —
+validateEntraToken() throws a clear error if missing at that point, same
+pattern as every other optional() config value in this app), and deploy.
+No migration to run for this one.
+
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
-at the top of this file for exactly what to pick up and how — Entra ID
-SSO, stage 1+2, only once Mark explicitly says to start.
+at the top of this file for what's next — stages 3+4 of Entra SSO, only
+once Mark explicitly says to start, same gate as this entry needed.
 
 
 

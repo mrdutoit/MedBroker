@@ -11,10 +11,13 @@
 
 import { timingSafeEqual } from 'crypto';
 import { validateToken, authErrorResponse } from '../middleware/auth.js';
-import { getUserByEmailForLogin, recordLoginSuccess, recordLoginFailure, countActiveGlobalAdmins, createLocalUser, getUserPasswordHash, setUserPassword, wasPasswordUsedThisYear, revokeUserSessions } from '../services/userService.js';
+import { getUserByEmailForLogin, recordLoginSuccess, recordLoginFailure, countActiveGlobalAdmins, createLocalUser, getUserPasswordHash, setUserPassword, wasPasswordUsedThisYear, revokeUserSessions, getUserByEntraObjectId, getUserForSsoMatch, backfillEntraObjectId, jitProvisionSsoUser } from '../services/userService.js';
 import { verifyPassword, signJwt, hashPassword, checkPasswordComplexity } from '../services/authService.js';
+import { validateEntraToken } from '../services/entraAuthService.js';
 import { getSystemConfig } from '../services/systemConfigService.js';
-import { LoginSchema, BootstrapAdminSchema, ChangePasswordSchema } from '../models/auth.js';
+import { getFlagMeta } from '../services/flagService.js';
+import { writeAuditLog, clientIp } from '../services/auditService.js';
+import { LoginSchema, BootstrapAdminSchema, ChangePasswordSchema, EntraLoginSchema } from '../models/auth.js';
 import { config } from '../config.js';
 import { setAuthCookie, clearAuthCookie } from '../http/helpers.js';
 
@@ -242,4 +245,121 @@ export async function handleLogout(req, res) {
   }
   clearAuthCookie(res);
   return res.status(200).json({ message: 'Logged out' });
+}
+
+/**
+ * POST /api/auth/entra-login — §114 (4 Aug 2026), SSO stage 2. Verifies
+ * an Entra ID token (entraAuthService.js), matches it to a User row, and
+ * issues the SAME kind of session local login already issues (httpOnly
+ * cookie via setAuthCookie/signJwt) — see entraAuthService.js's header
+ * comment for why this deliberately does not introduce a second
+ * per-request auth path in middleware/auth.js.
+ *
+ * Gated on auth.sso.enabled (Core flag, off by default) — the same
+ * backend-BEHAVIOUR flag-gate pattern encryption.js's
+ * security.kmsEncryption.enabled check already established (§112),
+ * distinct from the frontend-visibility-only pattern most other flags in
+ * this app use. Off is the safe default: this endpoint exists in every
+ * deployment from the moment this ships, but does nothing until Mark
+ * deliberately turns SSO on for a given customer.
+ *
+ * Matching order, per §109's design — backfill onto the EXISTING row
+ * rather than ever creating a duplicate for someone who already has a
+ * local account, so every foreign key already pointing at their user id
+ * keeps working with no separate merge step:
+ *   1. entraObjectId already linked -> that IS the user, always.
+ *   2. No entraObjectId match, but email matches an unlinked local row
+ *      -> auto-backfill entraObjectId onto it, log them in.
+ *   3. Email matches a row already linked to a DIFFERENT entraObjectId
+ *      -> a genuine mismatch, reject rather than silently relinking; a
+ *      GlobalAdmin resolves this via PUT /api/users/:id/link-identity.
+ *   4. No match at all -> JIT-provision a new, INACTIVE row (design
+ *      decision (b)) and reject the login with a clear pending-review
+ *      message. An inactive account never gets a working session here,
+ *      same as every other isActive check in this file — the freshly
+ *      created row is real and immediately visible in User Admin, but
+ *      grants no access until a GlobalAdmin/Admin reviews and activates it.
+ */
+export async function handleEntraLogin(req, res) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const ssoFlag = await getFlagMeta('auth.sso.enabled');
+    if (ssoFlag?.value !== '1') {
+      return res.status(403).json({ error: 'Single sign-on is not enabled for this deployment' });
+    }
+
+    if (!config.localAuth.jwtSigningSecret) {
+      return res.status(500).json({ error: 'JWT_SIGNING_SECRET is not configured on the server' });
+    }
+
+    const parsed = EntraLoginSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    // Throws { status: 401, message } on any verification failure — bad
+    // signature, expired, wrong issuer/audience/tenant, missing claims.
+    const identity = await validateEntraToken(parsed.data.idToken);
+
+    let user = await getUserByEntraObjectId(identity.entraObjectId);
+
+    if (!user) {
+      const emailMatch = await getUserForSsoMatch(identity.email);
+
+      if (emailMatch && !emailMatch.entraObjectId) {
+        await backfillEntraObjectId(emailMatch.id, identity.entraObjectId);
+        user = emailMatch;
+      } else if (emailMatch && emailMatch.entraObjectId) {
+        // Already linked to a DIFFERENT identity — a real mismatch, not
+        // just "first time seeing this person." Don't silently relink.
+        return res.status(409).json({
+          error: 'This email is already linked to a different sign-in identity. Contact your GlobalAdmin.',
+        });
+      } else {
+        const newId = await jitProvisionSsoUser(identity);
+        await writeAuditLog({
+          entityType: 'User', entityId: newId, action: 'SsoUserJitProvisioned',
+          performedById: null, // no MedBroker user performed this — the identity provider did
+          changeDetail: { entraObjectId: identity.entraObjectId, email: identity.email },
+          ipAddress: clientIp(req),
+        });
+        return res.status(403).json({
+          error: 'Your account has been created but is pending administrator approval. Contact your GlobalAdmin.',
+        });
+      }
+    }
+
+    if (!user.isActive) {
+      return res.status(403).json({ error: 'This account is inactive. Contact your administrator.' });
+    }
+
+    await recordLoginSuccess(user.id);
+
+    const token = signJwt(
+      { oid: user.id, roles: [user.role], name: user.displayName, email: user.email },
+      config.localAuth.jwtSigningSecret
+    );
+
+    // Same session mechanism as local login (§113) — httpOnly cookie, not
+    // a JSON body token.
+    setAuthCookie(res, token);
+
+    return res.status(200).json({
+      user: {
+        id: user.id, displayName: user.displayName, email: user.email, role: user.role,
+        avatarColour: user.avatarColour, themePreference: user.themePreference, timezone: user.timezone,
+      },
+      passwordMustChange: false, // SSO users have no local password to rotate
+    });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('auth/entra-login error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
 }

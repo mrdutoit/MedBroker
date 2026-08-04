@@ -56,6 +56,20 @@ export const config = {
     bootstrapSecret:  optional('BOOTSTRAP_SECRET'),
   },
 
+  // Entra ID SSO — stage 2 (4 Aug 2026, §114). Backend-side, deliberately
+  // NOT the VITE_-prefixed pair authConfig.js already reads (those are
+  // Vite build-time vars baked into the frontend bundle; a Vercel
+  // Function needs its own server-side copies, read at request time like
+  // everything else in this file). Both optional() here, not required() —
+  // entraAuthService.js itself throws a clear, actionable error at call
+  // time if they're missing when auth.sso.enabled is actually turned on,
+  // matching the kms/demoEncryption precedent above rather than crashing
+  // every cold start before a single request is served.
+  entra: {
+    tenantId: optional('ENTRA_TENANT_ID'),
+    clientId: optional('ENTRA_CLIENT_ID'),
+  },
+
   // Lead Portal auth (services/leadPortalService.js) — deliberately a
   // SEPARATE secret from localAuth above, not a shared one with a
   // different claim shape. A prospect token must never verify against a

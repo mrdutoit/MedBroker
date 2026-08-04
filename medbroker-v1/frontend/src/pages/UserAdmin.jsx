@@ -139,9 +139,10 @@ function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onP
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
-function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnlock, onForceLogout }) {
-  const { portfolios: allPortfolios, productsByPortfolio } = useRole();
+function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnlock, onForceLogout, onLinkIdentity }) {
+  const { role, portfolios: allPortfolios, productsByPortfolio } = useRole();
   const isEdit = mode === 'edit';
+  const isGlobalAdmin = role === 'GlobalAdmin';
   const [form, setForm] = useState(
     isEdit
       ? {
@@ -155,6 +156,19 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
   );
   const [saving, setSaving] = useState(false);
   const [error, setError]   = useState(null);
+
+  // §114 — GlobalAdmin-only identity form (email correction + manual
+  // Entra Object ID link/unlink). Deliberately a separate form/save
+  // action from the one above: it hits a different endpoint
+  // (PUT /api/users/:id/link-identity, GlobalAdmin-gated server-side too)
+  // with different audit semantics, so it can't just be folded into
+  // handleSave's payload.
+  const [identityForm, setIdentityForm] = useState({
+    email: user?.email ?? '',
+    entraObjectId: user?.entraObjectId ?? '',
+  });
+  const [identitySaving, setIdentitySaving] = useState(false);
+  const [identityError, setIdentityError]   = useState(null);
 
   function togglePortfolio(name) {
     setForm(f => {
@@ -250,6 +264,32 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
     }
   }
 
+  // §114 — sends only the field(s) that actually changed from what the
+  // user row currently has, matching LinkIdentitySchema's "at least one
+  // of email/entraObjectId" requirement and keeping the audit log
+  // (UserEmailCorrected vs UserIdentityLinked/Unlinked, written per field
+  // server-side) accurate to what was really touched, not every field
+  // resent unconditionally.
+  async function handleLinkIdentity() {
+    setIdentityError(null);
+
+    const payload = {};
+    if (identityForm.email !== user.email) payload.email = identityForm.email;
+    const currentEntraId = user.entraObjectId ?? '';
+    if (identityForm.entraObjectId !== currentEntraId) {
+      payload.entraObjectId = identityForm.entraObjectId.trim() === '' ? null : identityForm.entraObjectId.trim();
+    }
+    if (Object.keys(payload).length === 0) return;
+
+    setIdentitySaving(true);
+    try {
+      await onLinkIdentity(payload); // closes the modal on success (handleModalLinkIdentity)
+    } catch (err) {
+      setIdentityError(err instanceof ApiError ? err.message : 'Could not update this identity.');
+      setIdentitySaving(false);
+    }
+  }
+
   return (
     <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={{ ...s.modal, width: '520px' }}>
@@ -292,6 +332,59 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
             <div>
               <div style={{ fontWeight: 500 }}>{form.displayName}</div>
               <div style={{ fontSize: '0.75rem', color:'var(--mut)' }}>{form.email}{ssoEnabled ? ' · SSO' : ''}</div>
+            </div>
+          </div>
+        )}
+
+        {/* §114 — Sign-in identity: GlobalAdmin only, edit mode only.
+            Email correction + manual Entra Object ID link/unlink — the
+            action design decision (a), §109/§110, deliberately scoped
+            tighter than the Admin+GlobalAdmin fields below. Also where a
+            JIT-provisioned SSO user (created inactive, pending review) or
+            an email-mismatch case gets resolved — same admin visibility
+            as this list already provides, no separate page. */}
+        {isEdit && isGlobalAdmin && (
+          <div style={{
+            border: '1px solid var(--line)', borderRadius: '8px',
+            padding: '12px 14px', marginBottom: '16px', background: 'var(--panel2)',
+          }}>
+            <div style={{ fontSize: '0.8125rem', fontWeight: 600, marginBottom: '10px' }}>
+              Sign-in Identity <span style={{ fontWeight: 400, color: 'var(--mut)' }}>(GlobalAdmin only)</span>
+            </div>
+
+            {identityError && <div style={{ ...s.errorBox, marginBottom: '10px' }}>{identityError}</div>}
+
+            <div style={s.formGroup}>
+              <label style={s.formLabel}>Email address</label>
+              <input
+                type="email"
+                style={s.formInput}
+                value={identityForm.email}
+                onChange={e => setIdentityForm(f => ({ ...f, email: e.target.value }))}
+              />
+            </div>
+
+            <div style={s.formGroup}>
+              <label style={s.formLabel}>
+                Entra Object ID <span style={{ fontWeight: 400, color: 'var(--mut)' }}>(leave blank to unlink)</span>
+              </label>
+              <input
+                style={s.formInput}
+                value={identityForm.entraObjectId}
+                onChange={e => setIdentityForm(f => ({ ...f, entraObjectId: e.target.value }))}
+                placeholder="e.g. 3fa85f64-5717-4562-b3fc-2c963f66afa6"
+              />
+              <div style={s.formHint}>
+                Manually links this account to a Microsoft Entra ID identity. Only needed when a
+                user's SSO email doesn't match their MedBroker email, or to resolve a pending
+                sign-in that couldn't be matched automatically.
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+              <button style={s.secondaryBtn} onClick={handleLinkIdentity} disabled={identitySaving}>
+                {identitySaving ? 'Saving…' : 'Update Identity'}
+              </button>
             </div>
           </div>
         )}
@@ -476,6 +569,18 @@ export default function UserAdmin() {
     setModal(null);
   }
 
+  // §114 — same shape as handleModalUnlock/handleModalForceLogout above:
+  // call the API, refetch (an email correction can change who a search
+  // filter matches), close the modal. Deliberately doesn't try to keep
+  // the modal open and re-sync in place — simpler, and consistent with
+  // every other admin action on this page.
+  async function handleModalLinkIdentity(payload) {
+    if (!modal?.user) return;
+    await usersApi.linkIdentity(modal.user.id, payload);
+    await Promise.all([refetchUsers(), refetchSupervisors()]);
+    setModal(null);
+  }
+
   return (
     <div style={s.page}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
@@ -617,6 +722,7 @@ export default function UserAdmin() {
           onSave={handleModalSave}
           onUnlock={handleModalUnlock}
           onForceLogout={handleModalForceLogout}
+          onLinkIdentity={handleModalLinkIdentity}
         />
       )}
     </div>

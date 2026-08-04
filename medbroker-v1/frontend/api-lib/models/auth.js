@@ -36,3 +36,12 @@ export const ChangePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'Current password is required'),
   newPassword:     z.string().min(12, 'Password must be at least 12 characters'),
 });
+
+// POST /api/auth/entra-login — §114 (4 Aug 2026), SSO stage 2. The
+// frontend (stage 4, not yet built) will acquire this via MSAL and send
+// it here for server-side verification — see entraAuthService.js. Just
+// the raw token; there is nothing else the client can meaningfully assert
+// about its own identity that the server should trust.
+export const EntraLoginSchema = z.object({
+  idToken: z.string().min(1, 'ID token is required'),
+});

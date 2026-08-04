@@ -50,6 +50,24 @@ export const UserListQuerySchema = z.object({
   search: z.string().max(100).optional(),
 });
 
+// PUT /api/users/:id/link-identity — §114 (4 Aug 2026), SSO stage 1
+// foundation. Deliberately separate from UpdateUserSchema, not a field
+// added to it: this route is GlobalAdmin-only (handleUserLinkIdentity
+// requires GlobalAdmin, not Admin+GlobalAdmin like the rest of User
+// Admin), matching Mark's design decision (a) — email correction and
+// manual identity-linking are authentication-configuration actions, not
+// routine profile administration. entraObjectId accepts null explicitly
+// (unlink an identity, e.g. after a mistaken link), distinct from
+// undefined (field not being touched this call) — z.string().nullable()
+// preserves that distinction, .optional() alone would not.
+export const LinkIdentitySchema = z.object({
+  email:         z.string().email().max(255).optional(),
+  entraObjectId: z.string().min(1).max(100).nullable().optional(),
+}).refine(
+  (data) => data.email !== undefined || data.entraObjectId !== undefined,
+  { message: 'Provide at least one of email or entraObjectId' }
+);
+
 // Self-service Settings.jsx fields only — deliberately separate from
 // UpdateUserSchema above, not a subset of it. UpdateUserSchema is the
 // Admin/GlobalAdmin-editing-someone-else shape (role, region, supervisor,

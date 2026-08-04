@@ -353,6 +353,8 @@ export const usersApi = {
   unlock: (id) => request(`/users/${id}/unlock`, { method: 'PUT' }),
   forceLogout: (id) => request(`/users/${id}/force-logout`, { method: 'PUT' }),
   listSupervisors: () => request('/users?supervisors=true'),
+  // §114 — GlobalAdmin-only email correction / Entra identity link-unlink.
+  linkIdentity: (id, data) => request(`/users/${id}/link-identity`, { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // ─── Tasks (§56) ──────────────────────────────────────────────────────────────

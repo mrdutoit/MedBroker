@@ -155,9 +155,23 @@ Notification
 
 User
   role: GlobalAdmin | Admin | Supervisor | Agent | Broker
-  Local auth: passwordHash (NULL if this user only ever gets created via
-  some future SSO path — not currently exercised), passwordSetAt,
+  Local auth: passwordHash (NULL for an SSO-only user — real as of §114,
+  4 Aug 2026: JIT-provisioned SSO users are created this way), passwordSetAt,
   passwordMustChange, failedLoginAttempts, isLocked.
+  Entra SSO (§114, stage 1+2 — see Status_Vercel.md, entraAuthService.js):
+  entraObjectId is the primary match key once linked; first-ever SSO login
+  matches an existing local row by email and backfills entraObjectId onto
+  it rather than creating a duplicate — every FK already pointing at that
+  user's id (Lead.assignedAgentId, Appointment.brokerId, AuditLog.
+  performedById, etc.) keeps working with no separate merge step. A
+  genuinely new identity (no match by oid or email) is JIT-provisioned
+  INACTIVE with role='Agent' — that's the review gate; a GlobalAdmin
+  activates and sets the real role/portfolio/supervisor via User Admin,
+  same surface PUT /api/users/:id/link-identity (GlobalAdmin-only email
+  correction + manual identity link/unlink) uses. Stage 3 (password-
+  fallback toggle + offboarding sync) and stage 4 (frontend MSAL wiring —
+  the actual "Sign in with Microsoft" button) are NOT built yet; see
+  Status_Vercel.md §0 NEXT ACTION.
   Password policy (§72, fully real): createUserFull() always sets
   passwordMustChange=true whenever a password is set at creation — a
   manually created user is always forced to set their own on first
@@ -196,8 +210,15 @@ Database table: FeatureFlag (flagKey, label, valueType, value, tier, isPhase2)
 Frontend: FlagContext.jsx — fetches from GET /api/flags on startup
 
 Tier: Core (vary per customer — review at onboarding)
-  auth.sso.enabled                boolean  false  (not wired to anything real — see §2)
-  auth.sso.provider               enum     none | microsoft | google   [sub: auth.sso.enabled = true]
+  auth.sso.enabled                boolean  false  (real backend gate since §114, 4 Aug 2026 —
+                                                     POST /api/auth/entra-login checks this and
+                                                     403s if off; frontend MSAL login button
+                                                     (stage 4) not built yet, so nothing on the
+                                                     UI actually reaches that endpoint today)
+  auth.sso.provider               enum     none | microsoft | google   [sub: auth.sso.enabled = true;
+                                                     Google is NOT built — Entra ID first, per
+                                                     §110's decision, Google deferred to a future
+                                                     customer-demand-driven release]
   appointments.claimModel         enum     assign | claim
   appointments.tokens.paymentProvider enum none | stripe               [sub: claimModel = 'claim']
   events.enabled                  boolean  true

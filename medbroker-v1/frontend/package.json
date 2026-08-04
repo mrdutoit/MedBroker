@@ -17,6 +17,7 @@
     "bcryptjs": "^2.4.3",
     "date-fns": "^3.6.0",
     "html5-qrcode": "^2.3.8",
+    "jose": "^5.9.6",
     "nodemailer": "^9.0.3",
     "pg": "^8.13.0",
     "pino": "^9.4.0",

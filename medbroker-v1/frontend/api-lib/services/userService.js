@@ -23,6 +23,11 @@ const USER_LIST_SELECT = `
   u.isActive AS "isActive", u.isLocked AS "isLocked",
   u.failedLoginAttempts AS "failedLoginAttempts",
   u.supervisorId AS "supervisorId",
+  -- §114 — GlobalAdmin's link-identity UI needs to know whether a row is
+  -- already linked (and to what) to decide auto-link vs mismatch vs
+  -- unlinked; harmless extra column for every other consumer of this
+  -- shared SELECT, which already ignores fields it doesn't render.
+  u.entraObjectId AS "entraObjectId",
   sup.displayName AS "supervisorName",
   COALESCE(array_agg(DISTINCT p.name) FILTER (WHERE p.name IS NOT NULL), ARRAY[]::text[]) AS "portfolios",
   COALESCE(array_agg(DISTINCT prod.name) FILTER (WHERE prod.name IS NOT NULL), ARRAY[]::text[]) AS "products"`;
@@ -666,4 +671,136 @@ export async function setUserPassword(userId, newPlaintext) {
     }
   );
   await addPasswordHistory(userId, newHash);
+}
+
+// ── Entra ID SSO support — NEW, §114 (4 Aug 2026, stages 1+2) ──────────────
+
+/**
+ * Look up a user by their Entra Object ID — the primary match on every SSO
+ * login after the first (getUserForSsoMatch below handles the first-ever
+ * login, which matches by email instead and backfills this column).
+ * @param {string} entraObjectId
+ * @returns {Promise<Object|null>}
+ */
+export async function getUserByEntraObjectId(entraObjectId) {
+  return executeQueryOne(
+    `SELECT id, displayName AS "displayName", email, role,
+            isActive AS "isActive", entraObjectId AS "entraObjectId",
+            avatarColour AS "avatarColour", themePreference AS "themePreference", timezone
+     FROM "User"
+     WHERE entraObjectId = @entraObjectId AND deletedAt IS NULL AND organisationId = @organisationId`,
+    {
+      entraObjectId:  { type: sql.NVarChar(100),    value: entraObjectId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+}
+
+/**
+ * Look up a user by email for SSO first-login matching (case-insensitive,
+ * matches the UQ_User_Email constraint's own case sensitivity — Postgres
+ * treats email as case-sensitive on the unique index, so this deliberately
+ * ILIKEs to find a match a case-differing SSO claim would otherwise miss).
+ * Also returns entraObjectId so the caller can tell a genuinely-unlinked
+ * row (auto-link safe) apart from one already linked to a DIFFERENT
+ * identity (a real mismatch — reject, don't silently relink).
+ * @param {string} email
+ * @returns {Promise<Object|null>}
+ */
+export async function getUserForSsoMatch(email) {
+  return executeQueryOne(
+    `SELECT id, displayName AS "displayName", email, role,
+            isActive AS "isActive", entraObjectId AS "entraObjectId",
+            avatarColour AS "avatarColour", themePreference AS "themePreference", timezone
+     FROM "User"
+     WHERE email ILIKE @email AND deletedAt IS NULL AND organisationId = @organisationId`,
+    {
+      email:          { type: sql.NVarChar(255),    value: email },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+}
+
+/**
+ * Backfill entraObjectId onto an EXISTING User row at first successful SSO
+ * login where the email matched but no identity was linked yet — the
+ * "match by email, backfill entraObjectId onto the existing row rather
+ * than creating a new one" design from §109, so every foreign key already
+ * pointing at this user's id (Lead.assignedAgentId, Appointment.brokerId,
+ * AuditLog.performedById, etc.) keeps working with zero separate merge step.
+ * @param {string} userId
+ * @param {string} entraObjectId
+ */
+export async function backfillEntraObjectId(userId, entraObjectId) {
+  await executeQuery(
+    `UPDATE "User" SET entraObjectId = @entraObjectId, updatedAt = NOW()
+     WHERE id = @userId AND organisationId = @organisationId`,
+    {
+      entraObjectId:  { type: sql.NVarChar(100),    value: entraObjectId },
+      userId:         { type: sql.UniqueIdentifier, value: userId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+}
+
+/**
+ * Just-in-time provisioning for a genuinely new SSO identity — no local
+ * row matched by entraObjectId or email. Created INACTIVE deliberately
+ * (design decision (b), §109/§110): "safe default role, Admin fills in the
+ * rest since SSO claims won't carry portfolio/region/supervisor." isActive
+ * = FALSE is what makes this the review gate — the new row is real and
+ * visible in User Admin immediately (same list, same isActive column
+ * everything else already renders), but middleware/auth.js's isActive
+ * re-check blocks any actual access until a GlobalAdmin/Admin reviews it,
+ * sets a real role/portfolio/supervisor, and activates — same surface as
+ * the link-identity review flow, not a separate one.
+ * @param {{ entraObjectId: string, email: string, displayName: string }} identity
+ * @returns {Promise<string>} new user id
+ */
+export async function jitProvisionSsoUser({ entraObjectId, email, displayName }) {
+  const newId = crypto.randomUUID();
+  await executeQuery(
+    `INSERT INTO "User" (id, organisationId, entraObjectId, displayName, email, role, isActive)
+     VALUES (@id, @organisationId, @entraObjectId, @displayName, @email, 'Agent', FALSE)`,
+    {
+      id:             { type: sql.UniqueIdentifier, value: newId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+      entraObjectId:  { type: sql.NVarChar(100),    value: entraObjectId },
+      displayName:    { type: sql.NVarChar(200),    value: displayName },
+      email:          { type: sql.NVarChar(255),    value: email },
+    }
+  );
+  return newId;
+}
+
+/**
+ * GlobalAdmin-only email correction and/or manual identity link/unlink —
+ * PUT /api/users/:id/link-identity (userHandlers.js). Same dynamic-SET-
+ * clause pattern as updateOwnProfile/updateUserFull; entraObjectId can be
+ * explicitly set to null to unlink (undefined leaves it untouched — the
+ * caller only ever passes validated LinkIdentitySchema data, which
+ * preserves that distinction).
+ * @param {string} id
+ * @param {{ email?: string, entraObjectId?: string|null }} data
+ */
+export async function linkUserIdentity(id, data) {
+  const organisationId = resolveOrganisationId();
+  const setClauses = [];
+  const params = { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+
+  if (data.email !== undefined) {
+    setClauses.push('email = @email');
+    params.email = { type: sql.NVarChar(255), value: data.email };
+  }
+  if (data.entraObjectId !== undefined) {
+    setClauses.push('entraObjectId = @entraObjectId');
+    params.entraObjectId = { type: sql.NVarChar(100), value: data.entraObjectId };
+  }
+  if (setClauses.length === 0) return;
+
+  await executeQuery(
+    `UPDATE "User" SET ${setClauses.join(', ')}, updatedAt = NOW()
+     WHERE id = @id AND organisationId = @organisationId`,
+    params
+  );
 }

@@ -5,9 +5,9 @@
  */
 
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
-import { listUsers, createUserFull, listSupervisors, getUserForAdmin, updateUserFull, getOwnProfile, updateOwnProfile, unlockUser, revokeUserSessions, getUserDisplayNameById } from '../services/userService.js';
+import { listUsers, createUserFull, listSupervisors, getUserForAdmin, updateUserFull, getOwnProfile, updateOwnProfile, unlockUser, revokeUserSessions, getUserDisplayNameById, linkUserIdentity } from '../services/userService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
-import { CreateUserSchema, UserListQuerySchema, UpdateUserSchema, UpdateOwnProfileSchema } from '../models/user.js';
+import { CreateUserSchema, UserListQuerySchema, UpdateUserSchema, UpdateOwnProfileSchema, LinkIdentitySchema } from '../models/user.js';
 import { isUuid } from '../http/helpers.js';
 
 /** GET (list) + POST (create) /api/users */
@@ -264,6 +264,92 @@ export async function handleUserForceLogout(req, res, id) {
       return res.status(status).json(body);
     }
     console.error('users/[id]/force-logout error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * PUT /api/users/:id/link-identity — §114 (4 Aug 2026), SSO stage 1
+ * foundation. GlobalAdmin ONLY — deliberately a tighter gate than every
+ * other route in this file (Admin+GlobalAdmin). Matches Mark's design
+ * decision (a), §109/§110: correcting a user's email and manually linking/
+ * unlinking an Entra identity are authentication-configuration actions,
+ * not routine profile administration Admin already handles for role,
+ * region, supervisor, portfolios. Also the review surface a JIT-
+ * provisioned SSO user (userService.jitProvisionSsoUser) or an
+ * email-mismatch case gets routed to — same admin visibility, not a
+ * separate page.
+ */
+export async function handleUserLinkIdentity(req, res, id) {
+  if (req.method !== 'PUT') {
+    res.setHeader('Allow', 'PUT, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['GlobalAdmin']);
+
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid user ID format' });
+
+    const parsed = LinkIdentitySchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const existing = await getUserForAdmin(id);
+    if (!existing) return res.status(404).json({ error: 'User not found' });
+
+    try {
+      await linkUserIdentity(id, parsed.data);
+    } catch (err) {
+      // 23505 = unique_violation. Distinguish which constraint tripped
+      // (UQ_User_Email vs UQ_User_EntraObjectId, folded lowercase by
+      // Postgres since both are declared unquoted in schema.postgres.sql)
+      // so the message actually says what went wrong rather than a
+      // generic conflict — this route can touch either or both fields in
+      // one call.
+      if (err.code === '23505') {
+        const constraint = (err.constraint || '').toLowerCase();
+        if (constraint.includes('email')) {
+          return res.status(409).json({ error: 'A user with this email address already exists' });
+        }
+        if (constraint.includes('entraobjectid')) {
+          return res.status(409).json({ error: 'This Entra identity is already linked to a different user' });
+        }
+        return res.status(409).json({ error: 'This change conflicts with an existing user record' });
+      }
+      throw err;
+    }
+
+    // Two distinct action types, both written when both fields are sent
+    // in one call — a real audit trail should show exactly what changed,
+    // not a single vague "identity updated" entry covering either or both.
+    if (parsed.data.email !== undefined) {
+      await writeAuditLog({
+        entityType: 'User', entityId: id, action: 'UserEmailCorrected',
+        performedById: claims.oid,
+        changeDetail: { previousEmail: existing.email, newEmail: parsed.data.email },
+        ipAddress: clientIp(req),
+      });
+    }
+    if (parsed.data.entraObjectId !== undefined) {
+      await writeAuditLog({
+        entityType: 'User', entityId: id,
+        action: parsed.data.entraObjectId === null ? 'UserIdentityUnlinked' : 'UserIdentityLinked',
+        performedById: claims.oid,
+        changeDetail: { entraObjectId: parsed.data.entraObjectId },
+        ipAddress: clientIp(req),
+      });
+    }
+
+    const updated = await getUserForAdmin(id);
+    return res.status(200).json(updated);
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('users/[id]/link-identity error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
