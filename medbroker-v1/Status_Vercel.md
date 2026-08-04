@@ -175,6 +175,17 @@ work, worth revisiting if the same question comes up again:
     built. Deliberately parked (§110) — Mark doesn't want to take on a
     paid dependency (Vercel Blob) for a feature with no clear business
     value unless a customer actually asks for it.
+  - Lead Portal auth (ProspectAuthContext, portalAuthStore.js, middleware/
+    portalAuth.js): still on the pre-§113 pattern staff auth used to use
+    — token cached in sessionStorage, JS-readable, same XSS exposure
+    profile §113 closed off for staff. Deliberately out of scope for
+    §113 (Mark's question was about the staff session specifically), not
+    an oversight — flagged here explicitly so it doesn't drop off. Same
+    fix shape would apply if/when tackled: httpOnly cookie, its own
+    Set-Cookie/logout endpoint, matching portalAuth's existing separate-
+    JWT-secret boundary from staff auth (never conflate the two cookies
+    either, if this gets built — same reasoning that keeps the two JWT
+    signing secrets apart today).
   - GlobalAdmin guide's §2.2 Flag Reference table describes
     popia.subjectAccessRequest.enabled as dead/unwired — stale as of
     §109, which actually wired it up. Needs a docx correction pass
