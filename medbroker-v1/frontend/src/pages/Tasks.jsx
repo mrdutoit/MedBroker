@@ -495,6 +495,19 @@ export default function Tasks() {
   const { data: userData } = useFetch(() => isAdmin ? usersApi.list() : Promise.resolve(null), [isAdmin]);
   const assignees = (userData?.users ?? []).map(u => ({ value: u.id, label: u.displayName }));
 
+  // §105 — reassignment targets for a Supervisor are their own team
+  // (themselves + direct reports), not the org-wide list NewTaskModal
+  // and the Assignee filter still use — deliberately not touching those
+  // two, since Mark's ask was specifically about reassignment. Backend
+  // enforces the same restriction independently (taskHandlers.js) — this
+  // is about not showing options that would just get rejected, not the
+  // actual security boundary.
+  const reassignTargets = (role === 'Supervisor')
+    ? (userData?.users ?? [])
+        .filter(u => u.id === persona.id || u.supervisorId === persona.id)
+        .map(u => ({ value: u.id, label: u.displayName }))
+    : assignees;
+
   const [activeTab,    setActiveTab]    = useState('all');
   const [filterAssign, setFilterAssign] = useState('All');
   const [showDone,     setShowDone]     = useState(false);
@@ -706,7 +719,7 @@ export default function Tasks() {
               onReassign={reassignTask}
               isAdmin={isAdmin}
               canDelete={canDelete}
-              assignees={assignees}
+              assignees={reassignTargets}
               isMobile={isMobile}
               today={today}
             />

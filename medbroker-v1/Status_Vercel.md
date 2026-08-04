@@ -6731,6 +6731,117 @@ Plus this Status_Vercel.md.
 
 
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+105. TASK REASSIGNMENT — SCOPED TO A SUPERVISOR'S OWN TEAM — 3 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Follow-on from §104. Mark asked who could reassign a task; answer
+surfaced that a Supervisor could reassign to anyone org-wide, not just
+their own team — Mark asked for that tightened.
+
+Fixed at both layers, deliberately, not just the dropdown:
+  - Backend (taskHandlers.js PATCH): when the actor is Supervisor-only
+    (not Admin/GlobalAdmin) and assignedToId is part of the PATCH, the
+    target must be themselves or a direct report (getDirectReportIds())
+    or the request is rejected with a 403. Admin/GlobalAdmin unrestricted,
+    matching canSeeTask()'s own org-wide visibility for those roles.
+  - Frontend (Tasks.jsx): a new reassignTargets list, scoped the same
+    way, feeds only the Reassign control's <select>. Deliberately did
+    NOT touch the existing assignees list that NewTaskModal and the
+    Assignee filter still use — Mark's ask was specifically about
+    reassignment, not task creation, and that's a related-but-separate
+    scope decision left for him to raise if he wants it too (see open
+    item below).
+
+Reasoning for fixing server-side, not just the UI: a hidden dropdown
+option is a suggestion, not a rule — the API is what actually has to
+say no, matching how every other permission boundary in this codebase
+works (client-side is always a reflection of a server-side rule, never
+the rule itself).
+
+OPEN ITEM, NOT BUILT — flagged, not fixed: NewTaskModal's "Assign to"
+field and the Assignee filter dropdown have the exact same org-wide-not-
+team-scoped behaviour this fix just closed for Reassign specifically.
+Not touched since Mark didn't ask for it, but worth flagging if the same
+question comes up for task creation.
+
+VERIFIED: node --check + ESM import smoke test on taskHandlers.js; full
+Vite production build clean; existing 45-test Vitest suite unaffected.
+Re-hydrated fresh from GitHub and diffed both changed files before
+packaging — clean.
+
+MIGRATION: none.
+
+FILES:
+  frontend/api-lib/handlers/taskHandlers.js
+  frontend/src/pages/Tasks.jsx
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+106. REPORTS — TWO ISSUES INVESTIGATED, NOT YET FIXED — 3 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark asked these be recorded before being forgotten, not built yet —
+logging both here with root cause found, awaiting a go-ahead.
+
+1. PERIOD SELECTION NOT CARRIED OVER — Reports.jsx to BrokerDetail.jsx
+   (and, by the same code pattern, AgentDetail.jsx too, not yet
+   confirmed but near-certain given they share the same View-button
+   construction).
+   CONFIRMED: Reports.jsx's View button navigates via
+   navigate(`/reports/broker/${b.id}`) — no query param, no router
+   state, nothing carrying the selected period across. BrokerDetail.jsx
+   independently initialises period='Monthly' and referenceDate=undefined
+   (defaults to "now") on mount, with zero awareness of what was
+   selected on the page just left. Mark's two screenshots both showing
+   "Jul 2026" was him manually reselecting it twice, not the app
+   retaining anything.
+   NOT FIXED — recommended approach if/when built: URL query params on
+   the navigate() call (?period=...&ref=...), read by BrokerDetail/
+   AgentDetail on mount via useSearchParams(), falling back to the
+   current Monthly/now default when absent (i.e. a direct link to
+   /reports/broker/:id with no query params keeps behaving exactly as
+   it does today). Preferred over React Router location state because
+   it survives a page refresh, back button, or a copied/shared link —
+   state does not.
+
+2. "SIGNED" COUNT DOUBLED FOR MULTI-PORTFOLIO BROKERS — real,
+   confirmed, root-caused precisely, not a misread on Mark's part.
+   William Barclay-Beuthin has 2 portfolios (Discovery + Money and
+   Medicine). Reports.jsx's Broker Performance table showed
+   Appointments 10 / Signed 4; BrokerDetail.jsx for the same broker,
+   same period showed Appointments 5 / Signed 2 — exactly double,
+   exactly matching his portfolio count.
+   ROOT CAUSE: reportService.js's getBrokerReport() (the org-wide list
+   powering Reports.jsx's table) joins Appointment AND
+   UserPortfolio/Portfolio in the same query, then runs COUNT(a.id) /
+   COUNT(a.id) FILTER(...) directly over that join — a broker with N
+   portfolios gets every one of their appointments counted N times, the
+   exact "SQL fan-out" pattern already named as a standing risk in this
+   project's own conventions. The query's own comment (right above the
+   policyValue field) correctly explains this exact danger and correctly
+   avoids it FOR policyValue, via a scalar subquery — but that same
+   treatment was never extended to the appts/signed COUNT()s sitting
+   right next to it. getBrokerDetailReport() (the single-broker page —
+   correct, not affected) avoids the bug entirely by never joining
+   Appointment and UserPortfolio in the same query in the first place —
+   confirmed by direct comparison of the two queries.
+   NOT FIXED — recommended fix if/when built: replace getBrokerReport()'s
+   `LEFT JOIN Appointment a` + direct COUNT(a.id) with scalar subqueries
+   for appts and signed, exactly mirroring the pattern already used
+   correctly for policyValue two lines below in the same query. Removes
+   the Appointment join from the main FROM clause entirely, which
+   removes the fan-out risk at its source rather than working around it.
+   Low-risk, well-precedented within the same file, single-function
+   change — recommended as a should-fix given it's a materially wrong
+   number currently shown on a client-facing performance report, not
+   just a cosmetic issue.
+
+Both await Mark's go-ahead before being built — logged here per his
+explicit request so neither gets lost in the meantime.
+
+
+
 If picking up a pending item, reference it by section number (e.g. "I
 want to work on §61's remaining Notification types") — same convention
 as before the split.

@@ -271,6 +271,22 @@ export async function handleTaskById(req, res, id) {
         return res.status(403).json({ error: 'Only an Admin or Supervisor can edit or reassign a task' });
       }
 
+      // §105 — Mark asked for reassignment targets to be constrained to a
+      // Supervisor's own team, not org-wide. Enforced here, not just in
+      // Tasks.jsx's dropdown — a hidden option in the UI is a suggestion,
+      // not a rule; the API is what actually has to say no. Admin/
+      // GlobalAdmin are deliberately exempt (matches canSeeTask's own
+      // org-wide visibility for those roles). A Supervisor may reassign
+      // to themselves or a direct report — the same set canSeeTask()
+      // already lets them see a task on in the first place.
+      if (parsed.data.assignedToId && isSupervisorOnly(claims.roles) && !isAdminRole(claims.roles)) {
+        const reportIds = await getDirectReportIds(claims.oid);
+        const allowedTargets = new Set([claims.oid, ...reportIds]);
+        if (!allowedTargets.has(parsed.data.assignedToId)) {
+          return res.status(403).json({ error: 'A Supervisor can only reassign tasks to themselves or a direct report' });
+        }
+      }
+
       const { dueDate, ...rest } = parsed.data;
       await updateTask(id, dueDate !== undefined ? { ...rest, dueAt: dueDate } : rest);
 
