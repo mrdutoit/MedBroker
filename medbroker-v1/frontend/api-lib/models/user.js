@@ -68,6 +68,18 @@ export const LinkIdentitySchema = z.object({
   { message: 'Provide at least one of email or entraObjectId' }
 );
 
+// PUT /api/users/:id/force-password-reset — §118 (4 Aug 2026). GlobalAdmin
+// ONLY (Mark's explicit scope — tighter than link-identity's GlobalAdmin
+// gate isn't possible, this IS the same gate, just worth stating plainly:
+// this is the most consequential single-user action in the app, setting
+// someone else's credential outright). Complexity is enforced server-side
+// (checkPasswordComplexity, authService.js) at the handler, same bar a
+// user's own voluntary change is held to — an admin-assigned temporary
+// value doesn't get a policy exemption just because it's temporary.
+export const ForcePasswordResetSchema = z.object({
+  newPassword: z.string().min(1, 'Enter a temporary password'),
+});
+
 // Self-service Settings.jsx fields only — deliberately separate from
 // UpdateUserSchema above, not a subset of it. UpdateUserSchema is the
 // Admin/GlobalAdmin-editing-someone-else shape (role, region, supervisor,

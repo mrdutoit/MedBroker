@@ -673,6 +673,39 @@ export async function setUserPassword(userId, newPlaintext) {
   await addPasswordHistory(userId, newHash);
 }
 
+/**
+ * GlobalAdmin-forced password reset — §118 (4 Aug 2026). "Genuinely
+ * forgotten their password" recovery, Mark's own framing: unlike
+ * setUserPassword() above (a user's own voluntary change, which clears
+ * passwordMustChange since they just proved they know the new value),
+ * this sets passwordMustChange = TRUE — the admin-typed value is a
+ * temporary credential the real owner is forced to replace at next login,
+ * never a password the admin gets to leave in place on someone else's
+ * behalf. Also clears isLocked/failedLoginAttempts in the same UPDATE —
+ * folded in deliberately: the scenario this exists for ("forgotten their
+ * password") very plausibly already ALSO involves a lockout from the
+ * failed attempts that led to calling this in the first place, and there
+ * is no good reason to make an Admin perform Unlock as a separate,
+ * easy-to-forget second step right after this one.
+ * @param {string} userId
+ * @param {string} newPlaintext
+ */
+export async function forcePasswordReset(userId, newPlaintext) {
+  const newHash = await hashPassword(newPlaintext);
+  await executeQuery(
+    `UPDATE "User"
+     SET passwordHash = @passwordHash, passwordSetAt = NOW(), passwordMustChange = TRUE,
+         isLocked = FALSE, failedLoginAttempts = 0, updatedAt = NOW()
+     WHERE id = @userId AND organisationId = @organisationId`,
+    {
+      passwordHash:   { type: sql.NVarChar(sql.MAX), value: newHash },
+      userId:         { type: sql.UniqueIdentifier, value: userId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+  await addPasswordHistory(userId, newHash);
+}
+
 // ── Entra ID SSO support — NEW, §114 (4 Aug 2026, stages 1+2) ──────────────
 
 /**

@@ -8146,9 +8146,128 @@ assumed — worth being precise about the difference given this file's own
 "don't conflate seed defaults with live state" lesson (§109).
 
 §115 (Lead Portal httpOnly cookie), §116 (audit log comment correction),
-and §117 (token economy stage 1) are built and verified by this session
-but NOT YET DEPLOYED. None of the three need new env vars or a
-migration — straight drag-and-drop-and-deploy for all three.
+and §117 (token economy stage 1) — ALSO CONFIRMED LIVE, same kind of
+observed evidence: the pre-investigation re-hydration for §118 (below)
+pulled a fresh copy of main and mb_portal_session, the §116 comment
+correction, and handleAvailableToClaim were all already present. Mark
+was actively testing §117 when he found the bug §118 turned out to be —
+he'd deployed everything through the token economy delivery by then.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+118. NOT A LOCKOUT BUG — WRONG TEST EMAIL; FORCE PASSWORD RESET BUILT; SHOW/HIDE GAP CLOSED — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark reported the 5-failed-attempts lockout no longer worked, while
+testing right after deploying §117. Investigated end to end before
+concluding anything — diffed handleLogin, recordLoginFailure,
+systemConfigService.js, AppAdmin.jsx's settings form, authService.js,
+db.js, config.js, http/helpers.js, and auth-router.js against a snapshot
+from before ANY of this session's work (§114 onward). Every one of them
+is either byte-for-byte identical or only ADDITIVELY changed — nothing
+in this session's four deliveries touches User.isLocked,
+User.failedLoginAttempts, or SystemConfig at all. Also had Mark confirm
+the live SystemConfig.passwordLockoutAttempts value directly (5, not 0)
+before ruling that out too.
+
+ACTUAL CAUSE, found by Mark himself: wrong test email — the user didn't
+exist. handleLogin's very first check (`if (!user) return
+res.status(401)...`) fires before the failure-counting logic is ever
+reached, so repeated wrong-password attempts against a nonexistent
+account were never going to count toward anything. Not a regression,
+not a bug — correct behaviour the whole time, confirmed by exhaustive
+diffing rather than assumed innocent.
+
+Two genuine, unrelated things came out of the same conversation:
+
+1. SHOW/HIDE PASSWORD GAP — ChangePassword.jsx had zero Show/Hide
+   toggles on any of its three fields (Current/New/Confirm), unlike
+   Login.jsx and all four Lead Portal password screens (§101), which
+   already have one. Added — one shared toggle across all three fields
+   (not three independent ones), matching Login.jsx's exact pattern
+   (position:relative wrapper, `type={showPassword ? 'text' : 'password'}`,
+   absolutely-positioned Show/Hide button) rather than inventing a new one.
+   A single shared toggle also means New and Confirm can be visually
+   compared side by side, the more common reason to want them visible.
+
+2. NEW: GLOBALADMIN-ONLY FORCE PASSWORD RESET. Mark's request — "if they
+   have genuinely forgotten their password and we want to set something
+   for them that needs to change at first login." Investigated
+   createUserFull() first to find the existing precedent for "admin sets
+   an initial password, user is forced to replace it" (§72's
+   passwordMustChange = !!passwordHash at creation time) rather than
+   inventing a new pattern — this is that same mechanism, applied to an
+   EXISTING user instead of a new one.
+     - NEW userService.forcePasswordReset(userId, newPlaintext): sets
+       passwordHash/passwordSetAt (like setUserPassword()), but
+       passwordMustChange = TRUE, not FALSE — the whole point, an
+       admin-typed value is never left as a real password for someone
+       else's account. ALSO clears isLocked/failedLoginAttempts and the
+       caller (handleUserForcePasswordReset) calls revokeUserSessions()
+       — all three folded into one action deliberately: "forgotten
+       password" plausibly already involves a lockout from the attempts
+       that led here, and there's no good reason to make an Admin
+       perform Unlock as an easy-to-forget separate second step.
+     - NEW PUT /api/users/:id/force-password-reset — GlobalAdmin ONLY,
+       tighter than Unlock/Force-Logout's Admin+GlobalAdmin gate,
+       matching Mark's own explicit wording ("a Global Admin user").
+       Runs the SAME checkPasswordComplexity() bar a voluntary change is
+       held to — an admin-typed temporary value doesn't get a policy
+       exemption. Deliberately does NOT run the reuse-prevention check
+       (wasPasswordUsedThisYear) — that policy exists to stop someone
+       cycling back to a password THEY chose; doesn't meaningfully apply
+       to a one-time admin-assigned value the real owner replaces at
+       next login anyway.
+     - FRONTEND: UserAdmin.jsx's edit modal gained a "Forgotten Password
+       (GlobalAdmin only)" section, positioned between Sign-in Identity
+       and Token Balance (all three are GlobalAdmin-adjacent recovery/
+       security actions in the same modal). Click-to-reveal an inline
+       form rather than a footer button like Unlock/Force Logout —
+       unlike those, this needs actual input (the temporary password),
+       not just a confirm-and-go action. Uses the SAME
+       err.body?.error.passwordProblems special-case ChangePassword.jsx
+       already needs, not usersApi's shared formatErrorBody() — that
+       helper only understands Zod's fieldErrors/formErrors shape, and
+       would have silently swallowed the complexity-check error message
+       into a generic "API request failed" otherwise. Caught by reading
+       ChangePassword.jsx's own error handling first, not discovered by
+       testing.
+
+VERIFIED: node --check + ESM import smoke test on every edited backend
+file, full Vite production build clean, existing 55-test Vitest suite
+unaffected. Re-hydrated fresh from GitHub and diffed all 7 changed files
+before packaging — clean, no parallel changes.
+
+MIGRATION: none — no schema change (isLocked, failedLoginAttempts,
+passwordMustChange, passwordHash all already existed).
+
+FILES:
+  frontend/api-lib/models/user.js               (ForcePasswordResetSchema)
+  frontend/api-lib/services/userService.js       (forcePasswordReset)
+  frontend/api-lib/handlers/userHandlers.js      (handleUserForcePasswordReset)
+  frontend/api/users-router.js                   (force-password-reset route)
+  frontend/src/services/api.js                   (usersApi.forcePasswordReset)
+  frontend/src/pages/UserAdmin.jsx                (Forgotten Password section)
+  frontend/src/pages/ChangePassword.jsx           (Show/Hide on all 3 fields)
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 15 PAUSED HERE — 4 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed everything through §113 deployed cleanly, no errors seen.
+The AWS KMS code path (§111/§112) is deployed and visible in Feature
+Flags but deliberately untested end-to-end — the flag stays off until a
+paying customer exists, so this remains verified-by-code-review only,
+not exercised live; worth remembering next session that "deployed
+successfully" here means the flag-off/demo1 path was exercised by
+normal use, not the KMS path itself. Migration 020 confirmed already
+run by Mark before this session's end; safe to leave alone (re-running
+it is a no-op by design, confirmed and explained when he asked).
+
+§114 through §117 all CONFIRMED LIVE — see the notes above §118 for how
+that was established. §118 (Force Password Reset + Show/Hide fix) is
+built and verified by this session but NOT YET DEPLOYED. No new env
+vars, no migration — straight drag-and-drop-and-deploy.
 
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
 at the top of this file for what's next — stages 3+4 of Entra SSO and

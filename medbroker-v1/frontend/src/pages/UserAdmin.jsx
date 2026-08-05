@@ -139,7 +139,7 @@ function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onP
 }
 
 // ─── Modal ────────────────────────────────────────────────────────────────────
-function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnlock, onForceLogout, onLinkIdentity, onTopUp }) {
+function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnlock, onForceLogout, onLinkIdentity, onTopUp, onForcePasswordReset }) {
   const { role, portfolios: allPortfolios, productsByPortfolio } = useRole();
   const isEdit = mode === 'edit';
   const isGlobalAdmin = role === 'GlobalAdmin';
@@ -173,6 +173,15 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
   });
   const [identitySaving, setIdentitySaving] = useState(false);
   const [identityError, setIdentityError]   = useState(null);
+
+  // §118 — GlobalAdmin-only forced password reset. Own dedicated state
+  // block (not the shared saving/error Unlock/Force Logout use) since
+  // this needs its own inline form, not a one-click confirm-and-go action.
+  const [showResetForm, setShowResetForm]   = useState(false);
+  const [resetPassword, setResetPassword]   = useState('');
+  const [resetShowPw,   setResetShowPw]     = useState(false);
+  const [resetSaving,   setResetSaving]     = useState(false);
+  const [resetError,    setResetError]      = useState(null);
 
   // §117 — token balance + manual top-up. Only relevant for a Broker;
   // only fetched when this modal is actually showing one (isEdit &&
@@ -308,6 +317,33 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
     }
   }
 
+  // §118 — closes the modal on success, same convention Unlock/Force
+  // Logout use: this is a completed recovery action, not something an
+  // Admin would want to immediately follow up with more edits to.
+  async function handleForcePasswordReset() {
+    setResetError(null);
+    if (!resetPassword) {
+      setResetError('Enter a temporary password.');
+      return;
+    }
+    setResetSaving(true);
+    try {
+      await onForcePasswordReset(resetPassword); // closes the modal on success
+    } catch (err) {
+      // Same special-case ChangePassword.jsx already needs — the backend's
+      // complexity-check failure comes back as { passwordProblems: [...] },
+      // a shape usersApi's shared formatErrorBody() doesn't know how to
+      // read (it only understands Zod's fieldErrors/formErrors), so this
+      // reads err.body directly rather than trusting err.message here.
+      if (err instanceof ApiError && typeof err.body?.error === 'object' && err.body.error.passwordProblems) {
+        setResetError(err.body.error.passwordProblems.join('; '));
+      } else {
+        setResetError(err instanceof ApiError ? err.message : 'Could not reset this password.');
+      }
+      setResetSaving(false);
+    }
+  }
+
   // §117 — deliberately does NOT close the modal on success, unlike
   // handleLinkIdentity above: an Admin topping up a broker's balance is
   // plausibly going to check the new total or top up again, not leave
@@ -430,6 +466,74 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
                 {identitySaving ? 'Saving…' : 'Update Identity'}
               </button>
             </div>
+          </div>
+        )}
+
+        {/* §118 — GlobalAdmin-only forced password reset, for a genuinely
+            forgotten password. Sets a temporary value the real owner is
+            forced to replace at next login (passwordMustChange=TRUE),
+            clears any lockout, and revokes existing sessions — all three
+            folded into this one action, see userService.forcePasswordReset()'s
+            header for why. */}
+        {isEdit && isGlobalAdmin && (
+          <div style={{
+            border: '1px solid var(--line)', borderRadius: '8px',
+            padding: '12px 14px', marginBottom: '16px', background: 'var(--panel2)',
+          }}>
+            <div style={{ fontSize: '0.8125rem', fontWeight: 600, marginBottom: showResetForm ? '10px' : 0, display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <span>Forgotten Password <span style={{ fontWeight: 400, color: 'var(--mut)' }}>(GlobalAdmin only)</span></span>
+              {!showResetForm && (
+                <button style={s.secondaryBtn} onClick={() => setShowResetForm(true)}>
+                  Force Password Reset
+                </button>
+              )}
+            </div>
+
+            {showResetForm && (
+              <>
+                {resetError && <div style={{ ...s.errorBox, marginBottom: '10px' }}>{resetError}</div>}
+                <div style={s.formGroup}>
+                  <label style={s.formLabel}>Temporary password</label>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type={resetShowPw ? 'text' : 'password'}
+                      style={{ ...s.formInput, paddingRight: '56px' }}
+                      value={resetPassword}
+                      onChange={e => setResetPassword(e.target.value)}
+                      autoComplete="new-password"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setResetShowPw(v => !v)}
+                      style={{
+                        position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+                        background: 'none', border: 'none', color: 'var(--mut)',
+                        fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'inherit', padding: '4px',
+                      }}
+                    >
+                      {resetShowPw ? 'Hide' : 'Show'}
+                    </button>
+                  </div>
+                  <div style={s.formHint}>
+                    {user.displayName} will be required to set their own password on next
+                    login — this value is temporary, and any active lockout or session is
+                    cleared as part of this action.
+                  </div>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px' }}>
+                  <button
+                    style={s.secondaryBtn}
+                    onClick={() => { setShowResetForm(false); setResetPassword(''); setResetError(null); }}
+                    disabled={resetSaving}
+                  >
+                    Cancel
+                  </button>
+                  <button style={s.primaryBtn} onClick={handleForcePasswordReset} disabled={resetSaving}>
+                    {resetSaving ? 'Setting…' : 'Set Temporary Password'}
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -692,6 +796,19 @@ export default function UserAdmin() {
     await appointmentsApi.tokens.topUp(modal.user.id, amount);
   }
 
+  // §118 — closes the modal on success, matching Unlock/Force Logout's
+  // own convention (this is a completed recovery action). refetchUsers
+  // isn't strictly needed for anything this changes to be visible in the
+  // list (isLocked does show there, and this does clear it — worth
+  // refetching so the red "Locked" badge, if it was showing, disappears
+  // immediately rather than on the next unrelated refresh).
+  async function handleModalForcePasswordReset(newPassword) {
+    if (!modal?.user) return;
+    await usersApi.forcePasswordReset(modal.user.id, newPassword);
+    await Promise.all([refetchUsers(), refetchSupervisors()]);
+    setModal(null);
+  }
+
   return (
     <div style={s.page}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
@@ -835,6 +952,7 @@ export default function UserAdmin() {
           onForceLogout={handleModalForceLogout}
           onLinkIdentity={handleModalLinkIdentity}
           onTopUp={handleModalTopUp}
+          onForcePasswordReset={handleModalForcePasswordReset}
         />
       )}
     </div>

@@ -37,6 +37,11 @@ export default function ChangePassword({ forced = false }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [success, setSuccess] = useState(false);
+  // One shared toggle for all three fields, not three independent ones —
+  // matches Login.jsx's precedent (a single Show/Hide per form) and lets
+  // New/Confirm be visually compared side by side, which is the more
+  // common reason to want them visible in the first place.
+  const [showPassword, setShowPassword] = useState(false);
 
   const hintsMet = COMPLEXITY_HINTS.map(h => h.test(newPassword));
   const allHintsMet = hintsMet.every(Boolean);
@@ -114,22 +119,48 @@ export default function ChangePassword({ forced = false }) {
 
             <div style={s.formGroup}>
               <label style={s.formLabel} htmlFor="cp-current">Current password</label>
-              <input
-                id="cp-current" type="password" autoComplete="current-password"
-                style={s.formInput} value={currentPassword}
-                onChange={e => setCurrentPassword(e.target.value)}
-                required autoFocus
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  id="cp-current" type={showPassword ? 'text' : 'password'} autoComplete="current-password"
+                  style={{ ...s.formInput, paddingRight: '56px' }} value={currentPassword}
+                  onChange={e => setCurrentPassword(e.target.value)}
+                  required autoFocus
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(v => !v)}
+                  style={{
+                    position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', color: colors.ink500,
+                    fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'inherit', padding: '4px',
+                  }}
+                >
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
             </div>
 
             <div style={s.formGroup}>
               <label style={s.formLabel} htmlFor="cp-new">New password</label>
-              <input
-                id="cp-new" type="password" autoComplete="new-password"
-                style={s.formInput} value={newPassword}
-                onChange={e => setNewPassword(e.target.value)}
-                required
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  id="cp-new" type={showPassword ? 'text' : 'password'} autoComplete="new-password"
+                  style={{ ...s.formInput, paddingRight: '56px' }} value={newPassword}
+                  onChange={e => setNewPassword(e.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(v => !v)}
+                  style={{
+                    position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', color: colors.ink500,
+                    fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'inherit', padding: '4px',
+                  }}
+                >
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
               <div style={{ marginTop: '8px', display: 'flex', flexDirection: 'column', gap: '3px' }}>
                 {COMPLEXITY_HINTS.map((h, i) => (
                   <span key={h.label} style={{ fontSize: '0.75rem', color: hintsMet[i] ? '#15803d' : 'var(--mut)' }}>
@@ -141,12 +172,25 @@ export default function ChangePassword({ forced = false }) {
 
             <div style={s.formGroup}>
               <label style={s.formLabel} htmlFor="cp-confirm">Confirm new password</label>
-              <input
-                id="cp-confirm" type="password" autoComplete="new-password"
-                style={s.formInput} value={confirmPassword}
-                onChange={e => setConfirmPassword(e.target.value)}
-                required
-              />
+              <div style={{ position: 'relative' }}>
+                <input
+                  id="cp-confirm" type={showPassword ? 'text' : 'password'} autoComplete="new-password"
+                  style={{ ...s.formInput, paddingRight: '56px' }} value={confirmPassword}
+                  onChange={e => setConfirmPassword(e.target.value)}
+                  required
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(v => !v)}
+                  style={{
+                    position: 'absolute', right: '8px', top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', color: colors.ink500,
+                    fontSize: '0.75rem', cursor: 'pointer', fontFamily: 'inherit', padding: '4px',
+                  }}
+                >
+                  {showPassword ? 'Hide' : 'Show'}
+                </button>
+              </div>
               {confirmPassword.length > 0 && !passwordsMatch && (
                 <div style={{ fontSize: '0.75rem', color: '#dc2626', marginTop: '4px' }}>Passwords do not match</div>
               )}

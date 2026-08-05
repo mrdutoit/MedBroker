@@ -5,9 +5,10 @@
  */
 
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
-import { listUsers, createUserFull, listSupervisors, getUserForAdmin, updateUserFull, getOwnProfile, updateOwnProfile, unlockUser, revokeUserSessions, getUserDisplayNameById, linkUserIdentity } from '../services/userService.js';
+import { listUsers, createUserFull, listSupervisors, getUserForAdmin, updateUserFull, getOwnProfile, updateOwnProfile, unlockUser, revokeUserSessions, getUserDisplayNameById, linkUserIdentity, forcePasswordReset } from '../services/userService.js';
+import { checkPasswordComplexity } from '../services/authService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
-import { CreateUserSchema, UserListQuerySchema, UpdateUserSchema, UpdateOwnProfileSchema, LinkIdentitySchema } from '../models/user.js';
+import { CreateUserSchema, UserListQuerySchema, UpdateUserSchema, UpdateOwnProfileSchema, LinkIdentitySchema, ForcePasswordResetSchema } from '../models/user.js';
 import { isUuid } from '../http/helpers.js';
 
 /** GET (list) + POST (create) /api/users */
@@ -358,6 +359,74 @@ export async function handleUserLinkIdentity(req, res, id) {
       return res.status(status).json(body);
     }
     console.error('users/[id]/link-identity error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * PUT /api/users/:id/force-password-reset — §118 (4 Aug 2026). GlobalAdmin
+ * ONLY — see models/user.js's ForcePasswordResetSchema comment for why
+ * this doesn't get the Admin+GlobalAdmin gate Unlock/Force-Logout have.
+ * Sets a temporary password an Admin typed, forces the real owner to
+ * replace it at next login (passwordMustChange=TRUE), clears any lockout
+ * in the same call, and revokes existing sessions — see
+ * userService.forcePasswordReset()'s own comment for why all three are
+ * folded into one action rather than three separate admin steps.
+ */
+export async function handleUserForcePasswordReset(req, res, id) {
+  if (req.method !== 'PUT') {
+    res.setHeader('Allow', 'PUT, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['GlobalAdmin']);
+
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid user ID format' });
+
+    const existing = await getUserForAdmin(id);
+    if (!existing) return res.status(404).json({ error: 'User not found' });
+
+    const parsed = ForcePasswordResetSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    // Same complexity bar a voluntary change is held to (checkPasswordComplexity,
+    // authService.js) — an admin-typed temporary value doesn't get a policy
+    // exemption just because the real owner will replace it on next login.
+    // Deliberately NOT running the reuse-prevention check
+    // (wasPasswordUsedThisYear, handleChangePassword's own logic) here —
+    // that policy exists to stop someone cycling back to a real password
+    // they chose themselves; it doesn't meaningfully apply to a one-time
+    // admin-assigned value that gets replaced the moment the real owner
+    // logs back in.
+    const complexityProblems = checkPasswordComplexity(parsed.data.newPassword);
+    if (complexityProblems.length > 0) {
+      return res.status(400).json({ error: { passwordProblems: complexityProblems } });
+    }
+
+    await forcePasswordReset(id, parsed.data.newPassword);
+    await revokeUserSessions(id);
+
+    await writeAuditLog({
+      entityType: 'User',
+      entityId: id,
+      action: 'PasswordForceReset',
+      performedById: claims.oid,
+      // Never the password itself, obviously — just that it happened and
+      // by whom, same principle every other audit entry in this app follows.
+      changeDetail: { targetUserId: id, targetDisplayName: existing.displayName },
+      ipAddress: clientIp(req),
+    });
+
+    return res.status(200).json({ success: true });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('users/[id]/force-password-reset error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

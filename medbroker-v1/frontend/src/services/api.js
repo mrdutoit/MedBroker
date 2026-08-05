@@ -376,6 +376,11 @@ export const usersApi = {
   listSupervisors: () => request('/users?supervisors=true'),
   // §114 — GlobalAdmin-only email correction / Entra identity link-unlink.
   linkIdentity: (id, data) => request(`/users/${id}/link-identity`, { method: 'PUT', body: JSON.stringify(data) }),
+  // §118 — GlobalAdmin-only recovery for a genuinely forgotten password;
+  // sets a temporary value the real owner is forced to replace at next
+  // login, clears any lockout, revokes existing sessions.
+  forcePasswordReset: (id, newPassword) =>
+    request(`/users/${id}/force-password-reset`, { method: 'PUT', body: JSON.stringify({ newPassword }) }),
 };
 
 // ─── Tasks (§56) ──────────────────────────────────────────────────────────────
