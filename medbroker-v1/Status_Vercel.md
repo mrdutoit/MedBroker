@@ -8544,42 +8544,45 @@ actually wants to run offboarding sync live — everything else works
 without it, same optional()-until-configured pattern as every other
 credential in this app.
 
+§114 through §119 all CONFIRMED LIVE. §120+§121 (Entra SSO stages 3+4) —
+ALSO CONFIRMED LIVE, same kind of evidence: the pre-investigation
+re-hydration for §122 (below) pulled a fresh copy of main and
+auth.sso.disableLocalFallback was already present in FeatureFlags.jsx.
+This is in fact how §122 itself was found — Mark noticed it live.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-123. APP ADMIN SYSTEM SETTINGS — SAVE CONFIRMATION SCROLLED OUT OF VIEW — 4 Aug 2026 (session 15, continued)
+122. FEATURE FLAGS TAB COUNTS DIDN'T MATCH WHAT WAS SHOWN — 4 Aug 2026 (session 15, continued)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Mark: the "Changes saved" banner on App Admin -> System Settings isn't
-visible when you scroll down to actually click Save, so a save looks
-like it silently did nothing. Confirmed by reading the layout, not
-assumed: both settingsSaved and settingsError render inline at the TOP
-of a long, scrollable settings form (password policy, token allocation,
-lockout, etc.), while Save Settings sits at the very bottom, well below
-the fold — by the time anyone reaches the button, feedback rendered
-above it is already scrolled out of view. Same root cause for both
-success and failure, though Mark only reported the success case;
-fixed both rather than leaving the error case with the identical bug
-for someone to hit later.
+Mark noticed (via screenshot, SSO off): "Core 9" but only 7 rows showing.
+Real bug, not a display glitch — confirmed by reading the code, not
+assumed. Two separate computations of "what's in this tier" had drifted
+apart: visibleFlags (the actual rendered list) filtered by BOTH tier and
+dependsOn (a flag hidden while its parent's current value doesn't match —
+auth.sso.provider/auth.sso.disableLocalFallback both depend on
+auth.sso.enabled, off in Mark's screenshot, so both correctly hidden from
+the list); the tab count was FLAG_META.filter(f => f.tier === key).length
+— tier only, no dependsOn check, so it kept counting flags the list had
+already decided not to show.
 
-FIX: position: fixed on both banners (bottom-right of the viewport,
-z-index above page content) instead of inline in the document flow —
-visible regardless of scroll position, seen immediately after clicking
-whichever button just triggered it. Didn't touch the 2.5s auto-hide
-timeout on the success banner — that duration was never the problem,
-only ever being unable to see it in the first place.
-
-Scoped to System Settings only, matching what Mark actually reported —
-didn't audit AppAdmin.jsx's other tabs (Portfolios, Products, Medical
-Subscriptions, Audit Log) for the same pattern; worth a look if the same
-complaint comes up elsewhere on this page.
+Mark offered two options — fix the count to match what's shown, or
+remove counts entirely. Fixed rather than removed: the count is genuinely
+useful information when it's correct, no reason to lose it over a bug in
+how it was computed. Factored the dependsOn check out of visibleFlags's
+inline filter into its own isFlagVisible() function, used by BOTH the
+list and the count — the two computations can't drift apart again the
+way two separate copies of the same logic just did, by construction, not
+by discipline.
 
 VERIFIED: full Vite production build clean, existing 55-test Vitest
-suite unaffected (single frontend file, no backend touched). Re-hydrated
-fresh from GitHub and diffed the one changed file before packaging.
+suite unaffected (no backend touched — single frontend file, pure
+front-end bug). Re-hydrated fresh from GitHub and diffed the one changed
+file before packaging.
 
 MIGRATION: none.
 
 FILES:
-  frontend/src/pages/AppAdmin.jsx
+  frontend/src/pages/FeatureFlags.jsx
 Plus this Status_Vercel.md.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -8597,10 +8600,93 @@ run by Mark before this session's end; safe to leave alone (re-running
 it is a no-op by design, confirmed and explained when he asked).
 
 §114 through §121 all CONFIRMED LIVE. §122 (Feature Flags tab count fix)
-and §123 (App Admin save-confirmation visibility) are built and verified
-by this session but NOT YET DEPLOYED — two small, independent frontend-
-only fixes, no particular order needed between them. No new env vars, no
-migration for either.
+is built and verified by this session but NOT YET DEPLOYED. No new env
+vars, no migration, no backend change at all — a single frontend file.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+124. FEATURE FLAGS — CHILD FLAGS COULD HOLD STALE VALUES AFTER THEIR PARENT WAS TURNED OFF — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark: switching a parent flag back to default (appointments.claimModel
+to 'assign', or auth.sso.enabled off) should reset dependent child
+flags to their defaults too — worried a stale child value could still
+affect backend behaviour even while hidden in the UI.
+
+Checked whether that's actually exploitable today before building
+anything: it isn't, currently. Every real consumer of a child flag
+already independently re-checks the parent too — handleLogin's
+auth.sso.disableLocalFallback check (§121) was specifically written to
+require BOTH auth.sso.enabled AND auth.sso.disableLocalFallback, exactly
+so a stale child value alone couldn't do anything. But that safety is a
+property of how each consumer HAPPENS to be written, not something the
+flag system itself enforces — the very next thing being built (Stripe's
+payment-provider check) could easily forget to also check
+appointments.claimModel, and Mark's instinct that this shouldn't be
+possible at all is the more robust one. Fixed at the source: a child
+flag can no longer hold a non-default value while its parent doesn't
+require it, full stop, regardless of what any individual consumer
+remembers to check.
+
+FIX: NEW DEPENDENT_RESETS map in flagHandlers.js — hand-coded, not
+schema-driven (FeatureFlag has no dependsOn column at all; that
+relationship only ever lived in FeatureFlags.jsx's FLAG_META, frontend-
+only). Two known relationships: auth.sso.enabled -> [auth.sso.provider,
+auth.sso.disableLocalFallback], appointments.claimModel ->
+[appointments.tokens.paymentProvider]. handleFlagUpdate now checks,
+after any successful PATCH, whether the just-updated flag is a parent
+that just transitioned to the specific value its children depend on it
+NOT being — only fires on that transition, turning claimModel to
+'claim' never touches paymentProvider, only setting it back to 'assign'
+does. Resets folded into the SAME audit log entry as the parent change
+(changeDetail.resetChildren), not separate entries — this is one
+cascading action, not three unrelated ones.
+
+FRONTEND: NEW FlagContext.refetch() — setFlag(key, value) alone only
+ever updated the ONE flag the UI knew it had just changed; a
+server-side cascade reset of OTHER flags would leave this context's
+cached state for those stale until the next full page load, even
+though the database was already correct. FeatureFlags.jsx's
+handleSaveFlag now calls refetch() after every save, on top of the
+existing optimistic setFlag() — instant feedback on the flag just
+touched, eventual consistency for anything it cascaded into.
+
+NOTE ON PACKAGING: this delivery's FeatureFlags.jsx is built on top of
+§122's already-deployed version (confirmed live before starting this
+entry) — it's the complete file, not a diff against §122; dragging it
+in replaces §122's version entirely and is a superset of it, not a
+separate change to layer on carefully in order.
+
+VERIFIED: node --check + ESM import smoke test on the backend file,
+full Vite production build clean, existing 55-test Vitest suite
+unaffected. Re-hydrated fresh from GitHub and diffed all three changed
+files before packaging.
+
+MIGRATION: none — no schema change (FeatureFlag table unchanged;
+DEPENDENT_RESETS is application logic, not a new column).
+
+FILES:
+  frontend/api-lib/handlers/flagHandlers.js
+  frontend/src/context/FlagContext.jsx
+  frontend/src/pages/FeatureFlags.jsx
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 15 PAUSED HERE — 4 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed everything through §113 deployed cleanly, no errors seen.
+The AWS KMS code path (§111/§112) is deployed and visible in Feature
+Flags but deliberately untested end-to-end — the flag stays off until a
+paying customer exists, so this remains verified-by-code-review only,
+not exercised live; worth remembering next session that "deployed
+successfully" here means the flag-off/demo1 path was exercised by
+normal use, not the KMS path itself. Migration 020 confirmed already
+run by Mark before this session's end; safe to leave alone (re-running
+it is a no-op by design, confirmed and explained when he asked).
+
+§114 through §123 all CONFIRMED LIVE. §124 (Feature Flags cascade reset)
+is built and verified by this session but NOT YET DEPLOYED. No new env
+vars, no migration.
 
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
 at the top of this file for what's next — Stripe (checkout, webhook,

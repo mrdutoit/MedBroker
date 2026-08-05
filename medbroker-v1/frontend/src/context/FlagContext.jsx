@@ -12,10 +12,19 @@
  * flag values at all.
  *
  * Usage:
- *   const { flag, flags, loading } = useFlags();
+ *   const { flag, flags, loading, refetch } = useFlags();
  *   flag('auth.sso.enabled')              // returns true | false for boolean flags
  *   flag('appointments.claimModel')       // returns 'assign' | 'claim' for enum flags
  *   flag('appointments.claimModel', 'claim')  // shorthand equality check → boolean
+ *
+ * refetch() — NEW §124 (4 Aug 2026). Re-fetches the full flag set from
+ * the server. FeatureFlags.jsx calls this after every save, not just
+ * setFlag(key, value) for the one flag that changed — a save can
+ * cascade-reset OTHER flags server-side (flagHandlers.js's
+ * DEPENDENT_RESETS, e.g. turning auth.sso.enabled off also resets
+ * auth.sso.provider/disableLocalFallback), and setFlag alone would leave
+ * this context's cached state for those other flags stale until the
+ * next full page load.
  */
 
 import { createContext, useContext, useState, useEffect } from 'react';
@@ -73,6 +82,23 @@ export function FlagProvider({ children }) {
     return () => { cancelled = true; };
   }, []);
 
+  // §124 — separate from the mount-time effect above (that one closes
+  // over a `cancelled` flag scoped to ITS OWN effect run, appropriate
+  // for unmount-safety on the initial load; a manually-triggered refetch
+  // doesn't need that same guard, it's a one-shot call, not tied to a
+  // component lifecycle).
+  async function refetch() {
+    setLoading(true);
+    try {
+      const data = await flagsApi.list();
+      if (data?.flags) setFlags({ ...DEFAULT_FLAGS, ...data.flags });
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   /**
    * flag(key)          — returns the raw value (boolean, string, number)
    * flag(key, compare) — returns true if value matches compare
@@ -105,7 +131,7 @@ export function FlagProvider({ children }) {
   }
 
   return (
-    <FlagContext.Provider value={{ flag, flags, setFlag, loading, error }}>
+    <FlagContext.Provider value={{ flag, flags, setFlag, refetch, loading, error }}>
       {children}
     </FlagContext.Provider>
   );

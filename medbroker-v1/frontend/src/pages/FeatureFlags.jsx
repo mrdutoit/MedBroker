@@ -314,13 +314,22 @@ function FlagRow({ meta, rawValue, onSave }) {
 
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export default function FeatureFlags() {
-  const { flags, setFlag } = useFlags();
+  const { flags, setFlag, refetch } = useFlags();
   const [activeTier, setActiveTier] = useState('Core');
 
-  // Real PATCH /api/flags/:key, reflected in context on success either way.
+  // Real PATCH /api/flags/:key, reflected in context on success.
+  // §124 — setFlag(key, value) gives instant feedback on the flag just
+  // changed; refetch() afterward picks up any OTHER flags the server
+  // may have cascade-reset in the same call (flagHandlers.js's
+  // DEPENDENT_RESETS — e.g. turning appointments.claimModel back to
+  // 'assign' also resets appointments.tokens.paymentProvider server-
+  // side). Without the refetch, this context's cached value for a reset
+  // child would stay stale until the next full page load, even though
+  // the database was already correct.
   async function handleSaveFlag(key, value) {
     await flagsApi.update(key, value); // throws ApiError on failure — caller (FlagRow) catches it
     setFlag(key, value);
+    await refetch();
   }
 
   // Shared by the visible list AND the tab counts below — CORRECTED §122
