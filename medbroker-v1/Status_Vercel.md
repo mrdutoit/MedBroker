@@ -8265,9 +8265,77 @@ run by Mark before this session's end; safe to leave alone (re-running
 it is a no-op by design, confirmed and explained when he asked).
 
 §114 through §117 all CONFIRMED LIVE — see the notes above §118 for how
-that was established. §118 (Force Password Reset + Show/Hide fix) is
-built and verified by this session but NOT YET DEPLOYED. No new env
-vars, no migration — straight drag-and-drop-and-deploy.
+that was established. §118 (Force Password Reset + Show/Hide fix) —
+ALSO CONFIRMED LIVE, same kind of evidence: the pre-investigation
+re-hydration for §119 (below) pulled a fresh copy of main and
+force-password-reset was already present in users-router.js.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+119. APPOINTMENTS "MY APPOINTMENTS" TAB HAD NO FILTERING — LEADS ALREADY DID — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark asked whether Appointments filtering (Active by default, toggle to
+Closed) could be added for a Broker, and the same for Leads/Agent if it
+wasn't already there. Checked both before building anything.
+
+LEADS: already fully built, no gap. LeadList.jsx's activeStatus chips
+(Active/Closed/All/etc, default 'Active') apply uniformly to every
+role — Agent scoping (agentId: persona.id) is a query param alongside
+the status filter, not a separate code path that bypasses it. Nothing
+to build here; told Mark so rather than duplicating something already
+correct.
+
+APPOINTMENTS: real gap, isolated to one specific view. showClaimTabs
+(isBroker && claimModel === 'claim') renders a My Appointments/Available
+to Claim tabbed interface instead of the general filtered table+FiltersBar
+every other role (and even a Broker under the ASSIGN model) gets. The
+"mine" tab's table read from myAppts — broker-scoped only, via
+sourceData.filter(a => a.brokerCode === persona.id) — never from
+filtered, which is the SAME broker-scoping plus statusFilter/search/
+source/portfolio/broker on top. FiltersBar itself wasn't rendered on
+that tab at all. A claim-model Broker had no way to hide Closed
+appointments from their own list; every other view in this exact file
+already could, including via a comment on FiltersBar itself noting it
+"mirrors LeadList.jsx" — the irony being the mirroring was real for the
+general appointments view, just never extended to this one broker-
+specific tab when it was added.
+
+FIX: render <FiltersBar /> in the 'mine' tab (same component, no new
+one), and point the table at `filtered` instead of `myAppts`. Metric
+cards (Total assigned/Today/Closed Won) deliberately keep reading
+myAppts, not filtered — same convention the non-claim-tab metric cards
+elsewhere in this file already use: summary counts show true totals
+regardless of the current filter selection, only the table itself
+responds to it.
+
+VERIFIED: full Vite production build clean, existing 55-test Vitest
+suite unaffected (no backend touched — single frontend file). Re-hydrated
+fresh from GitHub and diffed the one changed file before packaging.
+
+MIGRATION: none — no backend change at all, this entry is pure frontend.
+
+FILES:
+  frontend/src/pages/AppointmentList.jsx
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 15 PAUSED HERE — 4 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed everything through §113 deployed cleanly, no errors seen.
+The AWS KMS code path (§111/§112) is deployed and visible in Feature
+Flags but deliberately untested end-to-end — the flag stays off until a
+paying customer exists, so this remains verified-by-code-review only,
+not exercised live; worth remembering next session that "deployed
+successfully" here means the flag-off/demo1 path was exercised by
+normal use, not the KMS path itself. Migration 020 confirmed already
+run by Mark before this session's end; safe to leave alone (re-running
+it is a no-op by design, confirmed and explained when he asked).
+
+§114 through §118 all CONFIRMED LIVE. §119 (Appointments "My
+Appointments" tab filtering) is built and verified by this session but
+NOT YET DEPLOYED. No new env vars, no migration, no backend change at
+all — a single frontend file, straight drag-and-drop-and-deploy.
 
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
 at the top of this file for what's next — stages 3+4 of Entra SSO and

@@ -697,7 +697,20 @@ export default function AppointmentList() {
                   </div>
                 ))}
               </div>
-              <AppointmentsTable rows={myAppts} showBroker={false} />
+              {/* §119 — this tab previously had no filtering at all,
+                  unlike every other view in this file: FiltersBar wasn't
+                  rendered here, and the table read straight from myAppts
+                  (broker-scoped only) instead of filtered (broker-scoped
+                  + statusFilter + search + source + portfolio), so a
+                  claim-model Broker had no way to hide Closed appointments
+                  from their own list — every other role, and even a
+                  Broker under the assign model, already had this. Metric
+                  cards above deliberately keep reading myAppts, not
+                  filtered — they're meant to show true totals regardless
+                  of the current filter selection, matching the same
+                  convention the non-claim-tab metric cards below already use. */}
+              <FiltersBar />
+              <AppointmentsTable rows={filtered} showBroker={false} />
               {claimedCount > 0 && (
                 <div style={{ ...s.noticeSuccess, marginTop: '10px' }}>
                   ✓ {claimedCount} appointment{claimedCount !== 1 ? 's' : ''} claimed.
