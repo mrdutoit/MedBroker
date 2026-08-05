@@ -8544,45 +8544,42 @@ actually wants to run offboarding sync live — everything else works
 without it, same optional()-until-configured pattern as every other
 credential in this app.
 
-§114 through §119 all CONFIRMED LIVE. §120+§121 (Entra SSO stages 3+4) —
-ALSO CONFIRMED LIVE, same kind of evidence: the pre-investigation
-re-hydration for §122 (below) pulled a fresh copy of main and
-auth.sso.disableLocalFallback was already present in FeatureFlags.jsx.
-This is in fact how §122 itself was found — Mark noticed it live.
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-122. FEATURE FLAGS TAB COUNTS DIDN'T MATCH WHAT WAS SHOWN — 4 Aug 2026 (session 15, continued)
+123. APP ADMIN SYSTEM SETTINGS — SAVE CONFIRMATION SCROLLED OUT OF VIEW — 4 Aug 2026 (session 15, continued)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Mark noticed (via screenshot, SSO off): "Core 9" but only 7 rows showing.
-Real bug, not a display glitch — confirmed by reading the code, not
-assumed. Two separate computations of "what's in this tier" had drifted
-apart: visibleFlags (the actual rendered list) filtered by BOTH tier and
-dependsOn (a flag hidden while its parent's current value doesn't match —
-auth.sso.provider/auth.sso.disableLocalFallback both depend on
-auth.sso.enabled, off in Mark's screenshot, so both correctly hidden from
-the list); the tab count was FLAG_META.filter(f => f.tier === key).length
-— tier only, no dependsOn check, so it kept counting flags the list had
-already decided not to show.
+Mark: the "Changes saved" banner on App Admin -> System Settings isn't
+visible when you scroll down to actually click Save, so a save looks
+like it silently did nothing. Confirmed by reading the layout, not
+assumed: both settingsSaved and settingsError render inline at the TOP
+of a long, scrollable settings form (password policy, token allocation,
+lockout, etc.), while Save Settings sits at the very bottom, well below
+the fold — by the time anyone reaches the button, feedback rendered
+above it is already scrolled out of view. Same root cause for both
+success and failure, though Mark only reported the success case;
+fixed both rather than leaving the error case with the identical bug
+for someone to hit later.
 
-Mark offered two options — fix the count to match what's shown, or
-remove counts entirely. Fixed rather than removed: the count is genuinely
-useful information when it's correct, no reason to lose it over a bug in
-how it was computed. Factored the dependsOn check out of visibleFlags's
-inline filter into its own isFlagVisible() function, used by BOTH the
-list and the count — the two computations can't drift apart again the
-way two separate copies of the same logic just did, by construction, not
-by discipline.
+FIX: position: fixed on both banners (bottom-right of the viewport,
+z-index above page content) instead of inline in the document flow —
+visible regardless of scroll position, seen immediately after clicking
+whichever button just triggered it. Didn't touch the 2.5s auto-hide
+timeout on the success banner — that duration was never the problem,
+only ever being unable to see it in the first place.
+
+Scoped to System Settings only, matching what Mark actually reported —
+didn't audit AppAdmin.jsx's other tabs (Portfolios, Products, Medical
+Subscriptions, Audit Log) for the same pattern; worth a look if the same
+complaint comes up elsewhere on this page.
 
 VERIFIED: full Vite production build clean, existing 55-test Vitest
-suite unaffected (no backend touched — single frontend file, pure
-front-end bug). Re-hydrated fresh from GitHub and diffed the one changed
-file before packaging.
+suite unaffected (single frontend file, no backend touched). Re-hydrated
+fresh from GitHub and diffed the one changed file before packaging.
 
 MIGRATION: none.
 
 FILES:
-  frontend/src/pages/FeatureFlags.jsx
+  frontend/src/pages/AppAdmin.jsx
 Plus this Status_Vercel.md.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -8600,8 +8597,10 @@ run by Mark before this session's end; safe to leave alone (re-running
 it is a no-op by design, confirmed and explained when he asked).
 
 §114 through §121 all CONFIRMED LIVE. §122 (Feature Flags tab count fix)
-is built and verified by this session but NOT YET DEPLOYED. No new env
-vars, no migration, no backend change at all — a single frontend file.
+and §123 (App Admin save-confirmation visibility) are built and verified
+by this session but NOT YET DEPLOYED — two small, independent frontend-
+only fixes, no particular order needed between them. No new env vars, no
+migration for either.
 
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
 at the top of this file for what's next — Stripe (checkout, webhook,

@@ -720,11 +720,33 @@ export default function AppAdmin() {
           )}
 
           {settingsError && (
-            <div style={{ ...s.errorBox, marginBottom: '16px' }}>{settingsError}</div>
+            <div style={{
+              ...s.errorBox,
+              // §123 (4 Aug 2026) — CORRECTED: this used to render inline
+              // at the top of a long, scrollable settings form, right
+              // above Save Settings (which sits at the bottom, well
+              // below the fold). Mark's finding: by the time you scroll
+              // down to click Save, any feedback at the top is already
+              // scrolled out of view — a save looked like it silently did
+              // nothing, success or failure. Fixed positioning puts this
+              // in the viewport regardless of scroll position, so it's
+              // actually seen right after clicking the button that
+              // triggered it. Same fix applied to the success banner
+              // below — same bug, same cause, both needed it even though
+              // Mark only reported the success case.
+              position: 'fixed', bottom: '24px', right: '24px', zIndex: 1000,
+              maxWidth: '360px', margin: 0, boxShadow: '0 8px 24px -8px rgba(0,0,0,0.35)',
+            }}>
+              {settingsError}
+            </div>
           )}
 
           {settingsSaved && (
-            <div style={{ ...s.noticeSuccess, marginBottom: '16px' }}>
+            <div style={{
+              ...s.noticeSuccess,
+              position: 'fixed', bottom: '24px', right: '24px', zIndex: 1000,
+              maxWidth: '360px', margin: 0, boxShadow: '0 8px 24px -8px rgba(0,0,0,0.35)',
+            }}>
               ✓ Settings saved successfully.
             </div>
           )}
