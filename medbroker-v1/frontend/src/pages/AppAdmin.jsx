@@ -380,6 +380,7 @@ export default function AppAdmin() {
     try {
       await sarApi.updateStatus(id, { status });
       await refetchSar();
+      await refreshSarAuditIfExpanded(id);
     } catch (err) {
       setSarError(err.message || 'Could not update status');
     }
@@ -394,6 +395,7 @@ export default function AppAdmin() {
       // server-side; refetch so the table reflects that without
       // requiring a manual reload.
       await refetchSar();
+      await refreshSarAuditIfExpanded(id);
     } catch (err) {
       setSarError(err.message || 'Export failed');
     } finally {
@@ -447,6 +449,31 @@ export default function AppAdmin() {
     }
   }
 
+  // §129 (5 Aug 2026) — CORRECTED: Mark found that changing "Assigned to"
+  // didn't update the visible History for a request whose row was
+  // already expanded — had to reload the page to see it. Real gap, not
+  // a limitation: sarAuditEntries[id] is fetched exactly once, the
+  // first time a row expands (the "if (nextId && !sarComments[nextId])"
+  // guard just above), and nothing ever invalidated that cache
+  // afterward. Assign, status-change, and export all correctly write
+  // new audit entries server-side and refresh the TABLE row via
+  // refetchSar() — none of them touched the cached audit trail for a
+  // row that was already open. This is the fix: re-fetch and replace
+  // just that one row's cached entries, but only if it's actually
+  // expanded right now — no point fetching something nobody's looking at.
+  async function refreshSarAuditIfExpanded(id) {
+    if (sarExpandedId !== id) return;
+    try {
+      const auditRes = await sarApi.auditLog(id);
+      setSarAuditEntries(prev => ({ ...prev, [id]: auditRes.entries ?? [] }));
+    } catch {
+      // Best-effort refresh — the action itself already succeeded by the
+      // time this runs; a failed History refresh isn't worth surfacing
+      // as its own error on top of that, same as export's toISOString
+      // formatting not being worth its own separate warning elsewhere.
+    }
+  }
+
   // §125 — assignedToId may be '' (the "Unassigned" option) or a real
   // user id; sarApi.assign() takes null for "unassign", not ''.
   async function handleSarAssignChange(id, assignedToId) {
@@ -455,6 +482,7 @@ export default function AppAdmin() {
     try {
       await sarApi.assign(id, assignedToId || null);
       await refetchSar();
+      await refreshSarAuditIfExpanded(id);
     } catch (err) {
       setSarError(err.message || 'Could not assign this request');
     } finally {

@@ -9010,6 +9010,63 @@ it is a no-op by design, confirmed and explained when he asked).
 assign-at-creation + forward-only status) is built and verified by this
 session but NOT YET DEPLOYED. No new env vars, no migration.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+129. SAR HISTORY WENT STALE FOR AN ALREADY-EXPANDED ROW — 5 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark asked directly: is this a limitation or an oversight? Traced it
+before answering either way — a real, precise oversight, not anything
+architectural.
+
+sarAuditEntries[id] (the "History" section) is fetched exactly once,
+the first time a row expands, and cached — re-expanding the same row
+never re-fetches (deliberate, §125, to avoid a network call on every
+click). What was missing: nothing ever INVALIDATED that cache when the
+underlying data actually changed. handleSarAssignChange,
+handleSarStatusChange, and handleSarExport all correctly write new
+audit entries server-side and already called refetchSar() to refresh
+the table row (status badge, assignee name) — none of them touched the
+cached audit trail for a row that happened to already be open. Comments
+didn't have this problem — handleSarAddComment already appends locally
+on success — but History genuinely went stale until a full page reload
+wiped all local state and forced a fresh fetch next time.
+
+FIX: one small shared helper, refreshSarAuditIfExpanded(id) — re-fetches
+and replaces just that row's cached entries, but only if it's actually
+the currently-expanded row (no point fetching something not on screen).
+Called from all three action handlers, right after their existing
+refetchSar().
+
+VERIFIED: full Vite build clean (confirms the function-hoisting order
+this relies on — refreshSarAuditIfExpanded is defined after two of its
+three callers in the file — works correctly, not just reasoned about),
+existing 55-test Vitest suite unaffected. Re-hydrated fresh from GitHub
+and diffed the one changed file before packaging.
+
+MIGRATION: none — pure frontend, no backend touched.
+
+FILES:
+  frontend/src/pages/AppAdmin.jsx
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 15 PAUSED HERE — 4 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed everything through §113 deployed cleanly, no errors seen.
+The AWS KMS code path (§111/§112) is deployed and visible in Feature
+Flags but deliberately untested end-to-end — the flag stays off until a
+paying customer exists, so this remains verified-by-code-review only,
+not exercised live; worth remembering next session that "deployed
+successfully" here means the flag-off/demo1 path was exercised by
+normal use, not the KMS path itself. Migration 020 confirmed already
+run by Mark before this session's end; safe to leave alone (re-running
+it is a no-op by design, confirmed and explained when he asked).
+
+§114 through §128 all CONFIRMED LIVE. §129 (SAR History staleness fix)
+is built and verified by this session but NOT YET DEPLOYED. No new env
+vars, no migration, no backend change at all.
+
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
 at the top of this file for what's next — Stripe (checkout, webhook,
 Integrations credentials page covering Stripe + SMTP), per Mark's own
