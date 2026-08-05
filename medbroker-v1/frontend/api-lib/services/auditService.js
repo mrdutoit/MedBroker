@@ -128,6 +128,16 @@ const AUDIT_SELECT_BASE = `
          CASE WHEN al.entityType = 'EventAttendee' THEN
            CONCAT_WS(' ', l_via_attendee.title, l_via_attendee.firstName, l_via_attendee.lastName)
          END,
+         -- §127 (5 Aug 2026) — Mark found this: a SubjectAccessRequest-
+         -- scoped entry (§125) fell straight through to the generic
+         -- fallback below, showing "SubjectAccessRequest: <raw SAR
+         -- id>" with no indication of which Lead the request was even
+         -- about. Same indirect-join shape Appointment/EventAttendee
+         -- already use above (resolve through a foreign key to the Lead
+         -- who's actually the point of interest), not a new pattern.
+         CASE WHEN al.entityType = 'SubjectAccessRequest' THEN
+           CONCAT_WS(' ', l_via_sar.title, l_via_sar.firstName, l_via_sar.lastName)
+         END,
          CONCAT(al.entityType, ': ', al.entityId)
        ) AS "entityRef"
      FROM AuditLog al
@@ -139,7 +149,9 @@ const AUDIT_SELECT_BASE = `
      LEFT JOIN Task tk             ON al.entityType = 'Task' AND al.entityId = tk.id::text
      LEFT JOIN Event ev            ON al.entityType = 'Event' AND al.entityId = ev.id::text
      LEFT JOIN EventAttendee eatt  ON al.entityType = 'EventAttendee' AND al.entityId = eatt.id::text
-     LEFT JOIN Lead l_via_attendee ON eatt.leadId = l_via_attendee.id`;
+     LEFT JOIN Lead l_via_attendee ON eatt.leadId = l_via_attendee.id
+     LEFT JOIN SubjectAccessRequest sar_ref ON al.entityType = 'SubjectAccessRequest' AND al.entityId = sar_ref.id::text
+     LEFT JOIN Lead l_via_sar      ON sar_ref.leadId = l_via_sar.id`;
 
 /**
  * Builds the WHERE clause + params shared by listAllAuditLog and

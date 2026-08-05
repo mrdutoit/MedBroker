@@ -8839,6 +8839,81 @@ code). §126 (date display + the toCsv corruption bug) is built and
 verified by this session but NOT YET DEPLOYED. No new env vars, no
 migration.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+127. AUDIT LOG COULDN'T NAME THE LEAD ON A SAR ENTRY; SAR LEAD PICKER NOW A REAL DROPDOWN — 5 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark: the Audit Log's SubjectAccessRequest-scoped entries show the raw
+SAR id, not the Lead's name — "anyone reading the log won't know who it
+was about."
+
+ROOT CAUSE: auditService.js's AUDIT_SELECT_BASE resolves a human-readable
+"entityRef" per entityType via a COALESCE of CASE branches, each backed
+by a LEFT JOIN — Lead resolves directly, Appointment/EventAttendee
+resolve INDIRECTLY through their own leadId (exactly the shape needed
+here), everything else falls through to a generic "entityType: id"
+string. §125 added SubjectAccessRequest as a real entityType being
+written to the audit log but never added a branch for it here — it fell
+straight through to that generic fallback, which is exactly what Mark
+saw. Fixed by adding the same indirect-join shape Appointment/
+EventAttendee already use, through SubjectAccessRequest.leadId.
+
+FOUND WHILE FIXING, SAME BUG CATEGORY: VALID_ENTITY_TYPES/VALID_ACTIONS
+(auditHandlers.js, backend) and AUDIT_ENTITY_TYPES/AUDIT_ACTIONS
+(AppAdmin.jsx, frontend filter dropdowns) are both meant to be kept in
+sync whenever a new entityType/action is introduced — an explicit
+existing convention (this file's own header comment: "if it's ever
+written on the backend, add it here too or it just won't appear as a
+filter option"). §125 introduced SubjectAccessRequest (entity) and
+SarAssigned (action) without adding either to any of the four lists —
+filtering the Audit Log by either would have silently returned zero
+rows, no error, just nothing. All four lists corrected. Also found,
+unrelated to SAR: UserSessionsRevoked was already in the backend's list
+but missing from the frontend's — pre-existing drift, fixed alongside
+since it's the identical category of bug in the identical two files.
+
+SAR LEAD PICKER: Mark wants search by name/email (already worked) AND
+selection via a real dropdown. The "Find the Lead" search results used
+to render as a custom clickable div list — replaced with an actual
+<select>, search still narrows the candidates first (keeps the dropdown
+a manageable size rather than listing every Lead in the org). Also added
+a small "Change" link next to a selected lead, since the select-from-
+dropdown flow made it less obvious how to pick a different one after
+selecting — a gap the old always-visible list didn't have.
+
+VERIFIED: node --check + ESM import smoke test on both edited backend
+files, full Vite build clean, existing 55-test Vitest suite unaffected.
+Re-hydrated fresh from GitHub and diffed all 3 changed files before
+packaging — confirmed §126 (previous entry) was already live by the
+time this investigation started, so no separate-checkout consolidation
+needed this time.
+
+MIGRATION: none.
+
+FILES:
+  frontend/api-lib/services/auditService.js  (SubjectAccessRequest -> Lead resolution)
+  frontend/api-lib/handlers/auditHandlers.js (VALID_ENTITY_TYPES/VALID_ACTIONS)
+  frontend/src/pages/AppAdmin.jsx             (filter lists + SAR lead-picker dropdown)
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 15 PAUSED HERE — 4 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed everything through §113 deployed cleanly, no errors seen.
+The AWS KMS code path (§111/§112) is deployed and visible in Feature
+Flags but deliberately untested end-to-end — the flag stays off until a
+paying customer exists, so this remains verified-by-code-review only,
+not exercised live; worth remembering next session that "deployed
+successfully" here means the flag-off/demo1 path was exercised by
+normal use, not the KMS path itself. Migration 020 confirmed already
+run by Mark before this session's end; safe to leave alone (re-running
+it is a no-op by design, confirmed and explained when he asked).
+
+§114 through §126 all CONFIRMED LIVE. §127 (audit entity resolution +
+SAR lead-picker dropdown) is built and verified by this session but NOT
+YET DEPLOYED. No new env vars, no migration.
+
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
 at the top of this file for what's next — Stripe (checkout, webhook,
 Integrations credentials page covering Stripe + SMTP), per Mark's own

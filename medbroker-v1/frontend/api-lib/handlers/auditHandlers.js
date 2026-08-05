@@ -23,7 +23,17 @@ const MAX_EXPORT_ROWS = 5000;
 // written anywhere in api-lib (see auditService.js's own comment);
 // action values are the full set of literal action strings currently
 // written anywhere in this codebase, same way.
-const VALID_ENTITY_TYPES = ['Appointment', 'Lead', 'Event', 'EventAttendee', 'FeatureFlag', 'Task', 'User', 'Portfolio', 'Product'];
+//
+// §127 (5 Aug 2026) — CORRECTED: SubjectAccessRequest (entity type) and
+// SarAssigned (action, §125) were both missing from these two lists —
+// added when §125 introduced them elsewhere but not here, meaning
+// filtering the Audit Log by either would have silently returned zero
+// rows (not an error, just nothing — the exact kind of "looks broken,
+// isn't obviously why" bug this file's own parseFilters() comment
+// warns about). ALSO found while fixing this: UserSessionsRevoked was
+// already missing from AppAdmin.jsx's frontend filter list (unrelated
+// to SAR, pre-existing) — fixed there too, same category of bug.
+const VALID_ENTITY_TYPES = ['Appointment', 'Lead', 'Event', 'EventAttendee', 'FeatureFlag', 'Task', 'User', 'Portfolio', 'Product', 'SubjectAccessRequest'];
 const VALID_ACTIONS = [
   'AppointmentBrokerAssigned', 'AppointmentCreated', 'AppointmentOutcomeSaved',
   'AppointmentReassigned', 'AppointmentReturnedToLeads', 'AttendeeAdded',
@@ -31,7 +41,7 @@ const VALID_ACTIONS = [
   'LeadCreated', 'LeadDeleted', 'LeadReopened', 'LeadUpdated',
   'PortalAccountActivated', 'PortalProfileUpdated', 'PortalRegistration',
   'PortalWalkInCheckedIn', 'ProfileUpdated', 'TaskCreated', 'TaskDeleted', 'UserCreated',
-  'SarRequestCreated', 'SarStatusChanged', 'SarDataExported', 'UserUnlocked', 'UserSessionsRevoked',
+  'SarRequestCreated', 'SarStatusChanged', 'SarDataExported', 'SarAssigned', 'UserUnlocked', 'UserSessionsRevoked',
   'PortfolioCreated', 'PortfolioStatusChanged', 'PortfolioDeleted',
   'ProductCreated', 'ProductStatusChanged', 'ProductDeleted',
 ];

@@ -19,7 +19,7 @@ import { formatDate } from '../utils/dateFormat.js';
 // (existing entries with that value still show up fine in the
 // unfiltered view either way — this only affects the dropdown, not
 // what data exists).
-const AUDIT_ENTITY_TYPES = ['Appointment', 'Lead', 'Event', 'EventAttendee', 'FeatureFlag', 'Task', 'User', 'Portfolio', 'Product'];
+const AUDIT_ENTITY_TYPES = ['Appointment', 'Lead', 'Event', 'EventAttendee', 'FeatureFlag', 'Task', 'User', 'Portfolio', 'Product', 'SubjectAccessRequest'];
 const AUDIT_ACTIONS = [
   'AppointmentBrokerAssigned', 'AppointmentCreated', 'AppointmentOutcomeSaved',
   'AppointmentReassigned', 'AppointmentReturnedToLeads', 'AttendeeAdded',
@@ -27,7 +27,7 @@ const AUDIT_ACTIONS = [
   'LeadCreated', 'LeadDeleted', 'LeadReopened', 'LeadUpdated',
   'PortalAccountActivated', 'PortalProfileUpdated', 'PortalRegistration',
   'PortalWalkInCheckedIn', 'ProfileUpdated', 'TaskCreated', 'TaskDeleted', 'UserCreated',
-  'SarRequestCreated', 'SarStatusChanged', 'SarDataExported', 'UserUnlocked',
+  'SarRequestCreated', 'SarStatusChanged', 'SarDataExported', 'SarAssigned', 'UserUnlocked', 'UserSessionsRevoked',
   'PortfolioCreated', 'PortfolioStatusChanged', 'PortfolioDeleted',
   'ProductCreated', 'ProductStatusChanged', 'ProductDeleted',
 ];
@@ -1197,24 +1197,40 @@ export default function AppAdmin() {
                   <button style={s.secondaryBtn} onClick={handleSarLeadSearch}>Search</button>
                 </div>
                 {sarSelectedLead && (
-                  <div style={{ ...s.noticeSuccess, marginTop: '8px', fontSize: '0.8125rem' }}>
-                    Selected: {[sarSelectedLead.title, sarSelectedLead.firstName, sarSelectedLead.lastName].filter(Boolean).join(' ')} ({sarSelectedLead.email})
+                  <div style={{ ...s.noticeSuccess, marginTop: '8px', fontSize: '0.8125rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Selected: {[sarSelectedLead.title, sarSelectedLead.firstName, sarSelectedLead.lastName].filter(Boolean).join(' ')} ({sarSelectedLead.email})</span>
+                    <button
+                      type="button"
+                      onClick={() => setSarSelectedLead(null)}
+                      style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', fontSize: '0.75rem', textDecoration: 'underline', padding: 0 }}
+                    >
+                      Change
+                    </button>
                   </div>
                 )}
+                {/* §127 — Mark's request: select from a dropdown, not a
+                    custom clickable list. Search still narrows by name/
+                    email first (unchanged) — the results just render as
+                    a real <select> now, rather than each result needing
+                    its own click handler. Narrowing via search first
+                    also keeps the dropdown a manageable size rather than
+                    listing every Lead in the organisation. */}
                 {sarLeadResults.length > 0 && !sarSelectedLead && (
-                  <div style={{ marginTop: '8px', border: '1px solid var(--line)', borderRadius: '6px', maxHeight: '180px', overflowY: 'auto' }}>
+                  <select
+                    value=""
+                    onChange={e => {
+                      const lead = sarLeadResults.find(l => l.id === e.target.value);
+                      if (lead) { setSarSelectedLead(lead); setSarLeadResults([]); setSarLeadSearch(''); }
+                    }}
+                    style={{ ...s.formInput, marginTop: '8px' }}
+                  >
+                    <option value="" disabled>Select from {sarLeadResults.length} match{sarLeadResults.length === 1 ? '' : 'es'}…</option>
                     {sarLeadResults.map(l => (
-                      <div
-                        key={l.id}
-                        onClick={() => { setSarSelectedLead(l); setSarLeadResults([]); }}
-                        style={{ padding: '8px 12px', cursor: 'pointer', fontSize: '0.8125rem', borderBottom: '1px solid var(--line)' }}
-                        onMouseEnter={e => e.currentTarget.style.background = 'var(--panel2)'}
-                        onMouseLeave={e => e.currentTarget.style.background = ''}
-                      >
+                      <option key={l.id} value={l.id}>
                         {[l.title, l.firstName, l.lastName].filter(Boolean).join(' ')} — {l.email}
-                      </div>
+                      </option>
                     ))}
-                  </div>
+                  </select>
                 )}
               </div>
 
