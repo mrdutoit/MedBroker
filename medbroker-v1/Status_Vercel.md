@@ -8544,6 +8544,65 @@ actually wants to run offboarding sync live — everything else works
 without it, same optional()-until-configured pattern as every other
 credential in this app.
 
+§114 through §119 all CONFIRMED LIVE. §120+§121 (Entra SSO stages 3+4) —
+ALSO CONFIRMED LIVE, same kind of evidence: the pre-investigation
+re-hydration for §122 (below) pulled a fresh copy of main and
+auth.sso.disableLocalFallback was already present in FeatureFlags.jsx.
+This is in fact how §122 itself was found — Mark noticed it live.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+122. FEATURE FLAGS TAB COUNTS DIDN'T MATCH WHAT WAS SHOWN — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark noticed (via screenshot, SSO off): "Core 9" but only 7 rows showing.
+Real bug, not a display glitch — confirmed by reading the code, not
+assumed. Two separate computations of "what's in this tier" had drifted
+apart: visibleFlags (the actual rendered list) filtered by BOTH tier and
+dependsOn (a flag hidden while its parent's current value doesn't match —
+auth.sso.provider/auth.sso.disableLocalFallback both depend on
+auth.sso.enabled, off in Mark's screenshot, so both correctly hidden from
+the list); the tab count was FLAG_META.filter(f => f.tier === key).length
+— tier only, no dependsOn check, so it kept counting flags the list had
+already decided not to show.
+
+Mark offered two options — fix the count to match what's shown, or
+remove counts entirely. Fixed rather than removed: the count is genuinely
+useful information when it's correct, no reason to lose it over a bug in
+how it was computed. Factored the dependsOn check out of visibleFlags's
+inline filter into its own isFlagVisible() function, used by BOTH the
+list and the count — the two computations can't drift apart again the
+way two separate copies of the same logic just did, by construction, not
+by discipline.
+
+VERIFIED: full Vite production build clean, existing 55-test Vitest
+suite unaffected (no backend touched — single frontend file, pure
+front-end bug). Re-hydrated fresh from GitHub and diffed the one changed
+file before packaging.
+
+MIGRATION: none.
+
+FILES:
+  frontend/src/pages/FeatureFlags.jsx
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 15 PAUSED HERE — 4 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed everything through §113 deployed cleanly, no errors seen.
+The AWS KMS code path (§111/§112) is deployed and visible in Feature
+Flags but deliberately untested end-to-end — the flag stays off until a
+paying customer exists, so this remains verified-by-code-review only,
+not exercised live; worth remembering next session that "deployed
+successfully" here means the flag-off/demo1 path was exercised by
+normal use, not the KMS path itself. Migration 020 confirmed already
+run by Mark before this session's end; safe to leave alone (re-running
+it is a no-op by design, confirmed and explained when he asked).
+
+§114 through §121 all CONFIRMED LIVE. §122 (Feature Flags tab count fix)
+is built and verified by this session but NOT YET DEPLOYED. No new env
+vars, no migration, no backend change at all — a single frontend file.
+
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
 at the top of this file for what's next — Stripe (checkout, webhook,
 Integrations credentials page covering Stripe + SMTP), per Mark's own

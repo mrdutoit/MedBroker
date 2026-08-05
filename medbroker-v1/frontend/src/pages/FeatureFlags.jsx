@@ -323,17 +323,30 @@ export default function FeatureFlags() {
     setFlag(key, value);
   }
 
+  // Shared by the visible list AND the tab counts below — CORRECTED §122
+  // (4 Aug 2026): the tab count used to be FLAG_META.filter(f => f.tier
+  // === key).length, counting every flag in a tier regardless of
+  // dependsOn. A dependsOn flag hidden by its parent's current value
+  // (e.g. auth.sso.provider/auth.sso.disableLocalFallback while
+  // auth.sso.enabled is off) was still counted, so "Core 9" never
+  // matched how many rows were actually on screen — confirmed from
+  // Mark's own screenshot, not assumed. Factoring the dependsOn check
+  // out into one function used by both the list and the count means
+  // they can't drift apart again the way two separate copies of the
+  // same logic just did.
+  function isFlagVisible(meta) {
+    if (!meta.dependsOn) return true;
+    // Coerce stored boolean strings — mirrors the flag() helper in FlagContext
+    const raw = flags[meta.dependsOn.key];
+    let val = raw;
+    if (raw === '0' || raw === 'false' || raw === false) val = false;
+    else if (raw === '1' || raw === 'true' || raw === true) val = true;
+    return val === meta.dependsOn.value || String(raw) === String(meta.dependsOn.value);
+  }
+
   const visibleFlags = FLAG_META
     .filter(m => m.tier === activeTier)
-    .filter(m => {
-      if (!m.dependsOn) return true;
-      // Coerce stored boolean strings — mirrors the flag() helper in FlagContext
-      const raw = flags[m.dependsOn.key];
-      let val = raw;
-      if (raw === '0' || raw === 'false' || raw === false) val = false;
-      else if (raw === '1' || raw === 'true' || raw === true) val = true;
-      return val === m.dependsOn.value || String(raw) === String(m.dependsOn.value);
-    });
+    .filter(isFlagVisible);
 
   return (
     <div style={s.page}>
@@ -352,7 +365,7 @@ export default function FeatureFlags() {
       {/* Tier tabs */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '20px' }}>
         {Object.entries(TIER_META).map(([key, meta]) => {
-          const count = FLAG_META.filter(f => f.tier === key).length;
+          const count = FLAG_META.filter(f => f.tier === key && isFlagVisible(f)).length;
           return (
             <button
               key={key}
