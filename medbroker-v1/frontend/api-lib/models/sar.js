@@ -14,6 +14,14 @@ export const CreateSarRequestSchema = z.object({
   receivedAt:     z.string(), // YYYY-MM-DD, matches every other date-only field in this codebase
   dueDate:        z.string().optional(),
   notes:          z.string().max(2000).optional(),
+  // §128 (5 Aug 2026) — assign at creation time, not only afterward
+  // (Mark's own request). Validated server-side (sarService.
+  // getValidSarAssignee) against the same Admin/GlobalAdmin rule
+  // AssignSarSchema's own endpoint uses — not re-declared here as a
+  // stricter type, since the same "must actually be a real, active
+  // Admin/GlobalAdmin" check can't be expressed in Zod alone anyway
+  // (it needs a database lookup).
+  assignedToId:   z.string().uuid().optional(),
 });
 
 export const UpdateSarStatusSchema = z.object({

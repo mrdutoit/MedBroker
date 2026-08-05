@@ -28,6 +28,7 @@ import {
   listSarRequests, getSarRequestById, createSarRequest, updateSarStatus, compileSubjectData,
   markInProgressOnFirstExport, assignSarRequest, listSarComments, addSarComment,
 } from '../services/sarService.js';
+import { listSarAssignableUsers } from '../services/userService.js';
 import { writeAuditLog, listAuditLog } from '../services/auditService.js';
 import { CreateSarRequestSchema, UpdateSarStatusSchema, AssignSarSchema, CreateSarCommentSchema } from '../models/sar.js';
 import { toCsv } from '../http/helpers.js';
@@ -64,6 +65,39 @@ export async function handleSarRequestsCollection(req, res) {
       return res.status(status).json(body);
     }
     console.error('leads/sar-requests error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * GET /api/leads/sar-requests/assignable-users — §128. The pool for both
+ * the create-time assignment field and the existing assign action —
+ * every active Admin AND GlobalAdmin (see userService.
+ * listSarAssignableUsers()'s own header for why this is a dedicated
+ * query, not a parameter to the general-purpose user list). Must be
+ * routed BEFORE the generic 2-segment :id branch in leads-router.js —
+ * same "literal routes checked before UUID branches" convention every
+ * other sub-route in this app already follows.
+ */
+export async function handleSarAssignableUsers(req, res) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Admin', 'GlobalAdmin']);
+
+    const users = await listSarAssignableUsers();
+    return res.status(200).json({ users });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('leads/sar-requests/assignable-users error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

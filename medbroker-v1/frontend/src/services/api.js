@@ -253,6 +253,14 @@ export const sarApi = {
   addComment: (id, body) =>
     request(`/leads/sar-requests/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }),
   auditLog: (id) => request(`/leads/sar-requests/${id}/audit`),
+  // §128 — every Admin + GlobalAdmin, for both the create-time and
+  // after-the-fact assignment pickers. Deliberately a dedicated
+  // endpoint, not usersApi.list({ role: ... }) called twice — see
+  // userService.listSarAssignableUsers()'s own header for why that
+  // doesn't work (CreatableRole doesn't even accept 'GlobalAdmin' as a
+  // filter value, and listUsers() hardcodes excluding GlobalAdmin for
+  // its own, different purpose).
+  assignableUsers: () => request('/leads/sar-requests/assignable-users'),
 };
 
 // ─── Appointments ─────────────────────────────────────────────────────────────

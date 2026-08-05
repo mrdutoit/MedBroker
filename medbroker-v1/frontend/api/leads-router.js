@@ -19,6 +19,7 @@
  *   DELETE /api/leads/portfolios/:portfolioId/products/:productId
  *   GET    /api/leads/sar-requests       (§79 — POPIA SAR processing)
  *   POST   /api/leads/sar-requests
+ *   GET    /api/leads/sar-requests/assignable-users (§128)
  *   GET    /api/leads/:id
  *   PUT    /api/leads/:id
  *   DELETE /api/leads/:id
@@ -43,7 +44,7 @@ import {
 } from '../api-lib/handlers/leadHandlers.js';
 import {
   handleSarRequestsCollection, handleSarRequestById, handleSarRequestExport,
-  handleSarAssign, handleSarComments, handleSarAuditLog,
+  handleSarAssign, handleSarComments, handleSarAuditLog, handleSarAssignableUsers,
 } from '../api-lib/handlers/sarHandlers.js';
 import {
   handlePortfoliosCollection, handlePortfolioProducts, handlePortfolioById, handleProductById,
@@ -89,6 +90,11 @@ export default async function handler(req, res) {
   // to come first in the branch order.
   if (segments[0] === 'sar-requests') {
     if (segments.length === 1) return handleSarRequestsCollection(req, res);
+    // §128 — must come before the generic 2-segment :id branch below,
+    // same "literal routes before UUID branches" convention this file's
+    // own header comment already documents for /sources and
+    // /check-duplicates.
+    if (segments.length === 2 && segments[1] === 'assignable-users') return handleSarAssignableUsers(req, res);
     if (segments.length === 2) return handleSarRequestById(req, res, segments[1]);
     if (segments.length === 3 && segments[2] === 'export') return handleSarRequestExport(req, res, segments[1]);
     if (segments.length === 3 && segments[2] === 'assign') return handleSarAssign(req, res, segments[1]);

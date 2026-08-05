@@ -8914,6 +8914,102 @@ it is a no-op by design, confirmed and explained when he asked).
 SAR lead-picker dropdown) is built and verified by this session but NOT
 YET DEPLOYED. No new env vars, no migration.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+128. SAR ASSIGNEE DROPDOWN WAS ACTUALLY BROKEN; ASSIGN AT CREATION; STATUS CAN ONLY MOVE FORWARD — 5 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark: the "Assigned to" dropdown only ever shows "Unassigned" — nobody
+else in it at all. Also wants to assign at creation time, not only
+afterward, and confirmed the assignable pool should be Admin (not
+GlobalAdmin-only) — checked whether Supervisor should be included too
+and whether Supervisor even has access to these pages at all, since
+there's no point being assignable to a page you can't open.
+
+ROOT CAUSE, confirmed by reading both sides of the call, not assumed:
+the dropdown's data came from usersApi.list({ role: 'Admin' }) and
+usersApi.list({ role: 'GlobalAdmin' }) run together via Promise.all.
+Two separate problems compounded: (1) CreatableRole (models/user.js)
+doesn't accept 'GlobalAdmin' as a valid filter value at all — that call
+returns a 400, not an empty list; (2) even if it did, listUsers() itself
+hardcodes `u.role != 'GlobalAdmin'` in its base WHERE clause, a
+deliberate exclusion for ITS purpose (the general User Admin list,
+where GlobalAdmin — bootstrap-only — was never meant to appear). The
+400 from problem (1) rejected the whole Promise.all, which the
+surrounding catch silently swallowed to an empty array — discarding the
+WORKING Admin results too, not just the broken GlobalAdmin ones. Fixed
+with a genuinely separate, dedicated query
+(userService.listSarAssignableUsers()) rather than reusing or
+parameterising the general-purpose one, which has its own, different,
+deliberate reason to exclude GlobalAdmin that shouldn't be touched.
+
+ROLE SCOPE, confirmed rather than assumed: checked App.jsx's route
+gating and every single SAR/Audit backend handler directly — App Admin
+(which hosts both Data Requests and Audit Log) is Admin/GlobalAdmin only
+at BOTH the route level and independently on every endpoint. Supervisor
+currently has zero access to either page. Told Mark this plainly rather
+than silently deciding either way — assignable pool stays Admin +
+GlobalAdmin (not GlobalAdmin-only, matching his explicit instruction);
+extending Supervisor access is a separate, deliberate decision for him
+to make later if he wants it, not a side effect of this fix.
+
+NEW — ASSIGN AT CREATION: CreateSarRequestSchema gained an optional
+assignedToId; createSarRequest() validates and notifies exactly the way
+assignSarRequest() already did — factored the "is this a real, active
+Admin or GlobalAdmin" check into one shared helper
+(getValidSarAssignee()) used by both, rather than two copies of the
+same query.
+
+NEW — STATUS CAN ONLY MOVE FORWARD (Mark's explicit rule): Received(0)
+< InProgress(1) < Fulfilled/Rejected(2, equal rank, not ordered against
+each other — reaching either is what triggers the existing lock, not a
+meaningful order between them). updateSarStatus() now rejects any
+transition where the new status's rank isn't strictly greater than the
+current one — closes the specific gap assertNotLocked() doesn't cover
+(InProgress -> Received, since neither end of that move is itself a
+locked state). Mirrored client-side (SAR_STATUS_RANK, AppAdmin.jsx) to
+disable backward buttons before a click ever reaches the server, same
+"UI reflects it, server enforces it" split every other business rule in
+this app already uses.
+
+NEW — GET /api/leads/sar-requests/assignable-users: backs both the
+create-time and after-the-fact pickers now, one query, one source of
+truth for "who can this be assigned to."
+
+VERIFIED: node --check + ESM import smoke test on every new/edited
+backend file, full Vite production build clean, existing 55-test Vitest
+suite unaffected. Re-hydrated fresh from GitHub and diffed all 7 changed
+files before packaging.
+
+MIGRATION: none — assignedToId column already exists (§125).
+
+FILES:
+  frontend/api-lib/models/sar.js             (assignedToId on create)
+  frontend/api-lib/services/userService.js   (listSarAssignableUsers)
+  frontend/api-lib/services/sarService.js    (shared assignee validation, status-rank rule, assign-at-creation)
+  frontend/api-lib/handlers/sarHandlers.js   (handleSarAssignableUsers)
+  frontend/api/leads-router.js               (assignable-users route)
+  frontend/src/services/api.js               (sarApi.assignableUsers)
+  frontend/src/pages/AppAdmin.jsx            (fixed dropdown data source, create-time field, forward-only buttons)
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 15 PAUSED HERE — 4 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed everything through §113 deployed cleanly, no errors seen.
+The AWS KMS code path (§111/§112) is deployed and visible in Feature
+Flags but deliberately untested end-to-end — the flag stays off until a
+paying customer exists, so this remains verified-by-code-review only,
+not exercised live; worth remembering next session that "deployed
+successfully" here means the flag-off/demo1 path was exercised by
+normal use, not the KMS path itself. Migration 020 confirmed already
+run by Mark before this session's end; safe to leave alone (re-running
+it is a no-op by design, confirmed and explained when he asked).
+
+§114 through §127 all CONFIRMED LIVE. §128 (SAR assignee dropdown fix +
+assign-at-creation + forward-only status) is built and verified by this
+session but NOT YET DEPLOYED. No new env vars, no migration.
+
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
 at the top of this file for what's next — Stripe (checkout, webhook,
 Integrations credentials page covering Stripe + SMTP), per Mark's own

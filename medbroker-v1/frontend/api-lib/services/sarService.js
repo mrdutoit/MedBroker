@@ -111,40 +111,97 @@ export async function getSarRequestById(id) {
 }
 
 /**
+ * Shared by createSarRequest (new, §128) and assignSarRequest (§125) —
+ * both need the identical "is this a real, active Admin or GlobalAdmin"
+ * check before setting assignedToId. Admin AND GlobalAdmin, deliberately
+ * not GlobalAdmin-only — Mark's own explicit instruction, and matches
+ * every SAR route's own requireRole(['Admin', 'GlobalAdmin']) gate
+ * (sarHandlers.js) exactly: whoever can already SEE this feature is who
+ * can be assigned work within it. Supervisor is NOT included — checked
+ * directly rather than assumed: App Admin (which hosts Data Requests and
+ * Audit Log) is gated to Admin/GlobalAdmin at both the route level
+ * (App.jsx's isAdminOrAbove) and independently on every single backend
+ * endpoint, so a Supervisor assignee would be handed a request for a
+ * page they structurally cannot open at all. Extending that access is a
+ * separate, deliberate decision Mark would need to make explicitly, not
+ * a side effect of this fix.
+ * @param {string} userId
+ * @param {string} organisationId
+ * @returns {Promise<{id: string, displayName: string, role: string}|null>}
+ */
+async function getValidSarAssignee(userId, organisationId) {
+  const user = await executeQueryOne(
+    `SELECT id, displayName AS "displayName", role FROM "User"
+     WHERE id = @id AND isActive = TRUE AND deletedAt IS NULL AND organisationId = @organisationId`,
+    { id: { type: sql.UniqueIdentifier, value: userId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  if (!user || !['Admin', 'GlobalAdmin'].includes(user.role)) return null;
+  return user;
+}
+
+/**
  * @param {Object} data - CreateSarRequestSchema shape
  * @param {string} createdById
  */
 export async function createSarRequest(data, createdById) {
+  const organisationId = resolveOrganisationId();
+
+  // §128 — assignment at creation time, not only afterward (Mark's own
+  // request). Validated the same way assignSarRequest validates it —
+  // shared helper above, not a second copy of the same check.
+  let assignee = null;
+  if (data.assignedToId) {
+    assignee = await getValidSarAssignee(data.assignedToId, organisationId);
+    if (!assignee) throw { status: 400, message: 'SAR requests can only be assigned to an Admin or GlobalAdmin user' };
+  }
+
   const newId = crypto.randomUUID();
   await executeQuery(
     `INSERT INTO SubjectAccessRequest (
        id, organisationId, leadId, requestorName, requestorEmail,
-       receivedAt, dueDate, notes, createdById, createdAt, updatedAt
+       receivedAt, dueDate, notes, assignedToId, createdById, createdAt, updatedAt
      ) VALUES (
        @id, @organisationId, @leadId, @requestorName, @requestorEmail,
-       @receivedAt, @dueDate, @notes, @createdById, NOW(), NOW()
+       @receivedAt, @dueDate, @notes, @assignedToId, @createdById, NOW(), NOW()
      )`,
     {
       id:             { type: sql.UniqueIdentifier, value: newId },
-      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
       leadId:         { type: sql.UniqueIdentifier, value: data.leadId },
       requestorName:  { type: sql.NVarChar(200),    value: data.requestorName },
       requestorEmail: { type: sql.NVarChar(255),    value: data.requestorEmail },
       receivedAt:     { type: sql.Date,             value: data.receivedAt },
       dueDate:        { type: sql.Date,             value: data.dueDate ?? null },
       notes:          { type: sql.NVarChar(2000),   value: data.notes ?? null },
+      assignedToId:   { type: sql.UniqueIdentifier, value: data.assignedToId ?? null },
       createdById:    { type: sql.UniqueIdentifier, value: createdById },
     }
   );
 
+  const changeDetail = { sarId: newId, requestorEmail: data.requestorEmail, assignedToId: data.assignedToId ?? null };
   await writeAuditLog({
     entityType: 'Lead', entityId: data.leadId, action: 'SarRequestCreated',
-    performedById: createdById, changeDetail: { sarId: newId, requestorEmail: data.requestorEmail },
+    performedById: createdById, changeDetail,
   });
   await writeAuditLog({
     entityType: 'SubjectAccessRequest', entityId: newId, action: 'SarRequestCreated',
-    performedById: createdById, changeDetail: { leadId: data.leadId, requestorName: data.requestorName, requestorEmail: data.requestorEmail },
+    performedById: createdById, changeDetail: { ...changeDetail, leadId: data.leadId, requestorName: data.requestorName },
   });
+
+  if (assignee) {
+    const leadName = await executeQueryOne(
+      `SELECT CONCAT_WS(' ', title, firstName, lastName) AS "leadName" FROM Lead WHERE id = @leadId AND organisationId = @organisationId`,
+      { leadId: { type: sql.UniqueIdentifier, value: data.leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+    );
+    await createNotification({
+      recipientId: assignee.id,
+      type:        'SarAssigned',
+      title:       `SAR assigned — ${leadName?.leadName ?? 'a lead'}`,
+      body:        `You've been assigned a POPIA Subject Access Request for ${leadName?.leadName ?? 'a lead'}, due ${data.dueDate ?? 'no date set'}.`,
+      entityType:  'SubjectAccessRequest',
+      entityId:    newId,
+    });
+  }
 
   return newId;
 }
@@ -156,6 +213,22 @@ export async function createSarRequest(data, createdById) {
  */
 export async function updateSarStatus(id, data, performedById) {
   const existing = await assertNotLocked(id);
+
+  // §128 (5 Aug 2026) — Mark's explicit rule: status only ever moves
+  // forward, never back — once InProgress, it can't return to Received.
+  // Fulfilled/Rejected are already covered by assertNotLocked() above
+  // (both are terminal, nothing can change once there, including a move
+  // to the OTHER terminal state); this specifically closes the gap
+  // between Received and InProgress, which assertNotLocked doesn't
+  // touch since neither of those is a locked state on its own.
+  // Fulfilled and Rejected are equal rank, not ordered against each
+  // other — reaching either one is what triggers the lock, not a
+  // meaningful order between them.
+  const STATUS_RANK = { Received: 0, InProgress: 1, Fulfilled: 2, Rejected: 2 };
+  if (STATUS_RANK[data.status] <= STATUS_RANK[existing.status]) {
+    throw { status: 409, message: `Status cannot move from ${existing.status} back to ${data.status} — it can only move forward.` };
+  }
+
   const isFulfilled = data.status === 'Fulfilled';
   await executeQuery(
     `UPDATE SubjectAccessRequest
@@ -221,12 +294,8 @@ export async function assignSarRequest(id, assignedToId, performedById) {
   const organisationId = resolveOrganisationId();
 
   if (assignedToId) {
-    const assignee = await executeQueryOne(
-      `SELECT id, displayName AS "displayName", role FROM "User"
-       WHERE id = @id AND isActive = TRUE AND deletedAt IS NULL AND organisationId = @organisationId`,
-      { id: { type: sql.UniqueIdentifier, value: assignedToId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
-    );
-    if (!assignee || !['Admin', 'GlobalAdmin'].includes(assignee.role)) {
+    const assignee = await getValidSarAssignee(assignedToId, organisationId);
+    if (!assignee) {
       throw { status: 400, message: 'SAR requests can only be assigned to an Admin or GlobalAdmin user' };
     }
   }

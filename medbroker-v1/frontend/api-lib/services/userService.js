@@ -881,3 +881,29 @@ export async function deactivateUser(userId) {
     }
   );
 }
+
+/**
+ * §128 (5 Aug 2026) — every Admin AND GlobalAdmin user, for the SAR
+ * assignee picker. Deliberately NOT listUsers({ role: 'GlobalAdmin' }) —
+ * that function hardcodes `u.role != 'GlobalAdmin'` in its own base
+ * WHERE clause (a deliberate exclusion for its actual purpose, the
+ * general User Admin list — GlobalAdmin is bootstrap-only, never meant
+ * to show up in that general listing) and CreatableRole (models/user.js)
+ * doesn't even accept 'GlobalAdmin' as a valid filter value in the
+ * first place, so requesting it that way returns a 400, not an empty
+ * list. Confirmed this precisely by reading both, not assumed — this is
+ * exactly why the SAR assignee dropdown was showing nothing at all
+ * (Mark's report): the failed GlobalAdmin call rejected the whole
+ * Promise.all it was part of, discarding the Admin results too. This
+ * function is a genuinely separate query for a genuinely separate need,
+ * not a parameter tweak to the existing one.
+ * @returns {Promise<Array<{id: string, displayName: string, role: string}>>}
+ */
+export async function listSarAssignableUsers() {
+  return executeQuery(
+    `SELECT id, displayName AS "displayName", role FROM "User"
+     WHERE role IN ('Admin', 'GlobalAdmin') AND isActive = TRUE AND deletedAt IS NULL AND organisationId = @organisationId
+     ORDER BY displayName`,
+    { organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } }
+  );
+}

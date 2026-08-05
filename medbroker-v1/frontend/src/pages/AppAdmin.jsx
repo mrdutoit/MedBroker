@@ -32,6 +32,13 @@ const AUDIT_ACTIONS = [
   'ProductCreated', 'ProductStatusChanged', 'ProductDeleted',
 ];
 
+// §128 (5 Aug 2026) — mirrors sarService.js's own STATUS_RANK exactly
+// (server-side is the actual enforcement; this is purely for disabling
+// buttons client-side so a backward click never gets as far as a 409).
+// Fulfilled/Rejected share a rank deliberately — reaching either is what
+// triggers the lock, they're not ordered against each other.
+const SAR_STATUS_RANK = { Received: 0, InProgress: 1, Fulfilled: 2, Rejected: 2 };
+
 /**
  * Today's date as YYYY-MM-DD in LOCAL time — for date input defaults.
  * FIXED 2 Aug 2026, same bug as PeriodSelector.jsx's referenceDateToParam:
@@ -269,6 +276,7 @@ export default function AppAdmin() {
   const [sarReceivedAt, setSarReceivedAt] = useState(todayLocalDateString);
   const [sarDueDate, setSarDueDate] = useState('');
   const [sarNotes, setSarNotes] = useState('');
+  const [sarAssignedToId, setSarAssignedToId] = useState(''); // §128 — assign at creation time
   const [sarSaving, setSarSaving] = useState(false);
   const [sarError, setSarError] = useState(null);
   const [sarExporting, setSarExporting] = useState(null);
@@ -353,11 +361,13 @@ export default function AppAdmin() {
         receivedAt: sarReceivedAt,
         dueDate: sarDueDate || undefined,
         notes: sarNotes || undefined,
+        assignedToId: sarAssignedToId || undefined,
       });
       await refetchSar();
       setSarShowCreate(false);
       setSarSelectedLead(null); setSarLeadSearch(''); setSarLeadResults([]);
       setSarRequestorName(''); setSarRequestorEmail(''); setSarDueDate(''); setSarNotes('');
+      setSarAssignedToId('');
       setSarReceivedAt(todayLocalDateString());
     } catch (err) {
       setSarError(err.message || 'Could not log the request');
@@ -391,18 +401,22 @@ export default function AppAdmin() {
     }
   }
 
-  // §125 — fetched once, reused for the assignee dropdown on every
-  // expanded row rather than re-fetching per row-expansion. Two calls
-  // (Admin, GlobalAdmin) merged client-side — usersApi.list() filters by
-  // one role at a time, there's no "any of these roles" query param.
+  // §128 (5 Aug 2026) — CORRECTED: this used to call
+  // usersApi.list({ role: 'Admin' }) and usersApi.list({ role:
+  // 'GlobalAdmin' }) and merge them — the GlobalAdmin call always failed
+  // (CreatableRole, models/user.js, doesn't even accept 'GlobalAdmin' as
+  // a valid role filter — a 400, not an empty result), which rejected
+  // the whole Promise.all and silently discarded the working Admin
+  // results too via the catch below. Mark's report ("dropdown only
+  // shows Unassigned") was this exact bug. Fixed by using the dedicated
+  // sarApi.assignableUsers() endpoint instead — see its own comment
+  // (services/api.js) for why this needed a real new endpoint rather
+  // than a parameter fix to the existing one.
   useEffect(() => {
     async function loadSarAdminUsers() {
       try {
-        const [admins, globalAdmins] = await Promise.all([
-          usersApi.list({ role: 'Admin' }),
-          usersApi.list({ role: 'GlobalAdmin' }),
-        ]);
-        setSarAdminUsers([...(admins.users ?? []), ...(globalAdmins.users ?? [])]);
+        const result = await sarApi.assignableUsers();
+        setSarAdminUsers(result.users ?? []);
       } catch {
         setSarAdminUsers([]);
       }
@@ -1261,6 +1275,23 @@ export default function AppAdmin() {
                 <textarea style={{ ...s.formInput, minHeight: '60px' }} value={sarNotes} onChange={e => setSarNotes(e.target.value)} />
               </div>
 
+              {/* §128 — assign at creation time, not only afterward
+                  (Mark's own request). Same pool as the after-the-fact
+                  assign control — Admin + GlobalAdmin, sarAdminUsers. */}
+              <div style={s.formGroup}>
+                <label style={s.formLabel}>Assign to (optional)</label>
+                <select
+                  value={sarAssignedToId}
+                  onChange={e => setSarAssignedToId(e.target.value)}
+                  style={s.formInput}
+                >
+                  <option value="">Unassigned</option>
+                  {sarAdminUsers.map(u => (
+                    <option key={u.id} value={u.id}>{u.displayName}</option>
+                  ))}
+                </select>
+              </div>
+
               <button
                 style={{ ...s.primaryBtn, opacity: (!sarSelectedLead || !sarRequestorName.trim() || !sarRequestorEmail.trim() || sarSaving) ? 0.5 : 1 }}
                 disabled={!sarSelectedLead || !sarRequestorName.trim() || !sarRequestorEmail.trim() || sarSaving}
@@ -1338,20 +1369,32 @@ export default function AppAdmin() {
 
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '14px' }}>
                           <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>Status:</span>
-                          {['Received', 'InProgress', 'Fulfilled', 'Rejected'].map(s2 => (
+                          {['Received', 'InProgress', 'Fulfilled', 'Rejected'].map(s2 => {
+                            // §128 — Mark's rule: status only moves
+                            // forward. A button whose rank isn't
+                            // strictly greater than the current status
+                            // is disabled — covers both "backward"
+                            // (InProgress -> Received) and "re-click the
+                            // current one, pointless either way" in one
+                            // check, same rank comparison the server
+                            // itself enforces (sarService.updateSarStatus).
+                            const isBackward = SAR_STATUS_RANK[s2] <= SAR_STATUS_RANK[r.status];
+                            return (
                             <button
                               key={s2}
                               onClick={e => { e.stopPropagation(); handleSarStatusChange(r.id, s2); }}
-                              disabled={sarLocked}
+                              disabled={sarLocked || isBackward}
+                              title={isBackward && !sarLocked ? 'Status can only move forward' : undefined}
                               style={{
                                 ...s.secondaryBtn, fontSize: '0.75rem', padding: '4px 10px',
-                                opacity: sarLocked ? 0.5 : 1,
+                                opacity: (sarLocked || isBackward) ? 0.5 : 1,
                                 ...(r.status === s2 ? { background: 'var(--accent)', color: '#fff' } : {}),
                               }}
                             >
                               {s2}
                             </button>
-                          ))}
+                            );
+                          })}
                           <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
                             <button
                               style={{ ...s.secondaryBtn, fontSize: '0.75rem', opacity: sarExporting ? 0.5 : 1 }}
