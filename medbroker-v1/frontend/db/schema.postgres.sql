@@ -750,6 +750,11 @@ CREATE TABLE IF NOT EXISTS SubjectAccessRequest (
     notes          VARCHAR(2000) NULL,
     fulfilledAt    TIMESTAMPTZ   NULL,
     fulfilledById  UUID          NULL,
+    -- §125 (5 Aug 2026) — GlobalAdmin-only-visible-scope assignment, same
+    -- "an Admin/GlobalAdmin user, not any staff role" restriction the
+    -- rest of this table already has (matches sarHandlers.js's own
+    -- requireRole(['Admin','GlobalAdmin']) on every SAR route).
+    assignedToId   UUID          NULL,
     createdById    UUID          NOT NULL,
     createdAt      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
     updatedAt      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
@@ -758,11 +763,31 @@ CREATE TABLE IF NOT EXISTS SubjectAccessRequest (
     CONSTRAINT FK_SubjectAccessRequest_Lead    FOREIGN KEY (leadId) REFERENCES Lead(id),
     CONSTRAINT FK_SubjectAccessRequest_Creator FOREIGN KEY (createdById) REFERENCES "User"(id),
     CONSTRAINT FK_SubjectAccessRequest_Fulfiller FOREIGN KEY (fulfilledById) REFERENCES "User"(id),
+    CONSTRAINT FK_SubjectAccessRequest_Assignee FOREIGN KEY (assignedToId) REFERENCES "User"(id),
     CONSTRAINT CK_SubjectAccessRequest_Status  CHECK (status IN ('Received', 'InProgress', 'Fulfilled', 'Rejected'))
 );
 
 CREATE INDEX IF NOT EXISTS IX_SubjectAccessRequest_Lead ON SubjectAccessRequest (leadId);
 CREATE INDEX IF NOT EXISTS IX_SubjectAccessRequest_Status ON SubjectAccessRequest (organisationId, status);
+
+-- §125 (5 Aug 2026) — SAR notes thread, mirrors TaskComment exactly (see
+-- that table above): a growing, timestamped, authored thread, distinct
+-- from SubjectAccessRequest.notes (kept as-is — a single summary field,
+-- same relationship Task.detail has alongside TaskComment).
+CREATE TABLE IF NOT EXISTS SarComment (
+    id             UUID          NOT NULL DEFAULT gen_random_uuid(),
+    organisationId UUID          NOT NULL DEFAULT 'D0000000-0000-0000-0000-000000000001',
+    sarId          UUID          NOT NULL,
+    authorId       UUID          NOT NULL,
+    body           VARCHAR(2000) NOT NULL,
+    createdAt      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+    CONSTRAINT PK_SarComment        PRIMARY KEY (id),
+    CONSTRAINT FK_SarComment_Org    FOREIGN KEY (organisationId) REFERENCES Organisation(id),
+    CONSTRAINT FK_SarComment_Sar    FOREIGN KEY (sarId) REFERENCES SubjectAccessRequest(id) ON DELETE CASCADE,
+    CONSTRAINT FK_SarComment_Author FOREIGN KEY (authorId) REFERENCES "User"(id)
+);
+
+CREATE INDEX IF NOT EXISTS IX_SarComment_Sar ON SarComment (sarId, createdAt);
 
 -- =============================================================================
 -- SECTION 14 — TOKEN LEDGER (Phase 2 stub)

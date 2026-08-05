@@ -242,6 +242,17 @@ export const sarApi = {
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   },
+  // §125 — assignment, notes thread, per-SAR audit view. All three
+  // reject with a 409 if the request is already Fulfilled/Rejected
+  // (sarService.js's assertNotLocked) — the frontend surfaces that error
+  // message rather than trying to predict it client-side, same as every
+  // other server-enforced business rule in this app.
+  assign: (id, assignedToId) =>
+    request(`/leads/sar-requests/${id}/assign`, { method: 'PATCH', body: JSON.stringify({ assignedToId }) }),
+  listComments: (id) => request(`/leads/sar-requests/${id}/comments`),
+  addComment: (id, body) =>
+    request(`/leads/sar-requests/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }),
+  auditLog: (id) => request(`/leads/sar-requests/${id}/audit`),
 };
 
 // ─── Appointments ─────────────────────────────────────────────────────────────

@@ -8544,45 +8544,42 @@ actually wants to run offboarding sync live — everything else works
 without it, same optional()-until-configured pattern as every other
 credential in this app.
 
-§114 through §119 all CONFIRMED LIVE. §120+§121 (Entra SSO stages 3+4) —
-ALSO CONFIRMED LIVE, same kind of evidence: the pre-investigation
-re-hydration for §122 (below) pulled a fresh copy of main and
-auth.sso.disableLocalFallback was already present in FeatureFlags.jsx.
-This is in fact how §122 itself was found — Mark noticed it live.
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-122. FEATURE FLAGS TAB COUNTS DIDN'T MATCH WHAT WAS SHOWN — 4 Aug 2026 (session 15, continued)
+123. APP ADMIN SYSTEM SETTINGS — SAVE CONFIRMATION SCROLLED OUT OF VIEW — 4 Aug 2026 (session 15, continued)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Mark noticed (via screenshot, SSO off): "Core 9" but only 7 rows showing.
-Real bug, not a display glitch — confirmed by reading the code, not
-assumed. Two separate computations of "what's in this tier" had drifted
-apart: visibleFlags (the actual rendered list) filtered by BOTH tier and
-dependsOn (a flag hidden while its parent's current value doesn't match —
-auth.sso.provider/auth.sso.disableLocalFallback both depend on
-auth.sso.enabled, off in Mark's screenshot, so both correctly hidden from
-the list); the tab count was FLAG_META.filter(f => f.tier === key).length
-— tier only, no dependsOn check, so it kept counting flags the list had
-already decided not to show.
+Mark: the "Changes saved" banner on App Admin -> System Settings isn't
+visible when you scroll down to actually click Save, so a save looks
+like it silently did nothing. Confirmed by reading the layout, not
+assumed: both settingsSaved and settingsError render inline at the TOP
+of a long, scrollable settings form (password policy, token allocation,
+lockout, etc.), while Save Settings sits at the very bottom, well below
+the fold — by the time anyone reaches the button, feedback rendered
+above it is already scrolled out of view. Same root cause for both
+success and failure, though Mark only reported the success case;
+fixed both rather than leaving the error case with the identical bug
+for someone to hit later.
 
-Mark offered two options — fix the count to match what's shown, or
-remove counts entirely. Fixed rather than removed: the count is genuinely
-useful information when it's correct, no reason to lose it over a bug in
-how it was computed. Factored the dependsOn check out of visibleFlags's
-inline filter into its own isFlagVisible() function, used by BOTH the
-list and the count — the two computations can't drift apart again the
-way two separate copies of the same logic just did, by construction, not
-by discipline.
+FIX: position: fixed on both banners (bottom-right of the viewport,
+z-index above page content) instead of inline in the document flow —
+visible regardless of scroll position, seen immediately after clicking
+whichever button just triggered it. Didn't touch the 2.5s auto-hide
+timeout on the success banner — that duration was never the problem,
+only ever being unable to see it in the first place.
+
+Scoped to System Settings only, matching what Mark actually reported —
+didn't audit AppAdmin.jsx's other tabs (Portfolios, Products, Medical
+Subscriptions, Audit Log) for the same pattern; worth a look if the same
+complaint comes up elsewhere on this page.
 
 VERIFIED: full Vite production build clean, existing 55-test Vitest
-suite unaffected (no backend touched — single frontend file, pure
-front-end bug). Re-hydrated fresh from GitHub and diffed the one changed
-file before packaging.
+suite unaffected (single frontend file, no backend touched). Re-hydrated
+fresh from GitHub and diffed the one changed file before packaging.
 
 MIGRATION: none.
 
 FILES:
-  frontend/src/pages/FeatureFlags.jsx
+  frontend/src/pages/AppAdmin.jsx
 Plus this Status_Vercel.md.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -8600,74 +8597,145 @@ run by Mark before this session's end; safe to leave alone (re-running
 it is a no-op by design, confirmed and explained when he asked).
 
 §114 through §121 all CONFIRMED LIVE. §122 (Feature Flags tab count fix)
-is built and verified by this session but NOT YET DEPLOYED. No new env
-vars, no migration, no backend change at all — a single frontend file.
+and §123 (App Admin save-confirmation visibility) are built and verified
+by this session but NOT YET DEPLOYED — two small, independent frontend-
+only fixes, no particular order needed between them. No new env vars, no
+migration for either.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-124. FEATURE FLAGS — CHILD FLAGS COULD HOLD STALE VALUES AFTER THEIR PARENT WAS TURNED OFF — 4 Aug 2026 (session 15, continued)
+125. SAR FEATURE MATURITY — TWO REAL BUGS FIXED, LOCKING, ASSIGNMENT, NOTES, PER-ITEM AUDIT — 5 Aug 2026 (session 15, continued)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Mark: switching a parent flag back to default (appointments.claimModel
-to 'assign', or auth.sso.enabled off) should reset dependent child
-flags to their defaults too — worried a stale child value could still
-affect backend behaviour even while hidden in the UI.
+Mark's own SAR testing feedback, several items in one conversation.
+Investigated each before building anything — two turned out to be real,
+confirmed bugs, not feature gaps; the rest were genuine additions.
+Mark also added mid-build: once Fulfilled or Rejected, a SAR should be
+locked — folded in as the organising rule most of this entry's other
+pieces check against.
 
-Checked whether that's actually exploitable today before building
-anything: it isn't, currently. Every real consumer of a child flag
-already independently re-checks the parent too — handleLogin's
-auth.sso.disableLocalFallback check (§121) was specifically written to
-require BOTH auth.sso.enabled AND auth.sso.disableLocalFallback, exactly
-so a stale child value alone couldn't do anything. But that safety is a
-property of how each consumer HAPPENS to be written, not something the
-flag system itself enforces — the very next thing being built (Stripe's
-payment-provider check) could easily forget to also check
-appointments.claimModel, and Mark's instinct that this shouldn't be
-possible at all is the more robust one. Fixed at the source: a child
-flag can no longer hold a non-default value while its parent doesn't
-require it, full stop, regardless of what any individual consumer
-remembers to check.
+CONFIRMED BUGS, NOT GAPS:
+  1. CSV/JSON export parity — CSV was missing 10 real fields the JSON
+     export has (whatsappNumber, universityAttended, yearOfAttendance,
+     degreeAttained, existingCover, currentInsurer, policies, medicalAid,
+     medicalAidProvider, the lead's own createdAt). Confirmed by diffing
+     the two field lists directly. Fixed — SAR_CSV_COLUMNS
+     (sarHandlers.js) now carries every field compileSubjectData()
+     returns, kept in the same order as that function's own Lead SELECT
+     specifically so the two are easy to eyeball together next time
+     either changes.
+  2. Audit Log missing detail for SAR entries — every writeAuditLog()
+     call in sarService.js/sarHandlers.js was passing changeDetail
+     ALREADY JSON.stringify()'d, but writeAuditLog (auditService.js)
+     does that internally — the result was a double-encoded string in
+     the database. Read back for display, it comes out as a plain
+     string, not an object, and AppAdmin.jsx's formatChangeDetail()
+     (§103, working correctly for every other action type in the app)
+     bails out immediately on anything that isn't an object. Not a
+     rendering gap — one wrong line, repeated across three call sites.
+     Fixed by passing plain objects, matching every other writeAuditLog()
+     caller in this codebase.
 
-FIX: NEW DEPENDENT_RESETS map in flagHandlers.js — hand-coded, not
-schema-driven (FeatureFlag has no dependsOn column at all; that
-relationship only ever lived in FeatureFlags.jsx's FLAG_META, frontend-
-only). Two known relationships: auth.sso.enabled -> [auth.sso.provider,
-auth.sso.disableLocalFallback], appointments.claimModel ->
-[appointments.tokens.paymentProvider]. handleFlagUpdate now checks,
-after any successful PATCH, whether the just-updated flag is a parent
-that just transitioned to the specific value its children depend on it
-NOT being — only fires on that transition, turning claimModel to
-'claim' never touches paymentProvider, only setting it back to 'assign'
-does. Resets folded into the SAME audit log entry as the parent change
-(changeDetail.resetChildren), not separate entries — this is one
-cascading action, not three unrelated ones.
+NEW — LOCKING (Mark's mid-build addition): once a SAR's status is
+Fulfilled or Rejected, sarService.assertNotLocked() rejects any further
+status change, reassignment, or new comment with a 409. This is the ONE
+place the rule lives — every mutating function calls it first, so there
+was nowhere for a UI-only lock to quietly diverge from what the server
+actually allows. Exports remain available on a locked request
+deliberately — re-downloading data already fulfilled seems reasonable,
+and export is read-only with respect to the SAR record itself.
 
-FRONTEND: NEW FlagContext.refetch() — setFlag(key, value) alone only
-ever updated the ONE flag the UI knew it had just changed; a
-server-side cascade reset of OTHER flags would leave this context's
-cached state for those stale until the next full page load, even
-though the database was already correct. FeatureFlags.jsx's
-handleSaveFlag now calls refetch() after every save, on top of the
-existing optimistic setFlag() — instant feedback on the flag just
-touched, eventual consistency for anything it cascaded into.
+NEW — ASSIGNMENT + NOTIFICATION: assignSarRequest() — Admin/GlobalAdmin
+only, re-validates the target user's role server-side even though the
+caller (sarHandlers.js) already checked, same defense-in-depth reasoning
+as handleLogin's auth.sso.disableLocalFallback check (§121: never trust
+a single check alone for something this consequential). Fires a
+notification to the new assignee via createNotification(), same
+mechanism every other assignment-style action in this app already uses.
 
-NOTE ON PACKAGING: this delivery's FeatureFlags.jsx is built on top of
-§122's already-deployed version (confirmed live before starting this
-entry) — it's the complete file, not a diff against §122; dragging it
-in replaces §122's version entirely and is a superset of it, not a
-separate change to layer on carefully in order.
+NEW — NOTES THREAD: "the same way as Tasks" — investigated what that
+actually meant before building anything and found Tasks don't have one
+text field, they have a real TaskComment table (growing, timestamped,
+authored). NEW SarComment table mirrors it exactly. SubjectAccessRequest.
+notes (the original single field) is UNCHANGED, kept alongside — same
+relationship Task.detail has alongside TaskComment, not a replacement.
 
-VERIFIED: node --check + ESM import smoke test on the backend file,
-full Vite production build clean, existing 55-test Vitest suite
-unaffected. Re-hydrated fresh from GitHub and diffed all three changed
+NEW — PER-SAR AUDIT VIEW: every SAR action now writes TWO audit entries,
+not one — the existing Lead-scoped entry (kept: a SAR being processed is
+part of the Lead's own history, and compileSubjectData's own auditTrail
+reads from Lead-scoped entries) PLUS a new SAR-scoped one
+(entityType: 'SubjectAccessRequest'). The new GET /api/leads/sar-requests/
+:id/audit endpoint reuses auditService.listAuditLog(entityType, entityId)
+directly — the exact same generic function LeadDetail/AppointmentDetail's
+own Change Log panels already use. Caught while wiring this: almost wrote
+a bespoke getSarAuditLog() in sarService.js that would have needed its
+own JSON.parse on changeDetail, duplicating logic that already exists
+and is already correct — checked for an existing generic function before
+writing a new one, found it, used it instead.
+
+NEW — AUTO STATUS TRANSITION: first export on a still-Received request
+auto-advances it to InProgress (markInProgressOnFirstExport) — the same
+"system reflects that work has actually started" reasoning a broker
+claiming an appointment already gets (§117). Deliberately a no-op for
+anything not currently Received — re-exporting an already-InProgress or
+locked request never touches status.
+
+DELIBERATELY NOT INCLUDED: compileSubjectData() (the subject-facing
+export) does NOT include SarComment or assignedToId — MedBroker's own
+internal processing metadata about handling the request isn't data held
+ABOUT the subject, and a person asking "what do you know about me"
+doesn't need to see staff's internal notes about who's working their
+ticket.
+
+ALSO NOT BUILT, FLAGGED RATHER THAN FORCED: a "SAR due soon" reminder
+notification, which Claude itself suggested last entry as a natural
+complement to assignment+notifications. This app has no scheduled-job
+infrastructure (same constraint offboarding sync, §121, and the token
+economy's monthly reset, §117, both work around differently) — a due-
+date reminder genuinely needs something to run on a schedule and check,
+which nothing here can do without either a manual trigger (workable, but
+Mark didn't ask for it) or real scheduler infrastructure this stack
+doesn't have. Deferred rather than shipped as a compromised version of
+what was suggested.
+
+VERIFIED: node --check + ESM import smoke test on every new/edited
+backend file, full Vite production build clean, existing 55-test Vitest
+suite unaffected. Re-hydrated fresh from GitHub and diffed all 7 changed
 files before packaging.
 
-MIGRATION: none — no schema change (FeatureFlag table unchanged;
-DEPENDENT_RESETS is application logic, not a new column).
+MIGRATION — a real one this time, not just a safe-to-rerun seed file.
+Two schema changes, neither covered by schema.postgres.sql's own
+CREATE TABLE IF NOT EXISTS for an ALREADY-existing SubjectAccessRequest
+table:
+
+  ALTER TABLE SubjectAccessRequest ADD COLUMN IF NOT EXISTS assignedToId UUID NULL;
+  ALTER TABLE SubjectAccessRequest ADD CONSTRAINT FK_SubjectAccessRequest_Assignee FOREIGN KEY (assignedToId) REFERENCES "User"(id);
+
+  CREATE TABLE IF NOT EXISTS SarComment (
+      id             UUID          NOT NULL DEFAULT gen_random_uuid(),
+      organisationId UUID          NOT NULL DEFAULT 'D0000000-0000-0000-0000-000000000001',
+      sarId          UUID          NOT NULL,
+      authorId       UUID          NOT NULL,
+      body           VARCHAR(2000) NOT NULL,
+      createdAt      TIMESTAMPTZ   NOT NULL DEFAULT NOW(),
+      CONSTRAINT PK_SarComment        PRIMARY KEY (id),
+      CONSTRAINT FK_SarComment_Org    FOREIGN KEY (organisationId) REFERENCES Organisation(id),
+      CONSTRAINT FK_SarComment_Sar    FOREIGN KEY (sarId) REFERENCES SubjectAccessRequest(id) ON DELETE CASCADE,
+      CONSTRAINT FK_SarComment_Author FOREIGN KEY (authorId) REFERENCES "User"(id)
+  );
+  CREATE INDEX IF NOT EXISTS IX_SarComment_Sar ON SarComment (sarId, createdAt);
+
+Both also added to schema.postgres.sql for future fresh deployments —
+run the snippet above against the EXISTING Neon database first, schema.
+postgres.sql alone won't retroactively alter an already-existing table.
 
 FILES:
-  frontend/api-lib/handlers/flagHandlers.js
-  frontend/src/context/FlagContext.jsx
-  frontend/src/pages/FeatureFlags.jsx
+  frontend/db/schema.postgres.sql
+  frontend/api-lib/models/sar.js
+  frontend/api-lib/services/sarService.js
+  frontend/api-lib/handlers/sarHandlers.js
+  frontend/api/leads-router.js
+  frontend/src/services/api.js
+  frontend/src/pages/AppAdmin.jsx
 Plus this Status_Vercel.md.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -8684,9 +8752,13 @@ normal use, not the KMS path itself. Migration 020 confirmed already
 run by Mark before this session's end; safe to leave alone (re-running
 it is a no-op by design, confirmed and explained when he asked).
 
-§114 through §123 all CONFIRMED LIVE. §124 (Feature Flags cascade reset)
-is built and verified by this session but NOT YET DEPLOYED. No new env
-vars, no migration.
+§114 through §124 all CONFIRMED LIVE. §125 (SAR feature maturity) is
+built and verified by this session but NOT YET DEPLOYED — needs the
+ALTER TABLE/CREATE TABLE snippet above run against Neon before or right
+after dragging the zip in (the app will work with the code deployed and
+the migration not yet run, right up until someone tries to assign a SAR
+or add a note — those specific actions would fail against the missing
+column/table until the migration runs).
 
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
 at the top of this file for what's next — Stripe (checkout, webhook,

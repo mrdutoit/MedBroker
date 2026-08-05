@@ -30,6 +30,10 @@
  *   GET    /api/leads/sar-requests/:id
  *   PATCH  /api/leads/sar-requests/:id
  *   GET    /api/leads/sar-requests/:id/export
+ *   PATCH  /api/leads/sar-requests/:id/assign    (§125)
+ *   GET    /api/leads/sar-requests/:id/comments  (§125)
+ *   POST   /api/leads/sar-requests/:id/comments  (§125)
+ *   GET    /api/leads/sar-requests/:id/audit     (§125)
  */
 
 import {
@@ -39,6 +43,7 @@ import {
 } from '../api-lib/handlers/leadHandlers.js';
 import {
   handleSarRequestsCollection, handleSarRequestById, handleSarRequestExport,
+  handleSarAssign, handleSarComments, handleSarAuditLog,
 } from '../api-lib/handlers/sarHandlers.js';
 import {
   handlePortfoliosCollection, handlePortfolioProducts, handlePortfolioById, handleProductById,
@@ -86,6 +91,9 @@ export default async function handler(req, res) {
     if (segments.length === 1) return handleSarRequestsCollection(req, res);
     if (segments.length === 2) return handleSarRequestById(req, res, segments[1]);
     if (segments.length === 3 && segments[2] === 'export') return handleSarRequestExport(req, res, segments[1]);
+    if (segments.length === 3 && segments[2] === 'assign') return handleSarAssign(req, res, segments[1]);
+    if (segments.length === 3 && segments[2] === 'comments') return handleSarComments(req, res, segments[1]);
+    if (segments.length === 3 && segments[2] === 'audit') return handleSarAuditLog(req, res, segments[1]);
     return res.status(404).json({ error: 'Not found' });
   }
 

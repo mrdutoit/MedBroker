@@ -24,3 +24,12 @@ export const UpdateSarStatusSchema = z.object({
 export const SarListQuerySchema = z.object({
   status: SarStatus.optional(),
 });
+
+// §125 (5 Aug 2026) — assignment + notes thread.
+export const AssignSarSchema = z.object({
+  assignedToId: z.string().uuid().nullable(), // null explicitly unassigns
+});
+
+export const CreateSarCommentSchema = z.object({
+  body: z.string().min(1).max(2000),
+});

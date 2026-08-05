@@ -1,31 +1,80 @@
 /**
- * services/sarService.js — NEW (§79).
- * POPIA Subject Access Request processing. Two distinct concerns:
+ * services/sarService.js — NEW (§79). Two distinct concerns:
  *   - Tracking the request itself (who asked, when, status, due date)
  *   - Compiling everything MedBroker actually holds about that Lead into
  *     one structured export (compileSubjectData) — the part that
  *     actually fulfils the request
+ *
+ * UPDATED §125 (5 Aug 2026) — several fixes and additions from Mark's
+ * own testing:
+ *   - FIXED a real bug: every writeAuditLog() call in this file used to
+ *     pass changeDetail as an ALREADY-JSON.stringify()'d string, but
+ *     writeAuditLog (auditService.js) does that internally — the result
+ *     was a double-encoded string stored in the database. Read back for
+ *     display, it comes out as a plain string, not an object, and
+ *     AppAdmin.jsx's formatChangeDetail() (§103) bails out immediately
+ *     on anything that isn't an object. Not a rendering gap — one wrong
+ *     line, repeated three times in this file. Fixed by passing plain
+ *     objects, matching how every other writeAuditLog() caller in this
+ *     codebase already does it.
+ *   - Every SAR action now ALSO writes a second audit entry scoped to
+ *     the SAR itself (entityType: 'SubjectAccessRequest'), alongside the
+ *     existing Lead-scoped one (kept — a SAR being processed is part of
+ *     the Lead's own history too, and compileSubjectData's auditTrail
+ *     reads from the Lead-scoped entries). Two entries per action,
+ *     deliberately: one feeds the subject's own compiled export, the
+ *     other feeds the new per-SAR audit view (auditService.listAuditLog,
+ *     called directly from sarHandlers.js — no bespoke query needed) —
+ *     genuinely different audiences for the same event.
+ *   - LOCKING: once a SAR's status is Fulfilled or Rejected, nothing
+ *     about it can change — no further status change, no reassignment,
+ *     no new comments. assertNotLocked() is the single place this rule
+ *     lives; every mutating function below calls it first.
+ *   - Assignment (assignSarRequest) + a notes thread (SarComment,
+ *     mirroring TaskComment exactly) + auto status transition on first
+ *     export (markInProgressOnFirstExport, called from sarHandlers.js).
  */
 import { executeQuery, executeQueryOne, sql } from './db.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 import { decrypt } from './encryption.js';
 import { writeAuditLog } from './auditService.js';
+import { createNotification } from './notificationService.js';
 
 const SAR_SELECT = `
   sar.id, sar.leadId AS "leadId", sar.requestorName AS "requestorName",
   sar.requestorEmail AS "requestorEmail", sar.receivedAt AS "receivedAt",
   sar.dueDate AS "dueDate", sar.status, sar.notes,
   sar.fulfilledAt AS "fulfilledAt", sar.fulfilledById AS "fulfilledById",
+  sar.assignedToId AS "assignedToId",
   sar.createdById AS "createdById", sar.createdAt AS "createdAt", sar.updatedAt AS "updatedAt",
   CONCAT_WS(' ', l.title, l.firstName, l.lastName) AS "leadName",
   cu.displayName AS "createdByName",
-  fu.displayName AS "fulfilledByName"`;
+  fu.displayName AS "fulfilledByName",
+  au.displayName AS "assignedToName"`;
 
 const SAR_JOINS = `
   FROM SubjectAccessRequest sar
   LEFT JOIN Lead l    ON sar.leadId = l.id
   LEFT JOIN "User" cu ON sar.createdById = cu.id
-  LEFT JOIN "User" fu ON sar.fulfilledById = fu.id`;
+  LEFT JOIN "User" fu ON sar.fulfilledById = fu.id
+  LEFT JOIN "User" au ON sar.assignedToId = au.id`;
+
+/**
+ * Once Fulfilled or Rejected, a SAR is locked — no further status change,
+ * reassignment, or new comment. Mark's own framing: a fulfilled/rejected
+ * request is a closed, POPIA-relevant record; nothing about processing
+ * it should still be editable after the fact.
+ * @param {string} id
+ * @returns {Promise<Object>} the existing SAR row (callers need it anyway)
+ */
+async function assertNotLocked(id) {
+  const existing = await getSarRequestById(id);
+  if (!existing) throw { status: 404, message: 'Request not found' };
+  if (existing.status === 'Fulfilled' || existing.status === 'Rejected') {
+    throw { status: 409, message: `This request is ${existing.status.toLowerCase()} and locked — no further changes can be made.` };
+  }
+  return existing;
+}
 
 /**
  * @param {{page?: number, pageSize?: number, status?: string}} params
@@ -90,7 +139,11 @@ export async function createSarRequest(data, createdById) {
 
   await writeAuditLog({
     entityType: 'Lead', entityId: data.leadId, action: 'SarRequestCreated',
-    performedById: createdById, changeDetail: JSON.stringify({ requestorEmail: data.requestorEmail }),
+    performedById: createdById, changeDetail: { sarId: newId, requestorEmail: data.requestorEmail },
+  });
+  await writeAuditLog({
+    entityType: 'SubjectAccessRequest', entityId: newId, action: 'SarRequestCreated',
+    performedById: createdById, changeDetail: { leadId: data.leadId, requestorName: data.requestorName, requestorEmail: data.requestorEmail },
   });
 
   return newId;
@@ -102,6 +155,7 @@ export async function createSarRequest(data, createdById) {
  * @param {string} performedById
  */
 export async function updateSarStatus(id, data, performedById) {
+  const existing = await assertNotLocked(id);
   const isFulfilled = data.status === 'Fulfilled';
   await executeQuery(
     `UPDATE SubjectAccessRequest
@@ -121,11 +175,135 @@ export async function updateSarStatus(id, data, performedById) {
     }
   );
 
-  const existing = await getSarRequestById(id);
+  const changeDetail = { sarId: id, previousStatus: existing.status, newStatus: data.status };
   await writeAuditLog({
-    entityType: 'Lead', entityId: existing?.leadId, action: 'SarStatusChanged',
-    performedById, changeDetail: JSON.stringify({ sarId: id, newStatus: data.status }),
+    entityType: 'Lead', entityId: existing.leadId, action: 'SarStatusChanged',
+    performedById, changeDetail,
   });
+  await writeAuditLog({
+    entityType: 'SubjectAccessRequest', entityId: id, action: 'SarStatusChanged',
+    performedById, changeDetail,
+  });
+}
+
+/**
+ * The claim-style auto-transition — first export on a still-Received
+ * request moves it to InProgress, same "the system reflects that work
+ * has actually started" reasoning a broker claiming an appointment
+ * already gets. Deliberately a no-op for anything NOT currently
+ * 'Received' (already InProgress: nothing to do; Fulfilled/Rejected:
+ * locked, assertNotLocked below would reject it anyway) — re-exporting
+ * an already-processed request never touches status.
+ * @param {string} id
+ * @param {string} performedById
+ */
+export async function markInProgressOnFirstExport(id, performedById) {
+  const existing = await getSarRequestById(id);
+  if (!existing || existing.status !== 'Received') return;
+  await updateSarStatus(id, { status: 'InProgress' }, performedById);
+}
+
+/**
+ * §125 — Admin/GlobalAdmin only (enforced by the caller, sarHandlers.js,
+ * via requireRole + a role check on the target user below — this
+ * function trusts its caller already validated assignedToId is a real
+ * Admin/GlobalAdmin, but re-checks the target user's role directly
+ * anyway rather than trusting the caller alone, same defense-in-depth
+ * reasoning handleLogin's auth.sso.disableLocalFallback check uses).
+ * Fires a notification to the new assignee — same createNotification()
+ * every other assignment-style action in this app already uses.
+ * @param {string} id
+ * @param {string|null} assignedToId - null explicitly unassigns
+ * @param {string} performedById
+ */
+export async function assignSarRequest(id, assignedToId, performedById) {
+  const existing = await assertNotLocked(id);
+  const organisationId = resolveOrganisationId();
+
+  if (assignedToId) {
+    const assignee = await executeQueryOne(
+      `SELECT id, displayName AS "displayName", role FROM "User"
+       WHERE id = @id AND isActive = TRUE AND deletedAt IS NULL AND organisationId = @organisationId`,
+      { id: { type: sql.UniqueIdentifier, value: assignedToId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+    );
+    if (!assignee || !['Admin', 'GlobalAdmin'].includes(assignee.role)) {
+      throw { status: 400, message: 'SAR requests can only be assigned to an Admin or GlobalAdmin user' };
+    }
+  }
+
+  await executeQuery(
+    `UPDATE SubjectAccessRequest SET assignedToId = @assignedToId, updatedAt = NOW()
+     WHERE id = @id AND organisationId = @organisationId`,
+    {
+      id:             { type: sql.UniqueIdentifier, value: id },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+      assignedToId:   { type: sql.UniqueIdentifier, value: assignedToId },
+    }
+  );
+
+  const changeDetail = { sarId: id, assignedToId, leadName: existing.leadName };
+  await writeAuditLog({
+    entityType: 'Lead', entityId: existing.leadId, action: 'SarAssigned',
+    performedById, changeDetail,
+  });
+  await writeAuditLog({
+    entityType: 'SubjectAccessRequest', entityId: id, action: 'SarAssigned',
+    performedById, changeDetail,
+  });
+
+  if (assignedToId) {
+    await createNotification({
+      recipientId: assignedToId,
+      type:        'SarAssigned',
+      title:       `SAR assigned — ${existing.leadName}`,
+      body:        `You've been assigned a POPIA Subject Access Request for ${existing.leadName}, due ${existing.dueDate ?? 'no date set'}.`,
+      entityType:  'SubjectAccessRequest',
+      entityId:    id,
+    });
+  }
+}
+
+/**
+ * Oldest first — a discussion thread reads top-to-bottom in the order
+ * things were said. Exact mirror of taskService.listComments().
+ * @param {string} sarId
+ */
+export async function listSarComments(sarId) {
+  return executeQuery(
+    `SELECT sc.id, sc.body, sc.createdAt AS "createdAt",
+            sc.authorId AS "authorId", au.displayName AS "authorName"
+     FROM SarComment sc
+     LEFT JOIN "User" au ON sc.authorId = au.id
+     WHERE sc.sarId = @sarId AND sc.organisationId = @organisationId
+     ORDER BY sc.createdAt ASC`,
+    {
+      sarId:          { type: sql.UniqueIdentifier, value: sarId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+}
+
+/**
+ * @param {string} sarId
+ * @param {string} authorId
+ * @param {string} body
+ * @returns {Promise<string>} new comment id
+ */
+export async function addSarComment(sarId, authorId, body) {
+  await assertNotLocked(sarId);
+  const newId = crypto.randomUUID();
+  await executeQuery(
+    `INSERT INTO SarComment (id, organisationId, sarId, authorId, body, createdAt)
+     VALUES (@id, @organisationId, @sarId, @authorId, @body, NOW())`,
+    {
+      id:             { type: sql.UniqueIdentifier, value: newId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+      sarId:          { type: sql.UniqueIdentifier, value: sarId },
+      authorId:       { type: sql.UniqueIdentifier, value: authorId },
+      body:           { type: sql.NVarChar(2000),   value: body },
+    }
+  );
+  return newId;
 }
 
 /**
@@ -137,6 +315,12 @@ export async function updateSarStatus(id, data, performedById) {
  * history, every task linked to the lead, and the lead's own audit
  * trail (who accessed/changed their data — POPIA's accountability angle,
  * not just the raw data itself).
+ *
+ * Deliberately does NOT include SarComment or assignedToId — those are
+ * MedBroker's own internal processing metadata about handling the
+ * request, not data MedBroker holds ABOUT the subject. A data subject
+ * asking "what do you know about me" doesn't need to see staff's
+ * internal notes about who's working their ticket.
  * @param {string} leadId
  */
 export async function compileSubjectData(leadId) {

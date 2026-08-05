@@ -271,6 +271,14 @@ export default function AppAdmin() {
   const [sarSaving, setSarSaving] = useState(false);
   const [sarError, setSarError] = useState(null);
   const [sarExporting, setSarExporting] = useState(null);
+  // §125 — assignment, notes thread, per-SAR audit view.
+  const [sarAdminUsers, setSarAdminUsers] = useState([]);
+  const [sarComments, setSarComments] = useState({}); // { [sarId]: [...] }
+  const [sarAuditEntries, setSarAuditEntries] = useState({}); // { [sarId]: [...] }
+  const [sarDetailLoading, setSarDetailLoading] = useState(false);
+  const [sarNewComment, setSarNewComment] = useState('');
+  const [sarCommentSaving, setSarCommentSaving] = useState(false);
+  const [sarAssigning, setSarAssigning] = useState(false);
 
   // Medical Subscriptions (§80) — real.
   const [subsData, setSubsData] = useState(null);
@@ -371,10 +379,86 @@ export default function AppAdmin() {
     setSarError(null);
     try {
       await sarApi.export(id, format);
+      // §125 — export can auto-transition Received -> InProgress
+      // server-side; refetch so the table reflects that without
+      // requiring a manual reload.
+      await refetchSar();
     } catch (err) {
       setSarError(err.message || 'Export failed');
     } finally {
       setSarExporting(null);
+    }
+  }
+
+  // §125 — fetched once, reused for the assignee dropdown on every
+  // expanded row rather than re-fetching per row-expansion. Two calls
+  // (Admin, GlobalAdmin) merged client-side — usersApi.list() filters by
+  // one role at a time, there's no "any of these roles" query param.
+  useEffect(() => {
+    async function loadSarAdminUsers() {
+      try {
+        const [admins, globalAdmins] = await Promise.all([
+          usersApi.list({ role: 'Admin' }),
+          usersApi.list({ role: 'GlobalAdmin' }),
+        ]);
+        setSarAdminUsers([...(admins.users ?? []), ...(globalAdmins.users ?? [])]);
+      } catch {
+        setSarAdminUsers([]);
+      }
+    }
+    loadSarAdminUsers();
+  }, []);
+
+  // §125 — comments + per-SAR audit trail are fetched lazily, the first
+  // time a row is expanded, and cached in sarComments/sarAuditEntries
+  // keyed by id — re-expanding the same row later doesn't re-fetch.
+  async function handleSarExpand(id) {
+    const nextId = sarExpandedId === id ? null : id;
+    setSarExpandedId(nextId);
+    if (nextId && !sarComments[nextId]) {
+      setSarDetailLoading(true);
+      try {
+        const [commentsRes, auditRes] = await Promise.all([
+          sarApi.listComments(nextId),
+          sarApi.auditLog(nextId),
+        ]);
+        setSarComments(prev => ({ ...prev, [nextId]: commentsRes.comments ?? [] }));
+        setSarAuditEntries(prev => ({ ...prev, [nextId]: auditRes.entries ?? [] }));
+      } catch (err) {
+        setSarError(err.message || 'Could not load request details');
+      } finally {
+        setSarDetailLoading(false);
+      }
+    }
+  }
+
+  // §125 — assignedToId may be '' (the "Unassigned" option) or a real
+  // user id; sarApi.assign() takes null for "unassign", not ''.
+  async function handleSarAssignChange(id, assignedToId) {
+    setSarAssigning(true);
+    setSarError(null);
+    try {
+      await sarApi.assign(id, assignedToId || null);
+      await refetchSar();
+    } catch (err) {
+      setSarError(err.message || 'Could not assign this request');
+    } finally {
+      setSarAssigning(false);
+    }
+  }
+
+  async function handleSarAddComment(id) {
+    if (!sarNewComment.trim()) return;
+    setSarCommentSaving(true);
+    setSarError(null);
+    try {
+      const created = await sarApi.addComment(id, sarNewComment.trim());
+      setSarComments(prev => ({ ...prev, [id]: [...(prev[id] ?? []), created] }));
+      setSarNewComment('');
+    } catch (err) {
+      setSarError(err.message || 'Could not add comment');
+    } finally {
+      setSarCommentSaving(false);
     }
   }
 
@@ -1173,39 +1257,78 @@ export default function AppAdmin() {
           {sarLoading && <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading requests…</div>}
 
           <div style={{ ...s.tableCard, overflowX: 'auto' }}>
-            <table style={{ ...s.table, minWidth: '700px' }}>
+            <table style={{ ...s.table, minWidth: '760px' }}>
               <thead><tr>
                 <th style={s.th}>Received</th>
                 <th style={s.th}>Lead</th>
                 <th style={s.th}>Requestor</th>
                 <th style={s.th}>Status</th>
+                <th style={s.th}>Assigned</th>
                 <th style={s.th}>Due</th>
                 <th style={s.th}></th>
               </tr></thead>
               <tbody>
-                {sarRequests.map(r => (
+                {sarRequests.map(r => {
+                  // §125 — once Fulfilled or Rejected, the backend
+                  // rejects any further status/assignment/comment change
+                  // (sarService.assertNotLocked) — this mirrors that
+                  // exact rule client-side purely for disabling controls;
+                  // the server-side check is what actually enforces it.
+                  const sarLocked = r.status === 'Fulfilled' || r.status === 'Rejected';
+                  return (
                   <Fragment key={r.id}>
-                    <tr style={{ ...s.tr, cursor: 'pointer' }} onClick={() => setSarExpandedId(id => id === r.id ? null : r.id)}>
+                    <tr style={{ ...s.tr, cursor: 'pointer' }} onClick={() => handleSarExpand(r.id)}>
                       <td style={s.td}>{r.receivedAt}</td>
                       <td style={s.td}>{r.leadName}</td>
                       <td style={s.td}>{r.requestorName}</td>
                       <td style={s.td}>
                         <span style={{ ...s.badge, fontSize: '0.688rem', background:'var(--panel2)' }}>{r.status}</span>
+                        {sarLocked && <span style={{ marginLeft: '6px', fontSize: '0.688rem', color:'var(--mut)' }}>🔒</span>}
+                      </td>
+                      <td style={{ ...s.td, fontSize: '0.8125rem', color: r.assignedToName ? 'var(--ink)' : 'var(--mut)' }}>
+                        {r.assignedToName || 'Unassigned'}
                       </td>
                       <td style={{ ...s.td, color:'var(--mut)' }}>{r.dueDate || '—'}</td>
                       <td style={s.td}>{sarExpandedId === r.id ? '▲' : '▼'}</td>
                     </tr>
                     {sarExpandedId === r.id && (
-                      <tr><td colSpan={6} style={{ ...s.td, background: 'var(--panel2)' }}>
+                      <tr><td colSpan={7} style={{ ...s.td, background: 'var(--panel2)' }}>
                         {r.notes && <p style={{ fontSize: '0.8125rem', margin: '0 0 10px' }}>{r.notes}</p>}
-                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center' }}>
+
+                        {sarLocked && (
+                          <div style={{ ...s.noticeWarn, fontSize: '0.8125rem', marginBottom: '12px' }}>
+                            🔒 This request is {r.status.toLowerCase()} and locked — status, assignment, and notes
+                            can no longer be changed. Exports remain available below.
+                          </div>
+                        )}
+
+                        {/* Assignment — §125, GlobalAdmin+Admin users only */}
+                        <div style={{ marginBottom: '12px' }}>
+                          <span style={{ fontSize: '0.75rem', color:'var(--mut)', marginRight: '8px' }}>Assigned to:</span>
+                          <select
+                            value={r.assignedToId ?? ''}
+                            onClick={e => e.stopPropagation()}
+                            onChange={e => handleSarAssignChange(r.id, e.target.value)}
+                            disabled={sarLocked || sarAssigning}
+                            style={{ ...s.formInput, width: '220px', display: 'inline-block', padding: '5px 8px', fontSize: '0.8125rem' }}
+                          >
+                            <option value="">Unassigned</option>
+                            {sarAdminUsers.map(u => (
+                              <option key={u.id} value={u.id}>{u.displayName}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '14px' }}>
                           <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>Status:</span>
                           {['Received', 'InProgress', 'Fulfilled', 'Rejected'].map(s2 => (
                             <button
                               key={s2}
                               onClick={e => { e.stopPropagation(); handleSarStatusChange(r.id, s2); }}
+                              disabled={sarLocked}
                               style={{
                                 ...s.secondaryBtn, fontSize: '0.75rem', padding: '4px 10px',
+                                opacity: sarLocked ? 0.5 : 1,
                                 ...(r.status === s2 ? { background: 'var(--accent)', color: '#fff' } : {}),
                               }}
                             >
@@ -1229,12 +1352,76 @@ export default function AppAdmin() {
                             </button>
                           </div>
                         </div>
+
+                        {sarDetailLoading && !sarComments[r.id] && (
+                          <div style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '12px' }}>Loading notes and history…</div>
+                        )}
+
+                        {/* Notes thread — §125, mirrors Tasks' own comment thread */}
+                        <div style={{ marginBottom: '14px' }}>
+                          <div style={{ fontSize: '0.75rem', fontWeight: 600, color:'var(--ink)', marginBottom: '6px' }}>Notes</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', marginBottom: '8px' }}>
+                            {(sarComments[r.id] ?? []).map(c => (
+                              <div key={c.id} style={{ fontSize: '0.8125rem', background:'var(--panel)', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 10px' }}>
+                                <div style={{ color:'var(--mut)', fontSize: '0.6875rem', marginBottom: '2px' }}>
+                                  {c.authorName ?? c.author} · {new Date(c.createdAt).toLocaleString('en-ZA')}
+                                </div>
+                                {c.body}
+                              </div>
+                            ))}
+                            {sarComments[r.id]?.length === 0 && (
+                              <div style={{ fontSize: '0.75rem', color:'var(--mut)' }}>No notes yet.</div>
+                            )}
+                          </div>
+                          {!sarLocked && (
+                            <div style={{ display: 'flex', gap: '8px' }} onClick={e => e.stopPropagation()}>
+                              <input
+                                type="text" style={{ ...s.formInput, flex: 1, fontSize: '0.8125rem' }}
+                                placeholder="Add a note…"
+                                value={sarNewComment}
+                                onChange={e => setSarNewComment(e.target.value)}
+                                onKeyDown={e => { if (e.key === 'Enter') handleSarAddComment(r.id); }}
+                              />
+                              <button
+                                style={{ ...s.secondaryBtn, fontSize: '0.75rem', opacity: (sarCommentSaving || !sarNewComment.trim()) ? 0.5 : 1 }}
+                                disabled={sarCommentSaving || !sarNewComment.trim()}
+                                onClick={() => handleSarAddComment(r.id)}
+                              >
+                                {sarCommentSaving ? '…' : 'Add'}
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Per-request audit trail — §125, distinct from
+                            App Admin's own global Audit Log tab (that one
+                            shows every action across the whole app; this
+                            shows just this SAR's own history). */}
+                        <div>
+                          <div style={{ fontSize: '0.75rem', fontWeight: 600, color:'var(--ink)', marginBottom: '6px' }}>History</div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                            {(sarAuditEntries[r.id] ?? []).map((entry, i) => (
+                              <div key={i} style={{ fontSize: '0.75rem', color:'var(--mut)' }}>
+                                <strong style={{ color:'var(--ink)' }}>{entry.action}</strong>
+                                {' — '}{entry.performedByName ?? entry.performedBy ?? 'System'}
+                                {', '}{new Date(entry.performedAt).toLocaleString('en-ZA')}
+                                {entry.changeDetail && (
+                                  <span> ({formatChangeDetail(entry.changeDetail)})</span>
+                                )}
+                              </div>
+                            ))}
+                            {sarAuditEntries[r.id]?.length === 0 && (
+                              <div style={{ fontSize: '0.75rem', color:'var(--mut)' }}>No history yet.</div>
+                            )}
+                          </div>
+                        </div>
                       </td></tr>
                     )}
                   </Fragment>
-                ))}
+                  );
+                })}
                 {!sarLoading && sarRequests.length === 0 && (
-                  <tr><td colSpan={6} style={{ ...s.td, textAlign: 'center', color:'var(--mut)' }}>No requests logged yet.</td></tr>
+                  <tr><td colSpan={7} style={{ ...s.td, textAlign: 'center', color:'var(--mut)' }}>No requests logged yet.</td></tr>
                 )}
               </tbody>
             </table>
