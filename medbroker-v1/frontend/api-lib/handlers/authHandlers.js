@@ -10,10 +10,11 @@
  */
 
 import { timingSafeEqual } from 'crypto';
-import { validateToken, authErrorResponse } from '../middleware/auth.js';
-import { getUserByEmailForLogin, recordLoginSuccess, recordLoginFailure, countActiveGlobalAdmins, createLocalUser, getUserPasswordHash, setUserPassword, wasPasswordUsedThisYear, revokeUserSessions, getUserByEntraObjectId, getUserForSsoMatch, backfillEntraObjectId, jitProvisionSsoUser } from '../services/userService.js';
+import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
+import { getUserByEmailForLogin, recordLoginSuccess, recordLoginFailure, countActiveGlobalAdmins, createLocalUser, getUserPasswordHash, setUserPassword, wasPasswordUsedThisYear, revokeUserSessions, getUserByEntraObjectId, getUserForSsoMatch, backfillEntraObjectId, jitProvisionSsoUser, listSsoLinkedActiveUsers, deactivateUser } from '../services/userService.js';
 import { verifyPassword, signJwt, hashPassword, checkPasswordComplexity } from '../services/authService.js';
 import { validateEntraToken } from '../services/entraAuthService.js';
+import { isEntraAccountActive } from '../services/entraGraphService.js';
 import { getSystemConfig } from '../services/systemConfigService.js';
 import { getFlagMeta } from '../services/flagService.js';
 import { writeAuditLog, clientIp } from '../services/auditService.js';
@@ -48,6 +49,28 @@ export async function handleLogin(req, res) {
     if (!user) return res.status(401).json(INVALID);
     if (!user.isActive) return res.status(403).json({ error: 'This account is inactive. Contact your administrator.' });
     if (user.isLocked) return res.status(423).json({ error: 'This account is locked. Contact your administrator.' });
+
+    // §121 (SSO stage 3) — the password-fallback toggle. Only applies to
+    // a user who actually HAS a linked Entra identity — a local-only
+    // account is never affected by this flag, regardless of its value.
+    // GlobalAdmin is deliberately EXEMPT even when this is on, always —
+    // a permanent break-glass path so an Entra outage or a
+    // misconfigured app registration can never fully lock every admin
+    // out of MedBroker. This check runs before the passwordHash check
+    // below on purpose: even a user who technically still has a local
+    // password set must be told to use SSO once policy requires it, not
+    // silently allowed through because the password field happens to be
+    // populated.
+    if (user.entraObjectId && user.role !== 'GlobalAdmin') {
+      const [ssoEnabledMeta, fallbackMeta] = await Promise.all([
+        getFlagMeta('auth.sso.enabled'),
+        getFlagMeta('auth.sso.disableLocalFallback'),
+      ]);
+      if (ssoEnabledMeta?.value === '1' && fallbackMeta?.value === '1') {
+        return res.status(403).json({ error: 'This account must sign in with Microsoft. Use the "Sign in with Microsoft" option.' });
+      }
+    }
+
     if (!user.passwordHash) return res.status(401).json({ error: 'This account uses single sign-on, not a password. Use the SSO login option.' });
 
     const passwordOk = await verifyPassword(password, user.passwordHash);
@@ -360,6 +383,83 @@ export async function handleEntraLogin(req, res) {
       return res.status(status).json(body);
     }
     console.error('auth/entra-login error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * POST /api/auth/offboarding-sync — §121 (4 Aug 2026, SSO stage 3b).
+ * GlobalAdmin only. On-demand, not scheduled — this stack has no cron
+ * infrastructure (same constraint tokenService.js's monthly reset works
+ * around, differently: that one self-heals on next read; this one
+ * genuinely needs an explicit trigger, since "check if someone still
+ * exists in a THIRD PARTY's directory" isn't something that can be
+ * deferred to whenever that person next happens to log in — if they've
+ * been removed from Entra, they're not logging in at all anymore).
+ *
+ * Checks every currently-active, Entra-linked user against Microsoft
+ * Graph (entraGraphService.js) and deactivates any whose Entra account
+ * is gone or disabled. Continues past individual failures (one broken
+ * Graph lookup shouldn't abort checking everyone else) and reports them
+ * back rather than silently swallowing them.
+ */
+export async function handleEntraOffboardingSync(req, res) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['GlobalAdmin']);
+
+    const ssoEnabledMeta = await getFlagMeta('auth.sso.enabled');
+    if (ssoEnabledMeta?.value !== '1') {
+      return res.status(403).json({ error: 'Single sign-on is not enabled for this deployment' });
+    }
+
+    const candidates = await listSsoLinkedActiveUsers();
+    let deactivatedCount = 0;
+    const deactivated = [];
+    const errors = [];
+
+    for (const candidate of candidates) {
+      try {
+        const stillActive = await isEntraAccountActive(candidate.entraObjectId);
+        if (!stillActive) {
+          await deactivateUser(candidate.id);
+          await writeAuditLog({
+            entityType: 'User',
+            entityId: candidate.id,
+            action: 'UserDeactivated',
+            performedById: claims.oid,
+            changeDetail: { reason: 'Offboarding sync — account no longer active in Entra ID', displayName: candidate.displayName },
+            ipAddress: clientIp(req),
+          });
+          deactivatedCount += 1;
+          deactivated.push({ id: candidate.id, displayName: candidate.displayName });
+        }
+      } catch (err) {
+        // One broken Graph lookup (network blip, a since-revoked app
+        // permission, etc.) shouldn't abort the whole sync — collect it
+        // and keep checking the rest of the candidates.
+        errors.push({ id: candidate.id, displayName: candidate.displayName, message: err.message ?? 'Unknown error' });
+      }
+    }
+
+    return res.status(200).json({
+      checked: candidates.length,
+      deactivatedCount,
+      deactivated,
+      errors,
+    });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('auth/offboarding-sync error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

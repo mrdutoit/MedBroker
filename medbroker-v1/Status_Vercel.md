@@ -22,64 +22,63 @@ original file — only this summary block at the top is newly written.
 0. CURRENT STATE — READ THIS FIRST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-NEXT ACTION, per Mark (4 Aug 2026, session 15, §114): Entra ID SSO stage
-1+2 — CONFIRMED LIVE (see §115's opening note: the pre-packaging
-re-hydration for that entry pulled main and found the entra-login route
-already present). §115 (Lead Portal httpOnly cookie, closing the gap this
-NEXT ACTION section used to list under Lead Portal auth) and §116 (audit
-log comment correction) are BUILT but not yet confirmed deployed — see
-those entries. No open action item from Mark right now beyond what's
-already listed in §0's other sections (CURRENT SECURITY/DEPENDENCY STATE,
-FLAGGED NOT BUILT, DELIBERATELY NOT BUILT) — token economy/Stripe was
-raised as a candidate but Mark hasn't given a go-ahead on it, same
-"wait and see" posture as AWS KMS.
+NEXT ACTION, per Mark (4 Aug 2026, session 15, §121): Entra SSO's full
+four-stage staging plan (§109/§110) is now COMPLETE — all four stages
+built: (1) foundation §114, (2) core Entra validation §114, (3)
+password-fallback toggle + offboarding sync §121, (4) frontend MSAL
+wiring §120. Nothing further on SSO is outstanding; it's built and
+gated behind auth.sso.enabled, off by default, same dormant-until-
+configured posture as AWS KMS.
 
-Stages 3 (password-fallback toggle + offboarding sync) and 4 (frontend
-MSAL wiring — the actual "Sign in with Microsoft" button) of Entra SSO
-remain, and — same gate as stage 1+2 needed — do not start either without
-Mark explicitly saying so first; he'll likely want to deploy/test stage
-1+2 before more SSO work begins, same reasoning as before. Stage 4
-specifically also needs a real Entra app registration only Mark can
-create. When he does give the go-ahead, don't re-derive the design from
-scratch — it's already fully scoped, same as stage 1+2 was:
-  - Provider decision made: Entra ID first, not Google. Google is a
-    future release, customer-demand-driven — do not build it now.
-  - Full investigation of what already exists (dead MSAL frontend code,
-    zero backend Entra-token validation, the entraObjectId/googleUid/
-    passwordHash schema columns already anticipating this) is in §109 —
-    read that before writing any code, it changes what stage 1/2 actually
-    involve (reviving/wiring dead code + a wholly new backend validation
-    layer, not starting from nothing).
-  - Mark's five answered design decisions are in §109 too: email-mismatch
-    handling (GlobalAdmin gets a manual "link this identity" action, plus
-    email-correction, neither of which exists in User Admin yet — confirmed
-    while scoping, not assumed); JIT provisioning for new identities,
-    feeding into the same admin review surface as the link-identity
-    action; a password-fallback toggle with a separate deliberate "hard
-    commit" step to fully disable it later; offboarding auto-deactivation
-    via a Microsoft Graph API directory-membership sync job (needs real
-    IT coordination on Mark's side — app registration, Graph API
-    permissions against the customer's actual Entra tenant — not
-    buildable/testable from this sandbox alone); role/authorization
-    stays MedBroker-managed regardless of SSO group membership, SSO only
-    proves identity.
-  - Proposed staging (§110's chat response, not repeated in full here):
-    (1) foundation — email correction + link-identity for GlobalAdmin,
-    (2) core Entra validation — JWKS, email-matching, JIT provisioning,
-    (3) password-fallback toggle + offboarding sync, (4) frontend MSAL
-    wiring. Mark asked for stage 1+2 together as the next delivery.
-  - Cannot be end-to-end tested from this sandbox — no real Entra tenant
-    available. Verify by code review + whatever can be unit-tested
-    standalone (matching how §113's cookie-parsing logic was unit-tested
-    even though the full login round-trip couldn't be), same caveat
-    already applied to every other piece of infrastructure this sandbox
-    can't reach (WAF, AWS KMS, migrations).
+Mark's own next-action instruction: Stripe (checkout, webhook, and an
+Integrations settings page covering both Stripe and SMTP credentials —
+already scoped in conversation, not repeated in full here; see the
+credential-storage design decision below). "SSO first, then Stripe" —
+SSO is done, Stripe is next.
+
+Stripe design already settled, don't re-derive it:
+  - Raw-body webhook signature verification: this stack's plain
+    @vercel/node functions auto-parse req.body before a handler sees it,
+    which breaks Stripe's signature check (it needs the exact raw
+    bytes). Fix: read the raw stream directly via Node's Stream API
+    BEFORE anything touches req.body — a real, documented Vercel
+    pattern (confirmed via Vercel's own docs/community answers, not
+    assumed), hand-rolled, no new dependency (matches this codebase's
+    existing "simple enough to get right by hand" bar).
+  - Folds into the existing appointments-router.js (still 12/12) — both
+    flags this feature gates (appointments.claimModel,
+    appointments.tokens.paymentProvider) are filed under "Appointment
+    workflow" already.
+  - Credentials: a NEW encrypted DB-backed settings UI, Mark's explicit
+    choice over Vercel env vars — reuses encryption.js's envelope
+    encryption (same demo1/kms1 dual-format handling the AWS KMS flag
+    already established, so this inherits that flag's dormant-until-
+    AWS-is-configured safety for free). Deliberately NOT SystemConfig —
+    that table's GET is open to any authenticated staff member by
+    design (see system-config.js's own header comment), wrong place for
+    secrets. Mark wants this same page to also cover SMTP credentials
+    (currently env-var-only, nodemailer reads process.env.SMTP_* — see
+    emailService.js) once built, since the underlying mechanism
+    (encryption, GlobalAdmin-only gate, settings page shell) is shared
+    and cheaper to build once than twice.
+  - Stripe test-mode keys are free and real — unlike Entra, this one CAN
+    be more thoroughly tested against genuine (test-mode) infrastructure
+    once built, not just verified by code review.
 
 FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
-  Auth            Local email/password, JWT, 8-hour expiry. Entra ID SSO
-                  login (POST /api/auth/entra-login) built §114 but not
-                  yet reachable from the UI — stage 4 (the actual "Sign
-                  in with Microsoft" button) isn't built.
+  Auth            Local email/password, JWT, 8-hour expiry, full policy
+                  controls (rotation/lockout/reuse, GlobalAdmin-forced
+                  password reset §118). Entra ID SSO — all 4 stages
+                  built and live end to end: "Sign in with Microsoft" on
+                  the login page (§120), JIT provisioning + email-match
+                  auto-link + GlobalAdmin manual link-identity (§114),
+                  password-fallback toggle (§121), on-demand offboarding
+                  sync via Graph API (§121, needs ENTRA_CLIENT_SECRET +
+                  User.Read.All admin consent to actually run). Off by
+                  default (auth.sso.enabled) — local login is always
+                  the fallback unless a GlobalAdmin deliberately
+                  disables it, and even then GlobalAdmin itself is
+                  permanently exempt.
   Leads           Full CRUD, assignment, call logging, reopen, audit log,
                   real duplicate detection (check-duplicates batch
                   endpoint + create-time 409), CSV/Excel/JSON bulk import
@@ -8333,14 +8332,222 @@ run by Mark before this session's end; safe to leave alone (re-running
 it is a no-op by design, confirmed and explained when he asked).
 
 §114 through §118 all CONFIRMED LIVE. §119 (Appointments "My
-Appointments" tab filtering) is built and verified by this session but
-NOT YET DEPLOYED. No new env vars, no migration, no backend change at
-all — a single frontend file, straight drag-and-drop-and-deploy.
+Appointments" tab filtering) — ALSO CONFIRMED LIVE, same kind of
+evidence: the pre-investigation re-hydration for §120/§121 (below)
+pulled a fresh copy of main and the FiltersBar/filtered wiring on the
+'mine' tab was already present.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+120. ENTRA SSO STAGE 4 — FRONTEND MSAL WIRING, "SIGN IN WITH MICROSOFT" IS REAL — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed he doesn't mind that neither SSO nor Stripe can be
+exercised end to end without real third-party credentials — same
+"buildable now, dormant until configured" pattern AWS KMS, SSO stage
+1+2, and the token economy already established, not a reason to defer
+building. Asked for SSO first, then Stripe. This entry is stage 4 —
+built first (frontend), stage 3 (§121, below) built second.
+
+Investigation before writing anything found stage 4 wasn't "wire up
+existing pieces" — some of what existed needed REPLACING, not reusing:
+
+  - api.js had a complete, dead, pre-§114 parallel auth system
+    (ENTRA_MODE, getAccessToken()) that attached a fresh Entra Bearer
+    token to EVERY request — a fundamentally different, incompatible
+    architecture from §114's "validate once at login, then the same
+    httpOnly-cookie session governs everything after" design. Removed
+    entirely rather than reused — keeping both would mean two
+    incompatible ways of authenticating a request existing side by side.
+  - authConfig.js's loginRequest requested ACCESS TOKEN scopes for a
+    custom exposed API (api://{clientId}/leads.read, leads.write) — a
+    mismatch with what entraAuthService.validateEntraToken() (§114)
+    actually validates: a plain ID token, audience = the client ID
+    itself. Requesting those scopes would have gotten a token with the
+    wrong audience for that check to ever pass, and would have required
+    Mark to additionally configure "Expose an API" in the Entra app
+    registration for a capability this app doesn't use — it does its own
+    RBAC via the role field, not OAuth scopes. Corrected to standard OIDC
+    scopes (openid, profile, email); the code now reads response.idToken.
+  - SingleSignOn.jsx needed a real rewrite, not a tweak. It was
+    rewritten 31 Jul (§75) specifically to STOP claiming SSO was live
+    when it wasn't — accurate then, actively wrong after §114 shipped
+    ("turning this flag on has no functional effect here," sitting right
+    next to a working "Sign in with Microsoft" button, would have been
+    the misleading version this time).
+
+WHAT WAS BUILT:
+  - NEW services/msalAuth.js — the ONLY place MSAL is touched beyond
+    static config, deliberately narrow: acquireEntraIdToken() opens a
+    Microsoft popup, once, at login. Nothing else in the app ever
+    touches MSAL again — every request after that runs through the
+    exact same cookie session local login already uses.
+  - AuthContext.ssoLogin() — same shape as login() deliberately
+    (handleEntraLogin's response is the identical { user,
+    passwordMustChange } shape handleLogin's is), so session caching,
+    theme application, and passwordMustChange handling are all identical
+    too; the only real difference is how the credential is obtained.
+  - Login.jsx — "Sign in with Microsoft" button, shown only when
+    auth.sso.enabled is on (checked via GET /api/flags, genuinely public,
+    no auth required — works before any session exists, confirmed by
+    reading flagHandlers.js, not assumed).
+  - App.jsx's stale "AUTH BYPASSED FOR PREVIEW" / "replace RoleProvider
+    with MsalProvider + AuthenticatedTemplate" header comment corrected
+    — that's NOT the approach taken; MSAL stays narrowly scoped to
+    msalAuth.js, RoleProvider is untouched.
+
+BUG CAUGHT MID-BUILD, WORTH FLAGGING: a static top-level import of
+msalAuth.js in AuthContext.jsx put MSAL in the main app bundle's module
+graph — confirmed via the actual production build, not theorised: the
+main chunk nearly doubled, 272kB -> 539kB, with a chunk-size warning,
+for every single user regardless of whether their deployment even has
+SSO enabled. Fixed with a dynamic import() inside ssoLogin() instead —
+rebuilt and confirmed fixed the same way, by reading the real numbers:
+MSAL now lives in its own separate 265kB chunk, only fetched the moment
+someone actually clicks the button, main bundle back to 273kB.
+
+VERIFIED: full Vite production build clean (twice — once catching the
+bundle regression, once confirming the fix), existing 55-test Vitest
+suite unaffected. Re-hydrated fresh from GitHub and diffed every changed
+file before packaging alongside §121, below.
+
+MIGRATION: none. No new env vars beyond what §114 already required
+(ENTRA_TENANT_ID/CLIENT_ID backend, VITE_ENTRA_CLIENT_ID/AUTHORITY
+frontend) — stage 4 uses the same ones, doesn't add new ones.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+121. ENTRA SSO STAGE 3 — PASSWORD-FALLBACK TOGGLE + OFFBOARDING SYNC — 4 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Built second, after §120 (frontend). Closes out the SSO staging plan
+that's been carried in this file's NEXT ACTION section since §114.
+
+PASSWORD-FALLBACK TOGGLE — new flag auth.sso.disableLocalFallback (Core,
+boolean, off by default — non-breaking, local login keeps working for
+everyone until a GlobalAdmin deliberately turns this on). Same
+dependsOn pattern auth.sso.provider already established in
+FeatureFlags.jsx (both frontend metadata AND the DB seed row added —
+confirmed via reading FeatureFlags.jsx that FLAG_META genuinely is a
+hand-maintained mirror of the seed data, not generated from it, so both
+needed updating). When on: handleLogin (authHandlers.js) blocks local
+email/password login for any user with a linked Entra identity
+(entraObjectId set) — checked BEFORE the passwordHash check, so even a
+user who still technically has a local password set is told to use SSO
+once policy requires it, not silently let through. GlobalAdmin is
+DELIBERATELY EXEMPT from this check always, regardless of the flag — a
+permanent break-glass path so an Entra outage or a misconfigured app
+registration can never fully lock every admin out of MedBroker. Needed
+entraObjectId added to getUserByEmailForLogin's SELECT (userService.js)
+— wasn't there before, nothing had needed it at that call site until now.
+
+OFFBOARDING SYNC — NEW api-lib/services/entraGraphService.js, app-only
+(client-credentials) Graph API access. Deliberately separate from
+entraAuthService.js (§114): that validates a USER's own ID token (public
+client, no secret); this authenticates as the APPLICATION itself
+(confidential client, needs a NEW credential — ENTRA_CLIENT_SECRET,
+config.entra.clientSecret, optional() — plus User.Read.All admin consent
+in the Entra app registration, something only Mark can grant). Hand-
+rolled with plain fetch, no new dependency — a client-credentials token
+request and a Graph GET don't need a library, same "simple enough to get
+right by hand" bar authService.js's local HMAC JWT and http/helpers.js's
+cookie parsing already set.
+
+NO SCHEDULER, SAME CONSTRAINT AS EVERYWHERE ELSE IN THIS STACK, DIFFERENT
+SOLUTION THIS TIME: the token economy's monthly reset (§117) self-heals
+lazily on next read because a broker who hasn't touched it yet doesn't
+need it reset yet either. Offboarding sync can't use that trick — if
+someone's been removed from Entra, they're not logging in to trigger
+anything. So this is a genuinely on-demand action instead: NEW POST
+/api/auth/offboarding-sync (auth-router.js, still 12/12 — folded into
+the existing function), GlobalAdmin only, triggered by a "Run Sync Now"
+button on the SingleSignOn page. Checks every active, Entra-linked user
+against Graph, deactivates anyone Graph says is gone or disabled,
+continues past individual failures (one broken Graph lookup shouldn't
+abort checking everyone else) and reports them back rather than
+swallowing them. New userService functions: listSsoLinkedActiveUsers(),
+deactivateUser() (a small dedicated function, not routed through
+updateUserFull() — this call site has exactly one field to set and no
+request body to validate against a schema).
+
+SingleSignOn.jsx gained both the fallback-toggle status line and the
+Offboarding Sync card (GlobalAdmin-gated in the UI too, matching the
+endpoint's own gate) — same page §120 already rewrote, extended rather
+than touched twice separately.
+
+CAUGHT WHILE IN THE NEIGHBOURHOOD, UNRELATED TO THIS ENTRY'S OWN WORK:
+Project_Context_Vercel.md had THREE separate stale references to
+apiMode.DEMO_MODE and a "PERSONAS-based preview role switcher" — both
+removed 1 Aug (§87) and 4 Aug (§120) respectively, well before this
+entry. All three corrected (role-derivation paragraph, the services/
+file-tree listing, the "MOCK DATA — PREVIEW PERSONAS" section retitled
+to "TEST ACCOUNTS" and rewritten). Checked RoleContext.jsx's OWN header
+comment while in the area, expecting it to need the same fix — it
+didn't; it was already accurate, correctly documenting §87's own
+removal. The earlier assumption in §114's own delivery notes that this
+comment was stale was wrong — never actually re-verified at the time,
+just inferred from Project_Context_Vercel.md's OWN stale description of
+it. Worth remembering: a flagged-but-unverified staleness claim can
+itself be wrong, not just the thing it's flagging.
+
+VERIFIED: node --check + ESM import smoke test on every new/edited
+backend file, full Vite production build clean, existing 55-test Vitest
+suite unaffected. Re-hydrated fresh from GitHub and diffed all 18 files
+changed across §120+§121 together before packaging as one delivery —
+clean, no parallel changes.
+
+MIGRATION: schema — none (no new columns). Feature flag seed — the new
+auth.sso.disableLocalFallback row needs feature-flags.postgres.sql
+re-run against Neon; confirmed safe (ON CONFLICT (flagKey) DO NOTHING on
+the whole INSERT block, already re-run for prior sessions' new flags the
+same way) — Mark can just re-run the whole file, not a targeted snippet.
+
+NOT IN THIS DELIVERY: Stripe (checkout, webhook, Integrations
+credentials page) — next, per Mark's own sequencing ("SSO first, then
+Stripe").
+
+FILES (§120+§121 combined, one delivery):
+  frontend/src/services/authConfig.js
+  frontend/src/services/msalAuth.js               (NEW)
+  frontend/src/services/api.js
+  frontend/src/context/AuthContext.jsx
+  frontend/src/pages/Login.jsx
+  frontend/src/App.jsx
+  frontend/src/pages/SingleSignOn.jsx
+  frontend/api-lib/config.js
+  frontend/api-lib/services/entraGraphService.js   (NEW)
+  frontend/api-lib/services/userService.js
+  frontend/api-lib/handlers/authHandlers.js
+  frontend/api/auth-router.js
+  frontend/db/feature-flags.postgres.sql
+  frontend/src/pages/FeatureFlags.jsx
+Plus this Status_Vercel.md and Project_Context_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 15 PAUSED HERE — 4 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed everything through §113 deployed cleanly, no errors seen.
+The AWS KMS code path (§111/§112) is deployed and visible in Feature
+Flags but deliberately untested end-to-end — the flag stays off until a
+paying customer exists, so this remains verified-by-code-review only,
+not exercised live; worth remembering next session that "deployed
+successfully" here means the flag-off/demo1 path was exercised by
+normal use, not the KMS path itself. Migration 020 confirmed already
+run by Mark before this session's end; safe to leave alone (re-running
+it is a no-op by design, confirmed and explained when he asked).
+
+§114 through §119 all CONFIRMED LIVE. §120+§121 (Entra SSO stages 3+4 —
+the full staging plan is now complete, all four stages built) are built
+and verified by this session but NOT YET DEPLOYED. Deploying requires
+re-running feature-flags.postgres.sql (new flag row, safe, idempotent —
+see §121). No other migration. ENTRA_CLIENT_SECRET only needed once Mark
+actually wants to run offboarding sync live — everything else works
+without it, same optional()-until-configured pattern as every other
+credential in this app.
 
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
-at the top of this file for what's next — stages 3+4 of Entra SSO and
-stage 2 (Stripe) of the token economy, both only once Mark explicitly
-says to start, same gate as before.
+at the top of this file for what's next — Stripe (checkout, webhook,
+Integrations credentials page covering Stripe + SMTP), per Mark's own
+sequencing.
 
 
 

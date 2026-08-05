@@ -39,6 +39,18 @@ const FLAG_META = [
     dependsOn: { key: 'auth.sso.enabled', value: true },
   },
   {
+    // §121 — the password-fallback toggle. Off by default, non-breaking:
+    // local login keeps working for everyone regardless of this flag
+    // until a GlobalAdmin deliberately turns it on. See handleLogin's
+    // own comment (authHandlers.js) for the permanent GlobalAdmin
+    // exemption this enforces even when on.
+    key: 'auth.sso.disableLocalFallback', tier: 'Core',
+    label: 'Require SSO for linked users',
+    description: 'When SSO is enabled, also block local email/password login for any user with a linked Microsoft identity — they must sign in with Microsoft. GlobalAdmin accounts are always exempt. Off by default: local login stays available as a fallback for everyone.',
+    valueType: 'boolean', requiresRestart: false, isPhase2: false,
+    dependsOn: { key: 'auth.sso.enabled', value: true },
+  },
+  {
     key: 'appointments.claimModel', tier: 'Core',
     label: 'Appointment workflow',
     description: 'Assign: admin assigns appointments to brokers. Claim: brokers self-select from an available queue. Selecting Claim also activates the token economy.',

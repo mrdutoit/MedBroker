@@ -16,9 +16,11 @@
  *   PUT  /api/auth/change-password  (§72)
  *   POST /api/auth/entra-login      (§114 — SSO stage 2; only does
  *                                     anything when auth.sso.enabled is on)
+ *   POST /api/auth/offboarding-sync (§121 — SSO stage 3b; GlobalAdmin
+ *                                     only, on-demand, no scheduler)
  */
 
-import { handleLogin, handleLogout, handleBootstrapAdmin, handleChangePassword, handleEntraLogin } from '../api-lib/handlers/authHandlers.js';
+import { handleLogin, handleLogout, handleBootstrapAdmin, handleChangePassword, handleEntraLogin, handleEntraOffboardingSync } from '../api-lib/handlers/authHandlers.js';
 import { applyCors, parseSlug } from '../api-lib/http/helpers.js';
 
 export default async function handler(req, res) {
@@ -31,6 +33,7 @@ export default async function handler(req, res) {
   if (route === 'bootstrap-admin') return handleBootstrapAdmin(req, res);
   if (route === 'change-password') return handleChangePassword(req, res);
   if (route === 'entra-login') return handleEntraLogin(req, res);
+  if (route === 'offboarding-sync') return handleEntraOffboardingSync(req, res);
 
   return res.status(404).json({ error: 'Not found' });
 }

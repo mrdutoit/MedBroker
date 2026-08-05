@@ -6,11 +6,18 @@
  * FIXED 1 Aug 2026 (§87 — dead Entra-branch cleanup): this used to
  * branch on apiMode.DEMO_MODE, with an "else" path where this provider
  * was inert (isAuthenticated hardcoded true, nothing gated behind
- * Login). That branch never executed in this deployment and has been
- * removed — this provider is now unconditionally the real auth gate.
+ * Login). That branch never executed in this deployment and was removed.
+ *
+ * UPDATED §120 (4 Aug 2026, SSO stage 4): ssoLogin() added alongside
+ * login() — same response shape, same session handling, the only
+ * difference is how the credential is obtained (a Microsoft popup via
+ * msalAuth.js vs a typed password). This is a DIFFERENT piece of Entra
+ * code than the apiMode.DEMO_MODE branch §87 removed — that was a dead,
+ * never-executed fork; this is the real, working SSO login path §114
+ * built the backend for.
  *
  * Usage:
- *   const { isAuthenticated, user, login, logout, updateUser, loading } = useAuth();
+ *   const { isAuthenticated, user, login, ssoLogin, logout, updateUser, loading } = useAuth();
  *
  * ThemeContext dependency (added 28 Jul 2026, §55): AuthProvider sits
  * BELOW ThemeProvider in App.jsx's tree (ThemeProvider wraps BrowserRouter,
@@ -74,6 +81,51 @@ export function AuthProvider({ children }) {
     }
   }, [setTheme]);
 
+  // §120 — SSO stage 4. Same shape as login() above deliberately —
+  // handleEntraLogin (authHandlers.js, §114) returns the identical
+  // { user, passwordMustChange } response shape handleLogin does, so
+  // everything downstream of getting that response back (session
+  // caching, theme application, passwordMustChange handling) is
+  // identical too. The only real difference is how the credential is
+  // obtained: a Microsoft popup (msalAuth.js) instead of a typed password.
+  //
+  // Dynamic import, not a static one at the top of this file — msalAuth.js
+  // pulls in @azure/msal-browser, a sizeable library. A static import
+  // here put MSAL in AuthContext's own module graph, which App.jsx loads
+  // eagerly for every single user regardless of whether their deployment
+  // has SSO enabled at all — confirmed by the production build: the main
+  // bundle nearly doubled (272kB -> 539kB) with a static import in place.
+  // A dynamic import only fetches MSAL the moment someone actually
+  // attempts SSO login, which can only happen if the "Sign in with
+  // Microsoft" button is even showing (Login.jsx gates it on
+  // auth.sso.enabled) — so a deployment that never turns SSO on never
+  // ships MSAL to its users at all.
+  const ssoLogin = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { acquireEntraIdToken } = await import('../services/msalAuth.js');
+      const idToken = await acquireEntraIdToken();
+      const data = await authApi.entraLogin(idToken);
+      const userWithFlag = { ...data.user, passwordMustChange: !!data.passwordMustChange };
+      authStore.setSession(userWithFlag);
+      setUser(userWithFlag);
+      if (data.user.themePreference && THEME_IDS.includes(data.user.themePreference)) {
+        setTheme(data.user.themePreference);
+      }
+      return data;
+    } catch (err) {
+      // MSAL's own errors (user closed the popup, network issue talking
+      // to Microsoft, etc.) don't carry the same err.body?.error shape a
+      // backend ApiError does — err.message still gives a reasonable
+      // fallback either way.
+      setError(err.body?.error ?? err.message ?? 'Microsoft sign-in failed');
+      throw err;
+    } finally {
+      setLoading(false);
+    }
+  }, [setTheme]);
+
   // §113 — logout is now a real server round-trip, not just a local
   // state clear: an httpOnly cookie can only be cleared by the server
   // that set it, JavaScript has no way to touch it directly (that's the
@@ -102,7 +154,7 @@ export function AuthProvider({ children }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, user, login, logout, updateUser, loading, error, setError }}>
+    <AuthContext.Provider value={{ isAuthenticated, user, login, ssoLogin, logout, updateUser, loading, error, setError }}>
       {children}
     </AuthContext.Provider>
   );

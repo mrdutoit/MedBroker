@@ -1,10 +1,20 @@
 /**
- * App.jsx — AUTH BYPASSED FOR PREVIEW
- * Role-aware navigation and routing. The role switcher in the sidebar footer
- * simulates different user personas for demonstration purposes.
+ * App.jsx
+ * Role-aware navigation and routing.
  *
- * To restore real authentication: replace RoleProvider + role switcher with
- * MsalProvider + AuthenticatedTemplate and derive role from JWT claims.
+ * CORRECTED §120 (4 Aug 2026, SSO stage 4) — this comment used to say
+ * "AUTH BYPASSED FOR PREVIEW" and describe a role-switcher simulating
+ * personas; that preview mode was removed entirely on 1 Aug 2026 (§87)
+ * and role/persona have been derived from the real authenticated user
+ * ever since, so the comment was stale twice over. It also used to
+ * prescribe "replace RoleProvider + role switcher with MsalProvider +
+ * AuthenticatedTemplate" as the path to real SSO — that's NOT the
+ * approach §114/§120 actually took: MSAL is used narrowly, only at the
+ * login moment (services/msalAuth.js), to get an ID token that's handed
+ * to the server for verification; every request after that runs through
+ * the same httpOnly-cookie session AuthContext already manages for local
+ * login, no MsalProvider/AuthenticatedTemplate wrapping needed, and
+ * RoleProvider stays exactly where it is.
  *
  * Responsive — collapsible sidebar on mobile.
  */

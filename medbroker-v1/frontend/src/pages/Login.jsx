@@ -2,18 +2,29 @@
  * pages/Login.jsx
  * Local email/password login. Rendered by App.jsx's AuthGate whenever
  * there's no authenticated session.
+ *
+ * UPDATED §120 (4 Aug 2026, SSO stage 4): "Sign in with Microsoft" added
+ * below the local form, shown only when auth.sso.enabled is on (checked
+ * via GET /api/flags, genuinely public — no auth required, see
+ * flagHandlers.js — so this works before any session exists). Off by
+ * default; local email/password stays the only option until a
+ * deployment's GlobalAdmin turns SSO on for that customer.
  */
 
 import { useState } from 'react';
 import { useAuth } from '../context/AuthContext.jsx';
+import { useFlags } from '../context/FlagContext.jsx';
 import { Logo } from '../components/Logo.jsx';
 import { s, colors, radius } from '../styles/tokens.js';
 
 export default function Login() {
-  const { login, loading, error, setError } = useAuth();
+  const { login, ssoLogin, loading, error, setError } = useAuth();
+  const { flag } = useFlags();
+  const ssoEnabled = flag('auth.sso.enabled');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
+  const [ssoLoading, setSsoLoading] = useState(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -26,6 +37,23 @@ export default function Login() {
       // further needed here.
     } catch {
       // error is already set on the context by login(); nothing else to do here.
+    }
+  }
+
+  // Separate loading flag from AuthContext's own `loading` — that one
+  // also covers the local-password submit button above, and disabling
+  // BOTH buttons while only one form is actually in flight would be
+  // confusing (e.g. the password field greying out while a Microsoft
+  // popup is open, for no reason relevant to it).
+  async function handleSsoSignIn() {
+    setError(null);
+    setSsoLoading(true);
+    try {
+      await ssoLogin();
+    } catch {
+      // error is already set on the context by ssoLogin(); nothing else to do here.
+    } finally {
+      setSsoLoading(false);
     }
   }
 
@@ -52,6 +80,27 @@ export default function Login() {
 
         {error && (
           <div style={{ ...s.errorBox, marginBottom: '16px' }}>{error}</div>
+        )}
+
+        {ssoEnabled && (
+          <>
+            <button
+              type="button"
+              onClick={handleSsoSignIn}
+              disabled={ssoLoading}
+              style={{
+                ...s.secondaryBtn, width: '100%', justifyContent: 'center',
+                marginBottom: '18px', opacity: ssoLoading ? 0.6 : 1,
+              }}
+            >
+              {ssoLoading ? 'Opening Microsoft sign-in…' : 'Sign in with Microsoft'}
+            </button>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', margin: '0 0 18px' }}>
+              <div style={{ flex: 1, height: '1px', background: colors.line }} />
+              <span style={{ fontSize: '0.75rem', color: colors.ink500 }}>or</span>
+              <div style={{ flex: 1, height: '1px', background: colors.line }} />
+            </div>
+          </>
         )}
 
         <form onSubmit={handleSubmit}>

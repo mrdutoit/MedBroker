@@ -1,7 +1,20 @@
 /**
  * services/authConfig.js
- * MSAL configuration for Azure Entra ID External authentication.
- * Import msalInstance into App.jsx and wrap with MsalProvider.
+ * MSAL configuration for Microsoft Entra ID sign-in.
+ *
+ * CORRECTED §120 (4 Aug 2026, SSO stage 4). loginRequest previously
+ * requested ACCESS TOKEN scopes for a custom exposed API
+ * (api://{clientId}/leads.read, leads.write) — a mismatch with what
+ * entraAuthService.validateEntraToken() (§114) actually validates
+ * server-side: a plain ID token, audience = the client ID itself, not a
+ * custom App ID URI. Requesting those custom scopes would have gotten an
+ * access token with the WRONG audience for that check to ever pass, and
+ * would have required Mark to additionally configure "Expose an API" in
+ * the Entra app registration for a capability this app doesn't use in
+ * the first place — it does its own RBAC via the role field, not
+ * OAuth-scope-based authorization. Standard OIDC scopes only; the
+ * consuming code (services/msalAuth.js) reads response.idToken, not
+ * response.accessToken.
  */
 
 import { PublicClientApplication, LogLevel } from '@azure/msal-browser';
@@ -26,12 +39,10 @@ const msalConfig = {
   },
 };
 
-// Scopes requested when signing in — must match the API app registration in Entra
+// Standard OIDC scopes — enough for MSAL to return an ID token identifying
+// the signed-in user. No custom API scopes; see file header for why.
 export const loginRequest = {
-  scopes: [
-    `api://${import.meta.env.VITE_ENTRA_CLIENT_ID}/leads.read`,
-    `api://${import.meta.env.VITE_ENTRA_CLIENT_ID}/leads.write`,
-  ],
+  scopes: ['openid', 'profile', 'email'],
 };
 
 export const msalInstance = new PublicClientApplication(msalConfig);

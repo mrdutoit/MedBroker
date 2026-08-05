@@ -68,6 +68,17 @@ export const config = {
   entra: {
     tenantId: optional('ENTRA_TENANT_ID'),
     clientId: optional('ENTRA_CLIENT_ID'),
+    // §121 (SSO stage 3b) — a DIFFERENT credential from tenantId/clientId
+    // above, for a genuinely different OAuth flow: those two are enough
+    // for validating a USER's own ID token (public client, no secret,
+    // entraAuthService.js). This is for the app authenticating as ITSELF
+    // (confidential client, client-credentials flow) to call Microsoft
+    // Graph API for offboarding sync — entraGraphService.js. Optional,
+    // not required — offboarding sync throws a clear, actionable error
+    // at call time if this is missing, same pattern as every other
+    // optional() value in this file; a deployment that never runs
+    // offboarding sync never needs this set at all.
+    clientSecret: optional('ENTRA_CLIENT_SECRET'),
   },
 
   // Lead Portal auth (services/leadPortalService.js) — deliberately a

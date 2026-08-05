@@ -2,13 +2,20 @@
  * services/api.js
  * Authenticated API client for MedBroker.
  *
- * Two modes, checked in this order:
- *   1. Entra production (VITE_ENTRA_CLIENT_ID set):
- *      Acquires an Entra ID Bearer token silently before each request.
- *      Falls back to interactive redirect if the token cannot be refreshed.
- *   2. Demo backend (the default — VITE_ENTRA_CLIENT_ID not set):
- *      Real fetch calls to the api-demo Vercel backend, authenticated via
- *      the local-auth JWT from authStore.js (set by POST /api/auth/login).
+ * Local email/password auth: real fetch calls, authenticated via the
+ * httpOnly mb_session cookie (set by POST /api/auth/login) — the browser
+ * attaches it automatically, this file never touches a token directly.
+ *
+ * Entra ID SSO (§114, §120): NOT a second request-authentication mode.
+ * MSAL is used exactly once, at login (services/msalAuth.js), to get an
+ * ID token, which authApi.entraLogin() below POSTs to
+ * /api/auth/entra-login. That endpoint verifies it and sets the SAME
+ * mb_session cookie local login sets — every request after that,
+ * regardless of how the session started, goes through this file's one
+ * request() function below, identically. This replaces an OLDER design
+ * (ENTRA_MODE, removed here) that attached a fresh Entra Bearer token to
+ * every single request — see msalAuth.js's header for why that's gone,
+ * not reused.
  *
  * Preview/mock mode (a third option that let every page render from
  * inline placeholder data with no backend connected at all) was removed
@@ -18,43 +25,7 @@
 
 import { getUser, notifyUnauthorized } from './authStore.js';
 
-const API_BASE       = import.meta.env.VITE_API_BASE_URL ?? '/api';
-const ENTRA_MODE      = !!import.meta.env.VITE_ENTRA_CLIENT_ID;
-const DEMO_MODE       = !ENTRA_MODE;
-
-// ─── Token acquisition (production only) ─────────────────────────────────────
-
-let _msalInstance = null;
-let _loginRequest = null;
-
-async function getMsalInstance() {
-  if (_msalInstance) return { msalInstance: _msalInstance, loginRequest: _loginRequest };
-  const { PublicClientApplication } = await import('@azure/msal-browser');
-  const { msalInstance, loginRequest } = await import('./authConfig.js');
-  _msalInstance = msalInstance;
-  _loginRequest = loginRequest;
-  await _msalInstance.initialize();
-  return { msalInstance: _msalInstance, loginRequest: _loginRequest };
-}
-
-async function getAccessToken() {
-  const { msalInstance, loginRequest } = await getMsalInstance();
-  const accounts = msalInstance.getAllAccounts();
-  if (accounts.length === 0) {
-    await msalInstance.loginRedirect(loginRequest);
-    return '';
-  }
-  try {
-    const result = await msalInstance.acquireTokenSilent({
-      ...loginRequest,
-      account: accounts[0],
-    });
-    return result.accessToken;
-  } catch {
-    await msalInstance.acquireTokenRedirect(loginRequest);
-    return '';
-  }
-}
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '/api';
 
 // ─── Core request function ────────────────────────────────────────────────────
 
@@ -101,41 +72,28 @@ function formatErrorBody(error) {
 }
 
 async function request(path, options = {}) {
-  let authHeader;
-  if (options.skipAuth || DEMO_MODE) {
-    // §113 — DEMO_MODE (local staff auth) no longer attaches a manual
-    // Authorization header at all. The token lives in an httpOnly cookie
-    // now (mb_session, set by POST /api/auth/login) — the browser
-    // attaches it automatically on every same-origin request, same as
-    // it always has for skipAuth: true calls that genuinely have no
-    // token yet (login itself, logout).
-    authHeader = undefined;
-  } else {
-    const token = await getAccessToken();
-    authHeader = `Bearer ${token}`;
-  }
-
   const response = await fetch(`${API_BASE}${path}`, {
     ...options,
-    // Explicit, not relying on fetch's same-origin default — this is
-    // what actually gets the mb_session cookie attached for DEMO_MODE.
-    // Harmless for the ENTRA_MODE branch above, which authenticates via
-    // the Authorization header instead and doesn't depend on this.
+    // §113 — every request authenticates via the httpOnly mb_session
+    // cookie (set by POST /api/auth/login or /api/auth/entra-login,
+    // §120), never a manual Authorization header — explicit here rather
+    // than relying on fetch's same-origin default, since that's what
+    // actually gets the cookie attached.
     credentials: 'same-origin',
     headers: {
       'Content-Type':  'application/json',
-      ...(authHeader ? { 'Authorization': authHeader } : {}),
       ...(options.headers ?? {}),
     },
   });
 
   if (response.status === 204) return null;
 
-  // Demo mode: a 401 on an authenticated call means the session cookie is
-  // gone/expired — clear the cached display data and let AuthContext's
-  // subscribers (App.jsx) redirect to Login, rather than every page
-  // having to special-case this itself.
-  if (DEMO_MODE && response.status === 401 && !options.skipAuth) {
+  // A 401 on an authenticated call means the session cookie is gone or
+  // expired (whether the session started via local login or SSO — both
+  // set the exact same cookie, §113/§114) — clear the cached display
+  // data and let AuthContext's subscribers (App.jsx) redirect to Login,
+  // rather than every page having to special-case this itself.
+  if (response.status === 401 && !options.skipAuth) {
     notifyUnauthorized();
   }
 
@@ -153,13 +111,23 @@ async function request(path, options = {}) {
   return body;
 }
 
-export const apiMode = { DEMO_MODE, ENTRA_MODE };
-
-// ─── Auth (demo backend local login) ──────────────────────────────────────────
+// ─── Auth (local login) ─────────────────────────────────────────────────────
 
 export const authApi = {
   login: (email, password) =>
     request('/auth/login', { method: 'POST', skipAuth: true, body: JSON.stringify({ email, password }) }),
+  // §120 — the ID token comes from msalAuth.acquireEntraIdToken() (a
+  // Microsoft popup), this just hands it to the server for verification.
+  // skipAuth: true — same reasoning as login() above, there's no session
+  // yet at the point this is called.
+  entraLogin: (idToken) =>
+    request('/auth/entra-login', { method: 'POST', skipAuth: true, body: JSON.stringify({ idToken }) }),
+  // §121 — GlobalAdmin only. On-demand (no scheduler in this stack) —
+  // see handleEntraOffboardingSync's own header for why this can't be
+  // deferred to a lazy on-access check the way the token economy's
+  // monthly reset is.
+  offboardingSync: () =>
+    request('/auth/offboarding-sync', { method: 'POST' }),
   // §113 — logout is now a real endpoint, not just a local state clear.
   // skipAuth: true because a caller here has nothing to lose by trying —
   // logging out an already-expired session should still succeed in

@@ -479,6 +479,11 @@ export async function getUserByEmailForLogin(email) {
             passwordMustChange AS "passwordMustChange",
             failedLoginAttempts AS "failedLoginAttempts", isLocked AS "isLocked",
             isActive AS "isActive",
+            -- §121 (SSO stage 3) — needed for the password-fallback
+            -- enforcement check in handleLogin (authHandlers.js): whether
+            -- THIS user has a linked Entra identity determines whether
+            -- auth.sso.disableLocalFallback applies to them at all.
+            entraObjectId AS "entraObjectId",
             avatarColour AS "avatarColour", themePreference AS "themePreference",
             timezone
      FROM "User"
@@ -835,5 +840,44 @@ export async function linkUserIdentity(id, data) {
     `UPDATE "User" SET ${setClauses.join(', ')}, updatedAt = NOW()
      WHERE id = @id AND organisationId = @organisationId`,
     params
+  );
+}
+
+// ── Offboarding sync support — NEW, §121 (4 Aug 2026, SSO stage 3b) ────────
+
+/**
+ * Every currently-active, Entra-linked user — the candidate set an
+ * offboarding sync checks. Users without entraObjectId (local-only
+ * accounts) are never touched by this sync at all; there's nothing in
+ * Entra to check them against.
+ * @returns {Promise<Array<{id: string, displayName: string, entraObjectId: string}>>}
+ */
+export async function listSsoLinkedActiveUsers() {
+  return executeQuery(
+    `SELECT id, displayName AS "displayName", entraObjectId AS "entraObjectId"
+     FROM "User"
+     WHERE entraObjectId IS NOT NULL AND isActive = TRUE AND deletedAt IS NULL AND organisationId = @organisationId`,
+    { organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } }
+  );
+}
+
+/**
+ * Deactivates a user — the offboarding sync's own action when Graph
+ * reports someone's Entra account is gone or disabled. A small, dedicated
+ * function rather than routing through updateUserFull()/handleUserById's
+ * general PUT: this call site has exactly one field to set and no
+ * request body to validate against a schema, and doesn't want any of
+ * updateUserFull's other field-handling (portfolios, products,
+ * supervisor sync) running for what is purely a status flip.
+ * @param {string} userId
+ */
+export async function deactivateUser(userId) {
+  await executeQuery(
+    `UPDATE "User" SET isActive = FALSE, updatedAt = NOW()
+     WHERE id = @userId AND organisationId = @organisationId`,
+    {
+      userId:         { type: sql.UniqueIdentifier, value: userId },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
   );
 }

@@ -89,11 +89,14 @@ Broker        Attends appointments. Records meeting outcomes.
               In claim model: sees My Appointments tab + Available to Claim tab.
 
 Demo-mode role switcher: none — role comes from the real logged-in user
-(RoleContext.jsx derives it from AuthContext's user object when
-apiMode.DEMO_MODE is true, which it always is for this build). The
-PERSONAS-based preview role switcher only exists as a fallback for a
-theoretical future Entra branch that was never actually wired up for
-real identity — see RoleContext.jsx's own header comment.
+(RoleContext.jsx derives it from AuthContext's user object). CORRECTED
+§121 (4 Aug 2026) — this paragraph used to describe a "PERSONAS-based
+preview role switcher" and "apiMode.DEMO_MODE" as if both still existed;
+neither does. The preview switcher was removed entirely 1 Aug 2026 (§87);
+apiMode/DEMO_MODE/ENTRA_MODE (a dead, pre-§114 parallel auth scheme —
+see api.js's own header) were removed 4 Aug 2026 as part of SSO stage 4
+(§120). Role has been derived from the real authenticated user, local or
+SSO, this whole time regardless of what this paragraph claimed.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -315,7 +318,14 @@ medbroker-v1/
     │   │   │                           appointmentsApi, tasksApi,
     │   │   │                           notificationsApi, usersApi,
     │   │   │                           brokerMatchingApi, etc.), plus
-    │   │   │                           apiMode, ApiError, request()
+    │   │   │                           ApiError, request()
+    │   │   ├── msalAuth.js             NEW §120 — the ONLY place MSAL is
+    │   │   │                           touched beyond static config
+    │   │   │                           (authConfig.js); dynamically
+    │   │   │                           imported from AuthContext's
+    │   │   │                           ssoLogin(), not a static import,
+    │   │   │                           so a deployment that never enables
+    │   │   │                           SSO never ships MSAL to its users
     │   │   └── authStore.js            Session persistence + updateUser()
     │   │                               for patching cached session state
     │   │                               after a self-service profile save
@@ -530,16 +540,20 @@ var" need on this stack.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-9. MOCK DATA — PREVIEW PERSONAS
+9. TEST ACCOUNTS
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-PERSONAS in RoleContext.jsx exist as a fallback for a theoretical Entra
-branch that was never actually wired to a real identity source — in
-practice, this build always runs in demo mode (apiMode.DEMO_MODE), where
-role/identity come from the real logged-in user, not these fixed
-personas. Test accounts used throughout development: Chantelle Hattingh
-(Supervisor), Steve Madden (Agent), Sandra van der Berg (Broker), Werner
-Hattingh (Admin).
+CORRECTED §121 (4 Aug 2026) — this section used to be titled "MOCK DATA —
+PREVIEW PERSONAS" and described PERSONAS in RoleContext.jsx as "a
+fallback for a theoretical Entra branch that was never actually wired to
+a real identity source," with role/identity said to come from
+"apiMode.DEMO_MODE." None of that has been true since 1 Aug 2026 (§87
+removed the preview switcher) and 4 Aug 2026 (§114/§120 built and wired
+real Entra SSO, and removed apiMode/DEMO_MODE entirely). What's left and
+still genuinely true: these are real local-auth accounts used throughout
+development, nothing more special than that. Test accounts used
+throughout development: Chantelle Hattingh (Supervisor), Steve Madden
+(Agent), Sandra van der Berg (Broker), Werner Hattingh (Admin).
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

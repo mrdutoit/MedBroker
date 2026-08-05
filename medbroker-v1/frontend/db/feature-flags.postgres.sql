@@ -35,6 +35,19 @@ INSERT INTO FeatureFlag (flagKey, label, description, valueType, value, allowedV
      'Which identity provider to use for SSO. Only applies when auth.sso.enabled is true.',
      'enum', 'none', 'none,microsoft,google', 'Core', TRUE, FALSE),
 
+    -- §121 (4 Aug 2026, SSO stage 3) — the "password-fallback toggle"
+    -- carried in Status_Vercel.md's NEXT ACTION note since §114. Off by
+    -- default (safe, non-breaking — local login keeps working for
+    -- everyone exactly as it does today). When turned on, local email/
+    -- password login is blocked for any user with a linked Entra
+    -- identity (entraObjectId set) — see handleLogin's own comment,
+    -- authHandlers.js, for the GlobalAdmin exemption this always keeps:
+    -- a permanent break-glass path so an Entra outage or misconfiguration
+    -- can never fully lock every admin out of MedBroker.
+    ('auth.sso.disableLocalFallback', 'Require SSO for linked users',
+     'When Single Sign-On is enabled, also block local email/password login for any user with a linked Microsoft identity — they must sign in with Microsoft. GlobalAdmin accounts are always exempt, as a permanent recovery path. Off by default: local login stays available as a fallback for everyone, even with SSO enabled.',
+     'boolean', '0', NULL, 'Core', FALSE, FALSE),
+
     ('appointments.claimModel', 'Appointment workflow',
      'Assign: admin or supervisor assigns appointments to brokers. Claim: brokers self-select available appointments from a queue. Selecting Claim also activates the token economy (monthly free allocation + token top-ups).',
      'enum', 'assign', 'assign,claim', 'Core', FALSE, FALSE),
