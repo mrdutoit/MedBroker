@@ -288,6 +288,14 @@ export default function AppAdmin() {
   const [sarNewComment, setSarNewComment] = useState('');
   const [sarCommentSaving, setSarCommentSaving] = useState(false);
   const [sarAssigning, setSarAssigning] = useState(false);
+  // §130 (5 Aug 2026) — Mark's request: selecting a new assignee used to
+  // fire immediately on change, which is risky specifically because it
+  // sends a notification to whoever gets picked — an accidental
+  // selection doesn't just leave a wrong value sitting there, it pings a
+  // real person. null means "no staged change, show the row's actual
+  // current value"; a real (possibly empty-string, for "Unassigned")
+  // value means a pick has been made but not yet saved.
+  const [sarPendingAssignedToId, setSarPendingAssignedToId] = useState(null);
 
   // Medical Subscriptions (§80) — real.
   const [subsData, setSubsData] = useState(null);
@@ -432,6 +440,10 @@ export default function AppAdmin() {
   async function handleSarExpand(id) {
     const nextId = sarExpandedId === id ? null : id;
     setSarExpandedId(nextId);
+    // §130 (5 Aug 2026) — clear any staged-but-unsaved assignee pick when
+    // switching rows, so a pending selection on one request can never
+    // leak into a different one that's just been expanded.
+    setSarPendingAssignedToId(null);
     if (nextId && !sarComments[nextId]) {
       setSarDetailLoading(true);
       try {
@@ -476,13 +488,18 @@ export default function AppAdmin() {
 
   // §125 — assignedToId may be '' (the "Unassigned" option) or a real
   // user id; sarApi.assign() takes null for "unassign", not ''.
-  async function handleSarAssignChange(id, assignedToId) {
+  // §130 — now triggered by the Save button, not select's own onChange
+  // (see sarPendingAssignedToId's own comment for why). Clears the
+  // staged pick on success so the <select> falls back to showing the
+  // row's real value again — refetchSar() just updated it to match.
+  async function handleSarAssignConfirm(id, assignedToId) {
     setSarAssigning(true);
     setSarError(null);
     try {
       await sarApi.assign(id, assignedToId || null);
       await refetchSar();
       await refreshSarAuditIfExpanded(id);
+      setSarPendingAssignedToId(null);
     } catch (err) {
       setSarError(err.message || 'Could not assign this request');
     } finally {
@@ -1381,10 +1398,18 @@ export default function AppAdmin() {
                         {/* Assignment — §125, GlobalAdmin+Admin users only */}
                         <div style={{ marginBottom: '12px' }}>
                           <span style={{ fontSize: '0.75rem', color:'var(--mut)', marginRight: '8px' }}>Assigned to:</span>
+                          {/* §130 (5 Aug 2026) — CORRECTED: used to fire
+                              sarApi.assign() straight from onChange.
+                              Assignment sends a notification to whoever
+                              gets picked, so an accidental selection
+                              wasn't just a wrong value sitting there —
+                              it pinged a real person. Selecting now only
+                              stages sarPendingAssignedToId; nothing calls
+                              the API until Save is clicked. */}
                           <select
-                            value={r.assignedToId ?? ''}
+                            value={sarPendingAssignedToId !== null ? sarPendingAssignedToId : (r.assignedToId ?? '')}
                             onClick={e => e.stopPropagation()}
-                            onChange={e => handleSarAssignChange(r.id, e.target.value)}
+                            onChange={e => setSarPendingAssignedToId(e.target.value)}
                             disabled={sarLocked || sarAssigning}
                             style={{ ...s.formInput, width: '220px', display: 'inline-block', padding: '5px 8px', fontSize: '0.8125rem' }}
                           >
@@ -1393,6 +1418,24 @@ export default function AppAdmin() {
                               <option key={u.id} value={u.id}>{u.displayName}</option>
                             ))}
                           </select>
+                          {sarPendingAssignedToId !== null && sarPendingAssignedToId !== (r.assignedToId ?? '') && (
+                            <>
+                              <button
+                                style={{ ...s.primaryBtn, fontSize: '0.75rem', padding: '4px 10px', marginLeft: '8px' }}
+                                disabled={sarAssigning}
+                                onClick={e => { e.stopPropagation(); handleSarAssignConfirm(r.id, sarPendingAssignedToId); }}
+                              >
+                                {sarAssigning ? 'Saving…' : 'Save'}
+                              </button>
+                              <button
+                                style={{ ...s.secondaryBtn, fontSize: '0.75rem', padding: '4px 10px', marginLeft: '4px' }}
+                                disabled={sarAssigning}
+                                onClick={e => { e.stopPropagation(); setSarPendingAssignedToId(null); }}
+                              >
+                                Cancel
+                              </button>
+                            </>
+                          )}
                         </div>
 
                         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', alignItems: 'center', marginBottom: '14px' }}>

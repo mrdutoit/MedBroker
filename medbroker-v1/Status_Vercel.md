@@ -9067,6 +9067,80 @@ it is a no-op by design, confirmed and explained when he asked).
 is built and verified by this session but NOT YET DEPLOYED. No new env
 vars, no migration, no backend change at all.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+130. STALENESS-PATTERN SWEEP (CLEAN ELSEWHERE) + SAR ASSIGN NOW STAGED, NOT INSTANT — 5 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Two asks in one: after §129's fix, Mark asked (1) for a full review that
+the same "cached detail view goes stale after a related mutation
+elsewhere on the page" bug doesn't exist anywhere else, and (2)
+questioned whether the assignee <select> firing sarApi.assign()
+straight from onChange was wise, given a misclick would be hard to
+fully undo.
+
+SWEEP RESULT — clean everywhere else, checked directly not assumed:
+  - AppointmentDetail.jsx's Change Log: every mutation (outcome,
+    meetings, reassign, return-to-leads) calls the exposed refetchAudit().
+  - LeadDetail.jsx's Change Log: same — handleSaveEdit/handleReopenLead
+    both call it; the one theoretically relevant action (agent
+    reassignment) isn't even performable from this page at all.
+  - Tasks.jsx's comment thread: different situation entirely — nothing
+    EXTERNAL can write a task comment, so there's no sibling mutation
+    that could make the cache stale in the first place.
+  - UserAdmin.jsx's Token Balance: handleTopUp calls refetchTokenLedger().
+  SAR was the only place this existed. Root architectural reason, worth
+  remembering: the other three all use useFetch() with an exposed
+  refetch() — every mutation handler on those pages was written against
+  that contract. SAR's history/comments used a manual useState object
+  keyed by request id instead, a less robust pattern with no equivalent
+  forcing function — nothing reminded a new mutation handler to
+  invalidate it. §129 fixed the three known call sites individually;
+  worth considering a future refactor to the same useFetch-based shape
+  for consistency, not done here since it wasn't broken, just less safe
+  by construction.
+
+ASSIGN NOW STAGED: agreed with Mark's instinct rather than just
+deferring to it — assignment fires a notification to whoever gets
+picked, so an accidental selection isn't just a wrong value sitting
+there, it pings a real person, which status buttons and flag toggles
+elsewhere in this app don't do (why those stay instant-fire and this
+one shouldn't). The <select>'s onChange now only stages
+sarPendingAssignedToId; nothing calls sarApi.assign() until a new Save
+button is clicked (a Cancel button alongside it clears the staged
+pick). Renamed handleSarAssignChange -> handleSarAssignConfirm to match
+what it's actually triggered by now. Resets on row expand/collapse so a
+staged-but-unsaved pick on one request can never leak into a different
+one that's just been opened.
+
+VERIFIED: full Vite build clean (also confirms no dangling reference to
+the renamed handler — checked directly by grep, not just trusted the
+build), existing 55-test Vitest suite unaffected. Re-hydrated fresh from
+GitHub and diffed the one changed file before packaging.
+
+MIGRATION: none — pure frontend, no backend touched.
+
+FILES:
+  frontend/src/pages/AppAdmin.jsx
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 15 PAUSED HERE — 4 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed everything through §113 deployed cleanly, no errors seen.
+The AWS KMS code path (§111/§112) is deployed and visible in Feature
+Flags but deliberately untested end-to-end — the flag stays off until a
+paying customer exists, so this remains verified-by-code-review only,
+not exercised live; worth remembering next session that "deployed
+successfully" here means the flag-off/demo1 path was exercised by
+normal use, not the KMS path itself. Migration 020 confirmed already
+run by Mark before this session's end; safe to leave alone (re-running
+it is a no-op by design, confirmed and explained when he asked).
+
+§114 through §129 all CONFIRMED LIVE. §130 (staleness sweep + staged
+SAR assignment) is built and verified by this session but NOT YET
+DEPLOYED. No new env vars, no migration, no backend change at all.
+
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
 at the top of this file for what's next — Stripe (checkout, webhook,
 Integrations credentials page covering Stripe + SMTP), per Mark's own
