@@ -178,7 +178,16 @@ export async function handleSarRequestExport(req, res, id) {
         leadId: compiled.lead.id,
         fullName: [compiled.lead.title, compiled.lead.firstName, compiled.lead.lastName].filter(Boolean).join(' '),
         idNumber: compiled.lead.idNumber,
-        dateOfBirth: compiled.lead.dateOfBirth,
+        // §126 — dateOfBirth is a genuinely date-only Postgres DATE
+        // column; even with toCsv()'s Date-handling fixed (no more
+        // corruption), it would still show a full midnight-UTC
+        // timestamp otherwise. Trimmed to YYYY-MM-DD here specifically,
+        // matching this codebase's own established convention for
+        // date-only values (models/sar.js's own receivedAt comment:
+        // "YYYY-MM-DD, matches every other date-only field").
+        dateOfBirth: compiled.lead.dateOfBirth instanceof Date
+          ? compiled.lead.dateOfBirth.toISOString().slice(0, 10)
+          : compiled.lead.dateOfBirth,
         email: compiled.lead.email,
         mobileNumber: compiled.lead.mobileNumber,
         whatsappNumber: compiled.lead.whatsappNumber,

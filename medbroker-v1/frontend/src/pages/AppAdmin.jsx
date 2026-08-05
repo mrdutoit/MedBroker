@@ -10,6 +10,7 @@ import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
 import { systemConfigApi, auditApi, usersApi, sarApi, leadsApi } from '../services/api.js';
+import { formatDate } from '../utils/dateFormat.js';
 
 // Mirrors auditHandlers.js's VALID_ENTITY_TYPES/VALID_ACTIONS exactly —
 // kept in sync manually (no shared module between frontend/backend in
@@ -1278,7 +1279,7 @@ export default function AppAdmin() {
                   return (
                   <Fragment key={r.id}>
                     <tr style={{ ...s.tr, cursor: 'pointer' }} onClick={() => handleSarExpand(r.id)}>
-                      <td style={s.td}>{r.receivedAt}</td>
+                      <td style={s.td}>{formatDate(r.receivedAt)}</td>
                       <td style={s.td}>{r.leadName}</td>
                       <td style={s.td}>{r.requestorName}</td>
                       <td style={s.td}>
@@ -1288,7 +1289,7 @@ export default function AppAdmin() {
                       <td style={{ ...s.td, fontSize: '0.8125rem', color: r.assignedToName ? 'var(--ink)' : 'var(--mut)' }}>
                         {r.assignedToName || 'Unassigned'}
                       </td>
-                      <td style={{ ...s.td, color:'var(--mut)' }}>{r.dueDate || '—'}</td>
+                      <td style={{ ...s.td, color:'var(--mut)' }}>{formatDate(r.dueDate)}</td>
                       <td style={s.td}>{sarExpandedId === r.id ? '▲' : '▼'}</td>
                     </tr>
                     {sarExpandedId === r.id && (

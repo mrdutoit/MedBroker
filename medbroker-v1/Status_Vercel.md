@@ -8760,6 +8760,85 @@ the migration not yet run, right up until someone tries to assign a SAR
 or add a note — those specific actions would fail against the missing
 column/table until the migration runs).
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+126. SAR DATE DISPLAY + A REAL CSV CORRUPTION BUG FOUND WHILE VERIFYING — 5 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark: SAR list table shows full ISO timestamps ("2026-08-05T00:00:00.000Z")
+instead of just a date, and asked to re-confirm whether the CSV parity
+fix (§125) actually took effect — sent an actual exported CSV to check
+against, not just a description.
+
+CSV PARITY: verified against the file itself — all 24 columns present,
+matches SAR_CSV_COLUMNS exactly. §125's fix is live and working as
+intended.
+
+FOUND WHILE VERIFYING, NOT WHAT WAS ASKED ABOUT: the same CSV's Date of
+Birth cell was corrupted — "\"\"\"2026-07-30T00:00:00.000Z\"\"\"" instead
+of a clean value. Root cause, in the SHARED toCsv() utility
+(http/helpers.js), used by every CSV export in this app, not just SAR:
+escapeCell() treated any `typeof value === 'object'` as a real
+object/array needing JSON.stringify() — correct for the "(JSON)"
+columns (policies, callAttempts, etc.), wrong for a Date instance, which
+is ALSO typeof 'object'. JSON.stringify(aDate) wraps it in an extra pair
+of literal quote characters; escapeCell then CSV-escaped THAT (since it
+now contained a "), doubling those quotes again. Confirmed the exact
+mechanism by actually running toCsv() with a real Date object before
+and after the fix, not just reading the code. Fixed generically —
+Date instances now use .toISOString() directly — so every OTHER CSV
+export in this app carrying a raw Date-typed column is fixed too, not
+just SAR's.
+
+ALSO FIXED: dateOfBirth specifically trimmed to YYYY-MM-DD in the CSV's
+flat object (sarHandlers.js) — the toCsv() fix alone stops the
+corruption but would still show a full midnight-UTC timestamp for a
+field that's genuinely date-only. Matches this codebase's own stated
+convention (models/sar.js's receivedAt comment: "YYYY-MM-DD, matches
+every other date-only field").
+
+UI DATE DISPLAY: AppAdmin.jsx's SAR table was rendering
+sar.receivedAt/dueDate raw. A shared utility for exactly this already
+existed — utils/dateFormat.js's formatDate(), built 23 Jul specifically
+for "Postgres DATE column serialised as a full ISO timestamp" (its own
+header comment's exact words), with a scope note flagging that sweeping
+every date display over to it was a reasonable follow-up not yet done.
+Should have used it when building §125's table and didn't — fixed now,
+no new utility needed, just applying the one already there.
+
+VERIFIED: full Vite build clean, existing 55-test Vitest suite
+unaffected. toCsv()'s fix specifically verified by executing it directly
+against a real Date object (not just reading the code) — confirmed
+clean output before packaging, not assumed correct from the diff alone.
+Re-hydrated fresh from GitHub and diffed all 3 changed files.
+
+MIGRATION: none.
+
+FILES:
+  frontend/api-lib/http/helpers.js       (toCsv Date-handling fix — app-wide)
+  frontend/api-lib/handlers/sarHandlers.js (dateOfBirth trimmed to YYYY-MM-DD)
+  frontend/src/pages/AppAdmin.jsx         (formatDate() applied to SAR table)
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 15 PAUSED HERE — 4 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed everything through §113 deployed cleanly, no errors seen.
+The AWS KMS code path (§111/§112) is deployed and visible in Feature
+Flags but deliberately untested end-to-end — the flag stays off until a
+paying customer exists, so this remains verified-by-code-review only,
+not exercised live; worth remembering next session that "deployed
+successfully" here means the flag-off/demo1 path was exercised by
+normal use, not the KMS path itself. Migration 020 confirmed already
+run by Mark before this session's end; safe to leave alone (re-running
+it is a no-op by design, confirmed and explained when he asked).
+
+§114 through §125 all CONFIRMED LIVE (§125's CSV parity fix specifically
+verified against Mark's own exported file, not just assumed from the
+code). §126 (date display + the toCsv corruption bug) is built and
+verified by this session but NOT YET DEPLOYED. No new env vars, no
+migration.
+
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
 at the top of this file for what's next — Stripe (checkout, webhook,
 Integrations credentials page covering Stripe + SMTP), per Mark's own

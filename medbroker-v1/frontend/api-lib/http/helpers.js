@@ -231,7 +231,20 @@ export function parseSlug(slug) {
 export function toCsv(rows, columns) {
   function escapeCell(value) {
     if (value === null || value === undefined) return '';
-    const str = typeof value === 'object' ? JSON.stringify(value) : String(value);
+    // §126 (5 Aug 2026) — CORRECTED: a Date instance is `typeof ... ===
+    // 'object'` same as a real array/object, so it used to go through
+    // JSON.stringify(value) same as those — which wraps a Date in an
+    // extra pair of quote characters (JSON.stringify(new Date(...))
+    // includes the surrounding quotes literally in the string). escapeCell
+    // then CSV-escaped THAT (since it now contains a "), doubling those
+    // embedded quotes again — the result Mark actually saw was a triple-
+    // quoted mess around every date value in a SAR CSV export. Confirmed
+    // by reading his actual exported file, not assumed. Any CSV export
+    // anywhere in this app passing a raw Date-typed column through this
+    // function had the identical bug; fixed once, here, for all of them.
+    const str = value instanceof Date ? value.toISOString()
+      : typeof value === 'object' ? JSON.stringify(value)
+      : String(value);
     if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
     return str;
   }
