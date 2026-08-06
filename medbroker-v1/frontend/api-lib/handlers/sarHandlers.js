@@ -190,10 +190,10 @@ export async function handleSarRequestExport(req, res, id) {
     // entries (Lead-scoped + SAR-scoped) — same reasoning as every other
     // SAR write, see sarService.js's header.
     const changeDetail = { sarId: id, format };
-    await writeAuditLog({
-      entityType: 'Lead', entityId: existing.leadId, action: 'SarDataExported',
-      performedById: claims.oid, changeDetail,
-    });
+    // §131 (5 Aug 2026) — single write; see auditService.
+    // listAuditLogForLead()'s header for why the Lead-scoped twin this
+    // used to also write is gone, and sarService.js's own §131 comments
+    // for the other three call sites this exact fix applies to.
     await writeAuditLog({
       entityType: 'SubjectAccessRequest', entityId: id, action: 'SarDataExported',
       performedById: claims.oid, changeDetail,

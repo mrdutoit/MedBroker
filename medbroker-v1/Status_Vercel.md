@@ -9141,6 +9141,92 @@ it is a no-op by design, confirmed and explained when he asked).
 SAR assignment) is built and verified by this session but NOT YET
 DEPLOYED. No new env vars, no migration, no backend change at all.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+131. SAR AUDIT DUAL-WRITE REMOVED — WRITE ONCE, READ SMARTER (OPTION 1) — 5 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark spotted every SAR action logging twice in the global Audit Log —
+once against SubjectAccessRequest, once against Lead — and asked
+whether it was a bug. Confirmed it was deliberate (§125), not
+accidental: AuditLog only supports one (entityType, entityId) per row,
+and three different things needed to see a SAR action — the per-SAR
+History panel, the data subject's own compiled export, and the Lead's
+own Change Log — so §125 just wrote the event twice rather than teach
+three read paths to look in two places. Agreed the duplication was
+still the wrong call for THIS specific table, given its own stated
+purpose ("for FAIS Act and POPIA compliance") — real duplicate rows in
+a compliance-facing audit record is worse than the read-path complexity
+it was avoiding, especially since the duplication would still be there
+if anyone ever queried the raw table directly rather than through the
+app. Presented two options rather than just picking one; Mark chose
+write-once-read-smarter over keep-dual-write-hide-in-the-UI, for the
+same reason — the latter would have "fixed" only the screen, not the
+data.
+
+FIX: sarService.js's three write points (createSarRequest,
+updateSarStatus, assignSarRequest) and sarHandlers.js's export handler
+now write ONLY the SubjectAccessRequest-scoped row — the Lead-scoped
+twin is gone. NEW auditService.listAuditLogForLead(leadId) — a UNION of
+direct Lead-scoped entries and SubjectAccessRequest-scoped entries
+belonging to that lead's own SAR requests (JOIN SubjectAccessRequest ON
+al.entityType = 'SubjectAccessRequest' AND al.entityId = sar.id::text,
+same ::text cast pattern §127's entity-resolution fix already
+established for exactly this kind of comparison) — replaces the removed
+write at READ time instead. Two consumers switched to it:
+compileSubjectData's auditTrail (reversed to ASC for its export
+narrative — listAuditLogForLead returns DESC, matching the existing
+listAuditLog() convention for a UI history list; trimmed back to the
+same three fields the export always had, so the JSON/CSV shape itself
+doesn't change even though the underlying query does) and
+leadHandlers.handleLeadAudit (Lead's own Change Log — access control for
+the lead was already checked before this call, so the swap doesn't
+change WHO can see anything, only what's included once they're allowed
+to look). The per-SAR History panel needed zero changes — it only ever
+wanted SubjectAccessRequest-scoped rows, which are still written exactly
+as before.
+
+VERIFIED: node --check + ESM import smoke test on all four edited
+backend files, full Vite build clean (frontend bundle sizes byte-
+identical to the previous delivery — confirms this is genuinely
+backend-only, not assumed from the file list alone), existing 55-test
+Vitest suite unaffected. Could not execute the new UNION query against
+a real Postgres instance from this sandbox — extracted and manually
+read the exact assembled SQL text instead (same discipline this
+session's own §117 "//comment" bug was caught with): column count/order
+matches across both SELECT halves (a UNION ALL requirement), the
+entityId::text cast matches §127's own proven pattern, and the quoted
+"performedAt" alias is correctly referenced in the trailing ORDER BY.
+Re-hydrated fresh from GitHub and diffed all four changed files before
+packaging.
+
+MIGRATION: none — no schema change, this is a query/write-pattern fix only.
+
+FILES:
+  frontend/api-lib/services/auditService.js  (NEW listAuditLogForLead)
+  frontend/api-lib/services/sarService.js    (single-write x3, compileSubjectData switched)
+  frontend/api-lib/handlers/sarHandlers.js   (single-write on export)
+  frontend/api-lib/handlers/leadHandlers.js  (handleLeadAudit switched)
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 15 PAUSED HERE — 4 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed everything through §113 deployed cleanly, no errors seen.
+The AWS KMS code path (§111/§112) is deployed and visible in Feature
+Flags but deliberately untested end-to-end — the flag stays off until a
+paying customer exists, so this remains verified-by-code-review only,
+not exercised live; worth remembering next session that "deployed
+successfully" here means the flag-off/demo1 path was exercised by
+normal use, not the KMS path itself. Migration 020 confirmed already
+run by Mark before this session's end; safe to leave alone (re-running
+it is a no-op by design, confirmed and explained when he asked).
+
+§114 through §130 all CONFIRMED LIVE. §131 (SAR audit dual-write
+removed) is built and verified by this session but NOT YET DEPLOYED. No
+new env vars, no migration, backend-only — confirmed by identical
+frontend bundle sizes across the build, not just an unchanged file list.
+
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
 at the top of this file for what's next — Stripe (checkout, webhook,
 Integrations credentials page covering Stripe + SMTP), per Mark's own

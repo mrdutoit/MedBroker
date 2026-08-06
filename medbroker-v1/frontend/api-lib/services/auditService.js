@@ -75,6 +75,57 @@ export async function listAuditLog(entityType, entityId) {
 }
 
 /**
+ * §131 (5 Aug 2026) — everything relevant to one Lead, INCLUDING SAR
+ * actions processed for it, without duplicating rows in AuditLog to get
+ * there. Replaces the dual-write §125 originally used (every SAR action
+ * wrote both a SubjectAccessRequest-scoped row AND a Lead-scoped
+ * twin) — real duplication in a table this app's own Audit Log page
+ * describes as "for FAIS Act and POPIA compliance," not just visual
+ * noise in the UI. SAR actions now write ONLY the SubjectAccessRequest-
+ * scoped row (see sarService.js/sarHandlers.js); this function is what
+ * makes that row still show up everywhere it needs to — a Lead's own
+ * Change Log (leadHandlers.handleLeadAudit) and the data subject's own
+ * compiled export (sarService.compileSubjectData) — via a UNION at READ
+ * time instead of a second WRITE at write time.
+ *
+ * Same shape and DESC ordering as listAuditLog() above (most recent
+ * first — right for a UI history list); compileSubjectData wants
+ * chronological order for its export narrative and reverses this array
+ * itself rather than this function needing a second, ASC-ordered
+ * version of the same query.
+ * @param {string} leadId
+ * @returns {Promise<Array>}
+ */
+export async function listAuditLogForLead(leadId) {
+  const organisationId = resolveOrganisationId();
+  const rows = await executeQuery(
+    `SELECT al.id, al.action, al.changeDetail AS "changeDetail",
+            al.performedAt AS "performedAt", al.performedById AS "performedById",
+            u.displayName AS "performedByName"
+     FROM AuditLog al
+     LEFT JOIN "User" u ON al.performedById = u.id
+     WHERE al.entityType = 'Lead' AND al.entityId = @leadId AND al.organisationId = @organisationId
+     UNION ALL
+     SELECT al.id, al.action, al.changeDetail AS "changeDetail",
+            al.performedAt AS "performedAt", al.performedById AS "performedById",
+            u.displayName AS "performedByName"
+     FROM AuditLog al
+     LEFT JOIN "User" u ON al.performedById = u.id
+     JOIN SubjectAccessRequest sar ON al.entityType = 'SubjectAccessRequest' AND al.entityId = sar.id::text
+     WHERE sar.leadId = @leadId AND al.organisationId = @organisationId
+     ORDER BY "performedAt" DESC`,
+    {
+      leadId:         { type: sql.UniqueIdentifier, value: leadId },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+    }
+  );
+  return rows.map((r) => ({
+    ...r,
+    changeDetail: r.changeDetail ? JSON.parse(r.changeDetail) : null,
+  }));
+}
+
+/**
  * Best-effort client IP extraction. Vercel Functions use a plain Node.js
  * `req` (http.IncomingMessage-style) — headers is an object, not a Headers
  * instance, so this differs from the Azure version's request.headers.get().

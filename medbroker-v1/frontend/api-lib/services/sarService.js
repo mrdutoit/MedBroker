@@ -37,7 +37,7 @@
 import { executeQuery, executeQueryOne, sql } from './db.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 import { decrypt } from './encryption.js';
-import { writeAuditLog } from './auditService.js';
+import { writeAuditLog, listAuditLogForLead } from './auditService.js';
 import { createNotification } from './notificationService.js';
 
 const SAR_SELECT = `
@@ -179,10 +179,12 @@ export async function createSarRequest(data, createdById) {
   );
 
   const changeDetail = { sarId: newId, requestorEmail: data.requestorEmail, assignedToId: data.assignedToId ?? null };
-  await writeAuditLog({
-    entityType: 'Lead', entityId: data.leadId, action: 'SarRequestCreated',
-    performedById: createdById, changeDetail,
-  });
+  // §131 (5 Aug 2026) — CORRECTED: this used to ALSO write an
+  // entityType: 'Lead' twin of this exact entry, a real duplicate row in
+  // a compliance-facing audit table — see auditService.listAuditLogForLead()'s
+  // header for the full reasoning. One write now; that function's UNION
+  // is what still surfaces this in the Lead's own Change Log and the
+  // subject's own compiled export.
   await writeAuditLog({
     entityType: 'SubjectAccessRequest', entityId: newId, action: 'SarRequestCreated',
     performedById: createdById, changeDetail: { ...changeDetail, leadId: data.leadId, requestorName: data.requestorName },
@@ -249,10 +251,8 @@ export async function updateSarStatus(id, data, performedById) {
   );
 
   const changeDetail = { sarId: id, previousStatus: existing.status, newStatus: data.status };
-  await writeAuditLog({
-    entityType: 'Lead', entityId: existing.leadId, action: 'SarStatusChanged',
-    performedById, changeDetail,
-  });
+  // §131 — single write, see createSarRequest's own comment above for
+  // the full reasoning (same fix, same file, three call sites).
   await writeAuditLog({
     entityType: 'SubjectAccessRequest', entityId: id, action: 'SarStatusChanged',
     performedById, changeDetail,
@@ -311,10 +311,7 @@ export async function assignSarRequest(id, assignedToId, performedById) {
   );
 
   const changeDetail = { sarId: id, assignedToId, leadName: existing.leadName };
-  await writeAuditLog({
-    entityType: 'Lead', entityId: existing.leadId, action: 'SarAssigned',
-    performedById, changeDetail,
-  });
+  // §131 — single write, same fix as createSarRequest/updateSarStatus above.
   await writeAuditLog({
     entityType: 'SubjectAccessRequest', entityId: id, action: 'SarAssigned',
     performedById, changeDetail,
@@ -417,7 +414,7 @@ export async function compileSubjectData(leadId) {
   lead.idNumber = lead.idNumberEncrypted ? await decrypt(lead.idNumberEncrypted) : null;
   delete lead.idNumberEncrypted;
 
-  const [callAttempts, appointments, tasks, auditTrail] = await Promise.all([
+  const [callAttempts, appointments, tasks, auditTrailRaw] = await Promise.all([
     executeQuery(
       `SELECT ca.id, ca.outcome, ca.callTime AS "callTime", ca.notes,
               ca.followUpDateTime AS "followUpDateTime", au.displayName AS "loggedBy"
@@ -443,14 +440,25 @@ export async function compileSubjectData(leadId) {
        ORDER BY createdAt ASC`,
       { ...leadParam, ...orgParam }
     ),
-    executeQuery(
-      `SELECT al.action, al.performedAt AS "performedAt", pu.displayName AS "performedBy"
-       FROM AuditLog al LEFT JOIN "User" pu ON al.performedById = pu.id
-       WHERE al.entityType = 'Lead' AND al.entityId = @leadId AND al.organisationId = @organisationId
-       ORDER BY al.performedAt ASC`,
-      { ...leadParam, ...orgParam }
-    ),
+    // §131 (5 Aug 2026) — CORRECTED: this used to be its own inline
+    // query, `entityType = 'Lead'` only, relying on SAR actions ALSO
+    // being written as a Lead-scoped twin (§125) to show up here. That
+    // dual-write was removed — real duplicate rows in a compliance
+    // table, not just visual noise (see auditService.
+    // listAuditLogForLead()'s own header for the full reasoning). This
+    // shared function's UNION is what keeps SAR actions showing up here
+    // without the duplicate write.
+    listAuditLogForLead(leadId),
   ]);
+
+  // listAuditLogForLead returns DESC (right for a UI history list) with
+  // more fields than this export ever exposed — reversed to ASC for a
+  // chronological export narrative, and trimmed back to exactly the
+  // three fields this shape always had, so the exported JSON/CSV
+  // structure itself doesn't change even though the underlying query does.
+  const auditTrail = [...auditTrailRaw].reverse().map((e) => ({
+    action: e.action, performedAt: e.performedAt, performedBy: e.performedByName,
+  }));
 
   return { lead, callAttempts, appointments, tasks, auditTrail, compiledAt: new Date().toISOString() };
 }

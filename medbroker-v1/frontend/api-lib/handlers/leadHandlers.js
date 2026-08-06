@@ -8,7 +8,7 @@
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
 import { listLeads, createLead, listSources, listMedicalSubscriptions, createMedicalSubscription, getLeadById, updateLead, deleteLead, assignLead, reopenLead, logCallAttempt, listCallAttempts, findDuplicate } from '../services/leadService.js';
 import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById } from '../services/userService.js';
-import { writeAuditLog, clientIp, listAuditLog } from '../services/auditService.js';
+import { writeAuditLog, clientIp, listAuditLogForLead } from '../services/auditService.js';
 import { createNotification } from '../services/notificationService.js';
 import { CreateLeadSchema, UpdateLeadSchema, LeadListQuerySchema, AssignLeadSchema, CallAttemptSchema, CheckDuplicatesSchema, CreateMedicalSubscriptionSchema } from '../models/lead.js';
 import { isUuid } from '../http/helpers.js';
@@ -530,7 +530,16 @@ export async function handleLeadAudit(req, res, id) {
       }
     }
 
-    const entries = await listAuditLog('Lead', id);
+    // §131 (5 Aug 2026) — CORRECTED: listAuditLog('Lead', id) only ever
+    // saw direct Lead-scoped rows. SAR actions used to also write a
+    // Lead-scoped twin specifically so they'd show up here too — that
+    // dual-write is gone (real duplication in a compliance table, see
+    // auditService.listAuditLogForLead()'s own header). This function's
+    // UNION is what keeps SAR actions visible in a Lead's own Change Log
+    // without it — access control for THIS lead was already checked
+    // above (agent/supervisor scoping), so this swap doesn't change who
+    // can see anything, only what's included once they're allowed to look.
+    const entries = await listAuditLogForLead(id);
     return res.status(200).json({ entries });
 
   } catch (err) {
