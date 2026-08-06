@@ -36,7 +36,7 @@ import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useRole } from '../context/RoleContext.jsx';
 import { REGIONS, JOB_TITLES } from '../constants/leadOptions.js';
 import AuditLogList from '../components/AuditLogList.jsx';
-import { APPT_STATUS_META } from '../styles/tokens.js';
+import { s, APPT_STATUS_META } from '../styles/tokens.js';
 
 // ─── Status transition machine (mirrors server-side leadStatusService.js) ─────
 function computeNewStatus(currentStatus, outcome) {
@@ -194,7 +194,15 @@ export default function LeadDetail() {
   // Audit Log — GET /api/leads/:id/audit, added 23 Jul 2026 alongside the
   // editable-fields work below (every save through that form writes a
   // LeadUpdated entry here).
-  const { data: auditData, refetch: refetchAudit } = useFetch(() => leadsApi.auditLog(id), [id]);
+  // §133 (6 Aug 2026) — CORRECTED: this used to destructure only data
+  // and refetch from useFetch, discarding the error it already exposes.
+  // Mark caught this indirectly: §132's audit-query bug was ALSO
+  // failing every load of this exact panel, but instead of showing an
+  // error, a failed fetch (data stays null) silently rendered as
+  // "Audit Log (0)" / "No changes recorded yet." — indistinguishable
+  // from a lead that genuinely has no history. Same fix applied to
+  // AppointmentDetail.jsx's Change Log, which had the identical gap.
+  const { data: auditData, error: auditError, refetch: refetchAudit } = useFetch(() => leadsApi.auditLog(id), [id]);
   const auditEntries = auditData?.entries ?? [];
 
   // Appointment History — GET /api/appointments?leadId=:id. A Lead has been
@@ -680,7 +688,13 @@ export default function LeadDetail() {
         {/* Audit log */}
         <div style={cardStyle}>
           <div style={cardTitle}>Audit Log ({auditEntries.length})</div>
-          <AuditLogList entries={auditEntries} emptyLabel="No changes recorded yet." />
+          {auditError ? (
+            <div style={{ ...s.errorBox, fontSize: '0.8125rem' }}>
+              Could not load audit history. Try refreshing the page.
+            </div>
+          ) : (
+            <AuditLogList entries={auditEntries} emptyLabel="No changes recorded yet." />
+          )}
         </div>
       </div>
 

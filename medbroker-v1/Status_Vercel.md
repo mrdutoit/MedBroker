@@ -9327,6 +9327,78 @@ any future query with meaningfully different-typed columns being
 compared against the same reused parameter, rather than defaulting to
 manual reading alone.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+133. AUDIT/CHANGE LOG FETCH FAILURES WERE INDISTINGUISHABLE FROM GENUINE EMPTY HISTORY — 6 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark, while installing §132: rejected a SAR, checked the Lead's own
+"Audit Log" panel afterward, saw "Audit Log (0)" / "No changes recorded
+yet." — asked whether that was correct. It wasn't, and it led to a
+second, real, separate bug — not the same one as §132, but directly
+surfaced by testing around it.
+
+ROOT CAUSE: useFetch() (hooks/useFetch.js) has always exposed loading,
+error, AND data — but LeadDetail.jsx's Audit Log and
+AppointmentDetail.jsx's Change Log both only ever destructured data and
+refetch, silently discarding error. When §131's now-fixed type-mismatch
+bug (§132) was making listAuditLogForLead() throw on every call, data
+stayed null on both these panels — auditData?.entries ?? [] quietly
+produced an empty array, and the UI rendered exactly as if the lead/
+appointment genuinely had zero history. No error banner, nothing to
+suggest a fetch had failed at all. Confirmed this precisely (not
+assumed) by reading useFetch.js directly — error was there the whole
+time, on both pages, just never checked.
+
+Note the SAR History panel (AppAdmin.jsx, §125/§130) does NOT have this
+gap — it uses its own try/catch with an existing sarError surfaced to
+the user, not useFetch's data/error split. Checked directly rather than
+assumed clean.
+
+FIX: both pages now also destructure error from their audit useFetch()
+call and show a visible message ("Could not load audit history" / "the
+change log", matching each page's own existing terminology) instead of
+silently falling through to the empty-history state when the fetch
+genuinely failed. LeadDetail.jsx didn't import the shared s (tokens)
+object at all before this — added it rather than hand-roll a one-off
+local error style, since s.errorBox is already the established
+convention everywhere else in the app.
+
+Worth being explicit about scope: this fix makes a REAL future failure
+visible instead of silently lying about empty history — it doesn't
+retroactively surface anything about the specific §131/§132 incident,
+which is already resolved by §132 itself. This is a hardening measure
+for whatever the next fetch failure turns out to be, not a patch
+specific to this one bug.
+
+VERIFIED: full Vite build clean, existing 55-test Vitest suite
+unaffected. Re-hydrated fresh from GitHub and diffed both changed files
+before packaging.
+
+MIGRATION: none — pure frontend, no backend touched.
+
+FILES:
+  frontend/src/pages/LeadDetail.jsx
+  frontend/src/pages/AppointmentDetail.jsx
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 15 PAUSED HERE — 4 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed everything through §113 deployed cleanly, no errors seen.
+The AWS KMS code path (§111/§112) is deployed and visible in Feature
+Flags but deliberately untested end-to-end — the flag stays off until a
+paying customer exists, so this remains verified-by-code-review only,
+not exercised live; worth remembering next session that "deployed
+successfully" here means the flag-off/demo1 path was exercised by
+normal use, not the KMS path itself. Migration 020 confirmed already
+run by Mark before this session's end; safe to leave alone (re-running
+it is a no-op by design, confirmed and explained when he asked).
+
+§114 through §132 all CONFIRMED LIVE. §133 (audit/change log silent-
+failure fix) is built and verified by this session but NOT YET
+DEPLOYED. No new env vars, no migration.
+
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
 at the top of this file for what's next — Stripe (checkout, webhook,
 Integrations credentials page covering Stripe + SMTP), per Mark's own

@@ -482,7 +482,10 @@ export default function AppointmentDetail() {
   // table the Lead side reads from. Refetched alongside the appointment
   // itself whenever an action (outcome save, reassign, meeting held) writes
   // a new entry, via the same refetchAppt-triggered re-render pattern.
-  const { data: auditData, refetch: refetchAudit } = useFetch(() => appointmentsApi.auditLog(id), [id]);
+  // §133 (6 Aug 2026) — CORRECTED: same gap LeadDetail.jsx's Audit Log
+  // had (see that file's own comment) — error was available from
+  // useFetch and simply never checked here either.
+  const { data: auditData, error: auditError, refetch: refetchAudit } = useFetch(() => appointmentsApi.auditLog(id), [id]);
   const auditEntries = auditData?.entries ?? [];
 
   const [appt,              setAppt]              = useState({ ...EMPTY_APPOINTMENT, id: id ?? '' });
@@ -977,7 +980,13 @@ export default function AppointmentDetail() {
       {/* ── Change Log ──────────────────────────────────────────────────────── */}
       <div style={s.card}>
         <div style={s.cardTitle}>Change Log ({auditEntries.length})</div>
-        <AuditLogList entries={auditEntries} emptyLabel="No changes recorded yet." />
+        {auditError ? (
+          <div style={{ ...s.errorBox, fontSize: '0.8125rem' }}>
+            Could not load the change log. Try refreshing the page.
+          </div>
+        ) : (
+          <AuditLogList entries={auditEntries} emptyLabel="No changes recorded yet." />
+        )}
       </div>
 
       {/* ── Reassign Broker / Agent modal ────────────────────────────────────── */}
