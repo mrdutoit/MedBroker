@@ -104,7 +104,7 @@ export async function listAuditLogForLead(leadId) {
             u.displayName AS "performedByName"
      FROM AuditLog al
      LEFT JOIN "User" u ON al.performedById = u.id
-     WHERE al.entityType = 'Lead' AND al.entityId = @leadId AND al.organisationId = @organisationId
+     WHERE al.entityType = 'Lead' AND al.entityId = @leadId::text AND al.organisationId = @organisationId
      UNION ALL
      SELECT al.id, al.action, al.changeDetail AS "changeDetail",
             al.performedAt AS "performedAt", al.performedById AS "performedById",
@@ -112,7 +112,7 @@ export async function listAuditLogForLead(leadId) {
      FROM AuditLog al
      LEFT JOIN "User" u ON al.performedById = u.id
      JOIN SubjectAccessRequest sar ON al.entityType = 'SubjectAccessRequest' AND al.entityId = sar.id::text
-     WHERE sar.leadId = @leadId AND al.organisationId = @organisationId
+     WHERE sar.leadId = @leadId::uuid AND al.organisationId = @organisationId
      ORDER BY "performedAt" DESC`,
     {
       leadId:         { type: sql.UniqueIdentifier, value: leadId },

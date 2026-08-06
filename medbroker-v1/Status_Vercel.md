@@ -9227,6 +9227,106 @@ removed) is built and verified by this session but NOT YET DEPLOYED. No
 new env vars, no migration, backend-only — confirmed by identical
 frontend bundle sizes across the build, not just an unchanged file list.
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+132. §131 SHIPPED WITH A GENUINE SQL BUG — TYPE MISMATCH IN THE NEW UNION QUERY — 5 Aug 2026 (session 15, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark hit a 500 exporting a SAR and, to his credit, sent the actual
+Vercel stack trace rather than just "it's broken" — that's what made
+this fixable in one pass instead of guessing. His own hypothesis
+("because it was created before the change") turned out not to be the
+mechanism, though understandable to suspect given the timing — checked
+first rather than agreed with it.
+
+REAL CAUSE: §131's new listAuditLogForLead() reuses the SAME @leadId
+parameter in both halves of its UNION — once against AuditLog.entityId
+(VARCHAR(100)) in the Lead-scoped half, once against
+SubjectAccessRequest.leadId (a genuine UUID column) in the SAR-scoped
+half. db.js's toPositional() correctly collapses repeated @name
+occurrences to the same $N (confirmed by reading it directly — a
+different bug was suspected and ruled out first, see below) — but that
+means ONE parameter needed to satisfy TWO conflicting inferred types in
+the same query, which Postgres can't resolve without an explicit cast:
+"operator does not exist: uuid = text". This wasn't about old data,
+migration state, or anything about the SAR's age — it would have failed
+identically for a SAR created five minutes after §131 deployed. Every
+single call to this function was broken, both read paths that use it
+(compileSubjectData's export, and handleLeadAudit's own Change Log) —
+confirmed by tracing the exact stack trace Mark sent, which showed
+handleLeadAudit, not the export handler he thought he'd triggered; same
+underlying broken function, reachable from either caller.
+
+WRONGLY SUSPECTED FIRST, RULED OUT BY READING THE ACTUAL SHIM CODE: that
+db.js's positional-parameter substitution might mishandle @leadId being
+used twice at all. It doesn't — confirmed directly, not assumed, before
+looking further.
+
+FIX: explicit casts at each usage site — @leadId::text where compared
+to entityId, @leadId::uuid where compared to SubjectAccessRequest.leadId.
+Same single parameter, two different casts at its two different uses;
+valid and unambiguous in Postgres.
+
+VERIFIED PROPERLY THIS TIME — §131's own manual SQL read had already
+missed this once, so a second manual read wasn't good enough. Installed
+PostgreSQL 16 directly in this sandbox (apt, no live Neon access needed
+or used) and reproduced the exact reported error character-for-character
+against a real database with the real table casing/quoting conventions
+this codebase actually uses ("operator does not exist: character
+varying = uuid") before touching any code. Applied the fix, re-ran
+against the same real database, confirmed correct output (both
+Lead-scoped and SubjectAccessRequest-scoped entries returned, correctly
+merged) — including the edge case of a Lead with zero SAR requests at
+all (returns cleanly, no error). Then ran the ACTUAL production
+function (listAuditLogForLead, imported from the real file, unmodified
+test harness) end to end against that same database as a final check,
+not just the hand-written reproduction query. Checked for the same bug
+pattern (one parameter, two differently-typed comparisons in one query)
+anywhere else in this session's other work — this UNION is the only one
+in the codebase; nothing else at risk.
+
+VERIFIED (standard pass, on top of the above): full Vite build clean
+(bundle sizes byte-identical to §131 — confirms backend-only), existing
+55-test Vitest suite unaffected. Re-hydrated fresh from GitHub and
+diffed the one changed file before packaging.
+
+MIGRATION: none.
+
+FILES:
+  frontend/api-lib/services/auditService.js
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 15 PAUSED HERE — 4 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark confirmed everything through §113 deployed cleanly, no errors seen.
+The AWS KMS code path (§111/§112) is deployed and visible in Feature
+Flags but deliberately untested end-to-end — the flag stays off until a
+paying customer exists, so this remains verified-by-code-review only,
+not exercised live; worth remembering next session that "deployed
+successfully" here means the flag-off/demo1 path was exercised by
+normal use, not the KMS path itself. Migration 020 confirmed already
+run by Mark before this session's end; safe to leave alone (re-running
+it is a no-op by design, confirmed and explained when he asked).
+
+§114 through §131 all CONFIRMED LIVE EXCEPT §131 SHIPPED BROKEN — see
+§132 above. §132 (the actual fix) is built and verified — this time by
+executing the real function against a real Postgres instance in this
+sandbox, not just reading the SQL — but NOT YET DEPLOYED. No new env
+vars, no migration.
+
+LESSON WORTH CARRYING FORWARD: manually reading assembled SQL (this
+session's own established practice since the §117 "//comment" catch)
+is good for syntax and structure, but it does NOT reliably catch
+cross-column TYPE mismatches in a query that reuses one parameter
+against two differently-typed columns — that class of bug only really
+surfaces by executing the query. Now know this sandbox CAN run a real
+local Postgres instance (apt install postgresql, no network access to
+the real Neon database needed) — worth reaching for this earlier for
+any future query with meaningfully different-typed columns being
+compared against the same reused parameter, rather than defaulting to
+manual reading alone.
+
 Pausing on session usage, not on anything blocking. See §0's NEXT ACTION
 at the top of this file for what's next — Stripe (checkout, webhook,
 Integrations credentials page covering Stripe + SMTP), per Mark's own
