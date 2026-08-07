@@ -22,245 +22,48 @@ original file — only this summary block at the top is newly written.
 0. CURRENT STATE — READ THIS FIRST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-NEXT ACTION, per Mark (7 Aug 2026, session 17, §135): §134's code was
-CONFIRMED DEPLOYED at the start of this session (re-hydrated fresh from
-GitHub, found stripeService.js live, diffed byte-for-byte identical to
-what was delivered except the expected package-lock.json regeneration —
-no drift, no manual edits). Whether migration 022 has actually been run
-against Neon yet is still unconfirmed either way — Mark asked about
-deploy/migrate ordering but there's no independent way to verify a
-migration's been run from this sandbox; ask if unsure.
+NEXT ACTION, per Mark (7 Aug 2026, session 18, §136): §134 AND §135's
+code are both CONFIRMED DEPLOYED and live — Mark tested the Integrations
+page himself and reported real product feedback (see §136 below), which
+only happens against a genuinely deployed app. §136 (this session) is a
+small, isolated frontend fix — BUILT AND VERIFIED (real build, no
+backend changes at all, so no new database/sandbox testing was needed
+beyond confirming the build compiles and the existing 55-test Vitest
+suite is unaffected) — NOT YET DEPLOYED. A SEPARATE, unrelated finding
+from this session's pre-work re-hydrate: migrations/022_add_integration_
+credentials.sql had gone MISSING from GitHub (only 023 remained) —
+almost certainly github.dev's drag-and-drop replacing the whole
+migrations/ folder rather than merging into it, when only the §135
+delivery's files were dropped in. Restored in this delivery; Mark's live
+Neon database itself is unaffected either way (a migration doesn't need
+to stay in the repo once it's been run) — this was a source-control gap,
+not a data gap. WORTH FLAGGING FOR EVERY FUTURE DELIVERY: drag the ENTIRE
+db/migrations/ folder each time, not just the newest file, or check
+GitHub's own repo browser after each deploy to confirm nothing vanished.
 
-Mark then discovered Stripe does not support South Africa as a merchant
-country at all — Paystack (Stripe-owned, ZAR-native) does. §135 (this
-session) added Paystack as a second, fully independent
-appointments.tokens.paymentProvider option, BUILT AND VERIFIED with the
-same rigour as §134 (real Postgres 16 in-sandbox, a genuine HMAC-SHA512
-signature self-constructed as a broker's browser and Paystack's own
-signing algorithm would, mocked-fetch verification of the defence-in-
-depth server-to-server check specifically because api.paystack.co isn't
-reachable from this sandbox — see §135 below for exactly what that
-covers and doesn't). NOT YET DEPLOYED. NOT YET RUN against real Paystack
-test-mode infrastructure (no Paystack account available in this
-sandbox — same category of gap §134 had with real Stripe).
+Whether migration 022 has actually been run against Neon is still
+unconfirmed either way from this sandbox; migration 023 likewise. Ask
+Mark directly if unsure before assuming either has run.
 
-Immediate next steps for Mark, in order:
-  1. Confirm migration 022 has actually been run against Neon (if
-     unsure, running it again is harmless — see 022's own file).
-  2. Run migrations/023_add_paystack_provider.sql against Neon.
-  3. Deploy this delivery via the usual github.dev drag-and-drop.
-  4. On the Integrations page (App Admin -> Integrations, GlobalAdmin
-     only): set a Paystack TEST-MODE secret key (Paystack Dashboard ->
-     Settings -> API Keys & Webhooks), and set that same dashboard's
-     webhook URL to https://<your-domain>/api/appointments/tokens/webhook/paystack
-     — no separate signing secret to configure, Paystack reuses the one
-     secret key for both (see §135's own design notes).
-  5. Set appointments.tokens.paymentProvider to 'paystack' in Feature
-     Flags (requires appointments.claimModel already on 'claim') — the
-     dropdown now offers none/stripe/paystack; this was already a real
-     enum-type flag rendered as a <select>, so no new UI was needed for
-     the dropdown itself, only the third option.
-  6. As a Broker, try Buy Tokens end to end with a real Paystack test
-     card — same "could only verify the mechanism, not the real vendor
-     integration, from this sandbox" caveat §134 had with Stripe.
+§135 (7 Aug 2026) added Paystack as a second, fully independent
+appointments.tokens.paymentProvider option alongside Stripe — CONFIRMED
+DEPLOYED (Mark's own hands-on testing this session, screenshot-verified,
+is what surfaced §136's fix below; that only happens against a live
+app). Full design/build/verification detail lives in §135 itself, not
+duplicated here — this paragraph previously WAS a full duplicate of that
+entry and stale-claimed "NOT YET DEPLOYED"; trimmed down and corrected
+rather than left to accumulate as a second, disagreeing copy.
 
-Paystack design decisions actually built (for reference, not re-derivation):
-  - ONE credential field, not two like Stripe. Paystack has no separate
-    "webhook signing secret" — the same secret key both authorises
-    /transaction/initialize calls AND signs the webhook (HMAC-SHA512 of
-    the raw body, x-paystack-signature header). IntegrationCredential's
-    'paystack' config is just { secretKey }.
-  - NO SDK dependency added. Paystack's API is plain REST (Bearer token,
-    JSON) — paystackService.js talks to https://api.paystack.co directly
-    via fetch(), same as Paystack's own docs show. No new npm package.
-  - DEFENCE IN DEPTH BEYOND THE SIGNATURE CHECK, genuinely enforced, not
-    decorative — Paystack's own webhook docs are more conservative than
-    Stripe's about trusting the payload once signed; they explicitly
-    recommend confirming via GET /transaction/verify/:reference before
-    granting value. Built exactly that way: after signature verification
-    passes, handleTokenWebhookPaystack calls paystackService.verifyTransaction()
-    and cross-checks the amount Paystack's own server reports against
-    the pack's real price — a mismatch (or a non-'success' status)
-    refuses the credit. Verified this actually blocks a credit under a
-    simulated mismatch, not just present in the code (see VERIFIED
-    below).
-  - Separate webhook URL from Stripe's (/tokens/webhook/paystack, not a
-    shared endpoint) — each provider gets its own dashboard-configured
-    URL, since the two send structurally different payloads with
-    different signature schemes; a shared endpoint would have to sniff
-    which provider sent a request before it could even verify anything.
-    Stripe's existing /tokens/webhook is UNCHANGED, deliberately not
-    renamed to /tokens/webhook/stripe, to avoid breaking a webhook Mark
-    may already have configured.
-  - ONE checkout endpoint, not two. /tokens/checkout stays a single
-    route — it reads appointments.tokens.paymentProvider itself and
-    dispatches to whichever service is active. BuyTokensModal
-    (AppointmentList.jsx) never needed to know or care which provider is
-    live; it just gets back a URL to redirect to either way.
-  - TOKEN_PACKS extracted to a new shared tokenPacks.js the moment a
-    second provider needed the identical numbers — same 5/R250, 10/R450,
-    20/R800 packs, now imported by both stripeService.js and
-    paystackService.js rather than each defining its own copy, so the
-    two can't drift apart on pricing.
-  - creditStripeTokens() GENERALIZED to creditPurchasedTokens() —
-    tokenService.js's idempotent-credit logic never actually inspected
-    Stripe-specific shape (it only ever used externalRef as an opaque
-    uniqueness key), so both webhook handlers now share one function
-    rather than each having a near-duplicate copy of money-crediting
-    code. Confirmed via a dedicated regression test that this rename
-    didn't disturb the existing Stripe path (see VERIFIED below).
-
-VERIFIED — same standard as §134, with one real sandbox limitation
-  worth being explicit about: api.paystack.co is NOT in this sandbox's
-  allowed network egress list (same restriction api.stripe.com had for
-  §134's real-checkout-call testing), so paystackService.js's actual
-  network calls (transaction/initialize, transaction/verify) could not
-  be exercised against Paystack's real API. Two different techniques
-  covered what COULD be verified without that access:
-    - Signature verification: Paystack's HMAC-SHA512 scheme is simple
-      enough (unlike Stripe's SDK-internal one) to self-construct a
-      genuinely valid signature in the test harness using the exact same
-      algorithm Paystack's own docs specify
-      (crypto.createHmac('sha512', secretKey).update(rawBody).digest('hex')),
-      then confirm the app's own verifyWebhookSignature() accepts it —
-      and separately confirm a tampered payload with the ORIGINAL
-      signature is genuinely rejected before the network-dependent
-      verify-transaction step is ever reached (checked by asserting that
-      step's mock was never called in that specific test case).
-    - The defence-in-depth verify-transaction call: since this genuinely
-      needs a network call this sandbox can't make, globalThis.fetch was
-      temporarily mocked for exactly the api.paystack.co/transaction/verify
-      URL shape (a standard dependency-injection testing technique, not
-      a change to any application code) so the FULL handler path —
-      signature check, then the real server-to-server confirmation step,
-      then the credit — could be exercised end to end, including
-      confirming that a MISMATCHED amount from that mocked response
-      genuinely blocks the credit rather than the check being present
-      but inert.
-  Beyond the Paystack-specific pieces: confirmed idempotency holds under
-  a replayed identical webhook event, using the exact same
-  TokenTransaction.externalRef unique-index mechanism §134 built —
-  proof the shared creditPurchasedTokens() genuinely works correctly for
-  a second, differently-shaped provider, not just the one it was
-  originally written for. Confirmed the checkout endpoint dispatches to
-  the correct provider's service based on the live flag value in both
-  directions (flag='stripe' reaches stripeService.js, flag='paystack'
-  reaches paystackService.js — checked by which error each one produces
-  when its unreachable-in-sandbox network call fails, since both fail
-  the same way this sandbox couldn't avoid either way). Ran a dedicated
-  Stripe regression test (real webhook delivery, real credit, checkout
-  dispatch) confirming §134's original path is fully intact after this
-  session's creditPurchasedTokens()/tokenPacks.js refactor — not assumed
-  safe just because the diff looked mechanical. Full frontend build
-  clean, Integrations.jsx picked up the new Paystack card without issue.
-  Full existing 55-test Vitest suite unaffected. Re-hydrated fresh from
-  GitHub and diffed every file before packaging — matches the intended
-  change set exactly, no parallel-session drift.
-
-Stripe design decisions actually built (for reference, not re-derivation):
-  - Raw-body webhook signature verification: appointments-router.js now
-    sets `export const config = { api: { bodyParser: false } }` for the
-    WHOLE file (one file = one Vercel function, so this is file-wide,
-    not per-route) and reads the raw byte stream itself
-    (readRawBody(), http/helpers.js) before dispatching. The webhook
-    route keeps the raw Buffer for signature verification; every other
-    route in the file gets it JSON.parsed into req.body exactly as
-    Vercel's own automatic parser used to do — none of the five
-    existing JSON routes in this file (assign/reassign/outcome/claim/
-    topup) needed to change.
-  - Credentials: IntegrationCredential, a NEW table — one row per
-    (organisationId, provider), the whole per-provider config JSON-
-    encoded and encrypted as ONE opaque blob via encryption.js's
-    existing envelope encryption (same 'kms1'/'demo1' format-aware
-    encrypt()/decrypt() Lead.idNumber already uses — inherits KMS-vs-
-    demo1 for free, zero new code for that distinction). Deliberately
-    NOT SystemConfig, per the original design note — GlobalAdmin-only
-    both directions, unlike System Settings' deliberately-open GET.
-  - Masking: GET never returns a raw secret once saved — only
-    `<field>Set: boolean` + a last-4-characters preview. PUT is a
-    partial update; a blank/omitted secret field leaves the stored
-    value untouched (doesn't clear it).
-  - Idempotency: TokenTransaction.externalRef (new nullable column,
-    partial UNIQUE index WHERE NOT NULL) — Stripe's own documented
-    at-least-once webhook redelivery is made safe by the INSERT itself
-    failing on a duplicate (23505 caught, clean no-op), not a
-    check-then-act read first. Verified for real (see below), not just
-    reasoned about.
-  - Checkout is Stripe-hosted redirect only (mode: 'payment', browser
-    redirected to session.url) — no Stripe.js, no publishable key
-    anywhere in this app, since a redirect flow never needs one
-    client-side. Only a secret key and a webhook signing secret live in
-    IntegrationCredential for 'stripe'.
-  - Token packs unchanged from AppointmentList.jsx's existing Phase-2
-    mockup — 5/R250, 10/R450 ("save R50"), 20/R800 ("save R200") — now
-    server-priced (stripeService.TOKEN_PACKS) rather than just display
-    text, so a modified client request can't pay less for more tokens.
-  - SMTP (App Admin -> Integrations' second card): emailService.js now
-    reads DB-stored config FIRST, falling back to the original SMTP_*
-    env vars if nothing's saved yet — a deployment that never touches
-    the new page keeps working exactly as before. The module-level
-    transporter cache §78 had was deliberately dropped — credentials
-    can now change at any time via the page, so caching one risked
-    using a stale/rotated credential until a cold start happened to
-    clear it; nodemailer.createTransport() is cheap enough to just
-    rebuild per send.
-
-VERIFICATION — unusually thorough for this build, worth recording why:
-  the raw-body mechanism was genuinely novel (nothing else in this app
-  disables Vercel's bodyParser), so static review alone wasn't enough
-  confidence. Installed PostgreSQL 16 directly in this sandbox (apt, no
-  live Neon access), loaded schema.postgres.sql AND separately applied
-  migrations/022_add_integration_credentials.sql to an original
-  pre-session schema snapshot pulled fresh from GitHub, confirmed both
-  paths produce an equivalent table (one harmless column-order cosmetic
-  difference from ALTER TABLE ADD COLUMN vs. inline CREATE TABLE
-  placement — confirmed nothing in this codebase does a positional
-  SELECT * against TokenTransaction, so this doesn't matter). Then ran
-  three real HTTP-level smoke-test scripts (deleted from the repo before
-  packaging — verification tooling, not a permanent test file, per this
-  codebase's existing vitest-only testing footprint) against that real
-  database: (1) confirmed appointments-router.js's five pre-existing
-  JSON routes still work unchanged despite the file-wide bodyParser
-  change, (2) used Stripe's own SDK test helper
-  (Stripe.webhooks.generateTestHeaderString) to construct a REAL valid
-  webhook signature — not a mock — and confirmed a valid delivery
-  credits tokens and writes an audit entry, a REPLAYED delivery of the
-  identical event does NOT double-credit (idempotency genuinely holds,
-  not just reasoned about), and a TAMPERED payload with the original
-  signature is genuinely rejected (proves the raw-byte capture is
-  actually being used for verification, not silently falling back to
-  something re-serialized), (3) confirmed the encrypted-credential
-  round-trip through real encrypt()/decrypt() calls, the masking
-  contract (a raw secret is never present anywhere in a masked
-  response — checked by string search, not assumed), and that a
-  partial update genuinely leaves an omitted secret field untouched.
-  Two real bugs were caught by this process and fixed before packaging
-  — both in the throwaway test harnesses themselves, not the app code
-  (a URL-construction mismatch that nearly caused a false "system-
-  config's base route is broken" alarm, and a missing body-parsing shim
-  in a harness testing a file that correctly relies on Vercel's default
-  parser) — recorded here as a reminder that a red result needs its own
-  verification before either fixing the app or reporting a false
-  positive back to Mark. Full frontend build (npm run build) clean,
-  Integrations.jsx got its own lazy-loaded chunk as expected. Full
-  existing 55-test Vitest suite unaffected (no test file in this repo
-  covers Stripe/encryption specifically — the sandbox Postgres run
-  above is what actually exercised that code, not vitest). Re-hydrated
-  fresh from GitHub and diffed every file before packaging — clean,
-  matches the intended change set exactly, no parallel-session drift.
-
-BUNDLED, SMALL, FLAGGED EXPLICITLY (not silent scope creep): while adding
-  this session's own new audit action/entity types (IntegrationCredential,
-  IntegrationCredentialUpdated, TokenStripeCredited) to auditHandlers.js's
-  VALID_ACTIONS/VALID_ENTITY_TYPES and AppAdmin.jsx's mirrored frontend
-  lists, also backfilled three PRE-EXISTING gaps from §117 that were never
-  added when that session shipped (TokenLedger, SystemConfig entity types;
-  AppointmentClaimed, TokenManualTopUp, SystemConfigUpdated actions) —
-  same silent-empty-filter bug §127 already found and fixed once for SAR,
-  found again for a different feature. Cheap, obviously-correct, done in
-  a file already being edited for the identical reason — not treated as
-  in-scope-by-default for future sessions, still worth a one-line mention
-  each time it happens.
+§136 (7 Aug 2026, this session) is a small, isolated Integrations-page
+fix, prompted directly by that testing: Mark turned on only Paystack but
+still saw full Stripe AND SMTP credential forms too — a "free-for-all"
+rather than "here's what's actually live." Now each card is shown ONLY
+when its corresponding flag actually matches, with a neutral notice
+(naming whether credentials are already saved, so switching providers
+never reads as "did I lose my setup?") in place of whichever isn't
+active. Frontend-only, no backend/schema change, so no new sandbox DB
+testing was needed — verified via a real build + the existing 55-test
+Vitest suite staying green. NOT YET DEPLOYED. Full detail in §136 below.
 
 FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
   Auth            Local email/password, JWT, 8-hour expiry, full policy
@@ -10105,6 +9908,128 @@ credentials, flip the flag, try a real test-card purchase). §134's code
 was independently confirmed deployed at the start of this session
 (see the correction above §135); whether either migration has actually
 been run against Neon remains unconfirmed from this sandbox either way.
+
+If picking up a pending item, reference it by section number — same
+convention as before.
+
+CORRECTION, added at the start of session 18 (7 Aug 2026): §135 WAS
+deployed — Mark tested the live Integrations page himself this session
+and reported real product feedback (screenshot included), which is only
+possible against a genuinely deployed app. The "NOT YET DEPLOYED" line
+above was accurate when session 17 wrote it, stale by the time session
+18 started. See §136 below for what session 18 actually did — a small
+fix prompted directly by that testing, not a re-verification of §135
+itself (which held up fine; the underlying build wasn't in question,
+only how the settings page presented it).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+136. INTEGRATIONS PAGE — SHOW ONLY WHAT'S ACTUALLY ACTIVE — 7 Aug 2026 (session 18)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark tested the deployed Integrations page (App Admin -> Integrations)
+himself — screenshot included in the conversation. He'd turned ON only
+Paystack (appointments.tokens.paymentProvider = 'paystack'), but the
+page still showed the FULL Stripe card (secret key, webhook signing
+secret, save button) right alongside the Paystack one, and SMTP's full
+form too regardless of notifications.email.enabled. His own words: "I
+want those integrations shown based on which Feature Flags are turned
+on, not just a free-for-all." Real, specific product feedback against
+a genuinely live deployment — exactly the kind of thing that only
+surfaces once something's actually been used, not just built.
+
+THE FIX — src/pages/Integrations.jsx REWORKED, frontend-only, no
+backend/schema/API change at all:
+  - The payment-provider section now renders EXACTLY ONE of: the Stripe
+    card (only when the flag is literally 'stripe'), the Paystack card
+    (only when 'paystack'), or a neutral "nothing selected yet" notice
+    (when 'none') that points at Feature Flags rather than just going
+    blank.
+  - The SMTP card now only renders when notifications.email.enabled is
+    genuinely on; otherwise the same neutral-notice pattern.
+  - Flag-reading was lifted from each card into the parent Integrations()
+    component, which now decides what to render at all rather than each
+    card rendering unconditionally and merely reporting its own
+    active/inactive status via a banner. The StatusRow banners inside
+    each card were simplified to drop their now-unreachable "not active"
+    branch — a card is only ever on screen when it IS active, so there
+    was no longer a real "is this actually live?" question left for it
+    to answer both ways.
+
+DATA SAFETY, EXPLICITLY DESIGNED FOR AND STATED IN THE UI ITSELF — hiding
+  a card is a DISPLAY decision only; it never touches, clears, or even
+  reads differently the underlying IntegrationCredential row, which is
+  keyed by provider and completely independent of which FeatureFlag
+  value happens to be selected right now. Switching the flag back
+  brings the same card straight back with whatever was last saved still
+  in place. This wasn't left as an inference for Mark to make himself —
+  both neutral notices explicitly report whether that provider's (or
+  SMTP's) credentials are already configured (reading the real GET
+  status, not guessed), specifically so switching providers never reads
+  as "did I just lose my Paystack setup?"
+
+TRADE-OFF ACCEPTED, WORTH KNOWING RATHER THAN DISCOVERING LATER: this
+  makes it impossible to pre-stage a provider's credentials before
+  switching the flag over to it — the card simply isn't there to fill in
+  until the flag already points at it. Judged low-risk and not raised as
+  a blocking question before building (see PROACTIVITY in Claude's own
+  operating principles: pick the most reasonable interpretation, state
+  the assumption, proceed) — nothing public depends on a provider until
+  its flag is actually live, and the checkout endpoint's own "not
+  configured yet" error is clean, not a crash, for whatever brief window
+  might exist between flipping a flag and finishing that provider's
+  form. Cheap to revisit if Mark disagrees once he's used it for real.
+
+SEPARATE FINDING FROM THIS SESSION'S PRE-WORK RE-HYDRATE, UNRELATED TO
+  THE ABOVE: migrations/022_add_integration_credentials.sql had gone
+  MISSING from GitHub — re-hydrating fresh at the start of this session
+  found only 023_add_paystack_provider.sql in db/migrations/, not 022,
+  even though 022 was confirmed present in an earlier re-hydrate this
+  same day (before the Paystack delivery). Almost certainly github.dev's
+  drag-and-drop REPLACING the whole migrations/ folder rather than
+  merging into it, when only the §135 delivery's files (which only
+  included 023) were dropped in. Mark's live Neon database is unaffected
+  either way — a migration file doesn't need to remain in the repo once
+  it's actually been run against the database — this is a source-control
+  completeness gap, not a data gap. RESTORED in this delivery. WORTH
+  FLAGGING FOR EVERY FUTURE DELIVERY GOING FORWARD: drag the ENTIRE
+  db/migrations/ folder each time a delivery touches it, not just the
+  newest file, or check GitHub's own repo browser after deploying to
+  confirm nothing vanished.
+
+VERIFIED: real `npm run build` (Integrations.jsx's own chunk grew from
+  ~10.3kB to ~12.0kB, consistent with the two new notice components and
+  no unexpected bloat), full existing 55-test Vitest suite unaffected
+  (nothing in this session touched backend code, so this is confirming
+  absence of collateral damage, not testing new logic). Re-hydrated
+  fresh from GitHub and diffed before packaging — confirmed the exact
+  expected change set (Integrations.jsx, plus the restored migrations/
+  folder) and, separately, confirmed §134/§135's code is genuinely live
+  on main (Mark's own testing already proved this, but confirming it
+  independently from source control is cheap and worth doing rather than
+  taking a screenshot alone as the only evidence).
+  NOT INDEPENDENTLY RE-TESTED: the underlying Stripe/Paystack backend
+  logic itself (checkout dispatch, webhook credit, idempotency) — this
+  session made zero backend changes, so §135's own verification stands
+  unchanged; re-running those tests would have proven nothing new.
+
+FILES:
+  frontend/db/migrations/022_add_integration_credentials.sql (RESTORED — see finding above)
+  frontend/src/pages/Integrations.jsx (reworked — conditional card visibility per active Feature Flags)
+Plus this Status_Vercel.md and Project_Context_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 18 PAUSED HERE — 7 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§136 is built and verified (real build, existing test suite green — see
+VERIFIED above; no new backend testing was needed or attempted, since
+nothing backend changed) but NOT YET DEPLOYED. §134 and §135's own code
+are both confirmed live and working — Mark's own hands-on testing this
+session is what surfaced §136 in the first place. Once §136 deploys,
+worth Mark spending two minutes confirming the Paystack/Stripe/SMTP
+cards now show and hide correctly as Feature Flags change, and that the
+neutral notices' "already configured" wording matches what he actually
+has saved.
 
 If picking up a pending item, reference it by section number — same
 convention as before.
