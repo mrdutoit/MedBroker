@@ -39,16 +39,21 @@ import { executeQuery, executeQueryOne, sql } from './db.js';
 import { encrypt, decrypt } from './encryption.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
-const PROVIDERS = ['stripe', 'smtp'];
+const PROVIDERS = ['stripe', 'smtp', 'paystack'];
 
 // Which fields of each provider's config are secrets — never echoed back
 // in the clear by getMaskedStatus(), only as `<field>Set: boolean` plus a
 // last-4-characters preview. Every other field (SMTP host/port/user/from —
 // none of which are actually sensitive; see emailService.js's own header,
 // SMTP_USER for Resend is literally the string "resend") is returned as-is.
+// paystack (§135, 7 Aug 2026) has only ONE field, secret or otherwise —
+// unlike Stripe's secretKey/webhookSigningSecret split, Paystack reuses
+// the same secret key to both call their API and sign webhooks, so
+// there's nothing else to store (see paystackService.js's own header).
 const SECRET_FIELDS = {
-  stripe: ['secretKey', 'webhookSigningSecret'],
-  smtp:   ['password'],
+  stripe:   ['secretKey', 'webhookSigningSecret'],
+  smtp:     ['password'],
+  paystack: ['secretKey'],
 };
 
 function assertValidProvider(provider) {
@@ -61,7 +66,7 @@ function assertValidProvider(provider) {
  * Full decrypted config for one provider — INTERNAL USE ONLY (Stripe
  * client construction, SMTP transporter construction). Never return this
  * directly from an HTTP handler.
- * @param {string} provider - 'stripe' | 'smtp'
+ * @param {string} provider - 'stripe' | 'smtp' | 'paystack'
  * @returns {Promise<Object|null>} the decrypted config object, or null if
  *   nothing has been saved for this provider yet
  */

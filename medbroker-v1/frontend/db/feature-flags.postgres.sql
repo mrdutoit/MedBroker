@@ -53,8 +53,8 @@ INSERT INTO FeatureFlag (flagKey, label, description, valueType, value, allowedV
      'enum', 'assign', 'assign,claim', 'Core', FALSE, FALSE),
 
     ('appointments.tokens.paymentProvider', 'Token payment provider',
-     'Payment gateway for broker token top-ups. none = manual top-up by admin only. stripe = brokers can self-purchase tokens via Stripe Checkout. Only relevant when appointments.claimModel = claim.',
-     'enum', 'none', 'none,stripe', 'Core', FALSE, FALSE),
+     'Payment gateway for broker token top-ups. none = manual top-up by admin only. stripe = brokers can self-purchase tokens via Stripe Checkout (not usable in South Africa — Stripe does not support ZA merchants). paystack = brokers can self-purchase tokens via Paystack (Stripe-owned, ZAR-native, South Africa-supported — added §135, 7 Aug 2026). Only relevant when appointments.claimModel = claim.',
+     'enum', 'none', 'none,stripe,paystack', 'Core', FALSE, FALSE),
 
     ('events.enabled', 'Events module',
      'Show the Events section in the navigation. Disable for customers who do not run university or career fair events.',

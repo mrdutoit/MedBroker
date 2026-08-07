@@ -1,9 +1,10 @@
 /**
- * pages/Integrations.jsx — NEW, §134 (6 Aug 2026).
- * App Admin → Integrations. Stripe (token purchase checkout/webhook) and
- * SMTP (notification email) credentials, GlobalAdmin only both directions
- * — route-gated in App.jsx the same way FeatureFlags.jsx is, not just an
- * internal check on this page.
+ * pages/Integrations.jsx — NEW, §134 (6 Aug 2026). EXTENDED §135
+ * (7 Aug 2026) with a Paystack card.
+ * App Admin → Integrations. Stripe, Paystack (both — token purchase
+ * checkout/webhook) and SMTP (notification email) credentials,
+ * GlobalAdmin only both directions — route-gated in App.jsx the same way
+ * FeatureFlags.jsx is, not just an internal check on this page.
  *
  * MASKING — GET /api/system-config/integrations never returns a secret
  * value in the clear once it's been saved (integrationCredentialService.js's
@@ -13,10 +14,10 @@
  * leaves the stored value untouched (a genuinely blank submit is a no-op
  * for that field, not a clear — see integrationCredentialService.setConfig()).
  *
- * TWO INDEPENDENT SAVE ACTIONS — Stripe and SMTP are separate PUT
- * endpoints (integrationsApi.updateStripe/updateSmtp) and separate cards
- * here, matching the backend's per-provider row design. Saving one never
- * touches the other.
+ * THREE INDEPENDENT SAVE ACTIONS — Stripe, Paystack, and SMTP are
+ * separate PUT endpoints (integrationsApi.updateStripe/updatePaystack/
+ * updateSmtp) and separate cards here, matching the backend's
+ * per-provider row design. Saving one never touches the others.
  */
 
 import { useState, useEffect } from 'react';
@@ -119,6 +120,82 @@ function StripeCard({ status, onSaved }) {
 
       <button style={s.primaryBtn} onClick={handleSave} disabled={saving || (!secretKey.trim() && !webhookSecret.trim())}>
         {saving ? 'Saving…' : 'Save Stripe settings'}
+      </button>
+    </div>
+  );
+}
+
+// ─── Paystack card ──────────────────────────────────────────────────────────────
+// §135 (7 Aug 2026) — added alongside Stripe because Stripe does not
+// support South Africa as a merchant country; Paystack (Stripe-owned)
+// does, natively in ZAR. Deliberately ONE field, not two like Stripe's
+// card above — Paystack has no separate webhook signing secret, the same
+// secret key both calls their API and signs the webhook (see
+// paystackService.js's own header).
+function PaystackCard({ status, onSaved }) {
+  const { flag } = useFlags();
+  const providerIsPaystack = flag('appointments.tokens.paymentProvider') === 'paystack';
+
+  const [secretKey, setSecretKey] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved]   = useState(false);
+  const [error, setError]   = useState('');
+
+  async function handleSave() {
+    setSaving(true);
+    setError('');
+    try {
+      const updated = await integrationsApi.updatePaystack({ secretKey: secretKey.trim() });
+      onSaved(updated);
+      setSecretKey('');
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2500);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not save Paystack settings');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={{ ...s.card, marginBottom: '18px' }}>
+      <div style={s.cardTitle}>Paystack — token purchase checkout</div>
+      <p style={{ fontSize: '0.875rem', color: 'var(--ink)', lineHeight: 1.6, margin: '0 0 12px' }}>
+        Stripe-owned, ZAR-native, and supported for South African merchants (unlike Stripe itself).
+        Same redirect-hosted checkout page as the Stripe option above — this app never handles card
+        details directly. Only one secret key is needed: Paystack uses it both to start a transaction
+        and to sign its webhook, so there's no separate webhook secret to configure.
+      </p>
+
+      <StatusRow ok={providerIsPaystack}>
+        <code>appointments.tokens.paymentProvider</code> is currently <strong>{providerIsPaystack ? '"paystack"' : `"${flag('appointments.tokens.paymentProvider') || 'none'}"`}</strong>
+        {providerIsPaystack
+          ? ' — Brokers see a real Buy Tokens checkout on the Appointments page.'
+          : ' — Buy Tokens is disabled for Brokers until this is set to "paystack" in Feature Flags, even if the credential below is filled in.'}
+      </StatusRow>
+
+      {error && <div style={{ ...s.errorBox, marginBottom: '12px' }}>{error}</div>}
+      {saved && <div style={{ ...s.noticeSuccess, marginBottom: '12px' }}>✓ Paystack settings saved.</div>}
+
+      <div style={s.formGroup}>
+        <label style={s.formLabel}>Secret key</label>
+        <input
+          type="password"
+          style={s.formInput}
+          value={secretKey}
+          onChange={e => setSecretKey(e.target.value)}
+          placeholder={status?.secretKeySet ? `Set — ends ${status.secretKeyPreview}` : 'sk_test_… or sk_live_…'}
+          autoComplete="off"
+        />
+        <div style={s.formHint}>
+          From the Paystack Dashboard → Settings → API Keys &amp; Webhooks. Also set the webhook URL there to{' '}
+          <code style={{ fontSize: '0.75rem' }}>{typeof window !== 'undefined' ? window.location.origin : ''}/api/appointments/tokens/webhook/paystack</code>.
+          Leave the field above blank to keep the current key.
+        </div>
+      </div>
+
+      <button style={s.primaryBtn} onClick={handleSave} disabled={saving || !secretKey.trim()}>
+        {saving ? 'Saving…' : 'Save Paystack settings'}
       </button>
     </div>
   );
@@ -235,11 +312,13 @@ function SmtpCard({ status, onSaved }) {
 export default function Integrations() {
   const { data, loading, error, refetch } = useFetch(() => integrationsApi.get(), []);
 
-  const [stripeStatus, setStripeStatus] = useState(null);
-  const [smtpStatus, setSmtpStatus]     = useState(null);
+  const [stripeStatus, setStripeStatus]     = useState(null);
+  const [paystackStatus, setPaystackStatus] = useState(null);
+  const [smtpStatus, setSmtpStatus]         = useState(null);
   useEffect(() => {
     if (!data) return;
     setStripeStatus(data.stripe);
+    setPaystackStatus(data.paystack);
     setSmtpStatus(data.smtp);
   }, [data]);
 
@@ -247,8 +326,8 @@ export default function Integrations() {
     <div style={{ ...s.page, maxWidth: '700px' }}>
       <h1 style={{ margin: '0 0 6px', fontSize: '1.375rem', fontWeight: 600, color: 'var(--ink)' }}>Integrations</h1>
       <p style={{ color: 'var(--mut)', fontSize: '0.875rem', margin: '0 0 18px' }}>
-        Stripe and SMTP credentials for this deployment — GlobalAdmin only. Stored encrypted, never shown
-        again in the clear once saved.
+        Stripe, Paystack, and SMTP credentials for this deployment — GlobalAdmin only. Stored encrypted,
+        never shown again in the clear once saved.
       </p>
 
       {loading && <div style={{ ...s.noticeInfo, marginBottom: '18px' }}>Loading…</div>}
@@ -257,6 +336,7 @@ export default function Integrations() {
       {!loading && !error && (
         <>
           <StripeCard status={stripeStatus} onSaved={async (updated) => { setStripeStatus(updated); await refetch(); }} />
+          <PaystackCard status={paystackStatus} onSaved={async (updated) => { setPaystackStatus(updated); await refetch(); }} />
           <SmtpCard status={smtpStatus} onSaved={async (updated) => { setSmtpStatus(updated); await refetch(); }} />
         </>
       )}

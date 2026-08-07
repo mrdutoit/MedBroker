@@ -44,6 +44,11 @@ const MAX_EXPORT_ROWS = 5000;
 // IntegrationCredentialUpdated/TokenStripeCredited actions) rather than
 // repeating the exact mistake a third time — see PERMANENT PATTERNS in
 // Project_Context_Vercel.md: "add new types to both lists simultaneously."
+//
+// §135 (7 Aug 2026) — TokenPaystackCredited added alongside
+// TokenStripeCredited when Paystack was added as a second payment
+// provider. No new entity type needed — IntegrationCredential and
+// TokenLedger already cover both providers generically.
 const VALID_ENTITY_TYPES = [
   'Appointment', 'Lead', 'Event', 'EventAttendee', 'FeatureFlag', 'Task', 'User',
   'Portfolio', 'Product', 'SubjectAccessRequest', 'TokenLedger', 'SystemConfig',
@@ -60,7 +65,7 @@ const VALID_ACTIONS = [
   'PortfolioCreated', 'PortfolioStatusChanged', 'PortfolioDeleted',
   'ProductCreated', 'ProductStatusChanged', 'ProductDeleted',
   'AppointmentClaimed', 'TokenManualTopUp', 'SystemConfigUpdated',
-  'IntegrationCredentialUpdated', 'TokenStripeCredited',
+  'IntegrationCredentialUpdated', 'TokenStripeCredited', 'TokenPaystackCredited',
 ];
 
 /**

@@ -11,7 +11,7 @@
  *
  * Feature flags:
  *   appointments.claimModel           'assign' | 'claim'
- *   appointments.tokens.paymentProvider 'none' | 'stripe'
+ *   appointments.tokens.paymentProvider 'none' | 'stripe' | 'paystack'
  *
  * WORKFLOW RULES:
  *   - An Appointment always has an Agent (set at booking time from Lead Detail).
@@ -52,13 +52,15 @@ function PortfolioBadge({ portfolio }) {
 // §134 (6 Aug 2026) — REWIRED to a real Stripe Checkout redirect. Was a
 // Phase-2 mockup (setTimeout + "Phase 2 — payment not yet active"); the
 // three packs shown here are unchanged from that mockup — pricing is now
-// also enforced server-side from the exact same values
-// (stripeService.TOKEN_PACKS), so this list is display-only, not the
-// source of truth. handlePurchase() redirects the whole browser tab to
-// Stripe's hosted payment page (window.location.href = url) — this
-// component never touches card details or a Stripe key; see
-// stripeService.js's header for why Checkout (redirect-based) needs
-// neither on the frontend.
+// also enforced server-side from the exact same values (tokenPacks.js,
+// shared by both providers), so this list is display-only, not the
+// source of truth. §135 (7 Aug 2026) — EXTENDED to Paystack; this
+// component doesn't need to know or care which provider is actually
+// active, since /tokens/checkout (appointmentsApi.tokens.checkout)
+// already dispatches server-side and just returns a URL either way.
+// handlePurchase() redirects the whole browser tab to that provider's
+// hosted payment page (window.location.href = url) — this component
+// never touches card details or either provider's secret key.
 function BuyTokensModal({ onClose, paymentProvider }) {
   const PACKS = [
     { tokens: 5,  price: 'R250',  label: '5 tokens' },
@@ -74,7 +76,7 @@ function BuyTokensModal({ onClose, paymentProvider }) {
     setError('');
     try {
       const { url } = await appointmentsApi.tokens.checkout(selected);
-      window.location.href = url; // full-page redirect to Stripe's hosted Checkout page
+      window.location.href = url; // full-page redirect to the active provider's hosted payment page (Stripe or Paystack)
     } catch (err) {
       setError(err instanceof ApiError ? err.message : 'Could not start checkout — please try again.');
       setPurchasing(false);
@@ -312,26 +314,35 @@ export default function AppointmentList() {
 
   // §134 — Stripe redirects back to /appointments?stripe=success|cancel
   // (createCheckoutSession's success_url/cancel_url, stripeService.js).
-  // The webhook (not this redirect) is what actually credits the tokens
-  // — Stripe's own guidance is explicit that success_url is reached the
-  // instant payment succeeds client-side, which can arrive at this page
-  // BEFORE the webhook has been delivered and processed server-side. So
-  // this banner is deliberately worded as "payment received, tokens on
-  // the way" rather than claiming the balance is already updated, and
-  // refetchTokens() below is a best-effort immediate check, not the
-  // source of truth for whether the credit landed — the broker's balance
-  // will reflect it within moments regardless of whether this refetch
-  // catches it before or after the webhook lands.
-  const [stripeReturn, setStripeReturn] = useState(null); // 'success' | 'cancel' | null
+  // §135 (7 Aug 2026) — Paystack redirects back to
+  // /appointments?paystack=success (createTransaction's callback_url,
+  // paystackService.js) — Paystack only has one callback URL, not a
+  // separate success/cancel pair the way Stripe does, so a broker who
+  // abandons the Paystack payment page just never returns here at all,
+  // there's no "cancel" state to detect on this end for that provider.
+  // Either way, the webhook (not this redirect) is what actually credits
+  // the tokens — both providers' own guidance is explicit that a
+  // success/callback redirect is reached the instant payment succeeds
+  // client-side, which can arrive at this page BEFORE the webhook has
+  // been delivered and processed server-side. So this banner is
+  // deliberately worded as "payment received, tokens on the way" rather
+  // than claiming the balance is already updated, and refetchTokens()
+  // below is a best-effort immediate check, not the source of truth for
+  // whether the credit landed — the broker's balance will reflect it
+  // within moments regardless of whether this refetch catches it before
+  // or after the webhook lands.
+  const [paymentReturn, setPaymentReturn] = useState(null); // 'success' | 'cancel' | null
   const [searchParams, setSearchParams] = useSearchParams();
   useEffect(() => {
-    const result = searchParams.get('stripe');
+    const result = searchParams.get('stripe') ?? searchParams.get('paystack');
     if (result === 'success' || result === 'cancel') {
-      setStripeReturn(result);
+      setPaymentReturn(result);
       if (result === 'success') refetchTokens();
-      // Clear the query param so a page refresh doesn't re-show the banner.
+      // Clear whichever query param is present so a page refresh doesn't
+      // re-show the banner.
       const next = new URLSearchParams(searchParams);
       next.delete('stripe');
+      next.delete('paystack');
       setSearchParams(next, { replace: true });
     }
   }, []);
@@ -607,12 +618,12 @@ export default function AppointmentList() {
     const pct = monthlyAllocation > 0 ? Math.round((freeRemaining / monthlyAllocation) * 100) : 0;
     return (
       <>
-        {stripeReturn === 'success' && (
+        {paymentReturn === 'success' && (
           <div style={{ ...s.noticeSuccess, marginBottom: '14px' }}>
             ✓ Payment received — your tokens will appear on your balance below shortly.
           </div>
         )}
-        {stripeReturn === 'cancel' && (
+        {paymentReturn === 'cancel' && (
           <div style={{ ...s.noticeWarn, marginBottom: '14px' }}>
             Checkout was cancelled — no payment was made.
           </div>

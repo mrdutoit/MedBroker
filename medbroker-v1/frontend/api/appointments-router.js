@@ -12,8 +12,9 @@
  *   GET  /api/appointments/tokens/me            (§117 — Broker only)
  *   GET  /api/appointments/tokens/:brokerId     (§117 — Admin/GlobalAdmin)
  *   PUT  /api/appointments/tokens/:brokerId/topup  (§117 — Admin/GlobalAdmin)
- *   POST /api/appointments/tokens/checkout      (§134 — Broker only, Stripe)
+ *   POST /api/appointments/tokens/checkout      (§134/§135 — Broker only, Stripe or Paystack)
  *   POST /api/appointments/tokens/webhook       (§134 — Stripe only, no staff auth)
+ *   POST /api/appointments/tokens/webhook/paystack  (§135 — Paystack only, no staff auth)
  *   GET  /api/appointments/:id
  *   PUT  /api/appointments/:id/assign
  *   PUT  /api/appointments/:id/reassign
@@ -26,7 +27,7 @@
  * Vercel's default automatic JSON body parsing for this ENTIRE function
  * (one file = one function on this stack — see CRITICAL IMPLEMENTATION
  * RULES — so this is file-wide, not per-route). That's required for the
- * Stripe webhook: signature verification needs the exact raw bytes
+ * webhooks: signature verification needs the exact raw bytes
  * (readRawBody(), http/helpers.js), and re-serializing an already-parsed
  * body almost never round-trips byte-for-byte. Every OTHER route in this
  * file still needs req.body as a plain parsed object, exactly as before
@@ -35,7 +36,10 @@
  * mimicking exactly what Vercel's own automatic parser used to do. None
  * of the other handlers below (assign/reassign/outcome/claim/topup/
  * collection POST) needed to change at all for this — they just keep
- * reading req.body like they always have.
+ * reading req.body like they always have. §135 (7 Aug 2026) added a
+ * SECOND raw-body route (Paystack's webhook) alongside Stripe's — both
+ * just add another shape to isWebhook below; the raw-read-then-dispatch
+ * mechanism itself didn't need to change at all for a second provider.
  */
 
 import {
@@ -43,7 +47,7 @@ import {
   handleAppointmentReassign, handleAppointmentReturn, handleAppointmentOutcome,
   handleAppointmentAudit, handleBrokerMatching, handleAppointmentClaim,
   handleAvailableToClaim, handleTokenLedgerMe, handleTokenLedgerByBroker, handleTokenTopUp,
-  handleTokenCheckout, handleTokenWebhook,
+  handleTokenCheckout, handleTokenWebhook, handleTokenWebhookPaystack,
 } from '../api-lib/handlers/appointmentHandlers.js';
 import { applyCors, parseSlug, readRawBody } from '../api-lib/http/helpers.js';
 
@@ -62,16 +66,17 @@ export default async function handler(req, res) {
   if (applyCors(req, res)) return;
 
   const segments = parseSlug(req.query.slug);
-  const isWebhook = segments.length === 2 && segments[0] === 'tokens' && segments[1] === 'webhook';
+  const isStripeWebhook   = segments.length === 2 && segments[0] === 'tokens' && segments[1] === 'webhook';
+  const isPaystackWebhook = segments.length === 3 && segments[0] === 'tokens' && segments[1] === 'webhook' && segments[2] === 'paystack';
 
   const rawBody = await readRawBody(req);
 
-  // The webhook gets the raw Buffer untouched — signature verification
-  // happens inside handleTokenWebhook (stripeService.verifyWebhookSignature),
-  // not here, so this router stays ignorant of Stripe's payload shape.
-  if (isWebhook) {
-    return handleTokenWebhook(req, res, rawBody);
-  }
+  // Each webhook gets the raw Buffer untouched — signature verification
+  // happens inside the respective handler (stripeService/paystackService
+  // .verifyWebhookSignature), not here, so this router stays ignorant of
+  // either provider's payload shape.
+  if (isStripeWebhook)   return handleTokenWebhook(req, res, rawBody);
+  if (isPaystackWebhook) return handleTokenWebhookPaystack(req, res, rawBody);
 
   // Every other route: reproduce Vercel's normal auto-parsed req.body now
   // that this function's own bodyParser is off. Empty body -> {} (GET
@@ -109,7 +114,7 @@ export default async function handler(req, res) {
   }
   if (segments[0] === 'tokens') {
     if (segments.length === 2 && segments[1] === 'me') return handleTokenLedgerMe(req, res);
-    if (segments.length === 2 && segments[1] === 'checkout') return handleTokenCheckout(req, res); // §134
+    if (segments.length === 2 && segments[1] === 'checkout') return handleTokenCheckout(req, res); // §134/§135
     if (segments.length === 2) return handleTokenLedgerByBroker(req, res, segments[1]);
     if (segments.length === 3 && segments[2] === 'topup') return handleTokenTopUp(req, res, segments[1]);
     return res.status(404).json({ error: 'Not found' });

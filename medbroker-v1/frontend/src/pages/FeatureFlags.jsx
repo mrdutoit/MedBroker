@@ -60,8 +60,8 @@ const FLAG_META = [
   {
     key: 'appointments.tokens.paymentProvider', tier: 'Core',
     label: 'Token payment provider',
-    description: 'Payment gateway for broker token top-ups. "none" = admin top-up only. "stripe" = self-service via Stripe Checkout.',
-    valueType: 'enum', allowedValues: ['none', 'stripe'],
+    description: 'Payment gateway for broker token top-ups. "none" = admin top-up only. "stripe" = self-service via Stripe Checkout (not usable in South Africa). "paystack" = self-service via Paystack (ZAR-native, South Africa-supported, §135).',
+    valueType: 'enum', allowedValues: ['none', 'stripe', 'paystack'],
     requiresRestart: false, isPhase2: false,
     dependsOn: { key: 'appointments.claimModel', value: 'claim' },
   },

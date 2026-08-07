@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status (VERCEL VERSION)
 ==================================================
-Last updated: 6 August 2026
+Last updated: 7 August 2026
 Scope: this file tracks ONLY the Vercel + Neon Postgres deployment —
 frontend/api/ + frontend/api-lib/ + frontend/src/. It does NOT cover the
 separate Azure Functions/Azure SQL codebase (api/src/, infra/), which is
@@ -22,33 +22,140 @@ original file — only this summary block at the top is newly written.
 0. CURRENT STATE — READ THIS FIRST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-NEXT ACTION, per Mark (6 Aug 2026, session 16, §134): Stripe (checkout,
-webhook, Integrations settings page for Stripe + SMTP credentials) is
-now BUILT AND VERIFIED — see §134 below for the full build and the
-unusually thorough verification pass it got (real Postgres 16 in-sandbox,
-real Stripe signature construction via the SDK's own test helper, not
-just code review). NOT YET DEPLOYED — Mark still needs to run migration
-022 against Neon and set real Stripe test-mode credentials via the new
-Integrations page before this is live. Nothing else is currently queued;
-ask Mark what's next once §134 is confirmed deployed and working end to
-end against real (test-mode) Stripe.
+NEXT ACTION, per Mark (7 Aug 2026, session 17, §135): §134's code was
+CONFIRMED DEPLOYED at the start of this session (re-hydrated fresh from
+GitHub, found stripeService.js live, diffed byte-for-byte identical to
+what was delivered except the expected package-lock.json regeneration —
+no drift, no manual edits). Whether migration 022 has actually been run
+against Neon yet is still unconfirmed either way — Mark asked about
+deploy/migrate ordering but there's no independent way to verify a
+migration's been run from this sandbox; ask if unsure.
+
+Mark then discovered Stripe does not support South Africa as a merchant
+country at all — Paystack (Stripe-owned, ZAR-native) does. §135 (this
+session) added Paystack as a second, fully independent
+appointments.tokens.paymentProvider option, BUILT AND VERIFIED with the
+same rigour as §134 (real Postgres 16 in-sandbox, a genuine HMAC-SHA512
+signature self-constructed as a broker's browser and Paystack's own
+signing algorithm would, mocked-fetch verification of the defence-in-
+depth server-to-server check specifically because api.paystack.co isn't
+reachable from this sandbox — see §135 below for exactly what that
+covers and doesn't). NOT YET DEPLOYED. NOT YET RUN against real Paystack
+test-mode infrastructure (no Paystack account available in this
+sandbox — same category of gap §134 had with real Stripe).
 
 Immediate next steps for Mark, in order:
-  1. Run migrations/022_add_integration_credentials.sql against Neon.
-  2. Deploy this delivery via the usual github.dev drag-and-drop.
-  3. On the Integrations page (App Admin -> Integrations, GlobalAdmin
-     only): set a Stripe TEST-MODE secret key first, then create a
-     webhook endpoint in the Stripe Dashboard pointed at
-     https://<your-domain>/api/appointments/tokens/webhook listening
-     for checkout.session.completed, and paste its signing secret in
-     too.
-  4. Set appointments.tokens.paymentProvider to 'stripe' in Feature
-     Flags (requires appointments.claimModel already on 'claim').
-  5. As a Broker, try Buy Tokens end to end with a real Stripe test
-     card — this is the one part of §134 that could only be verified
-     by code review + a self-signed test event, not against Stripe's
-     actual live checkout flow, since no real Stripe account/test keys
-     were available in this session.
+  1. Confirm migration 022 has actually been run against Neon (if
+     unsure, running it again is harmless — see 022's own file).
+  2. Run migrations/023_add_paystack_provider.sql against Neon.
+  3. Deploy this delivery via the usual github.dev drag-and-drop.
+  4. On the Integrations page (App Admin -> Integrations, GlobalAdmin
+     only): set a Paystack TEST-MODE secret key (Paystack Dashboard ->
+     Settings -> API Keys & Webhooks), and set that same dashboard's
+     webhook URL to https://<your-domain>/api/appointments/tokens/webhook/paystack
+     — no separate signing secret to configure, Paystack reuses the one
+     secret key for both (see §135's own design notes).
+  5. Set appointments.tokens.paymentProvider to 'paystack' in Feature
+     Flags (requires appointments.claimModel already on 'claim') — the
+     dropdown now offers none/stripe/paystack; this was already a real
+     enum-type flag rendered as a <select>, so no new UI was needed for
+     the dropdown itself, only the third option.
+  6. As a Broker, try Buy Tokens end to end with a real Paystack test
+     card — same "could only verify the mechanism, not the real vendor
+     integration, from this sandbox" caveat §134 had with Stripe.
+
+Paystack design decisions actually built (for reference, not re-derivation):
+  - ONE credential field, not two like Stripe. Paystack has no separate
+    "webhook signing secret" — the same secret key both authorises
+    /transaction/initialize calls AND signs the webhook (HMAC-SHA512 of
+    the raw body, x-paystack-signature header). IntegrationCredential's
+    'paystack' config is just { secretKey }.
+  - NO SDK dependency added. Paystack's API is plain REST (Bearer token,
+    JSON) — paystackService.js talks to https://api.paystack.co directly
+    via fetch(), same as Paystack's own docs show. No new npm package.
+  - DEFENCE IN DEPTH BEYOND THE SIGNATURE CHECK, genuinely enforced, not
+    decorative — Paystack's own webhook docs are more conservative than
+    Stripe's about trusting the payload once signed; they explicitly
+    recommend confirming via GET /transaction/verify/:reference before
+    granting value. Built exactly that way: after signature verification
+    passes, handleTokenWebhookPaystack calls paystackService.verifyTransaction()
+    and cross-checks the amount Paystack's own server reports against
+    the pack's real price — a mismatch (or a non-'success' status)
+    refuses the credit. Verified this actually blocks a credit under a
+    simulated mismatch, not just present in the code (see VERIFIED
+    below).
+  - Separate webhook URL from Stripe's (/tokens/webhook/paystack, not a
+    shared endpoint) — each provider gets its own dashboard-configured
+    URL, since the two send structurally different payloads with
+    different signature schemes; a shared endpoint would have to sniff
+    which provider sent a request before it could even verify anything.
+    Stripe's existing /tokens/webhook is UNCHANGED, deliberately not
+    renamed to /tokens/webhook/stripe, to avoid breaking a webhook Mark
+    may already have configured.
+  - ONE checkout endpoint, not two. /tokens/checkout stays a single
+    route — it reads appointments.tokens.paymentProvider itself and
+    dispatches to whichever service is active. BuyTokensModal
+    (AppointmentList.jsx) never needed to know or care which provider is
+    live; it just gets back a URL to redirect to either way.
+  - TOKEN_PACKS extracted to a new shared tokenPacks.js the moment a
+    second provider needed the identical numbers — same 5/R250, 10/R450,
+    20/R800 packs, now imported by both stripeService.js and
+    paystackService.js rather than each defining its own copy, so the
+    two can't drift apart on pricing.
+  - creditStripeTokens() GENERALIZED to creditPurchasedTokens() —
+    tokenService.js's idempotent-credit logic never actually inspected
+    Stripe-specific shape (it only ever used externalRef as an opaque
+    uniqueness key), so both webhook handlers now share one function
+    rather than each having a near-duplicate copy of money-crediting
+    code. Confirmed via a dedicated regression test that this rename
+    didn't disturb the existing Stripe path (see VERIFIED below).
+
+VERIFIED — same standard as §134, with one real sandbox limitation
+  worth being explicit about: api.paystack.co is NOT in this sandbox's
+  allowed network egress list (same restriction api.stripe.com had for
+  §134's real-checkout-call testing), so paystackService.js's actual
+  network calls (transaction/initialize, transaction/verify) could not
+  be exercised against Paystack's real API. Two different techniques
+  covered what COULD be verified without that access:
+    - Signature verification: Paystack's HMAC-SHA512 scheme is simple
+      enough (unlike Stripe's SDK-internal one) to self-construct a
+      genuinely valid signature in the test harness using the exact same
+      algorithm Paystack's own docs specify
+      (crypto.createHmac('sha512', secretKey).update(rawBody).digest('hex')),
+      then confirm the app's own verifyWebhookSignature() accepts it —
+      and separately confirm a tampered payload with the ORIGINAL
+      signature is genuinely rejected before the network-dependent
+      verify-transaction step is ever reached (checked by asserting that
+      step's mock was never called in that specific test case).
+    - The defence-in-depth verify-transaction call: since this genuinely
+      needs a network call this sandbox can't make, globalThis.fetch was
+      temporarily mocked for exactly the api.paystack.co/transaction/verify
+      URL shape (a standard dependency-injection testing technique, not
+      a change to any application code) so the FULL handler path —
+      signature check, then the real server-to-server confirmation step,
+      then the credit — could be exercised end to end, including
+      confirming that a MISMATCHED amount from that mocked response
+      genuinely blocks the credit rather than the check being present
+      but inert.
+  Beyond the Paystack-specific pieces: confirmed idempotency holds under
+  a replayed identical webhook event, using the exact same
+  TokenTransaction.externalRef unique-index mechanism §134 built —
+  proof the shared creditPurchasedTokens() genuinely works correctly for
+  a second, differently-shaped provider, not just the one it was
+  originally written for. Confirmed the checkout endpoint dispatches to
+  the correct provider's service based on the live flag value in both
+  directions (flag='stripe' reaches stripeService.js, flag='paystack'
+  reaches paystackService.js — checked by which error each one produces
+  when its unreachable-in-sandbox network call fails, since both fail
+  the same way this sandbox couldn't avoid either way). Ran a dedicated
+  Stripe regression test (real webhook delivery, real credit, checkout
+  dispatch) confirming §134's original path is fully intact after this
+  session's creditPurchasedTokens()/tokenPacks.js refactor — not assumed
+  safe just because the diff looked mechanical. Full frontend build
+  clean, Integrations.jsx picked up the new Paystack card without issue.
+  Full existing 55-test Vitest suite unaffected. Re-hydrated fresh from
+  GitHub and diffed every file before packaging — matches the intended
+  change set exactly, no parallel-session drift.
 
 Stripe design decisions actually built (for reference, not re-derivation):
   - Raw-body webhook signature verification: appointments-router.js now
@@ -184,14 +291,19 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   (appointments.claimModel = 'claim') is real as of §117 —
                   self-serve claiming, TokenLedger, monthly free
                   allocation with lazy reset (no cron in this stack).
-                  Stripe payment (appointments.tokens.paymentProvider =
-                  'stripe') is real as of §134 (6 Aug 2026) — Checkout
-                  Session creation, raw-body-verified webhook credit,
-                  idempotent against Stripe's own at-least-once
-                  redelivery. Manual admin top-up ('none' provider,
-                  §117) still exists as a separate, independent funding
-                  path — the two coexist, switching the flag doesn't
-                  remove either.
+                  Two independent payment-provider paths, both real:
+                  Stripe (§134, 6 Aug 2026) — not usable for this
+                  deployment, Stripe doesn't support South African
+                  merchants at all — and Paystack (§135, 7 Aug 2026,
+                  Stripe-owned, ZAR-native, South-Africa-supported) —
+                  the one Mark will actually use. Both: Checkout/
+                  transaction creation, raw-body-verified webhook credit,
+                  idempotent against each provider's own documented
+                  at-least-once webhook redelivery, sharing one
+                  creditPurchasedTokens() function underneath. Manual
+                  admin top-up ('none' provider, §117) still exists as a
+                  separate, independent funding path — all three
+                  coexist, switching the flag doesn't remove any of them.
   Users           Admin CRUD + real self-service profile (PUT /users/me
                   — theme/avatar/timezone, structurally separate schema
                   from the admin-editing-someone-else route)
@@ -9764,6 +9876,235 @@ infrastructure — see §0's NEXT ACTION for Mark's exact next steps
 (run migration 022, deploy, set real credentials, flip the flag, try a
 real test-card purchase). Everything through §133 remains confirmed live
 as of session 15's end; nothing in this session touched or retested that.
+
+If picking up a pending item, reference it by section number — same
+convention as before.
+
+CORRECTION, added at the start of session 17 (7 Aug 2026): the "NOT YET
+DEPLOYED" line directly above was accurate when session 16 wrote it, but
+is stale now — re-hydrating fresh from GitHub at the start of this
+session found stripeService.js and every other §134 file already live on
+main, byte-for-byte identical to what was delivered (only the expected
+package-lock.json regeneration differed). §134's CODE is confirmed
+deployed. Whether migration 022 was run is still not independently
+verifiable from this sandbox — that part of the "NOT YET" claim may
+still be accurate, may not be; ask Mark rather than assume either way.
+See §135 below for what session 17 actually did.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+135. PAYSTACK AS A SECOND PAYMENT PROVIDER — 7 Aug 2026 (session 17)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark discovered Stripe does not support South Africa as a merchant
+country at all — checked directly against paystack.com/za, which
+confirmed Paystack (Stripe-owned) does support ZA, natively in ZAR.
+Asked how difficult adding Paystack as a dropdown option alongside
+Stripe would be; assessed as moderate (most of §134's architecture is
+already provider-agnostic by construction — raw-body webhook plumbing,
+the IntegrationCredential encrypted-storage pattern, the
+TokenTransaction.externalRef idempotency mechanism, and the enum-flag
+dropdown UI all needed zero new mechanism, just a second value/branch
+each); asked to build it; built it in this session.
+
+1. PAYSTACK SERVICE — api-lib/services/paystackService.js, NEW. Mirrors
+   stripeService.js's shape (createTransaction()/verifyWebhookSignature()
+   pair) but is genuinely simpler in two ways:
+     - ONE secret, not two. No separate "webhook signing secret" concept
+       — the same secret key both authorises /transaction/initialize
+       calls and HMAC-SHA512-signs the webhook. IntegrationCredential's
+       'paystack' config is just { secretKey }.
+     - NO SDK DEPENDENCY. Paystack's API is plain REST (Bearer token,
+       JSON) — this file calls https://api.paystack.co directly via
+       fetch(), same as Paystack's own docs show. No new npm package
+       added for this (unlike Stripe, which needed the `stripe` package).
+   Amounts use the exact same priceZarCents values Stripe uses (Paystack
+   also wants integer minor-unit amounts) — see item 4 below for where
+   that shared definition now lives.
+
+2. DEFENCE IN DEPTH, GENUINELY ENFORCED. Paystack's own webhook docs are
+   more conservative than Stripe's about trusting a signed payload alone
+   — they explicitly recommend also confirming via GET
+   /transaction/verify/:reference before granting value.
+   verifyTransaction() does exactly that, and
+   handleTokenWebhookPaystack (appointmentHandlers.js) cross-checks the
+   amount that call reports against the pack's real price before
+   crediting anything — a mismatch (or a non-'success' status) refuses
+   the credit. Verified this ACTUALLY blocks a credit under a simulated
+   mismatch, not just present in the code and untested (see VERIFIED
+   below) — the distinction mattered enough to build a specific test for
+   it rather than trust that writing the check was the same as it working.
+
+3. TWO WEBHOOK URLS, ONE CHECKOUT ENDPOINT.
+   POST /api/appointments/tokens/webhook/paystack is a NEW, separate
+   route from Stripe's existing /api/appointments/tokens/webhook —
+   each provider gets its own dashboard-configured URL, since the two
+   send structurally different payloads with different signature
+   schemes; a shared endpoint would have to sniff which provider sent a
+   request before it could even verify anything, which defeats the point
+   of verifying first. Stripe's existing route is UNCHANGED — not
+   renamed to /tokens/webhook/stripe, specifically to avoid breaking a
+   webhook Mark may already have configured in Stripe's dashboard.
+   appointments-router.js's raw-body mechanism (§134) needed no change
+   in kind to cover this — just a second shape recognised by isWebhook,
+   proving that mechanism really was general-purpose, not something that
+   happened to work once.
+   Checkout stayed as ONE endpoint, though — /api/appointments/tokens/
+   checkout now reads appointments.tokens.paymentProvider itself and
+   dispatches to whichever service (stripeService.createCheckoutSession
+   or paystackService.createTransaction) is actually active.
+   BuyTokensModal (AppointmentList.jsx) never needed to know or care
+   which provider is live; it always just gets back a URL to redirect
+   the browser tab to.
+
+4. TWO REFACTORS, DONE BECAUSE A SECOND PROVIDER MADE THE DUPLICATION
+   REAL RATHER THAN HYPOTHETICAL:
+     - TOKEN_PACKS moved from stripeService.js into a new shared
+       api-lib/services/tokenPacks.js — same 5/R250, 10/R450 ("save
+       R50"), 20/R800 ("save R200") packs, now imported by both
+       provider services rather than each defining its own copy, so
+       they can't silently drift apart on what "10 tokens" actually
+       costs.
+     - tokenService.creditStripeTokens() GENERALIZED to
+       creditPurchasedTokens(brokerId, tokens, externalRef, description)
+       — its idempotent-credit logic (the TokenTransaction.externalRef
+       unique-index guard) never actually inspected anything
+       Stripe-specific; externalRef was always just an opaque uniqueness
+       key. Both webhook handlers now call the same function rather than
+       Paystack getting a near-duplicate copy of code whose entire job
+       is preventing a double-payment — that specific kind of
+       duplication felt like exactly the wrong place to accept drift
+       risk for the sake of a smaller diff.
+
+5. INTEGRATIONS PAGE — third card added (PaystackCard, Integrations.jsx),
+   single secret-key field, shows the exact webhook URL to paste into
+   Paystack's dashboard. integrationHandlers.js's GET/PUT already
+   iterated over a provider->schema map generically, so supporting a
+   third provider there was adding one map entry each, not new logic.
+
+6. DROPDOWN — appointments.tokens.paymentProvider was ALREADY a real
+   enum-type flag rendered as a genuine <select> by FeatureFlags.jsx's
+   existing generic enum-flag renderer (confirmed before starting any
+   of this — see the conversation this session opened with). Adding
+   Paystack as a third option was a one-line allowedValues array change
+   on the frontend and one UPDATE statement on the backend row
+   (migration 023) — no new UI component, because the mechanism this
+   was asking for already existed.
+
+7. AUDIT — TokenPaystackCredited added alongside the existing
+   TokenStripeCredited in both auditHandlers.js's VALID_ACTIONS and
+   AppAdmin.jsx's mirrored filter list, in the same commit that
+   introduced it (not a backfilled gap this time — §127/§134's own
+   lesson about adding both lists simultaneously, applied proactively
+   rather than caught after the fact).
+
+VERIFIED — same standard as §134, with one real sandbox limitation worth
+   being explicit about: api.paystack.co is NOT in this sandbox's
+   allowed network egress list (same restriction api.stripe.com had for
+   §134's real-checkout-call testing), so paystackService.js's actual
+   network calls could not be exercised against Paystack's real API.
+   Two different techniques covered what COULD be verified without that
+   access:
+     - Signature verification: Paystack's HMAC-SHA512 scheme (unlike
+       Stripe's SDK-internal one) is simple enough to self-construct a
+       genuinely valid signature in the test harness using the exact
+       algorithm Paystack's own docs specify, then confirm the app's own
+       verifyWebhookSignature() accepts it — and separately confirmed a
+       TAMPERED payload sent with the ORIGINAL signature is genuinely
+       rejected before the network-dependent verify-transaction step is
+       ever reached (checked by asserting that step's mock was never
+       invoked in that specific test case, not just that the response
+       code looked right).
+     - The defence-in-depth verify-transaction call: since this
+       genuinely needs network access this sandbox doesn't have,
+       globalThis.fetch was temporarily mocked for exactly the
+       api.paystack.co/transaction/verify URL shape (a standard
+       dependency-injection testing technique, not a change to any
+       application code) so the FULL handler path — signature check,
+       then the real server-to-server confirmation step, then the
+       credit — could be exercised end to end, including a case where
+       the mocked response reports a MISMATCHED amount and confirming
+       that genuinely blocks the credit rather than the check being
+       present but inert.
+   Beyond the Paystack-specific pieces: confirmed idempotency holds
+   under a replayed identical webhook event using the same
+   TokenTransaction.externalRef mechanism §134 built — proof
+   creditPurchasedTokens() genuinely works correctly for a second,
+   differently-shaped provider, not just the one it was originally
+   written for. Confirmed the checkout endpoint dispatches to the
+   correct provider's service based on the live flag value in both
+   directions. Ran a DEDICATED STRIPE REGRESSION TEST (real webhook
+   delivery via Stripe's own signature-test helper, real credit,
+   checkout dispatch) confirming §134's original path is fully intact
+   after this session's creditPurchasedTokens()/tokenPacks.js refactor
+   — not assumed safe just because the diff looked mechanical; a rename
+   plus an extraction touching a money-crediting function was exactly
+   the kind of change worth re-proving, not just re-reading. Full
+   frontend build clean, Integrations.jsx picked up the new card without
+   issue. Full existing 55-test Vitest suite unaffected. Re-hydrated
+   fresh from GitHub and diffed every file before packaging — matches
+   the intended change set exactly, no parallel-session drift.
+
+NOT VERIFIED AGAINST REAL PAYSTACK INFRASTRUCTURE — no real Paystack
+   account or test-mode keys were available in this sandbox, so the
+   ACTUAL transaction/initialize and transaction/verify calls, and the
+   real end-to-end "click Buy Tokens -> pay with a Paystack test card ->
+   land back on /appointments -> see the balance update" flow, were
+   never exercised against Paystack's real API — only against a
+   self-constructed signature (proves the verification logic is
+   correct) and a mocked verify response (proves the defence-in-depth
+   logic and full handler wiring are correct). This is the one part of
+   §135 Mark needs to verify himself once real test-mode credentials are
+   in the Integrations page — see §0's NEXT ACTION for the exact sequence.
+
+MIGRATION: NEW — migrations/023_add_paystack_provider.sql. Widens
+   IntegrationCredential's provider CHECK constraint to allow 'paystack',
+   and UPDATEs the appointments.tokens.paymentProvider FeatureFlag row's
+   allowedValues to 'none,stripe,paystack' (a plain UPDATE, not something
+   feature-flags.postgres.sql's own re-run would pick up on an
+   already-seeded database — that file's seed INSERT is
+   ON CONFLICT (flagKey) DO NOTHING). Both changes additive/non-
+   destructive, confirmed safe against a database with existing
+   IntegrationCredential rows and an existing paymentProvider flag row.
+   Depends on migration 022 already having been run (IntegrationCredential
+   must exist first). NOT YET RUN against Neon.
+
+NO NEW DEPENDENCY — deliberately. Paystack's plain-REST API meant no
+   npm package was needed for this session's work, unlike §134's `stripe`
+   addition.
+
+FILES:
+  frontend/db/schema.postgres.sql (updated — provider CHECK widened, §14b comment updated)
+  frontend/db/feature-flags.postgres.sql (updated — paymentProvider flag's seed allowedValues/description, for a fresh install)
+  frontend/db/migrations/023_add_paystack_provider.sql (NEW)
+  frontend/api-lib/services/tokenPacks.js (NEW — extracted from stripeService.js)
+  frontend/api-lib/services/stripeService.js (updated — imports TOKEN_PACKS from tokenPacks.js instead of defining its own)
+  frontend/api-lib/services/paystackService.js (NEW)
+  frontend/api-lib/services/tokenService.js (updated — creditStripeTokens() generalized to creditPurchasedTokens())
+  frontend/api-lib/services/integrationCredentialService.js (updated — 'paystack' added as a third provider)
+  frontend/api-lib/models/integration.js (updated — UpdatePaystackCredentialsSchema)
+  frontend/api-lib/handlers/appointmentHandlers.js (updated — checkout dispatch, new handleTokenWebhookPaystack)
+  frontend/api-lib/handlers/integrationHandlers.js (updated — paystack added to the provider->schema map)
+  frontend/api-lib/handlers/auditHandlers.js (updated — TokenPaystackCredited)
+  frontend/api/appointments-router.js (updated — new webhook route recognised, raw-body mechanism otherwise unchanged)
+  frontend/src/pages/Integrations.jsx (updated — new PaystackCard)
+  frontend/src/pages/FeatureFlags.jsx (updated — allowedValues now includes 'paystack')
+  frontend/src/pages/AppointmentList.jsx (updated — provider-agnostic return-banner handling, comment accuracy)
+  frontend/src/pages/AppAdmin.jsx (updated — TokenPaystackCredited in the mirrored audit filter list)
+  frontend/src/services/api.js (updated — integrationsApi.updatePaystack, checkout comment accuracy)
+Plus this Status_Vercel.md and Project_Context_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 17 PAUSED HERE — 7 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§135 is built and thoroughly verified in-sandbox (see VERIFIED above)
+but NOT YET DEPLOYED, and NOT YET run against real Paystack test-mode
+infrastructure — see §0's NEXT ACTION for Mark's exact next steps (run
+migration 022 if not already done, then 023, deploy, set real Paystack
+credentials, flip the flag, try a real test-card purchase). §134's code
+was independently confirmed deployed at the start of this session
+(see the correction above §135); whether either migration has actually
+been run against Neon remains unconfirmed from this sandbox either way.
 
 If picking up a pending item, reference it by section number — same
 convention as before.

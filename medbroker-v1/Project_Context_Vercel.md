@@ -63,7 +63,10 @@ about any of them, the honest answer is "not part of this build."
 THIRD PARTIES actually in play for this version: Vercel (hosting +
 edge/WAF), Neon (database), Stripe (token purchase checkout/webhook,
 §134, 6 Aug 2026 — only when appointments.tokens.paymentProvider =
-'stripe'), and whichever SMTP provider is configured for email
+'stripe'; not usable for this specific deployment since Stripe doesn't
+support South African merchants), Paystack (same, §135, 7 Aug 2026,
+only when the flag = 'paystack' — this is the one actually usable in
+South Africa), and whichever SMTP provider is configured for email
 notifications (Resend by default — see emailService.js). That's the
 operator/sub-processor list that actually matters for this deployment
 — see SECURITY POSTURE and POPIA / THIRD PARTIES below.
@@ -206,30 +209,41 @@ TokenLedger / TokenTransaction (§117, token economy)
   this calendar month's free allocation, lazily reset on read — no cron
   in this stack). TokenTransaction is the append-only history (Credit/
   Debit), never edited. TokenTransaction.externalRef (§134, nullable,
-  partial UNIQUE index WHERE NOT NULL) holds a Stripe Checkout Session
-  id for a webhook-originated credit ONLY — this is the idempotency
-  mechanism against Stripe's documented at-least-once webhook
+  partial UNIQUE index WHERE NOT NULL) holds a Stripe Checkout Session id
+  OR a Paystack transaction reference (§135) for a webhook-originated
+  credit ONLY — provider-agnostic by design, this is the idempotency
+  mechanism against either provider's documented at-least-once webhook
   redelivery: the guarded INSERT itself is the atomic check, not a
-  read-then-write existence lookup. NULL for every other transaction
-  type (claim debits, refunds, manual admin top-ups, §117).
+  read-then-write existence lookup. Both providers' webhook handlers call
+  the same tokenService.creditPurchasedTokens() to apply it — that
+  function was originally named creditStripeTokens() and generalized
+  the moment a second provider needed the identical logic (§135), since
+  it never actually inspected anything Stripe-specific in the first
+  place. NULL for every other transaction type (claim debits, refunds,
+  manual admin top-ups, §117).
 
-IntegrationCredential (§134, 6 Aug 2026)
-  One row per (organisationId, provider), provider IN ('stripe','smtp').
-  The ENTIRE per-provider config is JSON-encoded and encrypted as a
-  single opaque blob (encryptedConfig) via encryption.js's existing
-  envelope encryption — the same 'kms1'/'demo1' format-aware encrypt()/
-  decrypt() pair Lead.idNumber already uses, so this inherits AWS-KMS-
-  when-the-flag-is-on / demo1-when-it's-not for free. Deliberately NOT
-  SystemConfig — that table's GET is open to any authenticated staff
-  member by design; a Stripe secret key or SMTP password needs a
-  different (GlobalAdmin-only, both directions) access model entirely.
-  Read/written exclusively through
-  api-lib/services/integrationCredentialService.js, which is also the
-  ONLY place a decrypted config is ever produced (getRawConfig() —
-  internal use only, by stripeService.js and emailService.js; never
-  returned from an HTTP handler). getMaskedStatus() is what any handler
-  actually returns — secret fields become `<field>Set: boolean` + a
-  last-4-characters preview, never the raw value, once saved.
+IntegrationCredential (§134, 6 Aug 2026; extended §135, 7 Aug 2026)
+  One row per (organisationId, provider), provider IN
+  ('stripe','smtp','paystack'). The ENTIRE per-provider config is
+  JSON-encoded and encrypted as a single opaque blob (encryptedConfig)
+  via encryption.js's existing envelope encryption — the same
+  'kms1'/'demo1' format-aware encrypt()/decrypt() pair Lead.idNumber
+  already uses, so this inherits AWS-KMS-when-the-flag-is-on / demo1-
+  when-it's-not for free. Deliberately NOT SystemConfig — that table's
+  GET is open to any authenticated staff member by design; a payment
+  provider secret key or SMTP password needs a different (GlobalAdmin-
+  only, both directions) access model entirely. Read/written exclusively
+  through api-lib/services/integrationCredentialService.js, which is
+  also the ONLY place a decrypted config is ever produced (getRawConfig()
+  — internal use only, by stripeService.js/paystackService.js/
+  emailService.js; never returned from an HTTP handler). getMaskedStatus()
+  is what any handler actually returns — secret fields become
+  `<field>Set: boolean` + a last-4-characters preview, never the raw
+  value, once saved. Not every provider has the same field shape — see
+  integrationCredentialService.js's own SECRET_FIELDS map: stripe has
+  two secret fields (secretKey, webhookSigningSecret), paystack has one
+  (secretKey — Paystack reuses it for both API calls and webhook
+  signing, no separate signing secret exists), smtp has one (password).
 
 Organisation
   Multi-tenancy-ready, single-tenant today. resolveOrganisationId() in
@@ -288,16 +302,21 @@ CLAIM MODEL flag (appointments.claimModel):
              TokenLedger via tokenService.js. REAL as of §117 (4 Aug 2026)
              — was frontend-mock-only before that (see models/appointment.js's
              pre-§117 header if ever curious what the staging note used to
-             say). Stripe payment (appointments.tokens.paymentProvider =
-             'stripe') is real as of §134 (6 Aug 2026) — Checkout Session
-             creation + raw-body-verified webhook credit, idempotent
-             against Stripe's own at-least-once redelivery
-             (TokenTransaction.externalRef). The 'none' provider path
-             (§117, manual top-up by Admin/GlobalAdmin via UserAdmin.jsx's
-             Token Balance section) still exists independently — the two
-             provider values are alternate funding rails, not a staged
-             replacement of one by the other. See Status_Vercel.md §134
-             for the full build and its verification.
+             say). appointments.tokens.paymentProvider has THREE real
+             values now: 'stripe' (§134, 6 Aug 2026) — built, but not
+             usable for this deployment since Stripe doesn't support
+             South African merchants at all; 'paystack' (§135, 7 Aug
+             2026, Stripe-owned, ZAR-native, South-Africa-supported) —
+             the one actually usable here; and 'none' (§117, manual
+             top-up by Admin/GlobalAdmin via UserAdmin.jsx's Token
+             Balance section). All three are independent, coexisting
+             funding rails, not a staged replacement of one by another
+             — switching the flag doesn't remove any of them. Stripe and
+             Paystack share almost everything underneath (raw-body
+             webhook verification, TokenTransaction.externalRef
+             idempotency, tokenService.creditPurchasedTokens()) — see
+             Status_Vercel.md §134/§135 for the full build and
+             verification of each.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -441,6 +460,28 @@ medbroker-v1/
     │   │                               encryption, db, eventService,
     │   │                               leadPortalService, reportService,
     │   │                               flagService, systemConfigService,
+    │   │                               portfolioService, sarService,
+    │   │                               schedulerService, entraAuthService
+    │   │                               (+ tests), entraGraphService,
+    │   │                               tokenService (§117 — token economy;
+    │   │                               creditPurchasedTokens() is shared by
+    │   │                               both payment providers below, §135),
+    │   │                               tokenPacks (§135 — pack/pricing
+    │   │                               definitions shared by stripeService
+    │   │                               and paystackService, extracted the
+    │   │                               moment a second provider needed the
+    │   │                               identical numbers),
+    │   │                               integrationCredentialService (§134 —
+    │   │                               encrypted Stripe/Paystack/SMTP
+    │   │                               credential storage),
+    │   │                               stripeService (§134 — not usable for
+    │   │                               this deployment, Stripe doesn't
+    │   │                               support South Africa),
+    │   │                               paystackService (§135 — the payment
+    │   │                               provider actually usable here,
+    │   │                               ZAR-native, no SDK dependency),
+    │   │                               emailService (§78, DB-first/env-
+    │   │                               fallback since §134),
     │   │                               appointmentStatusService (+ tests),
     │   │                               leadStatusService (+ tests)
     │   ├── models/                     Zod schemas — one per domain
@@ -785,22 +826,32 @@ SUPPLY CHAIN / ASSURANCE
 
 POPIA / THIRD PARTIES
   Operator (sub-processor) list for THIS version: Vercel, Neon, and —
-  UPDATED §134 (6 Aug 2026) — Stripe (only once
-  appointments.tokens.paymentProvider is actually set to 'stripe') and
-  whichever SMTP provider is configured (Resend by default, or a
-  customer's own mail server/M365 — see emailService.js). Microsoft/
-  Calendly/Zoho were part of the original Azure plan and were never
-  integrated here.
-  ⬜ Operator agreements: Vercel, Neon, Stripe (once enabled), SMTP provider.
+  UPDATED §135 (7 Aug 2026) — Stripe (only once
+  appointments.tokens.paymentProvider is actually set to 'stripe'; not
+  usable for this specific deployment, Stripe doesn't support South
+  African merchants at all), Paystack (same, only when the flag =
+  'paystack' — the one actually usable here, Stripe-owned but a
+  legally/operationally separate processor relationship), and whichever
+  SMTP provider is configured (Resend by default, or a customer's own
+  mail server/M365 — see emailService.js). Microsoft/Calendly/Zoho were
+  part of the original Azure plan and were never integrated here.
+  ⬜ Operator agreements: Vercel, Neon, Paystack (once enabled — the
+     provider actually relevant to this deployment), SMTP provider.
+     Stripe's own agreement only matters if a future non-SA customer of
+     this codebase actually enables that provider — not relevant here.
   ⬜ Cross-border transfer assessment — relevant if Vercel/Neon's actual
      data-residency region isn't South Africa (worth explicitly
-     confirming which region Neon is provisioned in). Stripe's own
-     compliance posture (PCI DSS Level 1) covers card data specifically
-     — this app never touches card details at all (Checkout is
-     redirect-based, §134) — but the broker's name/email/token purchase
-     record still crosses to Stripe as a processor, worth the same
-     assessment as Vercel/Neon once this is actually enabled for a
-     customer.
+     confirming which region Neon is provisioned in). Neither Stripe nor
+     Paystack ever see card details directly — both checkout flows are
+     redirect-based (§134/§135) — but the broker's name/email/token
+     purchase record still crosses to whichever processor is active,
+     worth the same assessment as Vercel/Neon once actually enabled for
+     a customer. Paystack specifically: South Africa-based Paystack
+     accounts settle in ZAR and are themselves a South African-relevant
+     entity for this purpose, which may simplify this assessment
+     relative to Stripe — worth checking Paystack's own current data-
+     residency/sub-processor documentation when this becomes live,
+     rather than assuming either way from here.
   ⬜ Breach-notification process; Information Officer registered.
   ⬜ POPIA Subject Access Request (SAR) endpoint — flag exists
      (popia.subjectAccessRequest.enabled), admin endpoint not built.

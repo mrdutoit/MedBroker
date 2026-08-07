@@ -14,10 +14,12 @@ import { findMatchingBrokers } from '../services/brokerMatchingService.js';
 import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById, getActiveUserById } from '../services/userService.js';
 import { getLeadDisplayNameById } from '../services/leadService.js';
 import { writeAuditLog, clientIp, listAuditLog } from '../services/auditService.js';
-import { getCurrentTokenLedger, manualTopUp, listTokenTransactions, creditStripeTokens } from '../services/tokenService.js';
+import { getCurrentTokenLedger, manualTopUp, listTokenTransactions, creditPurchasedTokens } from '../services/tokenService.js';
 import { getSystemConfig } from '../services/systemConfigService.js';
 import { getFlagMeta } from '../services/flagService.js';
-import { createCheckoutSession, verifyWebhookSignature, TOKEN_PACKS } from '../services/stripeService.js';
+import { createCheckoutSession, verifyWebhookSignature } from '../services/stripeService.js';
+import { createTransaction as createPaystackTransaction, verifyWebhookSignature as verifyPaystackWebhookSignature, verifyTransaction as verifyPaystackTransaction } from '../services/paystackService.js';
+import { TOKEN_PACKS } from '../services/tokenPacks.js';
 import {
   CreateAppointmentSchema, AppointmentListQuerySchema, AssignBrokerSchema,
   ReassignAppointmentSchema, SaveOutcomeSchema, BrokerMatchingQuerySchema, TokenTopUpSchema,
@@ -586,15 +588,18 @@ export async function handleTokenTopUp(req, res, brokerId) {
 }
 
 /**
- * POST /api/appointments/tokens/checkout — §134. Broker ONLY, same
- * "self-service action, not something done on someone's behalf" reasoning
- * as handleAppointmentClaim above. Gated on
- * appointments.tokens.paymentProvider = 'stripe' — not on claimModel,
- * matching the isClaimModelEnabled() comment at the top of this file
- * (tokens can be topped up regardless of which model is currently active).
- * Returns a Checkout Session URL; the frontend redirects the whole
- * browser tab to it (BuyTokensModal, AppointmentList.jsx) — this route
- * never touches card details, only creates the session server-side.
+ * POST /api/appointments/tokens/checkout — §134, EXTENDED §135 (7 Aug
+ * 2026) for Paystack. Broker ONLY, same "self-service action, not
+ * something done on someone's behalf" reasoning as handleAppointmentClaim
+ * above. Gated on appointments.tokens.paymentProvider being 'stripe' or
+ * 'paystack' (not 'none') — not on claimModel, matching the
+ * isClaimModelEnabled() comment at the top of this file (tokens can be
+ * topped up regardless of which model is currently active). ONE
+ * endpoint regardless of which provider is active — the frontend
+ * (BuyTokensModal, AppointmentList.jsx) doesn't need to know or care
+ * which; it just gets back a URL to redirect the browser tab to either
+ * way. This route never touches card details, only creates the
+ * checkout/transaction server-side.
  */
 export async function handleTokenCheckout(req, res) {
   if (req.method !== 'POST') {
@@ -607,14 +612,17 @@ export async function handleTokenCheckout(req, res) {
     requireRole(claims, ['Broker']);
 
     const providerMeta = await getFlagMeta('appointments.tokens.paymentProvider');
-    if (providerMeta?.value !== 'stripe') {
-      return res.status(403).json({ error: 'Stripe token purchases are not enabled for this deployment' });
+    const provider = providerMeta?.value;
+    if (provider !== 'stripe' && provider !== 'paystack') {
+      return res.status(403).json({ error: 'Token purchases are not enabled for this deployment' });
     }
 
     const parsed = TokenCheckoutSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    const url = await createCheckoutSession({ brokerId: claims.oid, packIndex: parsed.data.packIndex });
+    const url = provider === 'stripe'
+      ? await createCheckoutSession({ brokerId: claims.oid, packIndex: parsed.data.packIndex })
+      : await createPaystackTransaction({ brokerId: claims.oid, packIndex: parsed.data.packIndex });
     return res.status(200).json({ url });
 
   } catch (err) {
@@ -647,9 +655,20 @@ export async function handleTokenCheckout(req, res) {
  * doesn't act on would cause Stripe to retry it forever for no reason.
  * A genuine failure (bad signature, a real DB error crediting tokens)
  * still returns non-2xx, which IS the correct behaviour — that tells
- * Stripe to retry with backoff, and creditStripeTokens() is idempotent
+ * Stripe to retry with backoff, and creditPurchasedTokens() is idempotent
  * (TokenTransaction.externalRef unique index) specifically so a retried
  * delivery is always safe.
+ *
+ * SEPARATE ROUTE FROM PAYSTACK'S WEBHOOK (handleTokenWebhookPaystack,
+ * below), DELIBERATELY — §135. Each provider gets its own distinct URL,
+ * configured separately in that provider's own dashboard, because the
+ * two send structurally different payloads with different signature
+ * schemes; a shared endpoint would have to sniff which provider sent a
+ * request before it could even verify the signature, which defeats the
+ * point of verifying first. This route (/tokens/webhook) is unchanged
+ * from §134 and remains Stripe-specific, not renamed to
+ * /tokens/webhook/stripe, to avoid breaking a Stripe webhook Mark may
+ * already have configured.
  */
 export async function handleTokenWebhook(req, res, rawBody) {
   if (req.method !== 'POST') {
@@ -682,7 +701,7 @@ export async function handleTokenWebhook(req, res, rawBody) {
       }
 
       const packLabel = TOKEN_PACKS[Number(session.metadata?.packIndex)]?.label ?? `${tokens} tokens`;
-      const result = await creditStripeTokens(brokerId, tokens, session.id, `Stripe purchase — ${packLabel}`);
+      const result = await creditPurchasedTokens(brokerId, tokens, session.id, `Stripe purchase — ${packLabel}`);
 
       if (result.credited) {
         await writeAuditLog({
@@ -702,6 +721,89 @@ export async function handleTokenWebhook(req, res, rawBody) {
 
   } catch (err) {
     console.error('appointments/tokens/webhook error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * POST /api/appointments/tokens/webhook/paystack — §135 (7 Aug 2026).
+ * Paystack's equivalent of handleTokenWebhook above — same "no staff
+ * auth, the signature IS the auth boundary" reasoning, same raw-Buffer
+ * dependency on appointments-router.js's file-wide bodyParser:false. Two
+ * differences from the Stripe path worth calling out:
+ *   - Paystack's own webhook docs are more conservative about trusting
+ *     the payload once the signature checks out — they explicitly
+ *     recommend also confirming via GET /transaction/verify/:reference
+ *     before granting value, not just checking the signature. Done here
+ *     (paystackService.verifyTransaction) as a genuine second check, not
+ *     a formality — the amount Paystack's verify endpoint reports is
+ *     cross-checked against the pack's real price, and a mismatch (or a
+ *     status other than 'success') refuses the credit rather than
+ *     trusting the webhook body's own claims about itself.
+ *   - Paystack's event field is named `event` (e.g. 'charge.success'),
+ *     not `type` like Stripe's — different vendor, different shape,
+ *     handled here rather than normalised into a shared shape, since
+ *     there's no real advantage to a fake unified event format for
+ *     exactly two providers.
+ */
+export async function handleTokenWebhookPaystack(req, res, rawBody) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  let event;
+  try {
+    event = await verifyPaystackWebhookSignature(rawBody, req.headers['x-paystack-signature']);
+  } catch (err) {
+    console.error('appointments/tokens/webhook/paystack signature verification failed:', err.message);
+    return res.status(400).json({ error: 'Webhook signature verification failed' });
+  }
+
+  try {
+    if (event.event === 'charge.success') {
+      const data = event.data;
+      const brokerId = data.metadata?.brokerId;
+      const tokens = Number(data.metadata?.tokens);
+      const packIndex = Number(data.metadata?.packIndex);
+      const reference = data.reference;
+
+      if (!brokerId || !Number.isInteger(tokens) || tokens <= 0 || !reference) {
+        console.error('appointments/tokens/webhook/paystack: charge.success missing brokerId/tokens/reference metadata', reference);
+        return res.status(200).json({ received: true, skipped: true });
+      }
+
+      // Defence in depth (this function's own header) — confirm with
+      // Paystack server-to-server before crediting, don't just trust the
+      // webhook payload's own amount/status claims.
+      const expectedAmount = TOKEN_PACKS[packIndex]?.priceZarCents;
+      const verification = await verifyPaystackTransaction(reference);
+      if (verification.status !== 'success' || verification.amount !== expectedAmount) {
+        console.error('appointments/tokens/webhook/paystack: verify mismatch', { reference, verification, expectedAmount });
+        return res.status(200).json({ received: true, skipped: true });
+      }
+
+      const packLabel = TOKEN_PACKS[packIndex]?.label ?? `${tokens} tokens`;
+      const result = await creditPurchasedTokens(brokerId, tokens, reference, `Paystack purchase — ${packLabel}`);
+
+      if (result.credited) {
+        await writeAuditLog({
+          entityType: 'TokenLedger',
+          entityId: brokerId,
+          action: 'TokenPaystackCredited',
+          performedById: null, // system-initiated, not a staff action — no authenticated actor on this route
+          changeDetail: { brokerId, tokens, paystackReference: reference },
+          ipAddress: clientIp(req),
+        });
+      }
+    }
+
+    // Every other event type: acknowledged, not acted on (this app only
+    // reacts to charge.success today).
+    return res.status(200).json({ received: true });
+
+  } catch (err) {
+    console.error('appointments/tokens/webhook/paystack error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

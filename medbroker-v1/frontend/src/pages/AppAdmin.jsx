@@ -42,7 +42,7 @@ const AUDIT_ACTIONS = [
   'PortfolioCreated', 'PortfolioStatusChanged', 'PortfolioDeleted',
   'ProductCreated', 'ProductStatusChanged', 'ProductDeleted',
   'AppointmentClaimed', 'TokenManualTopUp', 'SystemConfigUpdated',
-  'IntegrationCredentialUpdated', 'TokenStripeCredited',
+  'IntegrationCredentialUpdated', 'TokenStripeCredited', 'TokenPaystackCredited',
 ];
 
 // §128 (5 Aug 2026) — mirrors sarService.js's own STATUS_RANK exactly

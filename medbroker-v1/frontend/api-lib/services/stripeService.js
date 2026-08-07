@@ -1,5 +1,7 @@
 /**
- * services/stripeService.js — NEW, §134 (6 Aug 2026).
+ * services/stripeService.js — NEW, §134 (6 Aug 2026). UPDATED §135
+ * (7 Aug 2026) — TOKEN_PACKS moved to tokenPacks.js, shared with the new
+ * paystackService.js, so the two providers can't drift apart on pricing.
  * Stripe Checkout (redirect-based, not Stripe.js/Elements) for the
  * appointments.tokens.paymentProvider = 'stripe' path. A broker clicks
  * Buy Tokens, the browser is redirected to a Stripe-hosted payment page
@@ -7,24 +9,13 @@
  * this app's own frontend never touches card details or a Stripe
  * publishable key at all, so IntegrationCredential only stores a secret
  * key and a webhook signing secret, nothing client-facing.
- *
- * TOKEN PACKS — fixed server-side, not client-supplied. AppointmentList.jsx's
- * BuyTokensModal already had these three packs in its Phase-2 mockup
- * (5/R250, 10/R450 "save R50", 20/R800 "save R200") — reused verbatim
- * rather than inventing new pricing, and priced server-side so a modified
- * client request can never pay less than the real price for more tokens.
  */
 
 import Stripe from 'stripe';
 import { getRawConfig } from './integrationCredentialService.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 import { config } from '../config.js';
-
-export const TOKEN_PACKS = [
-  { tokens: 5,  priceZarCents: 25000, label: '5 tokens' },
-  { tokens: 10, priceZarCents: 45000, label: '10 tokens — save R50' },
-  { tokens: 20, priceZarCents: 80000, label: '20 tokens — save R200' },
-];
+import { TOKEN_PACKS } from './tokenPacks.js';
 
 /**
  * Builds a Stripe client from the DB-stored secret key. Throws a clear,

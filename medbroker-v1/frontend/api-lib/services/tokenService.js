@@ -249,31 +249,43 @@ export async function manualTopUp(brokerId, amount, performedById) {
 }
 
 /**
- * Credits `tokens` to a broker's paid balance for a completed Stripe
- * Checkout Session — §134. IDEMPOTENT AT THE DATABASE LEVEL: Stripe's own
- * docs guarantee at-least-once webhook delivery, meaning the same
- * checkout.session.completed event can genuinely arrive more than once
- * for the same session. This function relies on TokenTransaction's
- * partial UNIQUE index on externalRef (WHERE externalRef IS NOT NULL,
- * schema §14b) rather than a read-then-write existence check — a
- * check-then-act here would have exactly the same race window
- * debitTokensForClaim()'s own header warns about (two near-simultaneous
- * webhook deliveries both passing an "already processed?" SELECT before
- * either has inserted anything). The INSERT itself is the atomic guard:
- * whichever delivery's INSERT lands first wins and credits the ledger;
- * every other delivery for the same session id hits the unique index,
- * catches the resulting 23505 (unique_violation) error code, and returns
- * cleanly with credited: false — not an error condition from the
- * webhook's perspective, since the correct outcome (broker has their
- * tokens) is already true.
+ * Credits `tokens` to a broker's paid balance for a completed payment —
+ * §134, GENERALIZED §135 (7 Aug 2026) from creditStripeTokens() when
+ * Paystack was added as a second provider, since this function's own
+ * idempotency logic is entirely provider-agnostic: it never inspects
+ * `externalRef` beyond using it as an opaque uniqueness key, so a Stripe
+ * session id and a Paystack transaction reference are handled identically.
+ * Both webhook handlers (Stripe and Paystack, appointmentHandlers.js)
+ * call this same function rather than each having their own near-
+ * duplicate copy of the idempotent-credit logic — duplicating
+ * money-crediting code across two providers is exactly the kind of
+ * thing worth refactoring away rather than copy-pasting, given how much
+ * this function's correctness actually matters.
+ *
+ * IDEMPOTENT AT THE DATABASE LEVEL: both Stripe and Paystack document
+ * at-least-once webhook delivery, meaning the same "payment completed"
+ * event can genuinely arrive more than once. This function relies on
+ * TokenTransaction's partial UNIQUE index on externalRef (WHERE
+ * externalRef IS NOT NULL, schema §14b) rather than a read-then-write
+ * existence check — a check-then-act here would have exactly the same
+ * race window debitTokensForClaim()'s own header warns about (two
+ * near-simultaneous webhook deliveries both passing an "already
+ * processed?" SELECT before either has inserted anything). The INSERT
+ * itself is the atomic guard: whichever delivery's INSERT lands first
+ * wins and credits the ledger; every other delivery for the same
+ * externalRef hits the unique index, catches the resulting 23505
+ * (unique_violation) error code, and returns cleanly with
+ * credited: false — not an error condition from the webhook's
+ * perspective, since the correct outcome (broker has their tokens) is
+ * already true.
  * @param {string} brokerId
  * @param {number} tokens
- * @param {string} stripeSessionId - Stripe Checkout Session id, used as
- *   the idempotency key
+ * @param {string} externalRef - Stripe Checkout Session id, or a
+ *   Paystack transaction reference — either way, the idempotency key
  * @param {string} description
  * @returns {Promise<{ credited: boolean, alreadyProcessed?: boolean }>}
  */
-export async function creditStripeTokens(brokerId, tokens, stripeSessionId, description) {
+export async function creditPurchasedTokens(brokerId, tokens, externalRef, description) {
   const organisationId = resolveOrganisationId();
   await getCurrentTokenLedger(brokerId); // ensures the row exists (and is current-month) before crediting it
 
@@ -287,12 +299,12 @@ export async function creditStripeTokens(brokerId, tokens, stripeSessionId, desc
         brokerId:       { type: sql.UniqueIdentifier, value: brokerId },
         amount:         { type: sql.Int, value: tokens },
         description:    { type: sql.NVarChar(300), value: description },
-        externalRef:    { type: sql.NVarChar(255), value: stripeSessionId },
+        externalRef:    { type: sql.NVarChar(255), value: externalRef },
       }
     );
   } catch (err) {
     if (err.code === '23505') {
-      // Duplicate webhook delivery for a session already credited — the
+      // Duplicate webhook delivery for a payment already credited — the
       // correct outcome (tokens already on the ledger) is already true,
       // so this is a clean no-op, not an error the caller should surface.
       return { credited: false, alreadyProcessed: true };

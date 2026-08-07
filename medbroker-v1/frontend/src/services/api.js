@@ -143,16 +143,18 @@ export const systemConfigApi = {
   update: (data) => request('/system-config', { method: 'PUT', body: JSON.stringify(data) }),
 };
 
-// §134 — App Admin → Integrations (Stripe + SMTP credentials).
+// §134 — App Admin → Integrations (Stripe + SMTP credentials). EXTENDED
+// §135 (7 Aug 2026) for Paystack.
 // GlobalAdmin only, both directions — server-enforced, this is just the
 // client. get() returns masked status (never a raw secret value — see
 // integrationCredentialService.js's own header for the masking contract);
-// updateStripe()/updateSmtp() are partial updates, omitted/blank secret
-// fields leave the stored value unchanged.
+// updateStripe()/updatePaystack()/updateSmtp() are partial updates,
+// omitted/blank secret fields leave the stored value unchanged.
 export const integrationsApi = {
-  get:           ()     => request('/system-config/integrations'),
-  updateStripe:  (data) => request('/system-config/integrations/stripe', { method: 'PUT', body: JSON.stringify(data) }),
-  updateSmtp:    (data) => request('/system-config/integrations/smtp',   { method: 'PUT', body: JSON.stringify(data) }),
+  get:            ()     => request('/system-config/integrations'),
+  updateStripe:   (data) => request('/system-config/integrations/stripe',   { method: 'PUT', body: JSON.stringify(data) }),
+  updatePaystack: (data) => request('/system-config/integrations/paystack', { method: 'PUT', body: JSON.stringify(data) }),
+  updateSmtp:     (data) => request('/system-config/integrations/smtp',     { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // ─── Leads ────────────────────────────────────────────────────────────────────
@@ -325,16 +327,18 @@ export const appointmentsApi = {
   // tokens.me — the broker's own current balance + recent transactions.
   // tokens.forBroker/topUp — Admin/GlobalAdmin managing a specific
   //   broker's balance manually; the entire 'none' payment-provider path
-  //   (see Status_Vercel.md §117). tokens.checkout below is the 'stripe'
-  //   payment-provider path, added §134.
+  //   (see Status_Vercel.md §117). tokens.checkout below is the 'stripe'/
+  //   'paystack' payment-provider path, added §134, extended §135.
   tokens: {
     me:         ()               => request('/appointments/tokens/me'),
     forBroker:  (brokerId)       => request(`/appointments/tokens/${brokerId}`),
-    // checkout — §134. Broker only. Creates a Stripe Checkout Session for
-    //   one of the three fixed token packs (server-priced — packIndex is
-    //   the only thing sent) and returns { url } to redirect the browser
-    //   tab to. Only reachable when appointments.tokens.paymentProvider
-    //   is 'stripe' — 403s otherwise.
+    // checkout — §134, EXTENDED §135 for Paystack. Broker only. Creates
+    //   a checkout session/transaction (via whichever provider
+    //   appointments.tokens.paymentProvider is currently set to — this
+    //   call doesn't need to know which) for one of the three fixed
+    //   token packs (server-priced — packIndex is the only thing sent)
+    //   and returns { url } to redirect the browser tab to. Only
+    //   reachable when the flag is 'stripe' or 'paystack' — 403s otherwise.
     checkout:   (packIndex)      => request('/appointments/tokens/checkout', { method: 'POST', body: JSON.stringify({ packIndex }) }),
     topUp:      (brokerId, amount) =>
       request(`/appointments/tokens/${brokerId}/topup`, { method: 'PUT', body: JSON.stringify({ amount }) }),

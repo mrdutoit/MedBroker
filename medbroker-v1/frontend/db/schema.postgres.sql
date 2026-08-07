@@ -839,7 +839,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS UQ_TokenTransaction_ExternalRef
     ON TokenTransaction (externalRef) WHERE externalRef IS NOT NULL;
 
 -- =============================================================================
--- SECTION 14b — INTEGRATION CREDENTIALS (§134, Stripe + SMTP)
+-- SECTION 14b — INTEGRATION CREDENTIALS (§134/§135, Stripe + SMTP + Paystack)
 -- =============================================================================
 -- One row per (organisationId, provider). The entire provider config is
 -- JSON-encoded and encrypted as a SINGLE opaque blob via encryption.js's
@@ -860,7 +860,7 @@ CREATE TABLE IF NOT EXISTS IntegrationCredential (
     CONSTRAINT PK_IntegrationCredential          PRIMARY KEY (id),
     CONSTRAINT FK_IntegrationCredential_Org      FOREIGN KEY (organisationId) REFERENCES Organisation(id),
     CONSTRAINT FK_IntegrationCredential_UpdBy    FOREIGN KEY (updatedById)    REFERENCES "User"(id),
-    CONSTRAINT CK_IntegrationCredential_Provider CHECK (provider IN ('stripe', 'smtp')),
+    CONSTRAINT CK_IntegrationCredential_Provider CHECK (provider IN ('stripe', 'smtp', 'paystack')),
     CONSTRAINT UQ_IntegrationCredential_OrgProv  UNIQUE (organisationId, provider)
 );
 
