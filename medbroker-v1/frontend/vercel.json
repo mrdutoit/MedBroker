@@ -14,6 +14,7 @@
     { "source": "/api/portal/:slug*",       "destination": "/api/portal-router?slug=:slug*" },
     { "source": "/api/tasks/:slug*",        "destination": "/api/tasks-router?slug=:slug*" },
     { "source": "/api/notifications/:slug*", "destination": "/api/notifications-router?slug=:slug*" },
+    { "source": "/api/system-config/:slug*", "destination": "/api/system-config?slug=:slug*" },
     { "source": "/((?!api/).*)", "destination": "/index.html" }
   ],
   "headers": [

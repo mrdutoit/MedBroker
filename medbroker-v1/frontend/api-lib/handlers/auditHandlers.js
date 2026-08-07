@@ -33,7 +33,22 @@ const MAX_EXPORT_ROWS = 5000;
 // warns about). ALSO found while fixing this: UserSessionsRevoked was
 // already missing from AppAdmin.jsx's frontend filter list (unrelated
 // to SAR, pre-existing) — fixed there too, same category of bug.
-const VALID_ENTITY_TYPES = ['Appointment', 'Lead', 'Event', 'EventAttendee', 'FeatureFlag', 'Task', 'User', 'Portfolio', 'Product', 'SubjectAccessRequest'];
+//
+// §134 (6 Aug 2026) — SAME GAP FOUND AGAIN, THIS TIME FOR §117: TokenLedger
+// (entity type, used by handleTokenTopUp's own writeAuditLog call) and
+// AppointmentClaimed/TokenManualTopUp (actions, §117) were never added
+// here when §117 shipped — same silent-empty-filter bug, just a
+// different feature. Also SystemConfig (entity type, system-config.js's
+// own audit write, predates even §117). Backfilled all four while adding
+// this session's own new entries (IntegrationCredential entity type,
+// IntegrationCredentialUpdated/TokenStripeCredited actions) rather than
+// repeating the exact mistake a third time — see PERMANENT PATTERNS in
+// Project_Context_Vercel.md: "add new types to both lists simultaneously."
+const VALID_ENTITY_TYPES = [
+  'Appointment', 'Lead', 'Event', 'EventAttendee', 'FeatureFlag', 'Task', 'User',
+  'Portfolio', 'Product', 'SubjectAccessRequest', 'TokenLedger', 'SystemConfig',
+  'IntegrationCredential',
+];
 const VALID_ACTIONS = [
   'AppointmentBrokerAssigned', 'AppointmentCreated', 'AppointmentOutcomeSaved',
   'AppointmentReassigned', 'AppointmentReturnedToLeads', 'AttendeeAdded',
@@ -44,6 +59,8 @@ const VALID_ACTIONS = [
   'SarRequestCreated', 'SarStatusChanged', 'SarDataExported', 'SarAssigned', 'UserUnlocked', 'UserSessionsRevoked',
   'PortfolioCreated', 'PortfolioStatusChanged', 'PortfolioDeleted',
   'ProductCreated', 'ProductStatusChanged', 'ProductDeleted',
+  'AppointmentClaimed', 'TokenManualTopUp', 'SystemConfigUpdated',
+  'IntegrationCredentialUpdated', 'TokenStripeCredited',
 ];
 
 /**

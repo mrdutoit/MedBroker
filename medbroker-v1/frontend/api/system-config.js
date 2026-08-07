@@ -10,16 +10,44 @@
  * here is a deliberate, considered choice, not an oversight. Not scoped
  * per-organisation-role like Leads are either way; it's a single
  * settings row.
+ *
+ * SLUG SUB-TREE ADDED §134 (6 Aug 2026) — GET /api/system-config/integrations
+ * and PUT /api/system-config/integrations/:provider (App Admin →
+ * Integrations, Stripe + SMTP credentials). Added as a sub-route on THIS
+ * file rather than a new one — 12/12 Vercel functions, zero headroom,
+ * same reasoning auditHandlers.js's header gives for its own placement
+ * under flags-router.js. Delegated to integrationHandlers.js rather than
+ * inlined here, unlike the System Settings logic above — GlobalAdmin-only
+ * on GET too (unlike System Settings' deliberately-open GET), different
+ * enough in shape and access model to warrant its own file rather than
+ * growing this one's inline logic further. Needed a vercel.json rewrite
+ * change to accept a slug at all — this file previously had no sub-route
+ * support (see vercel.json's own comment at that rewrite entry).
  */
 
 import { validateToken, requireRole, authErrorResponse } from '../api-lib/middleware/auth.js';
 import { getSystemConfig, updateSystemConfig } from '../api-lib/services/systemConfigService.js';
 import { writeAuditLog, clientIp } from '../api-lib/services/auditService.js';
 import { UpdateSystemConfigSchema } from '../api-lib/models/auth.js';
-import { applyCors } from '../api-lib/http/helpers.js';
+import { handleIntegrationsStatus, handleIntegrationsUpdate } from '../api-lib/handlers/integrationHandlers.js';
+import { applyCors, parseSlug } from '../api-lib/http/helpers.js';
 
 export default async function handler(req, res) {
   if (applyCors(req, res)) return;
+
+  const segments = parseSlug(req.query.slug);
+
+  // §134 — must come before the base GET/PUT logic below; 'integrations'
+  // is never a base-route concern.
+  if (segments.length === 1 && segments[0] === 'integrations') {
+    return handleIntegrationsStatus(req, res);
+  }
+  if (segments.length === 2 && segments[0] === 'integrations') {
+    return handleIntegrationsUpdate(req, res, segments[1]);
+  }
+  if (segments.length > 0) {
+    return res.status(404).json({ error: 'Not found' });
+  }
 
   try {
     const claims = await validateToken(req);

@@ -51,6 +51,7 @@ const Notifications     = lazy(() => import('./pages/Notifications.jsx'));
 const Tasks             = lazy(() => import('./pages/Tasks.jsx'));
 const SingleSignOn      = lazy(() => import('./pages/SingleSignOn.jsx'));
 const FeatureFlags      = lazy(() => import('./pages/FeatureFlags.jsx'));
+const Integrations      = lazy(() => import('./pages/Integrations.jsx'));
 const Settings          = lazy(() => import('./pages/Settings.jsx'));
 
 // Lead Portal — self-service prospect routes, completely separate provider
@@ -235,6 +236,7 @@ function AppLayout({ children }) {
               <NavItem to="/admin/app"   label="App Admin"  onClick={closeNav} />
               {showSso       && <NavItem to="/admin/sso"   label="Single Sign-On" onClick={closeNav} />}
               {isGlobalAdmin && <NavItem to="/admin/flags" label="Feature Flags"  onClick={closeNav} />}
+              {isGlobalAdmin && <NavItem to="/admin/integrations" label="Integrations" onClick={closeNav} />}
             </>
           )}
         </div>
@@ -412,6 +414,8 @@ function AppLayoutWrapper() {
 
         {/* Feature Flags — GlobalAdmin only */}
         <Route path="/admin/flags" element={isGlobalAdmin ? <FeatureFlags /> : <Navigate to={defaultPath} replace />} />
+        {/* Integrations (Stripe + SMTP credentials) — GlobalAdmin only, §134 */}
+        <Route path="/admin/integrations" element={isGlobalAdmin ? <Integrations /> : <Navigate to={defaultPath} replace />} />
       </Routes>
     </AppLayout>
   );

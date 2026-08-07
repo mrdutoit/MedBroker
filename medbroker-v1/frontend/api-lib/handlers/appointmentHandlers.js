@@ -14,13 +14,15 @@ import { findMatchingBrokers } from '../services/brokerMatchingService.js';
 import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById, getActiveUserById } from '../services/userService.js';
 import { getLeadDisplayNameById } from '../services/leadService.js';
 import { writeAuditLog, clientIp, listAuditLog } from '../services/auditService.js';
-import { getCurrentTokenLedger, manualTopUp, listTokenTransactions } from '../services/tokenService.js';
+import { getCurrentTokenLedger, manualTopUp, listTokenTransactions, creditStripeTokens } from '../services/tokenService.js';
 import { getSystemConfig } from '../services/systemConfigService.js';
 import { getFlagMeta } from '../services/flagService.js';
+import { createCheckoutSession, verifyWebhookSignature, TOKEN_PACKS } from '../services/stripeService.js';
 import {
   CreateAppointmentSchema, AppointmentListQuerySchema, AssignBrokerSchema,
   ReassignAppointmentSchema, SaveOutcomeSchema, BrokerMatchingQuerySchema, TokenTopUpSchema,
 } from '../models/appointment.js';
+import { TokenCheckoutSchema } from '../models/integration.js';
 import { isUuid } from '../http/helpers.js';
 
 /**
@@ -579,6 +581,127 @@ export async function handleTokenTopUp(req, res, brokerId) {
       return res.status(status).json(body);
     }
     console.error('appointments/tokens/[brokerId]/topup error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * POST /api/appointments/tokens/checkout — §134. Broker ONLY, same
+ * "self-service action, not something done on someone's behalf" reasoning
+ * as handleAppointmentClaim above. Gated on
+ * appointments.tokens.paymentProvider = 'stripe' — not on claimModel,
+ * matching the isClaimModelEnabled() comment at the top of this file
+ * (tokens can be topped up regardless of which model is currently active).
+ * Returns a Checkout Session URL; the frontend redirects the whole
+ * browser tab to it (BuyTokensModal, AppointmentList.jsx) — this route
+ * never touches card details, only creates the session server-side.
+ */
+export async function handleTokenCheckout(req, res) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Broker']);
+
+    const providerMeta = await getFlagMeta('appointments.tokens.paymentProvider');
+    if (providerMeta?.value !== 'stripe') {
+      return res.status(403).json({ error: 'Stripe token purchases are not enabled for this deployment' });
+    }
+
+    const parsed = TokenCheckoutSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const url = await createCheckoutSession({ brokerId: claims.oid, packIndex: parsed.data.packIndex });
+    return res.status(200).json({ url });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('appointments/tokens/checkout error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * POST /api/appointments/tokens/webhook — §134. Stripe calls this
+ * directly — DELIBERATELY NO validateToken()/requireRole() here, unlike
+ * every other route in this file. Stripe has no MedBroker session cookie
+ * to send; the Stripe-Signature header (verified against the DB-stored
+ * webhook signing secret, stripeService.verifyWebhookSignature) is the
+ * entire authentication boundary for this endpoint — see that function's
+ * own header for why a forged POST here can't credit tokens without it.
+ *
+ * `rawBody` is a Buffer, not req.body — passed in by appointments-router.js,
+ * which reads the raw stream itself before this function ever sees the
+ * request (see that file's header for the file-wide bodyParser: false
+ * this depends on).
+ *
+ * Responds 200 to every event type Stripe sends, not just
+ * checkout.session.completed — Stripe expects any 2xx to mean "received,
+ * don't retry"; returning an error for an event type this app simply
+ * doesn't act on would cause Stripe to retry it forever for no reason.
+ * A genuine failure (bad signature, a real DB error crediting tokens)
+ * still returns non-2xx, which IS the correct behaviour — that tells
+ * Stripe to retry with backoff, and creditStripeTokens() is idempotent
+ * (TokenTransaction.externalRef unique index) specifically so a retried
+ * delivery is always safe.
+ */
+export async function handleTokenWebhook(req, res, rawBody) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  let event;
+  try {
+    event = await verifyWebhookSignature(rawBody, req.headers['stripe-signature']);
+  } catch (err) {
+    console.error('appointments/tokens/webhook signature verification failed:', err.message);
+    return res.status(400).json({ error: 'Webhook signature verification failed' });
+  }
+
+  try {
+    if (event.type === 'checkout.session.completed') {
+      const session = event.data.object;
+      const brokerId = session.metadata?.brokerId;
+      const tokens = Number(session.metadata?.tokens);
+
+      if (!brokerId || !Number.isInteger(tokens) || tokens <= 0) {
+        // Malformed metadata — shouldn't happen for a session this app
+        // itself created (createCheckoutSession always sets both), but a
+        // 200 here (not 500) is still correct: retrying won't fix bad
+        // metadata that was already wrong the first time, and this isn't
+        // Stripe's fault to keep retrying.
+        console.error('appointments/tokens/webhook: checkout.session.completed missing brokerId/tokens metadata', session.id);
+        return res.status(200).json({ received: true, skipped: true });
+      }
+
+      const packLabel = TOKEN_PACKS[Number(session.metadata?.packIndex)]?.label ?? `${tokens} tokens`;
+      const result = await creditStripeTokens(brokerId, tokens, session.id, `Stripe purchase — ${packLabel}`);
+
+      if (result.credited) {
+        await writeAuditLog({
+          entityType: 'TokenLedger',
+          entityId: brokerId,
+          action: 'TokenStripeCredited',
+          performedById: null, // system-initiated, not a staff action — no authenticated actor on this route
+          changeDetail: { brokerId, tokens, stripeSessionId: session.id },
+          ipAddress: clientIp(req),
+        });
+      }
+    }
+
+    // Every other event type: acknowledged, not acted on (this app only
+    // reacts to checkout.session.completed today).
+    return res.status(200).json({ received: true });
+
+  } catch (err) {
+    console.error('appointments/tokens/webhook error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

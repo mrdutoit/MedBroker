@@ -19,7 +19,18 @@ import { formatDate } from '../utils/dateFormat.js';
 // (existing entries with that value still show up fine in the
 // unfiltered view either way — this only affects the dropdown, not
 // what data exists).
-const AUDIT_ENTITY_TYPES = ['Appointment', 'Lead', 'Event', 'EventAttendee', 'FeatureFlag', 'Task', 'User', 'Portfolio', 'Product', 'SubjectAccessRequest'];
+// §134 (6 Aug 2026) — backfilled TokenLedger/SystemConfig (entity types)
+// and AppointmentClaimed/TokenManualTopUp/SystemConfigUpdated (actions) —
+// all pre-existing since §117, never added here, same silent-empty-filter
+// gap §127 already found and fixed once for SAR. Added this session's own
+// new entries (IntegrationCredential, IntegrationCredentialUpdated,
+// TokenStripeCredited) alongside them rather than repeating the mistake.
+// See auditHandlers.js's matching comment.
+const AUDIT_ENTITY_TYPES = [
+  'Appointment', 'Lead', 'Event', 'EventAttendee', 'FeatureFlag', 'Task', 'User',
+  'Portfolio', 'Product', 'SubjectAccessRequest', 'TokenLedger', 'SystemConfig',
+  'IntegrationCredential',
+];
 const AUDIT_ACTIONS = [
   'AppointmentBrokerAssigned', 'AppointmentCreated', 'AppointmentOutcomeSaved',
   'AppointmentReassigned', 'AppointmentReturnedToLeads', 'AttendeeAdded',
@@ -30,6 +41,8 @@ const AUDIT_ACTIONS = [
   'SarRequestCreated', 'SarStatusChanged', 'SarDataExported', 'SarAssigned', 'UserUnlocked', 'UserSessionsRevoked',
   'PortfolioCreated', 'PortfolioStatusChanged', 'PortfolioDeleted',
   'ProductCreated', 'ProductStatusChanged', 'ProductDeleted',
+  'AppointmentClaimed', 'TokenManualTopUp', 'SystemConfigUpdated',
+  'IntegrationCredentialUpdated', 'TokenStripeCredited',
 ];
 
 // §128 (5 Aug 2026) — mirrors sarService.js's own STATUS_RANK exactly

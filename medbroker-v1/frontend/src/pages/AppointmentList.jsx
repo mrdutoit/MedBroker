@@ -22,8 +22,8 @@
  *     and reassign the broker on already-assigned ones.
  */
 
-import { useState } from 'react';
-import { useNavigate } from 'react-router';
+import { useState, useEffect } from 'react';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { appointmentsApi, usersApi, ApiError } from '../services/api.js';
@@ -49,6 +49,16 @@ function PortfolioBadge({ portfolio }) {
 }
 
 // ─── Buy Tokens modal ──────────────────────────────────────────────────────────
+// §134 (6 Aug 2026) — REWIRED to a real Stripe Checkout redirect. Was a
+// Phase-2 mockup (setTimeout + "Phase 2 — payment not yet active"); the
+// three packs shown here are unchanged from that mockup — pricing is now
+// also enforced server-side from the exact same values
+// (stripeService.TOKEN_PACKS), so this list is display-only, not the
+// source of truth. handlePurchase() redirects the whole browser tab to
+// Stripe's hosted payment page (window.location.href = url) — this
+// component never touches card details or a Stripe key; see
+// stripeService.js's header for why Checkout (redirect-based) needs
+// neither on the frontend.
 function BuyTokensModal({ onClose, paymentProvider }) {
   const PACKS = [
     { tokens: 5,  price: 'R250',  label: '5 tokens' },
@@ -57,15 +67,18 @@ function BuyTokensModal({ onClose, paymentProvider }) {
   ];
   const [selected, setSelected] = useState(1);
   const [purchasing, setPurchasing] = useState(false);
-  const [done, setDone] = useState(false);
+  const [error, setError] = useState('');
 
   async function handlePurchase() {
-    if (paymentProvider === 'none') { setDone(true); return; }
     setPurchasing(true);
-    // In production: POST /api/tokens/checkout → Stripe Checkout Session URL
-    await new Promise(r => setTimeout(r, 800));
-    setDone(true);
-    setPurchasing(false);
+    setError('');
+    try {
+      const { url } = await appointmentsApi.tokens.checkout(selected);
+      window.location.href = url; // full-page redirect to Stripe's hosted Checkout page
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not start checkout — please try again.');
+      setPurchasing(false);
+    }
   }
 
   return (
@@ -79,14 +92,15 @@ function BuyTokensModal({ onClose, paymentProvider }) {
         {paymentProvider === 'none' ? (
           <div style={{ ...s.noticeWarn, marginBottom: '14px', fontSize: '0.8125rem' }}>
             <strong>Payment not yet configured.</strong> Contact your administrator to top up
-            your token balance. Token purchases via Stripe will be available in Phase 2.
+            your token balance.
           </div>
         ) : (
           <>
             <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '14px' }}>
               Select a token pack. You will be redirected to a secure payment page.
             </p>
-            {!done && PACKS.map((pack, i) => (
+            {error && <div style={{ ...s.errorBox, marginBottom: '14px', fontSize: '0.8125rem' }}>{error}</div>}
+            {PACKS.map((pack, i) => (
               <label key={i} style={{
                 display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px',
                 border: `1px solid ${selected === i ? 'var(--accent)' : 'var(--line)'}`,
@@ -94,24 +108,19 @@ function BuyTokensModal({ onClose, paymentProvider }) {
                 background: selected === i ? 'color-mix(in srgb, var(--accent) 10%, var(--panel))' : 'var(--panel)',
               }}>
                 <input type="radio" name="token-pack" checked={selected === i}
-                  onChange={() => setSelected(i)} style={{ accentColor: 'var(--accent)' }} />
+                  onChange={() => setSelected(i)} style={{ accentColor: 'var(--accent)' }} disabled={purchasing} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{pack.label}</div>
                 </div>
                 <span style={{ fontWeight: 600 }}>{pack.price}</span>
               </label>
             ))}
-            {done && (
-              <div style={{ ...s.noticeSuccess, marginBottom: '14px' }}>
-                ✓ Redirecting to secure payment… (Phase 2 — payment not yet active in preview)
-              </div>
-            )}
           </>
         )}
 
         <div style={s.modalFooter}>
-          <button style={s.ghostBtn} onClick={onClose}>Close</button>
-          {paymentProvider !== 'none' && !done && (
+          <button style={s.ghostBtn} onClick={onClose} disabled={purchasing}>Close</button>
+          {paymentProvider !== 'none' && (
             <button style={s.primaryBtn} onClick={handlePurchase} disabled={purchasing}>
               {purchasing ? 'Redirecting…' : `Purchase ${PACKS[selected].label}`}
             </button>
@@ -300,6 +309,32 @@ export default function AppointmentList() {
   );
   const tokenLedger       = tokenData?.ledger ?? { freeRemaining: 0, balance: 0 };
   const monthlyAllocation = tokenData?.monthlyAllocation ?? 0;
+
+  // §134 — Stripe redirects back to /appointments?stripe=success|cancel
+  // (createCheckoutSession's success_url/cancel_url, stripeService.js).
+  // The webhook (not this redirect) is what actually credits the tokens
+  // — Stripe's own guidance is explicit that success_url is reached the
+  // instant payment succeeds client-side, which can arrive at this page
+  // BEFORE the webhook has been delivered and processed server-side. So
+  // this banner is deliberately worded as "payment received, tokens on
+  // the way" rather than claiming the balance is already updated, and
+  // refetchTokens() below is a best-effort immediate check, not the
+  // source of truth for whether the credit landed — the broker's balance
+  // will reflect it within moments regardless of whether this refetch
+  // catches it before or after the webhook lands.
+  const [stripeReturn, setStripeReturn] = useState(null); // 'success' | 'cancel' | null
+  const [searchParams, setSearchParams] = useSearchParams();
+  useEffect(() => {
+    const result = searchParams.get('stripe');
+    if (result === 'success' || result === 'cancel') {
+      setStripeReturn(result);
+      if (result === 'success') refetchTokens();
+      // Clear the query param so a page refresh doesn't re-show the banner.
+      const next = new URLSearchParams(searchParams);
+      next.delete('stripe');
+      setSearchParams(next, { replace: true });
+    }
+  }, []);
 
   const today = new Date().toDateString();
   const realAppointments = (apptData?.appointments ?? []).map(a => ({
@@ -571,7 +606,18 @@ export default function AppointmentList() {
     const { freeRemaining, balance } = tokenLedger;
     const pct = monthlyAllocation > 0 ? Math.round((freeRemaining / monthlyAllocation) * 100) : 0;
     return (
-      <div style={{ background:'var(--panel)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px 16px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '16px' }}>
+      <>
+        {stripeReturn === 'success' && (
+          <div style={{ ...s.noticeSuccess, marginBottom: '14px' }}>
+            ✓ Payment received — your tokens will appear on your balance below shortly.
+          </div>
+        )}
+        {stripeReturn === 'cancel' && (
+          <div style={{ ...s.noticeWarn, marginBottom: '14px' }}>
+            Checkout was cancelled — no payment was made.
+          </div>
+        )}
+        <div style={{ background:'var(--panel)', border: '1px solid var(--line)', borderRadius: '8px', padding: '12px 16px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '16px' }}>
         <div style={{ flex: 1 }}>
           <div style={{ fontSize: '0.75rem', fontWeight: 600, color:'var(--ink)', marginBottom: '6px' }}>
             Monthly token balance
@@ -607,6 +653,7 @@ export default function AppointmentList() {
           Buy tokens
         </button>
       </div>
+      </>
     );
   }
 

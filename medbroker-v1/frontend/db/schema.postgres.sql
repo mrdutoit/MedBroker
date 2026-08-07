@@ -815,6 +815,15 @@ CREATE TABLE IF NOT EXISTS TokenTransaction (
     amount          INT             NOT NULL,
     appointmentId   UUID            NULL,
     description     VARCHAR(300)    NOT NULL,
+    -- externalRef — added §134 (Stripe). Stripe Checkout Session id for a
+    -- webhook-originated credit; NULL for every other transaction type
+    -- (claim debits, refunds, manual admin top-ups). The partial UNIQUE
+    -- index below (WHERE externalRef IS NOT NULL) is the actual idempotency
+    -- guard against Stripe's documented at-least-once webhook redelivery —
+    -- see tokenService.creditStripeTokens()'s own header for why this is
+    -- enforced at the database level (a 23505 unique-violation catch, not
+    -- an app-level check-then-act) rather than trusting a single delivery.
+    externalRef     VARCHAR(255)    NULL,
     createdAt       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     CONSTRAINT PK_TokenTransaction             PRIMARY KEY (id),
     CONSTRAINT FK_TokenTransaction_Org         FOREIGN KEY (organisationId) REFERENCES Organisation(id),
@@ -825,6 +834,35 @@ CREATE TABLE IF NOT EXISTS TokenTransaction (
 
 CREATE INDEX IF NOT EXISTS IX_TokenTransaction_Broker
     ON TokenTransaction (brokerId, createdAt DESC);
+
+CREATE UNIQUE INDEX IF NOT EXISTS UQ_TokenTransaction_ExternalRef
+    ON TokenTransaction (externalRef) WHERE externalRef IS NOT NULL;
+
+-- =============================================================================
+-- SECTION 14b — INTEGRATION CREDENTIALS (§134, Stripe + SMTP)
+-- =============================================================================
+-- One row per (organisationId, provider). The entire provider config is
+-- JSON-encoded and encrypted as a SINGLE opaque blob via encryption.js's
+-- envelope encryption (the same encrypt()/decrypt() pair Lead.idNumber
+-- uses, 'kms1'/'demo1' format-aware) — not one row per field. This is
+-- deliberately NOT SystemConfig: that table's GET is open to any
+-- authenticated staff member by design (see system-config.js's own header
+-- comment), which is the wrong access model for a Stripe secret key or an
+-- SMTP password. GlobalAdmin-only, both directions, enforced in
+-- integrationCredentialService.js's callers, not by a DB constraint.
+CREATE TABLE IF NOT EXISTS IntegrationCredential (
+    id              UUID            NOT NULL DEFAULT gen_random_uuid(),
+    organisationId  UUID            NOT NULL DEFAULT 'D0000000-0000-0000-0000-000000000001',
+    provider        VARCHAR(20)     NOT NULL,
+    encryptedConfig TEXT            NOT NULL,
+    updatedAt       TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    updatedById     UUID            NULL,
+    CONSTRAINT PK_IntegrationCredential          PRIMARY KEY (id),
+    CONSTRAINT FK_IntegrationCredential_Org      FOREIGN KEY (organisationId) REFERENCES Organisation(id),
+    CONSTRAINT FK_IntegrationCredential_UpdBy    FOREIGN KEY (updatedById)    REFERENCES "User"(id),
+    CONSTRAINT CK_IntegrationCredential_Provider CHECK (provider IN ('stripe', 'smtp')),
+    CONSTRAINT UQ_IntegrationCredential_OrgProv  UNIQUE (organisationId, provider)
+);
 
 -- =============================================================================
 -- SECTION 15 — AUDIT LOG

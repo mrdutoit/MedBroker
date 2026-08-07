@@ -143,6 +143,18 @@ export const systemConfigApi = {
   update: (data) => request('/system-config', { method: 'PUT', body: JSON.stringify(data) }),
 };
 
+// §134 — App Admin → Integrations (Stripe + SMTP credentials).
+// GlobalAdmin only, both directions — server-enforced, this is just the
+// client. get() returns masked status (never a raw secret value — see
+// integrationCredentialService.js's own header for the masking contract);
+// updateStripe()/updateSmtp() are partial updates, omitted/blank secret
+// fields leave the stored value unchanged.
+export const integrationsApi = {
+  get:           ()     => request('/system-config/integrations'),
+  updateStripe:  (data) => request('/system-config/integrations/stripe', { method: 'PUT', body: JSON.stringify(data) }),
+  updateSmtp:    (data) => request('/system-config/integrations/smtp',   { method: 'PUT', body: JSON.stringify(data) }),
+};
+
 // ─── Leads ────────────────────────────────────────────────────────────────────
 
 export const leadsApi = {
@@ -312,11 +324,18 @@ export const appointmentsApi = {
   listAvailableToClaim: () => request('/appointments/available-to-claim'),
   // tokens.me — the broker's own current balance + recent transactions.
   // tokens.forBroker/topUp — Admin/GlobalAdmin managing a specific
-  //   broker's balance; topUp is the entire 'none' payment-provider path
-  //   (manual top-up only, no Stripe yet — see Status_Vercel.md §117).
+  //   broker's balance manually; the entire 'none' payment-provider path
+  //   (see Status_Vercel.md §117). tokens.checkout below is the 'stripe'
+  //   payment-provider path, added §134.
   tokens: {
     me:         ()               => request('/appointments/tokens/me'),
     forBroker:  (brokerId)       => request(`/appointments/tokens/${brokerId}`),
+    // checkout — §134. Broker only. Creates a Stripe Checkout Session for
+    //   one of the three fixed token packs (server-priced — packIndex is
+    //   the only thing sent) and returns { url } to redirect the browser
+    //   tab to. Only reachable when appointments.tokens.paymentProvider
+    //   is 'stripe' — 403s otherwise.
+    checkout:   (packIndex)      => request('/appointments/tokens/checkout', { method: 'POST', body: JSON.stringify({ packIndex }) }),
     topUp:      (brokerId, amount) =>
       request(`/appointments/tokens/${brokerId}/topup`, { method: 'PUT', body: JSON.stringify({ amount }) }),
   },

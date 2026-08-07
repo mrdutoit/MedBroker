@@ -61,8 +61,12 @@ Zoho. None of these are integrated into the Vercel version. If asked
 about any of them, the honest answer is "not part of this build."
 
 THIRD PARTIES actually in play for this version: Vercel (hosting +
-edge/WAF), Neon (database). That's the operator/sub-processor list that
-actually matters for this deployment — see SECURITY POSTURE.
+edge/WAF), Neon (database), Stripe (token purchase checkout/webhook,
+§134, 6 Aug 2026 — only when appointments.tokens.paymentProvider =
+'stripe'), and whichever SMTP provider is configured for email
+notifications (Resend by default — see emailService.js). That's the
+operator/sub-processor list that actually matters for this deployment
+— see SECURITY POSTURE and POPIA / THIRD PARTIES below.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -197,6 +201,36 @@ PasswordHistory (§72)
   comparison possible) whenever a new password is set, if
   SystemConfig.passwordPreventReuse is on (default). ON DELETE CASCADE.
 
+TokenLedger / TokenTransaction (§117, token economy)
+  One TokenLedger row per Broker (balance = paid tokens, freeRemaining =
+  this calendar month's free allocation, lazily reset on read — no cron
+  in this stack). TokenTransaction is the append-only history (Credit/
+  Debit), never edited. TokenTransaction.externalRef (§134, nullable,
+  partial UNIQUE index WHERE NOT NULL) holds a Stripe Checkout Session
+  id for a webhook-originated credit ONLY — this is the idempotency
+  mechanism against Stripe's documented at-least-once webhook
+  redelivery: the guarded INSERT itself is the atomic check, not a
+  read-then-write existence lookup. NULL for every other transaction
+  type (claim debits, refunds, manual admin top-ups, §117).
+
+IntegrationCredential (§134, 6 Aug 2026)
+  One row per (organisationId, provider), provider IN ('stripe','smtp').
+  The ENTIRE per-provider config is JSON-encoded and encrypted as a
+  single opaque blob (encryptedConfig) via encryption.js's existing
+  envelope encryption — the same 'kms1'/'demo1' format-aware encrypt()/
+  decrypt() pair Lead.idNumber already uses, so this inherits AWS-KMS-
+  when-the-flag-is-on / demo1-when-it's-not for free. Deliberately NOT
+  SystemConfig — that table's GET is open to any authenticated staff
+  member by design; a Stripe secret key or SMTP password needs a
+  different (GlobalAdmin-only, both directions) access model entirely.
+  Read/written exclusively through
+  api-lib/services/integrationCredentialService.js, which is also the
+  ONLY place a decrypted config is ever produced (getRawConfig() —
+  internal use only, by stripeService.js and emailService.js; never
+  returned from an HTTP handler). getMaskedStatus() is what any handler
+  actually returns — secret fields become `<field>Set: boolean` + a
+  last-4-characters preview, never the raw value, once saved.
+
 Organisation
   Multi-tenancy-ready, single-tenant today. resolveOrganisationId() in
   api-lib/context/tenant.js is the one chokepoint every query goes
@@ -255,11 +289,15 @@ CLAIM MODEL flag (appointments.claimModel):
              — was frontend-mock-only before that (see models/appointment.js's
              pre-§117 header if ever curious what the staging note used to
              say). Stripe payment (appointments.tokens.paymentProvider =
-             'stripe') is still NOT wired — §117 only built the 'none'
-             provider path (manual top-up by Admin/GlobalAdmin, via
-             UserAdmin.jsx's Token Balance section on a Broker's edit
-             modal). See Status_Vercel.md §117 for the full build and
-             the Stripe staging this continues from.
+             'stripe') is real as of §134 (6 Aug 2026) — Checkout Session
+             creation + raw-body-verified webhook credit, idempotent
+             against Stripe's own at-least-once redelivery
+             (TokenTransaction.externalRef). The 'none' provider path
+             (§117, manual top-up by Admin/GlobalAdmin via UserAdmin.jsx's
+             Token Balance section) still exists independently — the two
+             provider values are alternate funding rails, not a staged
+             replacement of one by the other. See Status_Vercel.md §134
+             for the full build and its verification.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -369,7 +407,15 @@ medbroker-v1/
     │   ├── flags-router.js
     │   ├── appointments-router.js      + /broker-matching, /:id/assign,
     │   │                               /:id/reassign, /:id/return,
-    │   │                               /:id/outcome, /:id/audit sub-routes
+    │   │                               /:id/outcome, /:id/audit,
+    │   │                               /tokens/* (incl. §134's checkout +
+    │   │                               webhook) sub-routes. bodyParser
+    │   │                               disabled file-wide (§134, for the
+    │   │                               Stripe webhook's raw-body
+    │   │                               signature check) — see this
+    │   │                               file's own header for how it
+    │   │                               still serves its five pre-
+    │   │                               existing JSON routes unchanged.
     │   ├── reports-router.js
     │   ├── events-router.js
     │   ├── portal-router.js            Public Lead Portal's own auth path
@@ -377,9 +423,13 @@ medbroker-v1/
     │   │                               Plain GET/POST/:id PATCH/DELETE
     │   ├── notifications-router.js     + /mark-all-read sub-route
     │   ├── health.js                   Standalone diagnostic — DB connectivity check
-    │   └── system-config.js            Admin-only settings — candidate for
-    │                                   folding into flags-router.js if the
-    │                                   function count needs headroom later
+    │   └── system-config.js            Admin-only settings, + /integrations
+    │                                   slug sub-tree (§134, Stripe + SMTP
+    │                                   credentials — GlobalAdmin only,
+    │                                   unlike this file's own base GET) —
+    │                                   candidate for folding into
+    │                                   flags-router.js if the function
+    │                                   count needs headroom later
     ├── api-lib/                        Everything the routers above delegate to.
     │   ├── handlers/                   One per domain — parses/validates
     │   │                               requests, calls services, shapes responses
@@ -414,6 +464,7 @@ medbroker-v1/
     │                                   (CSP, HSTS, etc.) — see SECURITY POSTURE.
     ├── vite.config.js
     └── package.json                    react-router@7.18.2, xlsx@0.18.5*,
+                                        stripe@22.4.0 (§134, 6 Aug 2026),
                                         engines.node: "24.x"
                                         *0.18.5 is npm's registry ceiling;
                                         Mark bumped the actual deployed repo
@@ -488,6 +539,27 @@ got missed in a count for exactly this reason. Hobby plan hard limit is
 frontend/api -type f -name "*.js" | wc -l`) before adding any new
 top-level API surface; system-config.js folding into flags-router.js is
 the natural next consolidation if headroom is needed.
+
+RAW-BODY ROUTES ON A SHARED VERCEL FUNCTION (§134, 6 Aug 2026) — a
+function file's `export const config = { api: { bodyParser: false } }`
+is FILE-WIDE, not per-route, because one file is one Vercel function
+regardless of how many logical routes vercel.json's rewrite dispatches
+to it (see VERCEL FUNCTION COUNT above — same underlying fact, different
+consequence). appointments-router.js needed this for the Stripe webhook
+(signature verification needs the exact raw bytes; re-serializing an
+already-JSON-parsed body doesn't reliably round-trip byte-for-byte), but
+five OTHER routes already living in that same file needed req.body to
+stay a plain parsed object exactly as before. The fix, now the standing
+pattern for this situation: disable bodyParser file-wide, read the raw
+stream once via readRawBody() (http/helpers.js) before dispatching, and
+for every route except the one that genuinely needs raw bytes,
+immediately JSON.parse the raw buffer into req.body — reproducing
+exactly what Vercel's automatic parser used to do, so none of those
+other routes' handlers need to know this ever happened. If a future
+raw-body need (another webhook, a file upload, etc.) lands in a
+different existing router file, follow this same shape rather than
+re-deriving it — see appointments-router.js's own header comment for
+the worked example.
 
 CSV/EXCEL FORMULA INJECTION: any free-text field populated from an
 externally-supplied file (bulk lead import) gets a leading-quote prefix
@@ -712,13 +784,23 @@ SUPPLY CHAIN / ASSURANCE
   ⬜ Penetration test before go-live.
 
 POPIA / THIRD PARTIES
-  Operator (sub-processor) list for THIS version: Vercel, Neon. That's
-  it — Microsoft/Calendly/Zoho were part of the original Azure plan and
-  were never integrated here.
-  ⬜ Operator agreements: Vercel, Neon.
+  Operator (sub-processor) list for THIS version: Vercel, Neon, and —
+  UPDATED §134 (6 Aug 2026) — Stripe (only once
+  appointments.tokens.paymentProvider is actually set to 'stripe') and
+  whichever SMTP provider is configured (Resend by default, or a
+  customer's own mail server/M365 — see emailService.js). Microsoft/
+  Calendly/Zoho were part of the original Azure plan and were never
+  integrated here.
+  ⬜ Operator agreements: Vercel, Neon, Stripe (once enabled), SMTP provider.
   ⬜ Cross-border transfer assessment — relevant if Vercel/Neon's actual
      data-residency region isn't South Africa (worth explicitly
-     confirming which region Neon is provisioned in).
+     confirming which region Neon is provisioned in). Stripe's own
+     compliance posture (PCI DSS Level 1) covers card data specifically
+     — this app never touches card details at all (Checkout is
+     redirect-based, §134) — but the broker's name/email/token purchase
+     record still crosses to Stripe as a processor, worth the same
+     assessment as Vercel/Neon once this is actually enabled for a
+     customer.
   ⬜ Breach-notification process; Information Officer registered.
   ⬜ POPIA Subject Access Request (SAR) endpoint — flag exists
      (popia.subjectAccessRequest.enabled), admin endpoint not built.

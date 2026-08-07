@@ -249,6 +249,74 @@ export async function manualTopUp(brokerId, amount, performedById) {
 }
 
 /**
+ * Credits `tokens` to a broker's paid balance for a completed Stripe
+ * Checkout Session — §134. IDEMPOTENT AT THE DATABASE LEVEL: Stripe's own
+ * docs guarantee at-least-once webhook delivery, meaning the same
+ * checkout.session.completed event can genuinely arrive more than once
+ * for the same session. This function relies on TokenTransaction's
+ * partial UNIQUE index on externalRef (WHERE externalRef IS NOT NULL,
+ * schema §14b) rather than a read-then-write existence check — a
+ * check-then-act here would have exactly the same race window
+ * debitTokensForClaim()'s own header warns about (two near-simultaneous
+ * webhook deliveries both passing an "already processed?" SELECT before
+ * either has inserted anything). The INSERT itself is the atomic guard:
+ * whichever delivery's INSERT lands first wins and credits the ledger;
+ * every other delivery for the same session id hits the unique index,
+ * catches the resulting 23505 (unique_violation) error code, and returns
+ * cleanly with credited: false — not an error condition from the
+ * webhook's perspective, since the correct outcome (broker has their
+ * tokens) is already true.
+ * @param {string} brokerId
+ * @param {number} tokens
+ * @param {string} stripeSessionId - Stripe Checkout Session id, used as
+ *   the idempotency key
+ * @param {string} description
+ * @returns {Promise<{ credited: boolean, alreadyProcessed?: boolean }>}
+ */
+export async function creditStripeTokens(brokerId, tokens, stripeSessionId, description) {
+  const organisationId = resolveOrganisationId();
+  await getCurrentTokenLedger(brokerId); // ensures the row exists (and is current-month) before crediting it
+
+  try {
+    await executeQuery(
+      `INSERT INTO TokenTransaction (id, organisationId, brokerId, type, amount, appointmentId, description, externalRef, createdAt)
+       VALUES (@id, @organisationId, @brokerId, 'Credit', @amount, NULL, @description, @externalRef, NOW())`,
+      {
+        id:             { type: sql.UniqueIdentifier, value: crypto.randomUUID() },
+        organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+        brokerId:       { type: sql.UniqueIdentifier, value: brokerId },
+        amount:         { type: sql.Int, value: tokens },
+        description:    { type: sql.NVarChar(300), value: description },
+        externalRef:    { type: sql.NVarChar(255), value: stripeSessionId },
+      }
+    );
+  } catch (err) {
+    if (err.code === '23505') {
+      // Duplicate webhook delivery for a session already credited — the
+      // correct outcome (tokens already on the ledger) is already true,
+      // so this is a clean no-op, not an error the caller should surface.
+      return { credited: false, alreadyProcessed: true };
+    }
+    throw err;
+  }
+
+  // Only reached if the INSERT above actually landed — see this
+  // function's header for why the balance UPDATE deliberately comes
+  // AFTER the guarded insert, not before or in parallel with it.
+  await executeQuery(
+    `UPDATE TokenLedger SET balance = balance + @amount, updatedAt = NOW()
+     WHERE brokerId = @brokerId AND organisationId = @organisationId`,
+    {
+      brokerId:       { type: sql.UniqueIdentifier, value: brokerId },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+      amount:         { type: sql.Int, value: tokens },
+    }
+  );
+
+  return { credited: true };
+}
+
+/**
  * Recent transaction history for one broker — most recent first. Used by
  * both the broker's own token balance view and an Admin's per-broker
  * management view.

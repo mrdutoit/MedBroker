@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status (VERCEL VERSION)
 ==================================================
-Last updated: 4 August 2026
+Last updated: 6 August 2026
 Scope: this file tracks ONLY the Vercel + Neon Postgres deployment —
 frontend/api/ + frontend/api-lib/ + frontend/src/. It does NOT cover the
 separate Azure Functions/Azure SQL codebase (api/src/, infra/), which is
@@ -22,48 +22,138 @@ original file — only this summary block at the top is newly written.
 0. CURRENT STATE — READ THIS FIRST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-NEXT ACTION, per Mark (4 Aug 2026, session 15, §121): Entra SSO's full
-four-stage staging plan (§109/§110) is now COMPLETE — all four stages
-built: (1) foundation §114, (2) core Entra validation §114, (3)
-password-fallback toggle + offboarding sync §121, (4) frontend MSAL
-wiring §120. Nothing further on SSO is outstanding; it's built and
-gated behind auth.sso.enabled, off by default, same dormant-until-
-configured posture as AWS KMS.
+NEXT ACTION, per Mark (6 Aug 2026, session 16, §134): Stripe (checkout,
+webhook, Integrations settings page for Stripe + SMTP credentials) is
+now BUILT AND VERIFIED — see §134 below for the full build and the
+unusually thorough verification pass it got (real Postgres 16 in-sandbox,
+real Stripe signature construction via the SDK's own test helper, not
+just code review). NOT YET DEPLOYED — Mark still needs to run migration
+022 against Neon and set real Stripe test-mode credentials via the new
+Integrations page before this is live. Nothing else is currently queued;
+ask Mark what's next once §134 is confirmed deployed and working end to
+end against real (test-mode) Stripe.
 
-Mark's own next-action instruction: Stripe (checkout, webhook, and an
-Integrations settings page covering both Stripe and SMTP credentials —
-already scoped in conversation, not repeated in full here; see the
-credential-storage design decision below). "SSO first, then Stripe" —
-SSO is done, Stripe is next.
+Immediate next steps for Mark, in order:
+  1. Run migrations/022_add_integration_credentials.sql against Neon.
+  2. Deploy this delivery via the usual github.dev drag-and-drop.
+  3. On the Integrations page (App Admin -> Integrations, GlobalAdmin
+     only): set a Stripe TEST-MODE secret key first, then create a
+     webhook endpoint in the Stripe Dashboard pointed at
+     https://<your-domain>/api/appointments/tokens/webhook listening
+     for checkout.session.completed, and paste its signing secret in
+     too.
+  4. Set appointments.tokens.paymentProvider to 'stripe' in Feature
+     Flags (requires appointments.claimModel already on 'claim').
+  5. As a Broker, try Buy Tokens end to end with a real Stripe test
+     card — this is the one part of §134 that could only be verified
+     by code review + a self-signed test event, not against Stripe's
+     actual live checkout flow, since no real Stripe account/test keys
+     were available in this session.
 
-Stripe design already settled, don't re-derive it:
-  - Raw-body webhook signature verification: this stack's plain
-    @vercel/node functions auto-parse req.body before a handler sees it,
-    which breaks Stripe's signature check (it needs the exact raw
-    bytes). Fix: read the raw stream directly via Node's Stream API
-    BEFORE anything touches req.body — a real, documented Vercel
-    pattern (confirmed via Vercel's own docs/community answers, not
-    assumed), hand-rolled, no new dependency (matches this codebase's
-    existing "simple enough to get right by hand" bar).
-  - Folds into the existing appointments-router.js (still 12/12) — both
-    flags this feature gates (appointments.claimModel,
-    appointments.tokens.paymentProvider) are filed under "Appointment
-    workflow" already.
-  - Credentials: a NEW encrypted DB-backed settings UI, Mark's explicit
-    choice over Vercel env vars — reuses encryption.js's envelope
-    encryption (same demo1/kms1 dual-format handling the AWS KMS flag
-    already established, so this inherits that flag's dormant-until-
-    AWS-is-configured safety for free). Deliberately NOT SystemConfig —
-    that table's GET is open to any authenticated staff member by
-    design (see system-config.js's own header comment), wrong place for
-    secrets. Mark wants this same page to also cover SMTP credentials
-    (currently env-var-only, nodemailer reads process.env.SMTP_* — see
-    emailService.js) once built, since the underlying mechanism
-    (encryption, GlobalAdmin-only gate, settings page shell) is shared
-    and cheaper to build once than twice.
-  - Stripe test-mode keys are free and real — unlike Entra, this one CAN
-    be more thoroughly tested against genuine (test-mode) infrastructure
-    once built, not just verified by code review.
+Stripe design decisions actually built (for reference, not re-derivation):
+  - Raw-body webhook signature verification: appointments-router.js now
+    sets `export const config = { api: { bodyParser: false } }` for the
+    WHOLE file (one file = one Vercel function, so this is file-wide,
+    not per-route) and reads the raw byte stream itself
+    (readRawBody(), http/helpers.js) before dispatching. The webhook
+    route keeps the raw Buffer for signature verification; every other
+    route in the file gets it JSON.parsed into req.body exactly as
+    Vercel's own automatic parser used to do — none of the five
+    existing JSON routes in this file (assign/reassign/outcome/claim/
+    topup) needed to change.
+  - Credentials: IntegrationCredential, a NEW table — one row per
+    (organisationId, provider), the whole per-provider config JSON-
+    encoded and encrypted as ONE opaque blob via encryption.js's
+    existing envelope encryption (same 'kms1'/'demo1' format-aware
+    encrypt()/decrypt() Lead.idNumber already uses — inherits KMS-vs-
+    demo1 for free, zero new code for that distinction). Deliberately
+    NOT SystemConfig, per the original design note — GlobalAdmin-only
+    both directions, unlike System Settings' deliberately-open GET.
+  - Masking: GET never returns a raw secret once saved — only
+    `<field>Set: boolean` + a last-4-characters preview. PUT is a
+    partial update; a blank/omitted secret field leaves the stored
+    value untouched (doesn't clear it).
+  - Idempotency: TokenTransaction.externalRef (new nullable column,
+    partial UNIQUE index WHERE NOT NULL) — Stripe's own documented
+    at-least-once webhook redelivery is made safe by the INSERT itself
+    failing on a duplicate (23505 caught, clean no-op), not a
+    check-then-act read first. Verified for real (see below), not just
+    reasoned about.
+  - Checkout is Stripe-hosted redirect only (mode: 'payment', browser
+    redirected to session.url) — no Stripe.js, no publishable key
+    anywhere in this app, since a redirect flow never needs one
+    client-side. Only a secret key and a webhook signing secret live in
+    IntegrationCredential for 'stripe'.
+  - Token packs unchanged from AppointmentList.jsx's existing Phase-2
+    mockup — 5/R250, 10/R450 ("save R50"), 20/R800 ("save R200") — now
+    server-priced (stripeService.TOKEN_PACKS) rather than just display
+    text, so a modified client request can't pay less for more tokens.
+  - SMTP (App Admin -> Integrations' second card): emailService.js now
+    reads DB-stored config FIRST, falling back to the original SMTP_*
+    env vars if nothing's saved yet — a deployment that never touches
+    the new page keeps working exactly as before. The module-level
+    transporter cache §78 had was deliberately dropped — credentials
+    can now change at any time via the page, so caching one risked
+    using a stale/rotated credential until a cold start happened to
+    clear it; nodemailer.createTransport() is cheap enough to just
+    rebuild per send.
+
+VERIFICATION — unusually thorough for this build, worth recording why:
+  the raw-body mechanism was genuinely novel (nothing else in this app
+  disables Vercel's bodyParser), so static review alone wasn't enough
+  confidence. Installed PostgreSQL 16 directly in this sandbox (apt, no
+  live Neon access), loaded schema.postgres.sql AND separately applied
+  migrations/022_add_integration_credentials.sql to an original
+  pre-session schema snapshot pulled fresh from GitHub, confirmed both
+  paths produce an equivalent table (one harmless column-order cosmetic
+  difference from ALTER TABLE ADD COLUMN vs. inline CREATE TABLE
+  placement — confirmed nothing in this codebase does a positional
+  SELECT * against TokenTransaction, so this doesn't matter). Then ran
+  three real HTTP-level smoke-test scripts (deleted from the repo before
+  packaging — verification tooling, not a permanent test file, per this
+  codebase's existing vitest-only testing footprint) against that real
+  database: (1) confirmed appointments-router.js's five pre-existing
+  JSON routes still work unchanged despite the file-wide bodyParser
+  change, (2) used Stripe's own SDK test helper
+  (Stripe.webhooks.generateTestHeaderString) to construct a REAL valid
+  webhook signature — not a mock — and confirmed a valid delivery
+  credits tokens and writes an audit entry, a REPLAYED delivery of the
+  identical event does NOT double-credit (idempotency genuinely holds,
+  not just reasoned about), and a TAMPERED payload with the original
+  signature is genuinely rejected (proves the raw-byte capture is
+  actually being used for verification, not silently falling back to
+  something re-serialized), (3) confirmed the encrypted-credential
+  round-trip through real encrypt()/decrypt() calls, the masking
+  contract (a raw secret is never present anywhere in a masked
+  response — checked by string search, not assumed), and that a
+  partial update genuinely leaves an omitted secret field untouched.
+  Two real bugs were caught by this process and fixed before packaging
+  — both in the throwaway test harnesses themselves, not the app code
+  (a URL-construction mismatch that nearly caused a false "system-
+  config's base route is broken" alarm, and a missing body-parsing shim
+  in a harness testing a file that correctly relies on Vercel's default
+  parser) — recorded here as a reminder that a red result needs its own
+  verification before either fixing the app or reporting a false
+  positive back to Mark. Full frontend build (npm run build) clean,
+  Integrations.jsx got its own lazy-loaded chunk as expected. Full
+  existing 55-test Vitest suite unaffected (no test file in this repo
+  covers Stripe/encryption specifically — the sandbox Postgres run
+  above is what actually exercised that code, not vitest). Re-hydrated
+  fresh from GitHub and diffed every file before packaging — clean,
+  matches the intended change set exactly, no parallel-session drift.
+
+BUNDLED, SMALL, FLAGGED EXPLICITLY (not silent scope creep): while adding
+  this session's own new audit action/entity types (IntegrationCredential,
+  IntegrationCredentialUpdated, TokenStripeCredited) to auditHandlers.js's
+  VALID_ACTIONS/VALID_ENTITY_TYPES and AppAdmin.jsx's mirrored frontend
+  lists, also backfilled three PRE-EXISTING gaps from §117 that were never
+  added when that session shipped (TokenLedger, SystemConfig entity types;
+  AppointmentClaimed, TokenManualTopUp, SystemConfigUpdated actions) —
+  same silent-empty-filter bug §127 already found and fixed once for SAR,
+  found again for a different feature. Cheap, obviously-correct, done in
+  a file already being edited for the identical reason — not treated as
+  in-scope-by-default for future sessions, still worth a one-line mention
+  each time it happens.
 
 FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
   Auth            Local email/password, JWT, 8-hour expiry, full policy
@@ -95,8 +185,13 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
                   self-serve claiming, TokenLedger, monthly free
                   allocation with lazy reset (no cron in this stack).
                   Stripe payment (appointments.tokens.paymentProvider =
-                  'stripe') still NOT wired — manual admin top-up
-                  ('none' provider) is the only funding path so far.
+                  'stripe') is real as of §134 (6 Aug 2026) — Checkout
+                  Session creation, raw-body-verified webhook credit,
+                  idempotent against Stripe's own at-least-once
+                  redelivery. Manual admin top-up ('none' provider,
+                  §117) still exists as a separate, independent funding
+                  path — the two coexist, switching the flag doesn't
+                  remove either.
   Users           Admin CRUD + real self-service profile (PUT /users/me
                   — theme/avatar/timezone, structurally separate schema
                   from the admin-editing-someone-else route)
@@ -168,11 +263,17 @@ FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
   Email notifications (§78) — real, built on standard SMTP
                   (nodemailer) rather than any provider's proprietary
                   API, deliberately, so it's swappable for a customer's
-                  own mail server or M365 later without a rewrite. Needs
-                  SMTP_HOST/SMTP_USER/SMTP_PASSWORD/SMTP_FROM set in
-                  Vercel's env vars AND notifications.email.enabled
-                  switched on (AppAdmin -> Feature Flags) before
-                  anything actually sends — neither is done yet.
+                  own mail server or M365 later without a rewrite.
+                  UPDATED §134 (6 Aug 2026) — SMTP credentials now come
+                  from the Integrations settings page (App Admin ->
+                  Integrations, GlobalAdmin only, encrypted at rest)
+                  FIRST, falling back to the original SMTP_HOST/
+                  SMTP_USER/SMTP_PASSWORD/SMTP_FROM env vars if nothing's
+                  saved on that page yet. Either way,
+                  notifications.email.enabled (AppAdmin -> Feature
+                  Flags) still has to be switched on before anything
+                  actually sends — that flag isn't done yet, only the
+                  credential source changed.
   POPIA Subject Access Request processing (§79) — real. AppAdmin ->
                   Data Requests: log a request against a Lead, track its
                   status, export everything MedBroker holds about that
@@ -209,11 +310,13 @@ what's actually live right now):
     default" in a way that read as a current-state claim; that was the
     seed value, not a live check, and shouldn't have been repeated as
     if it were one.
-  - notifications.email.enabled — seeded off. Still needs SMTP_HOST/
-    SMTP_USER/SMTP_PASSWORD/SMTP_FROM set in Vercel's env vars regardless
-    of the flag's live value (§78) — that part IS independently
-    verifiable (env vars aren't visible from Feature Flags), so still
-    worth calling out as outstanding until Mark confirms otherwise.
+  - notifications.email.enabled — seeded off. Still needs SMTP credentials
+    set somewhere — the Integrations page (App Admin -> Integrations,
+    §134) or the original SMTP_HOST/SMTP_USER/SMTP_PASSWORD/SMTP_FROM
+    Vercel env vars as a fallback — regardless of the flag's live value
+    (§78) — that part IS independently verifiable (neither the page's
+    saved state nor the env vars are visible from Feature Flags), so
+    still worth calling out as outstanding until Mark confirms otherwise.
   - auth.sso.enabled — seeded off, and no real SSO provider is wired up
     in the code regardless of the flag's live value (confirmed by
     grepping for entraObjectId/googleUid usage — see §109's SSO
@@ -222,12 +325,9 @@ what's actually live right now):
 
 DELIBERATELY NOT BUILT (real gaps, not yet scoped or blocked on
 something outside this session's control):
-  - Token economy: claim model + TokenLedger are real as of §117.
-    Stripe payment specifically ('stripe' provider) is what's still not
-    connected — manual admin top-up ('none' provider) is fully built and
-    is the only funding path today. Needs Mark's explicit go-ahead to
-    start, same gate as every staged piece this session (see §117 for
-    the full design already settled for when that happens).
+  - (none currently outstanding for the token economy — see §134;
+    claim model, TokenLedger, manual top-up, and Stripe payment are all
+    real now)
 
 FLAGGED, NOT BUILT — small, explicitly scoped-out while doing adjacent
 work, worth revisiting if the same question comes up again:
@@ -9409,3 +9509,261 @@ sequencing.
 If picking up a pending item, reference it by section number (e.g. "I
 want to work on §61's remaining Notification types") — same convention
 as before the split.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+134. STRIPE CHECKOUT + WEBHOOK + INTEGRATIONS SETTINGS PAGE (STRIPE + SMTP) — 6 Aug 2026 (session 16)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's own next-action instruction from the end of session 15: Stripe
+(checkout, webhook, Integrations settings page for Stripe + SMTP
+credentials). Full build in one session, per the design already settled
+at the end of session 15 (see the version of §0's NEXT ACTION this
+replaces, still readable via git/session history if ever needed) — not
+re-derived here, actually built.
+
+1. RAW-BODY WEBHOOK SIGNATURE VERIFICATION. appointments-router.js is
+   one Vercel Function serving five pre-existing JSON routes (collection,
+   assign, reassign, outcome, claim, topup) plus the two new ones. Stripe
+   signature verification needs the EXACT raw bytes of the request body —
+   Vercel's default automatic body parsing (which every existing route in
+   this file depended on) destroys that before a handler ever sees it,
+   and re-serializing an already-parsed body doesn't reliably round-trip
+   byte-for-byte. Fix: `export const config = { api: { bodyParser: false
+   } }` disables Vercel's automatic parsing for the WHOLE file (one file
+   = one function on this stack, so this is necessarily file-wide, not
+   per-route), and the router itself now reads the raw stream once
+   (readRawBody(), http/helpers.js — a real, documented Vercel pattern
+   for this exact problem, hand-rolled, no new dependency) before
+   dispatching. The webhook route gets the raw Buffer untouched, for
+   signature verification. Every other route gets it JSON.parsed into
+   req.body immediately, reproducing exactly what Vercel's own parser
+   used to do — none of the five existing routes needed to change at
+   all. Verified this holds (not just reasoned through) — see VERIFIED
+   below.
+
+2. STRIPE CHECKOUT (redirect-based, not Stripe.js/Elements).
+   POST /api/appointments/tokens/checkout — Broker only, gated on
+   appointments.tokens.paymentProvider = 'stripe' (checked via
+   getFlagMeta(), server-side — not just frontend visibility, since this
+   actually changes what the server will do). Creates a Stripe Checkout
+   Session for one of three fixed token packs (stripeService.TOKEN_PACKS
+   — 5/R250, 10/R450 "save R50", 20/R800 "save R200", unchanged from
+   AppointmentList.jsx's existing Phase-2 mockup, now server-priced
+   rather than display-only) and returns { url } for the browser to
+   redirect to. Because Checkout is redirect-based, this app never
+   handles card details or needs a Stripe publishable key anywhere —
+   IntegrationCredential's 'stripe' config only has secretKey and
+   webhookSigningSecret. metadata on the session (brokerId, tokens,
+   packIndex, organisationId) carries everything the webhook needs to
+   credit the right broker — no separate session-id-to-intent lookup
+   table required.
+
+3. STRIPE WEBHOOK, IDEMPOTENT AGAINST REDELIVERY.
+   POST /api/appointments/tokens/webhook — DELIBERATELY NO staff JWT
+   check, unlike every other route in this file; Stripe has no MedBroker
+   session to send. The Stripe-Signature header (verified against the
+   DB-stored webhook signing secret, stripeService.verifyWebhookSignature)
+   is the entire auth boundary. On checkout.session.completed,
+   tokenService.creditStripeTokens() credits the broker's paid balance —
+   made idempotent against Stripe's own documented at-least-once webhook
+   redelivery via a NEW TokenTransaction.externalRef column (nullable,
+   partial UNIQUE index WHERE externalRef IS NOT NULL, migration 022):
+   the INSERT carrying the Stripe session id as externalRef is the atomic
+   guard itself, not a read-then-write check — a redelivered event's
+   INSERT hits the unique index, the resulting 23505 is caught, and the
+   function returns cleanly without touching the ledger a second time.
+   Same reasoning debitTokensForClaim() (§117) already established for
+   why a guarded write beats check-then-act under real concurrency.
+   Every event type is acknowledged 200 regardless of whether this app
+   acts on it — Stripe retries on anything except a 2xx, and retrying an
+   event type this app doesn't react to would just retry forever for no
+   reason. A genuine failure (bad signature, a real DB error) still
+   returns non-2xx on purpose — that's what tells Stripe to retry, and
+   the idempotency above is exactly what makes a retry safe.
+
+4. INTEGRATIONS SETTINGS PAGE — Stripe + SMTP credentials, App Admin ->
+   Integrations, GlobalAdmin only in both directions (unlike System
+   Settings' deliberately-open GET — see system-config.js's own header
+   for why that split exists and why this page doesn't inherit it).
+   Backend: NEW table IntegrationCredential — one row per
+   (organisationId, provider), the ENTIRE per-provider config JSON-
+   encoded and encrypted as a single opaque blob via encryption.js's
+   existing envelope encryption (services/integrationCredentialService.js)
+   — same 'kms1'/'demo1' format-aware encrypt()/decrypt() Lead.idNumber
+   already uses, so this inherits the AWS-KMS-when-the-flag-is-on / demo1
+   -when-it's-not behaviour for free, zero new code for that distinction.
+   Deliberately NOT SystemConfig, per the original design note — wrong
+   access model for a secret. Routed as a slug sub-tree on system-
+   config.js (GET /api/system-config/integrations, PUT /api/system-
+   config/integrations/:provider) rather than a new top-level file — this
+   app is at exactly 12/12 Vercel functions with zero headroom, same
+   reasoning auditHandlers.js's own header gives for its own placement
+   under flags-router.js. Needed a new vercel.json rewrite
+   (/api/system-config/:slug* -> /api/system-config?slug=:slug*) — this
+   file previously had no sub-route support at all.
+   MASKING CONTRACT: GET never returns a raw secret once it's been
+   saved — only `<field>Set: boolean` + a `••••<last 4 chars>` preview.
+   Non-secret fields (SMTP host/port/user/from — none of which are
+   actually sensitive, see emailService.js's own header) pass through in
+   the clear so a GlobalAdmin can see/edit them without re-entering
+   everything. PUT is a partial update; a blank/omitted SECRET field
+   leaves the stored value untouched rather than clearing it — a
+   GlobalAdmin changing just the SMTP port doesn't have to re-type a
+   password they don't want to change. Verified all of this for real
+   (masking, partial-update semantics, encrypted round-trip) — see
+   VERIFIED below, not just asserted.
+   Audit: IntegrationCredentialUpdated records the provider and WHICH
+   FIELD NAMES changed, never values — same "never write secrets to
+   logs" principle this app already applies to special PI, now applied
+   to credentials too.
+
+5. SMTP REWIRED TO DB-FIRST, ENV-FALLBACK. emailService.js's
+   getTransporterConfig() now checks IntegrationCredential('smtp')
+   first, falling back to the original SMTP_HOST/SMTP_USER/
+   SMTP_PASSWORD/SMTP_FROM env vars if nothing's saved there yet — a
+   deployment that never touches the new page keeps working exactly as
+   it did before this session, reading env vars, unchanged. The module-
+   level transporter cache §78 originally had was DROPPED as part of
+   this — it was only safe because SMTP credentials were env vars, fixed
+   for a warm container's lifetime; now that they can change at any time
+   via the page, a cached transporter risked using a stale/rotated
+   credential until a cold start happened to clear it.
+   nodemailer.createTransport() is cheap enough (no connection made
+   until sendMail() actually runs) that rebuilding it per send costs
+   nothing meaningful.
+
+6. AUDIT LIST GAPS — THIS SESSION'S OWN, PLUS TWO BACKFILLED FROM §117.
+   Added this session's new action/entity types (IntegrationCredential,
+   IntegrationCredentialUpdated, TokenStripeCredited) to auditHandlers.js's
+   VALID_ACTIONS/VALID_ENTITY_TYPES and AppAdmin.jsx's mirrored frontend
+   lists. WHILE THERE, also found and fixed three PRE-EXISTING gaps from
+   §117 that were never added when that session shipped — TokenLedger
+   and SystemConfig (entity types), AppointmentClaimed/TokenManualTopUp/
+   SystemConfigUpdated (actions) — same silent-empty-filter bug §127
+   already found and fixed once for SAR (SubjectAccessRequest/SarAssigned
+   were missing the same way). Flagged explicitly here per the standing
+   pattern (Project_Context_Vercel.md's PERMANENT PATTERNS) rather than
+   treated as silent scope creep — cheap, obviously correct, done in a
+   file already being edited for the identical reason.
+
+VERIFIED — unusually thorough for this build, and worth recording why:
+   the raw-body mechanism (item 1) was genuinely novel for this codebase
+   — nothing else disables Vercel's bodyParser — so static review alone
+   wasn't enough confidence to ship it. Installed PostgreSQL 16 directly
+   in this sandbox (apt, no live Neon access needed or used, same
+   approach §132 established), loaded schema.postgres.sql AND separately
+   applied migrations/022_add_integration_credentials.sql to an original
+   PRE-SESSION schema snapshot pulled fresh from GitHub, confirmed both
+   produce an equivalent table (one cosmetic column-order difference from
+   ALTER TABLE ADD COLUMN vs. inline CREATE TABLE placement — confirmed
+   nothing in this codebase does a positional SELECT * against
+   TokenTransaction, so this doesn't matter functionally). Then ran three
+   real HTTP-level smoke-test scripts (deleted before packaging —
+   verification tooling, not a permanent addition to this repo's vitest-
+   only test footprint) against that real database:
+     - Confirmed all five pre-existing JSON routes in appointments-
+       router.js still work correctly despite the file-wide bodyParser
+       change, plus a malformed-JSON-body case returns a clean 400.
+     - Used Stripe's OWN SDK test helper
+       (Stripe.webhooks.generateTestHeaderString) to construct a REAL
+       valid webhook signature — not a mock — and confirmed: a valid
+       delivery credits tokens and writes an audit entry; a REPLAYED
+       delivery of the identical event does NOT double-credit
+       (idempotency genuinely holds under an actual duplicate INSERT
+       attempt, not just reasoned about); a TAMPERED payload sent with
+       the original signature is genuinely rejected (proves the raw-byte
+       capture is what's actually being verified, not something silently
+       re-serialized that would happen to still pass).
+     - Confirmed the encrypted-credential round-trip through real
+       encrypt()/decrypt() calls, the masking contract (a raw secret
+       string was never present anywhere in a masked JSON response —
+       checked by substring search against the actual plaintext, not
+       assumed), partial-update semantics (an omitted secret field
+       genuinely survives an update to a different field), and that the
+       audit log for a credential save contains field names only, never
+       the value, by reading the actual stored AuditLog row.
+   TWO REAL BUGS were caught by this process and fixed before packaging —
+   BOTH in the throwaway test harnesses themselves, not the application
+   code: a URL-construction mismatch in the system-config test that
+   nearly produced a false "the base System Settings route is broken"
+   alarm (the harness put "system-config" into the slug itself, which
+   Vercel's real rewrite would already have consumed), and a missing
+   body-parsing shim in a harness testing a file that correctly relies on
+   Vercel's own default parser (system-config.js never opted out of it,
+   unlike appointments-router.js). Recorded here deliberately, not
+   glossed over — a red result needs its own verification before either
+   "fixing" working application code or reporting a false positive back
+   to Mark, and this is a concrete example of exactly that discipline
+   paying off mid-session.
+   Full frontend build (npm run build) clean — Integrations.jsx got its
+   own lazy-loaded chunk as expected (matches every other GlobalAdmin-
+   only settings page). Full existing 55-test Vitest suite unaffected —
+   no test file in this repo covers Stripe/encryption specifically, so
+   the sandbox Postgres run above is what actually exercised this
+   session's new code, not vitest. Re-hydrated fresh from GitHub and
+   diffed every file in the delivery against that live snapshot before
+   packaging — matches the intended change set exactly (every changed/
+   new file traces to something deliberately touched this session),
+   zero parallel-session drift to reconcile.
+
+NOT VERIFIED AGAINST REAL STRIPE INFRASTRUCTURE — no real Stripe
+   account or test-mode keys were available in this sandbox, so the
+   ACTUAL Checkout Session creation call (stripe.checkout.sessions.create)
+   and the ACTUAL end-to-end "click Buy Tokens -> pay with a Stripe test
+   card -> land back on /appointments -> see the balance update" flow
+   were never exercised against Stripe's real API — only against Stripe's
+   own signature-construction test helper (which is a different, narrower
+   thing: it proves the signature verification logic is correct, not that
+   the whole flow works against Stripe's real service). This is the one
+   part of §134 Mark needs to verify himself once real test-mode
+   credentials are in the Integrations page — see §0's NEXT ACTION for
+   the exact sequence.
+
+MIGRATION: NEW — migrations/022_add_integration_credentials.sql. Adds
+   IntegrationCredential (new table) and TokenTransaction.externalRef
+   (new nullable column + partial unique index). Both additive, no data
+   loss risk, confirmed safe to run against a live database with existing
+   TokenLedger/TokenTransaction rows (ADD COLUMN ... NULL is metadata-
+   only on Postgres). NOT YET RUN against Neon — see §0's NEXT ACTION.
+
+NEW DEPENDENCY: stripe (^22.4.0) — added to package.json, installed
+   clean, no peer-dependency conflicts with anything else in this
+   project.
+
+FILES:
+  frontend/db/schema.postgres.sql (updated — IntegrationCredential
+    table, TokenTransaction.externalRef + partial unique index, cumulative)
+  frontend/db/migrations/022_add_integration_credentials.sql (NEW)
+  frontend/api-lib/services/integrationCredentialService.js (NEW)
+  frontend/api-lib/services/stripeService.js (NEW)
+  frontend/api-lib/services/tokenService.js (updated — creditStripeTokens())
+  frontend/api-lib/services/emailService.js (rewritten — DB-first, env-fallback)
+  frontend/api-lib/models/integration.js (NEW)
+  frontend/api-lib/http/helpers.js (updated — readRawBody())
+  frontend/api-lib/handlers/appointmentHandlers.js (updated — handleTokenCheckout, handleTokenWebhook)
+  frontend/api-lib/handlers/integrationHandlers.js (NEW)
+  frontend/api-lib/handlers/auditHandlers.js (updated — new + backfilled VALID_ACTIONS/VALID_ENTITY_TYPES)
+  frontend/api/appointments-router.js (rewritten — file-wide bodyParser:false, raw-body handling, two new routes)
+  frontend/api/system-config.js (updated — /integrations slug sub-tree)
+  frontend/vercel.json (updated — new rewrite for /api/system-config/:slug*)
+  frontend/package.json (updated — added stripe dependency)
+  frontend/src/pages/Integrations.jsx (NEW)
+  frontend/src/pages/AppointmentList.jsx (updated — BuyTokensModal rewired to real Stripe redirect, Stripe-return banner)
+  frontend/src/pages/AppAdmin.jsx (updated — mirrored audit filter lists)
+  frontend/src/App.jsx (updated — Integrations route + nav link, GlobalAdmin only)
+  frontend/src/services/api.js (updated — integrationsApi, appointmentsApi.tokens.checkout)
+Plus this Status_Vercel.md and Project_Context_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 16 PAUSED HERE — 6 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§134 is built and thoroughly verified in-sandbox (see VERIFIED above)
+but NOT YET DEPLOYED, and NOT YET run against real Stripe test-mode
+infrastructure — see §0's NEXT ACTION for Mark's exact next steps
+(run migration 022, deploy, set real credentials, flip the flag, try a
+real test-card purchase). Everything through §133 remains confirmed live
+as of session 15's end; nothing in this session touched or retested that.
+
+If picking up a pending item, reference it by section number — same
+convention as before.

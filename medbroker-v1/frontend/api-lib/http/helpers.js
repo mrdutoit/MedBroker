@@ -187,6 +187,37 @@ export function getPortalAuthCookie(req) {
 }
 
 /**
+ * readRawBody — NEW, §134 (6 Aug 2026), added for the Stripe webhook.
+ * Reads a request body as a raw Buffer, exactly as bytes arrived, before
+ * any JSON parsing touches it. Stripe's signature verification
+ * (stripeService.verifyWebhookSignature -> stripe.webhooks.constructEvent)
+ * needs the EXACT raw bytes — re-serializing an already-JSON-parsed body
+ * back to a string almost never round-trips byte-for-byte (key order,
+ * whitespace, number formatting can all shift), which silently breaks
+ * the signature check. This only works because appointments-router.js
+ * sets `export const config = { api: { bodyParser: false } }`, disabling
+ * Vercel's default automatic body parsing for that entire function — see
+ * that file's header for why disabling it file-wide (the only option;
+ * one file is one Vercel function) doesn't break its other JSON routes.
+ * A real, documented Vercel pattern for this exact problem (raw-body
+ * webhook signature verification), not something invented here — hand-
+ * rolled rather than adding a body-parsing dependency, matching this
+ * codebase's existing bar for what's "simple enough to get right by
+ * hand" (see db.js's own toPositional() for another example of the same
+ * standard).
+ * @param {import('http').IncomingMessage} req
+ * @returns {Promise<Buffer>}
+ */
+export function readRawBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on('data', (chunk) => chunks.push(chunk));
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+/**
  * parseSlug — added 22 July 2026, replacing the bracket catch-all file
  * convention ([...slug].js / [[...slug]].js), which turned out not to be
  * recognized as a route by Vercel outside a Next.js project — confirmed
