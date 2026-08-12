@@ -156,6 +156,49 @@ export async function listSupervisors() {
 }
 
 /**
+ * §138, 12 Aug 2026 — routing for the "couldn't find an available broker"
+ * flow. Deliberately NOT the agent's own line-management supervisor
+ * (lead.agentSupervisorId, used elsewhere in this app) — an agent's
+ * manager has nothing to do with broker capacity. This is a different
+ * axis entirely: which Supervisor covers BROKERS for a given region.
+ * Since no broker was ever matched in this flow, there's no specific
+ * broker to trace a supervisor from — matches on the Supervisor's own
+ * region column directly (region is a plain column on every User row,
+ * not agent- or broker-specific).
+ *
+ * Of any Supervisor matching that region, picks whichever currently has
+ * the fewest open (incomplete) Tasks assigned to them — Mark's choice,
+ * load-spreading over simple first-match. Ties broken by displayName
+ * for a deterministic result, not insertion order.
+ *
+ * Returns null if no active Supervisor has that region set at all — the
+ * caller (appointmentService.createAppointment) falls back to the
+ * agent themselves in that case, same "never orphan a task" pattern
+ * used elsewhere, since CreateUserSchema making region required for
+ * Supervisor going forward doesn't retroactively fix existing rows.
+ * @param {string} region
+ * @returns {Promise<string|null>} the chosen Supervisor's id, or null
+ */
+export async function findLeastLoadedSupervisorForRegion(region) {
+  if (!region) return null;
+  const row = await executeQueryOne(
+    `SELECT u.id
+     FROM "User" u
+     LEFT JOIN Task t ON t.assignedToId = u.id AND t.isComplete = FALSE AND t.organisationId = u.organisationId
+     WHERE u.role = 'Supervisor' AND u.isActive = TRUE AND u.deletedAt IS NULL
+       AND u.region = @region AND u.organisationId = @organisationId
+     GROUP BY u.id, u.displayName
+     ORDER BY COUNT(t.id) ASC, u.displayName ASC
+     LIMIT 1`,
+    {
+      region:         { type: sql.NVarChar(50),     value: region },
+      organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
+    }
+  );
+  return row?.id ?? null;
+}
+
+/**
  * Resolve portfolio/product NAMES (what the frontend's checkboxes send) to
  * ids. Returns [] for an empty/missing input rather than querying with an
  * empty ANY() array, which is valid SQL but a wasted round trip.

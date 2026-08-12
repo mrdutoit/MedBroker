@@ -22,33 +22,36 @@ original file — only this summary block at the top is newly written.
 0. CURRENT STATE — READ THIS FIRST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-NEXT ACTION, per session 19 (12 Aug 2026, §137): Mark reported Audit Log
-(both the AppAdmin tab and entity panels), broker Reports, and
-Integrations all failing on the live deployment. Root cause found and
-fixed, NOT a query/schema bug (proved by actually executing every one
-of the relevant functions against a real, correctly-migrated local
-Postgres — all ran cleanly) — db.js's pg.Pool had no error handler and
-no idle/connection timeouts, a known-bad pattern under Vercel's
-freeze/thaw execution model that can silently crash a function on a
-stale pooled connection. Fixed at the root, not patched: services/db.js
-now runs on @neondatabase/serverless's HTTP driver instead of pg.Pool —
-no persistent connection at all, so there's nothing left to go stale
-across a freeze/thaw cycle. See §137 for full detail. BUILT AND VERIFIED
-AS FAR AS THIS SANDBOX CAN VERIFY (see §137's own VERIFIED section) but
-NOT YET DEPLOYED, and NOT exercised against a real live Neon endpoint
-end-to-end (this sandbox's network can't reach neon.tech) — that's the
-one thing for Mark to confirm himself post-deploy, starting with
-GET /api/health.
+NEXT ACTION, per §139 (12 Aug 2026): §137 (db.js driver swap) confirmed
+deployed and working. §138 was a long design conversation (Task vs
+Notification redesign, region-based Supervisor routing, an audit-log
+gap, a Callback-task-closure design, and a full meeting/appointment
+attempt-history redesign SPECED but not built). §139 then actually
+BUILT AND VERIFIED the Task/Lead portion of that design — see §139 for
+the full list of 8 items and how each was verified (including real
+Postgres execution, not just code review). NOT YET DEPLOYED, and
+migration 024 has not been run against Neon. One assumption needs
+Mark's confirmation before or shortly after deploy — see §139's own
+"ONE UNCONFIRMED ASSUMPTION" entry (which region field feeds the new
+Supervisor lookup).
 
-SEPARATELY, STILL OPEN FROM SESSION 18: §136 (Integrations conditional-
-card-visibility fix) was showing as NOT YET DEPLOYED as of that
-session's end. Unconfirmed whether it was deployed in the days since —
-ask Mark rather than assume either way when picking this up.
+STILL fully deferred, zero code written: the meeting/appointment
+attempt-history redesign itself (§138 has the full spec), and the
+Reports date-scoping fix that depends on it existing first.
+
+A session-isolation footgun was also discovered (sessionStorage is
+per-tab, the mb_session cookie is not — multiple tabs/InPrivate windows
+sharing one browser silently share one auth session too). This throws
+real doubt on one specific conclusion from session 20 — whether
+logCallAttempt() actually needs to route Callback tasks to
+lead.assignedAgentId rather than the caller — see §138's own
+"SESSION-ISOLATION FOOTGUN" entry before touching that function's
+routing. Mark has not yet retested cleanly to confirm either way; §139
+deliberately left this unchanged.
 
 Whether migration 022 has actually been run against Neon is still
 unconfirmed either way from this sandbox; migration 023 likewise. Ask
-Mark directly if unsure before assuming either has run. (§137 makes no
-schema change, so this is unrelated to and unaffected by that fix.)
+Mark directly if unsure before assuming either has run.
 
 §135 (7 Aug 2026) added Paystack as a second, fully independent
 appointments.tokens.paymentProvider option alongside Stripe — CONFIRMED
@@ -10166,6 +10169,381 @@ assuming either way. Once §137 deploys: check GET /api/health first,
 then Audit Log (both the AppAdmin tab and an entity's own panel),
 Broker Reports, and Integrations — all four were the ones Mark reported
 failing, and all four go through this one file.
+
+If picking up a pending item, reference it by section number — same
+convention as before.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+138. LARGE DESIGN SESSION — TASKS/NOTIFICATIONS REDESIGNED, MEETING MODEL SPECED (NOT YET BUILT), SESSION-ISOLATION FOOTGUN DISCOVERED — 12 Aug 2026 (session 20)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§137 confirmed working — Mark deployed it and tested. Reports for a
+broker was STILL empty though, and turned out to be a separate,
+pre-existing bug: getBrokerReport()/getBrokerDetailReport() scope
+activity by Appointment.createdAt (when first booked), not by when a
+meeting was actually held or the deal closed — an appointment closed
+today doesn't show in this month's view if the row itself was created
+earlier. reportService.js's own header comment says broker/agent tables
+should scope by "activity within the period" — the code doesn't match
+its own stated intent. FIX DEFERRED DELIBERATELY: there's no field
+today that means "when did this actually happen" (meeting1Date is
+scheduled date, not evidence of occurrence; updatedAt changes on any
+edit) — the meeting redesign below would produce the right field, so
+fixing Reports before that exists means touching this query twice.
+
+TASK VS NOTIFICATION — FULL REDESIGN AGREED, NOT YET BUILT THIS SESSION
+(session 21 will build it — see NEXT ACTION). Long interview with Mark,
+landed on:
+
+  Core test (Mark's own words): Task = a concrete action + a real due
+  date. Notification = FYI, nothing owed, or the action already
+  happened at the point of the event (e.g. rescheduling IS the action —
+  broker's on the phone, sets the new date right there, nothing left to
+  chase).
+
+  Every current auto-generated event, inventoried by actually reading
+  every createTask()/createNotification() call site rather than
+  guessing (5 Task triggers, 8 Notification types across 11 call
+  sites):
+
+  TASKS — dropping from 5 to 2:
+    KEEP: CallbackRequested on a call attempt -> Callback task
+    KEEP: Appointment booked, no broker -> Assign-broker task
+    DROP: Meeting marked Rescheduled -> no event at all (see meeting
+      redesign — the reschedule action itself now captures the new
+      date atomically, nothing left to track separately)
+    DROP: Meeting marked Seen/Held, outcome pending -> no event at all
+      (the appointment's own "Held, outcome pending" state is already
+      visible via Appointments list filtering — same reasoning as
+      Reschedule, don't duplicate a status the entity itself already
+      carries)
+    DROP: "Confirm appointment with [broker]" (fires on the Agent when
+      a broker's chosen at booking time) -> was never actually a real
+      action (no confirm button, no state change anywhere represents
+      "confirming"), moves to a NEW Notification instead (see below —
+      this trigger literally doesn't exist as a Notification today,
+      broker-chosen-at-booking currently fires nothing at all).
+
+  NOTIFICATIONS — existing 8 types unchanged, PLUS one new trigger:
+    NEW: broker chosen at Appointment creation time -> AppointmentAssigned
+      notification to that broker. Today AppointmentAssigned only
+      fires on LATER assignment (assignBroker()/self-claim) — booking
+      WITH a broker chosen upfront currently notifies nobody at all.
+
+  CALLBACK TASK CLOSURE (Mark's explicit design): any new call attempt
+  logged against a lead with an open Callback task auto-completes that
+  task, REGARDLESS OF OUTCOME — "the agent could call and leave a
+  voicemail, or not get hold of the client... any call logged should
+  close the callback task." Detail of the closing call should be
+  visible against the completed task. Building this as a link
+  (Task.resolvedByCallAttemptId, nullable FK to CallAttempt), not a
+  copied/duplicated text blob — completed task shows the original
+  request detail (already on Task.detail) plus the closing call's
+  outcome/notes/timestamp live from CallAttempt, so a later correction
+  to the call log's notes doesn't leave the Task showing stale text.
+
+  SUPERVISOR ROUTING FOR "ASSIGN BROKER" — Mark corrected an
+  assumption mid-conversation: this should route to a BROKER's
+  supervisor, not the AGENT's own supervisor (the existing
+  lead.agentSupervisorId fallback the code currently uses is simply the
+  wrong axis — an agent's line manager has nothing to do with broker
+  capacity). Since this flow exists precisely because no broker was
+  ever matched, there's no specific broker to trace a supervisor from —
+  routes instead by REGION: find Supervisor-role users whose own
+  User.region matches the appointment's region (region already exists
+  as a plain column on every User row, not agent-specific — confirmed
+  by reading schema.postgres.sql directly), and of any that match, pick
+  whichever currently has the fewest open tasks (Mark's choice,
+  load-spreading over simple first-match).
+
+  MANDATORY SUPERVISOR/REGION AT USER CREATION — confirmed CURRENTLY a
+  real gap by reading CreateUserSchema directly: both supervisorId and
+  region are .optional() today. Fixing: supervisorId becomes required
+  when role is Agent or Broker; region becomes required when role is
+  Supervisor (this second one wasn't Mark's original ask but follows
+  directly from it — the region-based Supervisor lookup above is only
+  reliable if every Supervisor actually has a region set).
+
+  AUDIT LOG GAP — Mark asked directly why logged calls don't appear in
+  a Lead's Change Log. Confirmed by reading the full function:
+  logCallAttempt() never calls writeAuditLog() anywhere, at all — not
+  an oversight in a query, a genuinely missing write. Fix is a single
+  writeAuditLog({ entityType: 'Lead', entityId: leadId, ... }) call;
+  confirmed it needs no other changes to show up — listAuditLogForLead()'s
+  own base UNION branch already matches entityType = 'Lead', so a
+  normal-shaped write slots straight into the existing Change Log with
+  no query changes.
+
+  TASKS.JSX CHANGES AGREED: drop the Rescheduling and Outcomes filter
+  tabs entirely (nothing will ever populate them once the two Task
+  triggers above are dropped). Callback and Assign-broker task rows
+  lose their in-list checkbox — Mark's model is that a system-generated
+  task with a real underlying entity should only be completable FROM
+  that entity (Callback closes via Log Call on the Lead, Assign-broker
+  closes via actually assigning a broker on the Appointment), not
+  ticked off directly in the list. Manual tasks keep the checkbox
+  exactly as today. Worth noting this makes Tasks.jsx naturally
+  role-scoped without any new filter code: Callback only ever goes to
+  Agents, Assign-broker only ever goes to Supervisors — a Broker's task
+  list is Manual-only by construction now, not by a rule anyone has to
+  maintain.
+
+MEETING / APPOINTMENT ATTEMPT-HISTORY REDESIGN — FULLY SPECED, ZERO
+CODE WRITTEN. Deliberately scoped OUT of this session's build (see
+NEXT ACTION) — "task and lead changes" per Mark's own framing when he
+said go ahead, not appointment/meeting changes. Full spec, so a future
+session can pick this up without re-deriving it:
+
+  Problem: meeting1Date/meeting1Status/meeting1RescheduledDateTime etc.
+  are flat columns — a reschedule overwrites in place, no history, no
+  way to see how many attempts it took to actually hold a meeting.
+
+  New model: one row per scheduled ATTEMPT of a meeting number
+  (append-only, matching the Lead call-log pattern, not the flat-column
+  pattern) — a reschedule creates a new row rather than editing the old
+  one. Meeting 1's first row is created atomically with the Appointment
+  itself, date pre-filled from firstAppointmentDate (not separately
+  editable on that row — it's just what was booked). Status per row:
+    Scheduled (default) / Held – Interested / Held – Not Interested /
+    Rescheduled
+  Separate field, asked ONLY when a row is saved Held – Interested:
+  "Is a follow-up meeting required?" — deliberately not folded into the
+  status label, because it answers a different question than Rescheduled
+  does (Rescheduled = same meeting number didn't happen as planned, new
+  row under it; follow-up-required = meeting DID happen, needs a second
+  meeting NUMBER entirely, new row under Meeting 2).
+
+  Full outcome-form routing table (all four branches, no dead ends):
+    Held – Not Interested (any meeting number)            -> Outcome
+      form appears, Customer Signed pre-set No
+    Held – Interested, on the LAST configured meeting      -> Outcome
+      number (2 or 3, per appointments.thirdMeeting.enabled) form
+      appears, Customer Signed pre-set Yes
+    Held – Interested, follow-up required = No (not last)  -> same,
+      Outcome form appears, Customer Signed pre-set Yes
+    Held – Interested, follow-up required = Yes             -> advances
+      to next meeting number's first row, Outcome form does NOT appear
+    Rescheduled                                              -> new row,
+      same meeting number, Outcome form does NOT appear
+  "Mark Meeting Held" button drops entirely — the Status dropdown
+  itself is the save action now.
+
+  NOT YET DECIDED, future session needs to ask: does an
+  in-flight/existing appointment get backfilled into the new attempt
+  table, or does this only apply going forward? Mark flagged this as
+  open when the spec was agreed and it was never actually answered.
+
+SESSION-ISOLATION FOOTGUN — DISCOVERED, EXPLAINS SEVERAL "BUGS" THAT
+MAY NOT HAVE BEEN BUGS. Mark had been testing across multiple users in
+private/InPrivate browser tabs simultaneously. AuthContext caches which
+user you are in sessionStorage — genuinely per-tab. The actual auth
+boundary, the mb_session httpOnly cookie, is NOT per-tab — it's shared
+across every tab in the same browser, InPrivate windows included if
+more than one tab shares that window. A tab's own UI can keep showing
+stale "who am I" state while every real request silently authenticates
+as whoever most recently logged in anywhere else in that browser.
+
+THIS DIRECTLY UNDERMINES ONE CONCLUSION FROM THIS SESSION: Mark
+produced screenshots appearing to show a Callback task correctly
+routing to a lead's actual assigned agent (Steve Madden) rather than to
+whoever was logged in and logged the call — which flatly contradicts
+logCallAttempt()'s actual code (assignedToId: agentId, where agentId is
+literally claims.oid, the caller, re-read fresh from GitHub three
+separate times with identical results, no other code path creates a
+Callback task anywhere in the codebase). The session-isolation footgun
+is the far more likely explanation than a code path neither of us can
+find: Steve Madden's session may have been the one actually live in
+that browser at the moment, with the tab's own display simply not
+reflecting it. UNRESOLVED — Mark has not yet retested cleanly (single
+window, single fresh login, nothing else open) to confirm either way.
+DELIBERATELY NOT CHANGED THIS SESSION: logCallAttempt() still routes to
+whoever calls it (claims.oid), not lead.assignedAgentId — changing this
+without a clean retest risks fixing a problem that doesn't exist and
+re-breaking something that was already correct. Ask Mark for the
+retest result before touching this function's routing at all.
+
+WORTH RE-EXAMINING LATER, NOT NOW (Mark's own flag, explicitly
+deferred): given this footgun existed all along, is it possible §137's
+whole db.js/pg.Pool -> neon() HTTP driver rewrite was solving session
+confusion mislabeled as a connection-pool crash, rather than a genuine
+Vercel-freeze/Neon-connection problem? Worth revisiting once things have
+settled, NOT by reverting anything preemptively — §137 is independently
+justified on its own merits regardless (removed a real known-bad
+pattern: no pool.on('error') handler, no idle timeout, both genuine
+node-postgres/Vercel gotchas on their own terms) and is working in
+production now. The question is only whether the ORIGINAL symptom
+(Audit Log/Reports/Integrations all failing) was actually caused by
+what §137 fixed, or whether session confusion was doing some or all of
+that damage too and §137 gets credit it only partly deserves. Not
+urgent, doesn't change anything about whether §137 was worth doing.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+139. TASK AND LEAD CHANGES — BUILT AND VERIFIED — 12 Aug 2026 (continuation of session 20)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+All 8 items from §138's NEXT ACTION list, built in the same sitting per
+Mark's "go ahead." Meeting/attempt-history redesign still NOT built —
+stays speced-only in §138, genuinely deferred.
+
+WHAT CHANGED:
+  1. appointmentService.js — Reschedule/Outcome createTask() calls
+     removed from the outcome-save flow entirely (the flow itself is
+     otherwise untouched — this is NOT the meeting redesign).
+  2. appointmentService.createAppointment() — broker-chosen-at-booking
+     now fires an AppointmentAssigned Notification (new trigger — this
+     literally fired nothing before). No-broker-chosen now calls
+     userService.findLeastLoadedSupervisorForRegion(lead.agentRegion)
+     instead of using lead.agentSupervisorId.
+  3. userService.js — new findLeastLoadedSupervisorForRegion(region):
+     matches Supervisor role + region, LEFT JOINs open Task count,
+     ORDER BY count ASC then displayName ASC, LIMIT 1. Returns null if
+     no active Supervisor has that region — caller falls back to the
+     agent themselves, same "never orphan a task" pattern as before.
+  4. LeadDetail.jsx booking form — new "I couldn't find an available
+     broker" radio option, mutually exclusive with picking a broker,
+     submits with brokerId omitted on purpose (not just left blank).
+  5. models/user.js CreateUserSchema — .superRefine() added:
+     supervisorId required when role is Agent or Broker; region required
+     when role is Supervisor. Tested all 6 role/field combinations
+     directly against the schema — every case behaves correctly.
+  6. leadService.logCallAttempt() — now calls writeAuditLog()
+     (action 'CallLogged', entityType 'Lead') — this write never existed
+     before, confirmed by reading the function fresh three times before
+     touching it. New action added to auditHandlers.js's VALID_ACTIONS
+     and AppAdmin.jsx's filter list together, per this codebase's own
+     established convention for keeping those two in sync.
+  7. Migration 024 (Task.resolvedByCallAttemptId, nullable FK to
+     CallAttempt, ON DELETE SET NULL) + schema.postgres.sql updated to
+     match. taskService.js: new completeOpenCallbackTasksForLead(leadId,
+     callAttemptId) — closes every open Callback task for a lead
+     (isComplete=TRUE, completedAt=NOW(), resolvedByCallAttemptId set),
+     writes a TaskAutoCompleted audit entry per task closed (own new
+     action, added to both action lists same as CallLogged). Wired into
+     logCallAttempt() to run right after the new CallAttempt row is
+     inserted, before the CallbackRequested-creates-a-new-task rule
+     further down — so if the new attempt is itself another
+     CallbackRequested, the old task is already closed before the new
+     one opens; no window with both open. TASK_SELECT/TASK_JOINS and
+     shapeTask() updated so a completed Callback task's closing call
+     detail (outcome/notes/callTime) is visible without a separate
+     query — pulled live via the FK, not copied at completion time.
+  8. Tasks.jsx — header comment corrected (2 rules, not 5). Rescheduling
+     and Outcomes dropped from both the tab list (CATEGORIES) and the
+     manual-creation category picker (CATEGORY_META) — also narrowed
+     models/task.js's TaskCategory enum server-side so nothing can create
+     one via direct API call either, not just hidden from the UI.
+     TYPE_TO_CATEGORY (read-direction, for shapeTask()) stays complete —
+     a handful of historical rows may still carry type Reschedule/Outcome
+     from before this change; they now display with manual-style
+     fallback styling (CATEGORY_META[cat] ?? CATEGORY_META.manual) rather
+     than their old dedicated colour — a minor, accepted cosmetic
+     tradeoff for old data, not a functional issue.
+     Checkbox replaced with a redirect-link (to the Lead or Appointment)
+     for Callback/Assign-broker rows — keyed off actually HAVING a linked
+     entity (task.linkedLeadId / task.linkedAppointment), not off
+     category alone: a manually created task can still be given category
+     'callback' or 'appointment' in the New Task modal, but always has
+     entityType/entityId = NULL (no entity-linking UI there), so it
+     correctly falls through to the checkbox regardless of which
+     category was picked. useNavigate wired in from 'react-router'
+     (matching AppointmentDetail.jsx's own import pattern, verified, not
+     assumed — this app uses the react-router package directly, not
+     react-router-dom).
+
+ONE UNCONFIRMED ASSUMPTION, FLAGGED TO MARK, NOT YET ANSWERED: neither
+Lead nor Appointment has a region column (confirmed by reading both
+table definitions) — the region used for the Supervisor lookup in
+createAppointment() is the AGENT's own region (lead.assignedAgentId's
+User.region), inferred as the only sensible per-booking region signal
+available, not something Mark explicitly confirmed. Worth a quick
+sanity check before this ships.
+
+DELIBERATELY UNCHANGED, per §138: logCallAttempt()'s Callback task still
+routes to `agentId` (the caller), not lead.assignedAgentId — holding
+until Mark retests cleanly per the session-isolation footgun. The
+existing misleading comment on this rule was corrected to state
+precisely what the code does and why it wasn't changed, without
+changing the behavior itself.
+
+VERIFIED — properly, not just "it imports":
+  - node --check clean on every touched .js file.
+  - Full ESM import smoke test on all 17 services AND all 12 API router
+    entrypoints (not just services this time — confirmed the actual
+    Vercel function files resolve too).
+  - Full Vite production build clean (validates the two touched .jsx
+    files, which node --check can't parse).
+  - Existing 55-test Vitest suite unaffected.
+  - REAL POSTGRES, not just read: fresh local instance, schema.postgres.sql
+    + migration 024 both loaded (024 also re-run against an
+    already-current schema to confirm its idempotency — clean, no
+    errors, matches this codebase's established DROP-IF-EXISTS/ADD
+    constraint pattern rather than a heavier DO-block).  Seeded two
+    Supervisors sharing a region with different open-task counts and
+    ran findLeastLoadedSupervisorForRegion's exact SQL directly — correctly
+    picked the less-loaded one. Ran completeOpenCallbackTasksForLead's
+    exact SELECT/UPDATE against a seeded open Callback task and a second
+    CallAttempt with a DIFFERENT outcome than CallbackRequested — closed
+    correctly regardless of outcome, matching Mark's design exactly.
+    Confirmed CallLogged surfaces via listAuditLogForLead's existing base
+    UNION branch with no query changes, exactly as predicted before
+    building it. Confirmed the FK's ON DELETE SET NULL behaves as
+    designed — deleted the linked CallAttempt, the Task survived intact
+    with the link nulled out, not cascade-deleted.
+  - CreateUserSchema tested directly against all 6 role/field
+    combinations — every case (Agent/Broker with and without supervisor,
+    Supervisor with and without region, Admin needing neither) produced
+    the correct pass/fail result.
+  - Re-hydrated fresh from GitHub and diffed the whole tree before
+    packaging — confirmed the exact 14 changed/new files listed below,
+    nothing else drifted. Caught and fixed a real mistake in this same
+    pass: Status_Vercel.md's own §138 edit from earlier in this session
+    had been made in a scratch copy that was never actually copied into
+    the working tree — would have shipped a delivery with an
+    un-updated status file had the diff not caught it.
+
+NOT VERIFIED (same limitation as §137, unchanged): actual live behavior
+against Mark's real Neon endpoint — this sandbox's network can't reach
+neon.tech. Everything above was verified as thoroughly as this
+environment allows; the live round-trip is still Mark's to confirm
+post-deploy.
+
+MIGRATION: 024_add_task_call_resolution_link.sql — additive only
+(nullable column + FK + partial index), no data loss risk, safe against
+an existing database with live Task/CallAttempt rows.
+
+FILES:
+  frontend/api-lib/services/appointmentService.js  (Reschedule/Outcome tasks removed; createAppointment rewired)
+  frontend/api-lib/services/userService.js         (findLeastLoadedSupervisorForRegion added)
+  frontend/api-lib/services/leadService.js         (writeAuditLog + completeOpenCallbackTasksForLead wired into logCallAttempt)
+  frontend/api-lib/services/taskService.js         (completeOpenCallbackTasksForLead added; TASK_SELECT/TASK_JOINS extended)
+  frontend/api-lib/handlers/taskHandlers.js        (shapeTask() surfaces resolvedByCall)
+  frontend/api-lib/handlers/auditHandlers.js       (VALID_ACTIONS: CallLogged, TaskAutoCompleted)
+  frontend/api-lib/models/user.js                  (CreateUserSchema conditional validation)
+  frontend/api-lib/models/task.js                  (TaskCategory narrowed, TYPE_TO_CATEGORY unchanged)
+  frontend/db/migrations/024_add_task_call_resolution_link.sql (NEW)
+  frontend/db/schema.postgres.sql                  (Task table updated to match)
+  frontend/src/pages/LeadDetail.jsx                ("couldn't find a broker" booking option)
+  frontend/src/pages/Tasks.jsx                     (tabs dropped, checkbox -> redirect-link)
+  frontend/src/pages/AppAdmin.jsx                  (AUDIT_ACTIONS: CallLogged, TaskAutoCompleted)
+Plus Status_Vercel.md and Project_Context_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 20 PAUSED HERE — 12 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+NEXT ACTION: §139 is built and verified as far as this sandbox can
+verify (see §139's own VERIFIED section) but NOT YET DEPLOYED, and
+migration 024 has not been run against the real Neon database. Ask Mark
+to confirm the AGENT-region assumption (see §139) before or immediately
+after deploying — if wrong, it's a small, contained fix (swap which
+region field feeds the lookup), not a redesign.
+
+STILL OPEN, deferred deliberately: the meeting/attempt-history redesign
+(fully speced in §138, zero code written) and the Reports date-scoping
+fix (depends on that redesign existing first). The session-isolation
+footgun's effect on logCallAttempt()'s routing is also still open —
+waiting on Mark's clean retest before touching that function again.
 
 If picking up a pending item, reference it by section number — same
 convention as before.

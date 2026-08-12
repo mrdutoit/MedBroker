@@ -54,6 +54,18 @@ function toDateOnly(value) {
   return isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
+/**
+ * Same Date-object-vs-string defensiveness as toDateOnly() above, but
+ * keeps the time component — used for resolvedByCallTime (§138), where
+ * "12 Aug 2026" alone would lose which of possibly several calls that
+ * day actually closed this task.
+ */
+function toIsoOrNull(value) {
+  if (!value) return null;
+  const d = value instanceof Date ? value : new Date(value);
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 function shapeTask(row) {
   const linkedLead = row.linkedLeadId
     ? [row.linkedLeadTitle, row.linkedLeadFirstName, row.linkedLeadLastName].filter(Boolean).join(' ')
@@ -76,6 +88,15 @@ function shapeTask(row) {
     dueDate:           toDateOnly(row.dueAt),
     createdAt:         toDateOnly(row.createdAt),
     source:            row.type === 'Manual' ? 'manual' : 'system',
+    // §138 — only populated for a Callback task auto-completed by a new
+    // call attempt (see taskService.completeOpenCallbackTasksForLead).
+    // resolvedByCall stays null for every other task, including a
+    // Callback task that's still open.
+    resolvedByCall: row.resolvedByCallAttemptId ? {
+      outcome:  row.resolvedByCallOutcome,
+      notes:    row.resolvedByCallNotes,
+      callTime: toIsoOrNull(row.resolvedByCallTime),
+    } : null,
   };
 }
 

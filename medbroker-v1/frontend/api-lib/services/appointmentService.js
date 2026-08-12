@@ -20,7 +20,7 @@
 
 import { executeQuery, executeQueryOne, sql } from './db.js';
 import { computeAppointmentStatus } from './appointmentStatusService.js';
-import { getActiveUserById, resolvePortfolioIds } from './userService.js';
+import { getActiveUserById, resolvePortfolioIds, findLeastLoadedSupervisorForRegion } from './userService.js';
 import { createTask, deleteTasksForEntity, reassignTasksForEntity } from './taskService.js';
 import { createNotification } from './notificationService.js';
 import { debitTokensForClaim, refundTokens } from './tokenService.js';
@@ -290,7 +290,7 @@ export async function createAppointment(data) {
 
   const lead = await executeQueryOne(
     `SELECT l.assignedAgentId AS "assignedAgentId", l.title, l.firstName AS "firstName", l.lastName AS "lastName",
-            ag.supervisorId AS "agentSupervisorId"
+            ag.supervisorId AS "agentSupervisorId", ag.region AS "agentRegion"
      FROM Lead l
      LEFT JOIN "User" ag ON l.assignedAgentId = ag.id
      WHERE l.id = @leadId AND l.deletedAt IS NULL AND l.organisationId = @organisationId`,
@@ -365,31 +365,41 @@ export async function createAppointment(data) {
     { leadId: { type: sql.UniqueIdentifier, value: data.leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
 
-  // TASK GENERATION (§56), rules 2 and 5 of 5 — matches Tasks.jsx's own
-  // header spec. Both are outcomes of this same booking call, split on the
-  // same brokerId-present-or-absent branch that already decided `status`
-  // above, not two separate touchpoints:
-  //   "Appointment booked     -> Confirm appointment with [broker] — [date]"
-  //   "Appointment unassigned -> Assign broker — [lead name]"
-  const leadName = [lead.title, lead.firstName, lead.lastName].filter(Boolean).join(' ');
+  // §138, 12 Aug 2026 — both branches rewired from the original §56 rules.
+  // Split on the same brokerId-present-or-absent branch that already
+  // decided `status` above.
   if (status === 'Assigned') {
-    await createTask({
-      assignedToId: agentId,
-      type:         'Appointment',
-      entityType:   'Appointment',
-      entityId:     newId,
-      title:        `Confirm appointment with ${broker.displayName} — ${data.firstAppointmentDate}`,
-      dueAt:        data.firstAppointmentDate,
+    // "Confirm appointment with [broker]" Task dropped entirely — it never
+    // had a real closing action (no confirm button, nothing in the
+    // Appointment flow represents an agent "confirming" anything; the
+    // appointment just moves forward on its own once the broker starts
+    // working the meeting). Replaced with a Notification instead — today
+    // AppointmentAssigned only fires on a LATER assignment
+    // (assignBroker()/self-claim below); booking WITH a broker chosen
+    // upfront previously notified nobody at all.
+    const leadName = [lead.title, lead.firstName, lead.lastName].filter(Boolean).join(' ');
+    const dateLabel = shortDateLabel(data.firstAppointmentDate);
+    const whenLabel = [dateLabel, data.firstAppointmentTime].filter(Boolean).join(', ');
+    await createNotification({
+      recipientId: broker.id,
+      type:        'AppointmentAssigned',
+      title:       `New appointment assigned — ${leadName}`,
+      body:        `You have been assigned as broker for this appointment.${whenLabel ? ` First meeting: ${whenLabel}.` : ''}`,
+      entityType:  'Appointment',
+      entityId:    newId,
     });
   } else {
-    // No broker chosen at booking — routed to the agent's Supervisor
-    // (assignBroker() is Supervisor/Admin/GlobalAdmin-only, see
-    // appointmentHandlers.js — an Agent couldn't act on this task even if
-    // it landed on them). Falls back to the agent themselves if they have
-    // no supervisorId set, since Task.assignedToId is NOT NULL — never
-    // left orphaned to nobody.
+    // No broker chosen at booking. Routed by REGION, not by the agent's own
+    // line management (lead.agentSupervisorId, still used elsewhere in this
+    // app for unrelated purposes) — an agent's manager has nothing to do
+    // with broker capacity. See userService.findLeastLoadedSupervisorForRegion
+    // for the full reasoning; falls back to the agent themselves if no
+    // active Supervisor has a matching region set, same "never orphan a
+    // task" pattern this app already uses elsewhere.
+    const leadName = [lead.title, lead.firstName, lead.lastName].filter(Boolean).join(' ');
+    const regionSupervisorId = await findLeastLoadedSupervisorForRegion(lead.agentRegion);
     await createTask({
-      assignedToId: lead.agentSupervisorId ?? agentId,
+      assignedToId: regionSupervisorId ?? agentId,
       type:         'Appointment',
       entityType:   'Appointment',
       entityId:     newId,
@@ -795,46 +805,15 @@ export async function saveOutcome(id, data) {
 
   await executeQuery(`UPDATE Appointment SET ${setClauses.join(', ')} WHERE id = @id AND organisationId = @organisationId`, params);
 
-  // TASK GENERATION (§56), rules 3 and 4 of 5 — matches Tasks.jsx's own
-  // header spec: "Meeting marked Rescheduled -> Reschedule [lead name]
-  // [nth] meeting" / "Meeting marked Seen -> Record outcome — [lead name]".
-  // Gated on a genuine TRANSITION into that status (compared against
-  // current.meetingNStatus fetched above), not merely "the payload
-  // contains this status" — otherwise re-saving an already-Rescheduled
-  // meeting would spawn a fresh task every time. Assigned to the broker
-  // (they're the one who was in the meeting) — skipped gracefully if this
-  // appointment somehow has no brokerId yet, rather than crashing on a
-  // NOT NULL violation.
-  if (current.brokerId) {
-    const leadName = [current.title, current.firstName, current.lastName].filter(Boolean).join(' ');
-    const NTH = { 1: 'first', 2: 'second', 3: 'third' };
-    for (const meeting of data.meetings ?? []) {
-      const n = meeting.number;
-      if (![1, 2, 3].includes(n)) continue;
-      const previousStatus = current[`meeting${n}Status`];
-      if (meeting.status === previousStatus) continue; // no real transition — nothing to generate
-
-      if (meeting.status === 'Rescheduled') {
-        await createTask({
-          assignedToId: current.brokerId,
-          type:         'Reschedule',
-          entityType:   'Appointment',
-          entityId:     id,
-          title:        `Reschedule ${leadName} ${NTH[n]} meeting`,
-          detail:       meeting.notes || null,
-        });
-      } else if (meeting.status === 'Seen') {
-        await createTask({
-          assignedToId: current.brokerId,
-          type:         'Outcome',
-          entityType:   'Appointment',
-          entityId:     id,
-          title:        `Record outcome — ${leadName}`,
-          detail:       meeting.notes || null,
-        });
-      }
-    }
-  }
+  // TASK GENERATION REMOVED HERE (§138, 12 Aug 2026) — this used to create
+  // Reschedule and Outcome tasks on a meeting-status transition. Mark's own
+  // test for a Task (concrete action + a real due date) doesn't hold for
+  // either: a Reschedule IS the action, captured live on the call, nothing
+  // left to chase; a meeting sitting Held with no outcome saved is already
+  // visible via Appointments list filtering, so a dedicated Task duplicated
+  // a state the entity itself already carries. Both now generate zero
+  // events — not moved to Notification, genuinely nothing fires. See
+  // Status_Vercel.md §138 for the full reasoning.
 
   if (data.productsSold !== undefined) {
     const idMap = await resolveProductIdMap(data.productsSold.map(p => p.product));

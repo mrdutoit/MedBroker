@@ -33,7 +33,34 @@ export const CreateUserSchema = z.object({
   // the active default — see FeatureFlag seed). Omitted entirely when SSO
   // is enabled, matching the frontend's existing SSO-invite messaging.
   password:     z.string().min(12).optional(),
-});
+})
+  // §138, 12 Aug 2026 — Mark's request: an Agent or Broker should never be
+  // creatable without a Supervisor. Closes the "never orphan a task" fallback
+  // this app has needed elsewhere (Assign-broker/Callback tasks landing on
+  // the assignee themselves because no Supervisor was set) at the source
+  // instead of continuing to paper over it downstream.
+  //
+  // Also requires Supervisor role to have a region set — not something Mark
+  // asked for directly, but follows from the same request: Assign-broker
+  // tasks now route by matching a Supervisor's region (see
+  // userService.findLeastLoadedSupervisorForRegion), which only works
+  // reliably if every Supervisor actually has one.
+  .superRefine((data, ctx) => {
+    if ((data.role === 'Agent' || data.role === 'Broker') && !data.supervisorId) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['supervisorId'],
+        message: `A${data.role === 'Agent' ? 'n' : ''} ${data.role} must have a Supervisor selected`,
+      });
+    }
+    if (data.role === 'Supervisor' && !data.region) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['region'],
+        message: 'A Supervisor must have a region selected',
+      });
+    }
+  });
 
 export const UpdateUserSchema = z.object({
   displayName:  z.string().min(1).max(200).optional(),

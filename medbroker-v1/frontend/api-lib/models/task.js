@@ -16,13 +16,19 @@
 
 import { z } from 'zod';
 
-export const TaskCategory = z.enum(['callback', 'appointment', 'rescheduling', 'outcome', 'manual']);
+// §138, 12 Aug 2026 — 'rescheduling' and 'outcome' dropped from the
+// CREATABLE set (both the system trigger rules that used to generate them
+// are gone, and there's no reason a manually created task should be able
+// to pick a category with no corresponding automated meaning any more).
+// TYPE_TO_CATEGORY below stays complete — a handful of historical rows
+// created before this change may still carry type='Reschedule'/'Outcome',
+// and should still label sensibly when read back, even though nothing can
+// create a new one this way going forward.
+export const TaskCategory = z.enum(['callback', 'appointment', 'manual']);
 
 export const CATEGORY_TO_TYPE = {
   callback:     'Callback',
   appointment:  'Appointment',
-  rescheduling: 'Reschedule',
-  outcome:      'Outcome',
   manual:       'Manual',
 };
 

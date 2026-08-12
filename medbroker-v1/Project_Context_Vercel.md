@@ -900,13 +900,47 @@ Claim model — no admin confirmation step: claiming is immediate. Broker
   clicks Claim -> appointment status = Assigned -> appears in My
   Appointments. No ClaimPending status, no admin confirmation queue.
 
-Task generation is entirely event-driven, deliberately: all five rules
-  hook into service methods already called during normal operation
-  (logCallAttempt, createAppointment, saveOutcome) — no scheduled job
-  needed. This is why Task's backend was tractable to build in one
-  session where Notifications' full scope (which has three genuinely
-  time-based trigger types) wasn't — those three remain unbuilt pending
-  a Vercel Cron decision.
+Task generation — REDESIGNED 12 Aug 2026 (session 20 design, session 21
+  build — see Status_Vercel.md §138 for the full history). Core test,
+  Mark's own framing: a Task needs BOTH a concrete action owed AND a
+  real due date. If either is missing — the action already happened at
+  the moment of the triggering event, or the resulting state is already
+  visible elsewhere without a dedicated queue item — it's a Notification
+  or nothing, not a Task. Down to 2 event-driven rules (Callback,
+  Assign-broker) from an original 5; Reschedule and Held/Outcome-pending
+  both dropped to zero events entirely, not moved to Notification —
+  their state is already visible on the entity itself. System-generated
+  Tasks (Callback, Assign-broker) are deliberately NOT completable from
+  the Task list — completion only happens by acting on the actual
+  entity (logging a call on the Lead; assigning a broker on the
+  Appointment), which auto-completes the Task as a side effect. Manual
+  tasks keep direct completion. This has a nice side effect: it makes
+  Tasks.jsx role-scoped without any filter code to maintain — Callback
+  only ever reaches Agents, Assign-broker only ever reaches Supervisors,
+  so a Broker's task list is Manual-only by construction.
+
+Supervisor routing for Assign-broker tasks is by REGION, not by the
+  agent's own line management — an agent's supervisor has nothing to do
+  with broker capacity. Every User row (Agent/Broker/Supervisor/Admin
+  alike) carries its own region and supervisorId columns already,
+  region isn't broker- or agent-specific. Ties to a creation-time
+  validation requirement: Agent/Broker require supervisorId at
+  creation, Supervisor requires region at creation — otherwise the
+  region-based lookup this depends on can silently come up empty.
+
+SESSION-ISOLATION CAUTION (found 12 Aug 2026, session 20): AuthContext
+  caches the active user in sessionStorage, which is genuinely per-tab —
+  but the actual auth boundary, the mb_session httpOnly cookie, is
+  shared across every tab in the same browser, InPrivate windows
+  included if more than one tab shares one window. Testing multiple
+  roles/users at once in tabs of the same browser WILL silently
+  cross-contaminate which session is actually live for a given request,
+  while each tab's own UI keeps showing whichever user it last rendered
+  for. Produced at least one apparent "bug report" this session that
+  turned out to likely be this, not a code defect — before accepting a
+  live-testing bug report involving "the wrong user" as evidence of a
+  code problem, ask whether multiple tabs/windows of the same browser
+  were open with different logins at the time.
 
 Self-service vs admin-editing split: PUT /api/users/me (self, narrow
   schema — displayName/avatarColour/themePreference/timezone only) is

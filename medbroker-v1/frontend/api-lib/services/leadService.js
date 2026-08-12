@@ -41,7 +41,8 @@ import { executeQuery, executeQueryOne, sql } from './db.js';
 import { encrypt, blindIndex } from './encryption.js';
 import { computeLeadStatus } from './leadStatusService.js';
 import { getActiveUserById, resolvePortfolioIds } from './userService.js';
-import { createTask, deleteTasksForEntity, reassignTasksForEntity } from './taskService.js';
+import { createTask, deleteTasksForEntity, reassignTasksForEntity, completeOpenCallbackTasksForLead } from './taskService.js';
+import { writeAuditLog } from './auditService.js';
 import { config } from '../config.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
@@ -517,6 +518,27 @@ export async function logCallAttempt(leadId, agentId, attemptData) {
     }
   );
 
+  // §138, 12 Aug 2026 — Mark asked directly why logged calls never showed
+  // up in a Lead's Change Log: this write genuinely never existed before,
+  // not a query bug. entityType 'Lead' matches listAuditLogForLead()'s own
+  // base UNION branch exactly, so this needs no other change to surface —
+  // confirmed by reading that function before adding this, not assumed.
+  await writeAuditLog({
+    entityType: 'Lead',
+    entityId: leadId,
+    action: 'CallLogged',
+    performedById: agentId,
+    changeDetail: { callAttemptId: attemptId, outcome: attemptData.outcome, notes: attemptData.notes ?? null },
+  });
+
+  // §138 — Mark's explicit design: any new call attempt closes an open
+  // Callback task for this lead, regardless of this attempt's own outcome.
+  // Runs before the CallbackRequested task-creation rule further down, so
+  // if THIS attempt is itself another CallbackRequested, the old task is
+  // already closed by the time the new one is created — no window where
+  // both are open at once.
+  await completeOpenCallbackTasksForLead(leadId, attemptId);
+
   const current = await executeQueryOne(
     `SELECT pipelineStatus AS "pipelineStatus", title, firstName AS "firstName", lastName AS "lastName"
      FROM Lead WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
@@ -561,13 +583,16 @@ export async function logCallAttempt(leadId, agentId, attemptData) {
     );
   }
 
-  // TASK GENERATION (§56), rule 1 of 5 — matches Tasks.jsx's own header
-  // spec: "CallbackRequested outcome -> Call back [lead name] by
-  // [callbackDateTime]". Assigned to the same agent who logged the call
-  // (this lead's own assignedAgentId, i.e. the caller of this function) —
-  // not the Supervisor, unlike the "Assign broker" rule in
-  // appointmentService.createAppointment(), since following up on your
-  // own callback doesn't need anyone else's involvement.
+  // TASK GENERATION — matches Tasks.jsx's own header spec:
+  // "CallbackRequested outcome -> Call back [lead name] by [callbackDateTime]".
+  // Assigned to `agentId` — the CALLER of this function (claims.oid from
+  // the handler), not a lookup of lead.assignedAgentId. In normal use
+  // these are almost always the same person (an agent calling their own
+  // leads), but they are NOT guaranteed to be — see Status_Vercel.md
+  // §138's "SESSION-ISOLATION FOOTGUN" entry before changing this to
+  // route by lead.assignedAgentId instead; that entry documents an open
+  // question about whether this needs to change at all, still pending
+  // Mark confirming a clean re-test. DELIBERATELY UNCHANGED this session.
   if (current && attemptData.outcome === 'CallbackRequested') {
     const leadName = [current.title, current.firstName, current.lastName].filter(Boolean).join(' ');
     await createTask({

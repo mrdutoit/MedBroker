@@ -14,6 +14,7 @@
 import { executeQuery, executeQueryOne, sql } from './db.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 import { createNotification } from './notificationService.js';
+import { writeAuditLog } from './auditService.js';
 
 const TASK_SELECT = `
   t.id, t.type, t.title, t.detail, t.priority,
@@ -26,7 +27,9 @@ const TASK_SELECT = `
   COALESCE(l_direct.id, l_via_appt.id) AS "linkedLeadId",
   COALESCE(l_direct.title, l_via_appt.title) AS "linkedLeadTitle",
   COALESCE(l_direct.firstName, l_via_appt.firstName) AS "linkedLeadFirstName",
-  COALESCE(l_direct.lastName, l_via_appt.lastName) AS "linkedLeadLastName"`;
+  COALESCE(l_direct.lastName, l_via_appt.lastName) AS "linkedLeadLastName",
+  t.resolvedByCallAttemptId AS "resolvedByCallAttemptId",
+  rca.outcome AS "resolvedByCallOutcome", rca.notes AS "resolvedByCallNotes", rca.callTime AS "resolvedByCallTime"`;
 
 const TASK_JOINS = `
   FROM Task t
@@ -34,7 +37,8 @@ const TASK_JOINS = `
   LEFT JOIN "User" cu        ON t.createdById = cu.id
   LEFT JOIN Lead l_direct    ON t.entityType = 'Lead' AND t.entityId = l_direct.id
   LEFT JOIN Appointment ap   ON t.entityType = 'Appointment' AND t.entityId = ap.id
-  LEFT JOIN Lead l_via_appt  ON ap.leadId = l_via_appt.id`;
+  LEFT JOIN Lead l_via_appt  ON ap.leadId = l_via_appt.id
+  LEFT JOIN CallAttempt rca  ON t.resolvedByCallAttemptId = rca.id`;
 
 /**
  * @param {{assignedToId?: string, scopeIds?: string[], viewerId?: string}} filters
@@ -149,6 +153,70 @@ export async function createTask(data) {
   });
 
   return newId;
+}
+
+/**
+ * §138, 12 Aug 2026 — Mark's explicit design: ANY new call attempt logged
+ * against a lead closes an open Callback task for that lead, regardless
+ * of the new attempt's outcome ("the agent could call and leave a
+ * voicemail, or not get hold of the client, or reschedule once again... any
+ * call logged should close the callback task"). Called from
+ * leadService.logCallAttempt() right after the new CallAttempt row is
+ * inserted — if that new attempt is itself another CallbackRequested,
+ * logCallAttempt()'s own existing rule creates a fresh Task for the new
+ * date immediately after this runs, so there's no gap between one
+ * obligation closing and the next opening.
+ *
+ * Sets resolvedByCallAttemptId (migration 024) rather than touching
+ * Task.detail — completion is DISTINCT from the task's original request
+ * detail, not a replacement for it. Writes its own audit entry
+ * (TaskAutoCompleted) rather than reusing TaskCompleted, so this is
+ * visibly distinguishable later from someone manually ticking a task off.
+ *
+ * Scoped by entityType='Lead' + entityId — a Callback task is always
+ * created against the Lead (see leadService.logCallAttempt), never
+ * against an Appointment, so this can't accidentally reach into
+ * Assign-broker or Manual tasks.
+ * @param {string} leadId
+ * @param {string} callAttemptId - the new CallAttempt row that's closing it
+ * @returns {Promise<number>} how many tasks were auto-completed (0 or 1 in
+ *   the ordinary case; more than 1 only if multiple Callback tasks were
+ *   somehow already open at once for this lead)
+ */
+export async function completeOpenCallbackTasksForLead(leadId, callAttemptId) {
+  const organisationId = resolveOrganisationId();
+  const openTasks = await executeQuery(
+    `SELECT id FROM Task
+     WHERE entityType = 'Lead' AND entityId = @leadId AND type = 'Callback'
+       AND isComplete = FALSE AND organisationId = @organisationId`,
+    {
+      leadId:         { type: sql.UniqueIdentifier, value: leadId },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+    }
+  );
+  if (openTasks.length === 0) return 0;
+
+  for (const task of openTasks) {
+    await executeQuery(
+      `UPDATE Task
+         SET isComplete = TRUE, completedAt = NOW(), resolvedByCallAttemptId = @callAttemptId, updatedAt = NOW()
+       WHERE id = @id AND organisationId = @organisationId`,
+      {
+        id:             { type: sql.UniqueIdentifier, value: task.id },
+        callAttemptId:  { type: sql.UniqueIdentifier, value: callAttemptId },
+        organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+      }
+    );
+    await writeAuditLog({
+      entityType: 'Task',
+      entityId: task.id,
+      action: 'TaskAutoCompleted',
+      performedById: null, // system-driven, not a person acting on the task itself
+      changeDetail: { closedByCallAttemptId: callAttemptId, leadId },
+    });
+  }
+
+  return openTasks.length;
 }
 
 /**

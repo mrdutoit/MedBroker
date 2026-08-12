@@ -35,7 +35,7 @@ const AUDIT_ACTIONS = [
   'AppointmentBrokerAssigned', 'AppointmentCreated', 'AppointmentOutcomeSaved',
   'AppointmentReassigned', 'AppointmentReturnedToLeads', 'AttendeeAdded',
   'AttendeeRemoved', 'EventCreated', 'EventStatusChanged', 'FeatureFlagUpdated',
-  'LeadCreated', 'LeadDeleted', 'LeadReopened', 'LeadUpdated',
+  'LeadCreated', 'LeadDeleted', 'LeadReopened', 'LeadUpdated', 'CallLogged',
   'PortalAccountActivated', 'PortalProfileUpdated', 'PortalRegistration',
   'PortalWalkInCheckedIn', 'ProfileUpdated', 'TaskCreated', 'TaskDeleted', 'UserCreated',
   'SarRequestCreated', 'SarStatusChanged', 'SarDataExported', 'SarAssigned', 'UserUnlocked', 'UserSessionsRevoked',
@@ -43,6 +43,7 @@ const AUDIT_ACTIONS = [
   'ProductCreated', 'ProductStatusChanged', 'ProductDeleted',
   'AppointmentClaimed', 'TokenManualTopUp', 'SystemConfigUpdated',
   'IntegrationCredentialUpdated', 'TokenStripeCredited', 'TokenPaystackCredited',
+  'TaskAutoCompleted',
 ];
 
 // §128 (5 Aug 2026) — mirrors sarService.js's own STATUS_RANK exactly

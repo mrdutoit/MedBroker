@@ -58,7 +58,7 @@ const VALID_ACTIONS = [
   'AppointmentBrokerAssigned', 'AppointmentCreated', 'AppointmentOutcomeSaved',
   'AppointmentReassigned', 'AppointmentReturnedToLeads', 'AttendeeAdded',
   'AttendeeRemoved', 'EventCreated', 'EventStatusChanged', 'FeatureFlagUpdated',
-  'LeadCreated', 'LeadDeleted', 'LeadReopened', 'LeadUpdated',
+  'LeadCreated', 'LeadDeleted', 'LeadReopened', 'LeadUpdated', 'CallLogged',
   'PortalAccountActivated', 'PortalProfileUpdated', 'PortalRegistration',
   'PortalWalkInCheckedIn', 'ProfileUpdated', 'TaskCreated', 'TaskDeleted', 'UserCreated',
   'SarRequestCreated', 'SarStatusChanged', 'SarDataExported', 'SarAssigned', 'UserUnlocked', 'UserSessionsRevoked',
@@ -66,6 +66,7 @@ const VALID_ACTIONS = [
   'ProductCreated', 'ProductStatusChanged', 'ProductDeleted',
   'AppointmentClaimed', 'TokenManualTopUp', 'SystemConfigUpdated',
   'IntegrationCredentialUpdated', 'TokenStripeCredited', 'TokenPaystackCredited',
+  'TaskAutoCompleted',
 ];
 
 /**

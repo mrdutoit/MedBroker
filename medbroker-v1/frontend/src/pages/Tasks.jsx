@@ -3,15 +3,24 @@
  *
  * Task management — production feature, gated by tasks.enabled (Core, default false).
  *
- * TASK GENERATION MODEL (built 28 Jul 2026, §56):
- * Tasks are created server-side from these five trigger rules — see
- * taskService.createTask()'s call sites in leadService.logCallAttempt()
- * and appointmentService.createAppointment()/saveOutcome():
+ * TASK GENERATION MODEL — REDESIGNED §138, 12 Aug 2026 (was 5 rules, §56,
+ * 28 Jul 2026). Down to 2 — see taskService.createTask()'s call sites in
+ * leadService.logCallAttempt() and appointmentService.createAppointment():
  *   CallbackRequested outcome  → "Call back [lead name]"
- *   Appointment booked         → "Confirm appointment with [broker] — [date]"
- *   Meeting marked Rescheduled → "Reschedule [lead name] [nth] meeting"
- *   Meeting marked Seen        → "Record outcome — [lead name]"
  *   Appointment unassigned     → "Assign broker — [lead name]"
+ * Reschedule and Outcome (meeting-status-driven) both dropped to zero
+ * events entirely — the appointment's own state already carries that
+ * information without a duplicate Task, and rescheduling captures its own
+ * outcome atomically at the moment it happens. "Confirm appointment with
+ * [broker]" also dropped — it never had a real closing action; broker-
+ * chosen-at-booking now fires an AppointmentAssigned Notification instead.
+ *
+ * COMPLETION MODEL — also §138: Callback and Assign-broker tasks (the two
+ * remaining system-generated types) are NOT completable from this list —
+ * they only complete as a side effect of acting on the real entity (Log
+ * Call on the Lead; assigning a broker on the Appointment). This list
+ * shows a link through to that entity instead of a checkbox for those two.
+ * Manual tasks keep direct completion exactly as before.
  *
  * ROLES (server-enforced, see api-lib/handlers/taskHandlers.js):
  *   GlobalAdmin/Admin — see all tasks, can create/reassign/delete
@@ -32,6 +41,7 @@
 
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
+import { useNavigate }   from 'react-router';
 import { useRole }       from '../context/RoleContext.jsx';
 import { useAuth }       from '../context/AuthContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
@@ -45,8 +55,6 @@ const CATEGORIES = [
   { key: 'all',          label: 'All tasks'    },
   { key: 'callback',     label: 'Callbacks'    },
   { key: 'appointment',  label: 'Appointments' },
-  { key: 'rescheduling', label: 'Rescheduling' },
-  { key: 'outcome',      label: 'Outcomes'     },
   { key: 'manual',       label: 'Manual'       },
 ];
 
@@ -55,8 +63,6 @@ const PRIORITIES = ['High', 'Medium', 'Low'];
 const CATEGORY_META = {
   callback:     { label: 'Callback',     colour: '#d97706', bg: 'color-mix(in srgb, #d97706 14%, var(--panel))' },
   appointment:  { label: 'Appointment',  colour: 'var(--accent)', bg: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))' },
-  rescheduling: { label: 'Reschedule',   colour: '#a78bfa', bg: 'color-mix(in srgb, #7c3aed 14%, var(--panel))' },
-  outcome:      { label: 'Outcome',      colour: '#15803d', bg: 'color-mix(in srgb, #15803d 14%, var(--panel))' },
   manual:       { label: 'Manual',       colour: 'var(--ink)', bg: 'var(--panel2)' },
 };
 
@@ -182,6 +188,7 @@ function NewTaskModal({ onClose, onSave, assignees }) {
 
 // ─── Task row ───────────────────────────────────────────────────────────────────
 function TaskRow({ task, onToggle, onDelete, onReassign, isAdmin, canDelete, assignees, isMobile, today }) {
+  const navigate = useNavigate();
   const [expanded, setExpanded] = useState(false);
   const due  = dueMeta(task.dueDate, task.done, today);
   const cat  = CATEGORY_META[task.category] ?? CATEGORY_META.manual;
@@ -237,6 +244,22 @@ function TaskRow({ task, onToggle, onDelete, onReassign, isAdmin, canDelete, ass
     setPostingComment(false);
   }
 
+  // §138, 12 Aug 2026 — Callback and Assign-broker tasks only complete as
+  // a side effect of acting on their real entity (Log Call on the Lead;
+  // assigning a broker on the Appointment) — ticking them off here isn't
+  // possible any more, by design. Keyed off having an actual linked
+  // entity, not off category alone: a MANUALLY created task can still be
+  // given category 'callback' or 'appointment' in the New Task modal, but
+  // always has entityType/entityId = NULL (no entity-linking UI there),
+  // so it correctly falls through to the checkbox below regardless of
+  // which category was picked.
+  const linkTarget = task.linkedLeadId
+    ? `/leads/${task.linkedLeadId}`
+    : task.linkedAppointment
+      ? `/appointments/${task.linkedAppointment}`
+      : null;
+  const isRedirectOnly = linkTarget !== null && task.category !== 'manual';
+
   return (
     <div style={{
       borderBottom:'1px solid var(--line)',
@@ -248,23 +271,46 @@ function TaskRow({ task, onToggle, onDelete, onReassign, isAdmin, canDelete, ass
         style={{ display: 'flex', alignItems: 'flex-start', gap: '10px', padding: '12px 0', cursor: 'pointer' }}
         onClick={() => setExpanded(e => !e)}
       >
-        {/* Checkbox */}
-        <div
-          onClick={e => { e.stopPropagation(); onToggle(task.id); }}
-          style={{
-            width: '18px', height: '18px', borderRadius: '4px', flexShrink: 0, marginTop: '2px',
-            border: task.done ? 'none' : '2px solid var(--line)',
-            background:task.done ? 'var(--accent)' : 'var(--panel)',
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            cursor: 'pointer', transition: 'all 0.15s',
-          }}
-        >
-          {task.done && (
-            <svg viewBox="0 0 12 10" fill="none" stroke="white" strokeWidth="2" width="10" height="8">
-              <path d="M1 5l3.5 3.5L11 1"/>
-            </svg>
-          )}
-        </div>
+        {isRedirectOnly ? (
+          <div
+            onClick={e => { e.stopPropagation(); navigate(linkTarget); }}
+            title={task.done ? 'Completed — view record' : 'Go to record to action this'}
+            style={{
+              width: '18px', height: '18px', borderRadius: '4px', flexShrink: 0, marginTop: '2px',
+              border: task.done ? 'none' : '2px solid var(--line)',
+              background: task.done ? 'var(--accent)' : 'var(--panel)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', transition: 'all 0.15s',
+            }}
+          >
+            {task.done ? (
+              <svg viewBox="0 0 12 10" fill="none" stroke="white" strokeWidth="2" width="10" height="8">
+                <path d="M1 5l3.5 3.5L11 1"/>
+              </svg>
+            ) : (
+              <svg viewBox="0 0 16 16" fill="none" stroke="var(--mut)" strokeWidth="1.6" width="11" height="11">
+                <path d="M6 3.5H3.5A1.5 1.5 0 0 0 2 5v8a1.5 1.5 0 0 0 1.5 1.5h8A1.5 1.5 0 0 0 13 13v-2.5M9.5 2H14v4.5M14 2 7 9"/>
+              </svg>
+            )}
+          </div>
+        ) : (
+          <div
+            onClick={e => { e.stopPropagation(); onToggle(task.id); }}
+            style={{
+              width: '18px', height: '18px', borderRadius: '4px', flexShrink: 0, marginTop: '2px',
+              border: task.done ? 'none' : '2px solid var(--line)',
+              background:task.done ? 'var(--accent)' : 'var(--panel)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              cursor: 'pointer', transition: 'all 0.15s',
+            }}
+          >
+            {task.done && (
+              <svg viewBox="0 0 12 10" fill="none" stroke="white" strokeWidth="2" width="10" height="8">
+                <path d="M1 5l3.5 3.5L11 1"/>
+              </svg>
+            )}
+          </div>
+        )}
 
         {/* Content */}
         <div style={{ flex: 1, minWidth: 0 }}>

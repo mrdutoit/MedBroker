@@ -818,6 +818,14 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
   const [brokers,      setBrokers]      = useState([]);
   const [degradedMode, setDegradedMode] = useState(false);
   const [brokerId,     setBrokerId]     = useState('');
+  // §138, 12 Aug 2026 (Mark's request) — an explicit, deliberate escape
+  // hatch, not just loosening brokerId to always-optional. The backend
+  // has always accepted an omitted brokerId (an Unassigned appointment
+  // routed to a Supervisor to find a broker), but this form made
+  // selecting one mandatory to even submit, so that path was never
+  // actually reachable through normal use. Mutually exclusive with
+  // brokerId — picking a broker clears this, ticking this clears brokerId.
+  const [noBrokerAvailable, setNoBrokerAvailable] = useState(false);
 
   const [date,            setDate]            = useState('');
   const [time,             setTime]            = useState('');
@@ -834,7 +842,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
   // clearer signal than a click-then-discover error, though the inline
   // fieldErrors below are kept too (still useful if someone tabs through
   // fields without noticing what's outstanding).
-  const isFormValid = !!brokerId && !!date && !!time && portfolios.length > 0;
+  const isFormValid = (!!brokerId || noBrokerAvailable) && !!date && !!time && portfolios.length > 0;
 
   // Products available now union across every selected portfolio, not
   // just one — the whole point of allowing more than one portfolio here
@@ -854,6 +862,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
     setSearched(false);
     setBrokers([]);
     setBrokerId('');
+    setNoBrokerAvailable(false);
   }
   function toggleProduct(name) {
     setProducts((prev) => (prev.includes(name) ? prev.filter((p) => p !== name) : [...prev, name]));
@@ -870,6 +879,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
       setDegradedMode(!!result?.degradedMode);
       setSearched(true);
       setBrokerId('');
+      setNoBrokerAvailable(false);
     } catch (err) {
       setSearchError(err instanceof ApiError ? err.message : 'Could not search for brokers. Please try again.');
     } finally {
@@ -879,7 +889,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
 
   async function handleConfirmBooking() {
     const errors = {};
-    if (!brokerId)         errors.broker = 'Select a broker';
+    if (!brokerId && !noBrokerAvailable) errors.broker = 'Select a broker, or mark that none are available';
     if (!date)             errors.date = 'Required';
     if (!time)             errors.time = 'Required';
     if (portfolios.length === 0) errors.portfolios = 'Select at least one portfolio';
@@ -890,7 +900,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
     try {
       await appointmentsApi.create({
         leadId: lead.id,
-        brokerId,
+        brokerId: noBrokerAvailable ? undefined : brokerId,
         portfolios,
         firstAppointmentDate: date,
         firstAppointmentTime: time,
@@ -1004,7 +1014,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
             )}
             {brokers.map((b, i) => (
               <label key={b.id} style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', border: `1px solid ${brokerId === b.id ? 'var(--accent)' : 'var(--line)'}`, borderRadius: '6px', marginBottom: '6px', cursor: 'pointer', background: brokerId === b.id ? 'color-mix(in srgb, var(--accent) 12%, var(--panel))' : 'var(--panel)' }}>
-                <input type="radio" name="book-broker" checked={brokerId === b.id} onChange={() => setBrokerId(b.id)} style={{ accentColor: 'var(--accent)' }} />
+                <input type="radio" name="book-broker" checked={brokerId === b.id} onChange={() => { setBrokerId(b.id); setNoBrokerAvailable(false); }} style={{ accentColor: 'var(--accent)' }} />
                 <div style={{ flex: 1 }}>
                   <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{b.displayName}</div>
                   <div style={{ fontSize: '0.75rem', color:'var(--mut)' }}>{b.upcomingAppointments} upcoming appointment{b.upcomingAppointments !== 1 ? 's' : ''}</div>
@@ -1012,6 +1022,22 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
                 {i === 0 && <span style={{ fontSize: '0.688rem', background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d', borderRadius: '4px', padding: '2px 6px' }}>Most available</span>}
               </label>
             ))}
+
+            <label style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '9px 12px', border: `1px solid ${noBrokerAvailable ? 'var(--accent)' : 'var(--line)'}`, borderRadius: '6px', marginTop: '4px', cursor: 'pointer', background: noBrokerAvailable ? 'color-mix(in srgb, var(--accent) 12%, var(--panel))' : 'var(--panel)' }}>
+              <input
+                type="radio"
+                name="book-broker"
+                checked={noBrokerAvailable}
+                onChange={() => { setNoBrokerAvailable(true); setBrokerId(''); }}
+                style={{ accentColor: 'var(--accent)' }}
+              />
+              <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>I couldn't find an available broker</div>
+            </label>
+            {noBrokerAvailable && (
+              <div style={{ fontSize: '0.75rem', color: 'var(--mut)', marginTop: '6px', padding: '8px 10px', background: 'var(--panel2)', borderRadius: '6px' }}>
+                This appointment will be booked as Unassigned and routed to a Supervisor to find a broker.
+              </div>
+            )}
             {fieldErrors.broker && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.broker}</div>}
           </div>
         )}
@@ -1033,7 +1059,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
             onClick={handleConfirmBooking}
             style={{ ...btn.primary, opacity: (submitting || !isFormValid) ? 0.5 : 1 }}
             disabled={submitting || !isFormValid}
-            title={!isFormValid ? 'Select a portfolio, broker, date and time before confirming' : undefined}
+            title={!isFormValid ? 'Select a portfolio, date and time, and either a broker or "couldn\'t find a broker", before confirming' : undefined}
           >
             {submitting ? 'Booking…' : 'Confirm Booking'}
           </button>
