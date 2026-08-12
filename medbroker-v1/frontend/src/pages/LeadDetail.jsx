@@ -34,6 +34,7 @@ import { leadsApi, appointmentsApi, brokerMatchingApi, ApiError } from '../servi
 import { formatDistanceToNow, format } from 'date-fns';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useRole } from '../context/RoleContext.jsx';
+import { useFlags } from '../context/FlagContext.jsx';
 import { REGIONS, JOB_TITLES } from '../constants/leadOptions.js';
 import AuditLogList from '../components/AuditLogList.jsx';
 import { s, APPT_STATUS_META } from '../styles/tokens.js';
@@ -796,6 +797,16 @@ export default function LeadDetail() {
 // details) to be its own thing, not because of any technical requirement.
 function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
   const { portfolios: allPortfolios, productsByPortfolio } = useRole();
+  // §140, 12 Aug 2026 (Mark's request) — when claim model is active, an
+  // agent booking with a broker already picked would let that appointment
+  // skip the claim queue (and its token economy) entirely, same escape
+  // hatch problem as the Supervisor Assign action fixed below. Every
+  // appointment booked while claim model is active goes out Unassigned,
+  // no exceptions — the whole broker-search/select section (and the
+  // "couldn't find a broker" option, now redundant since there's nothing
+  // to search for) is hidden rather than just left technically reachable.
+  const { flag } = useFlags();
+  const isClaimModel = flag('appointments.claimModel', 'claim');
   const labelStyle = { display: 'block', fontSize: '0.8125rem', fontWeight: 500, color:'var(--ink)', marginBottom: '5px' };
   const inputStyle = { width: '100%', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box' };
   const btn = {
@@ -842,7 +853,9 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
   // clearer signal than a click-then-discover error, though the inline
   // fieldErrors below are kept too (still useful if someone tabs through
   // fields without noticing what's outstanding).
-  const isFormValid = (!!brokerId || noBrokerAvailable) && !!date && !!time && portfolios.length > 0;
+  const isFormValid = isClaimModel
+    ? (!!date && !!time && portfolios.length > 0)
+    : ((!!brokerId || noBrokerAvailable) && !!date && !!time && portfolios.length > 0);
 
   // Products available now union across every selected portfolio, not
   // just one — the whole point of allowing more than one portfolio here
@@ -889,7 +902,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
 
   async function handleConfirmBooking() {
     const errors = {};
-    if (!brokerId && !noBrokerAvailable) errors.broker = 'Select a broker, or mark that none are available';
+    if (!isClaimModel && !brokerId && !noBrokerAvailable) errors.broker = 'Select a broker, or mark that none are available';
     if (!date)             errors.date = 'Required';
     if (!time)             errors.time = 'Required';
     if (portfolios.length === 0) errors.portfolios = 'Select at least one portfolio';
@@ -900,7 +913,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
     try {
       await appointmentsApi.create({
         leadId: lead.id,
-        brokerId: noBrokerAvailable ? undefined : brokerId,
+        brokerId: (isClaimModel || noBrokerAvailable) ? undefined : brokerId,
         portfolios,
         firstAppointmentDate: date,
         firstAppointmentTime: time,
@@ -961,6 +974,12 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
           </div>
         )}
 
+        {isClaimModel ? (
+          <div style={{ background: 'color-mix(in srgb, #15803d 14%, var(--panel))', border: '1px solid color-mix(in srgb, #15803d 30%, var(--panel))', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: '#15803d' }}>
+            ⚡ Claim model is active — this appointment will be booked Unassigned and made available for brokers to claim. Brokers aren't picked manually while claim model is on.
+          </div>
+        ) : (
+        <>
         <div style={{ marginBottom: '10px' }}>
           <label style={labelStyle}>Client's region *</label>
           <select style={inputStyle} value={region} onChange={(e) => { setRegion(e.target.value); setSearched(false); }}>
@@ -1041,6 +1060,8 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
             {fieldErrors.broker && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.broker}</div>}
           </div>
         )}
+        </>
+        )}
 
         <div style={{ marginBottom: '10px' }}>
           <label style={labelStyle}>Address</label>
@@ -1059,7 +1080,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
             onClick={handleConfirmBooking}
             style={{ ...btn.primary, opacity: (submitting || !isFormValid) ? 0.5 : 1 }}
             disabled={submitting || !isFormValid}
-            title={!isFormValid ? 'Select a portfolio, date and time, and either a broker or "couldn\'t find a broker", before confirming' : undefined}
+            title={!isFormValid ? (isClaimModel ? 'Select a portfolio, date and time before confirming' : 'Select a portfolio, date and time, and either a broker or "couldn\'t find a broker", before confirming') : undefined}
           >
             {submitting ? 'Booking…' : 'Confirm Booking'}
           </button>

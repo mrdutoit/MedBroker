@@ -24,6 +24,7 @@ import { getActiveUserById, resolvePortfolioIds, findLeastLoadedSupervisorForReg
 import { createTask, deleteTasksForEntity, reassignTasksForEntity } from './taskService.js';
 import { createNotification } from './notificationService.js';
 import { debitTokensForClaim, refundTokens } from './tokenService.js';
+import { getFlagMeta } from './flagService.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
 // ── Shared SELECT fragments ─────────────────────────────────────────────────
@@ -280,6 +281,22 @@ async function syncAppointmentPortfolios(appointmentId, portfolioIds) {
 
 export async function createAppointment(data) {
   const organisationId = resolveOrganisationId();
+
+  // §140, 12 Aug 2026 — Mark's explicit decision: when claim model is
+  // active, every appointment goes out Unassigned, no exceptions — an
+  // agent choosing a broker directly at booking would let that specific
+  // appointment skip the claim queue and its token economy entirely.
+  // LeadDetail.jsx's booking form already hides the broker-selection UI
+  // when this flag is active, but that's frontend-only; this is the
+  // actual enforcement, matching the same principle the Assign-action
+  // handler now applies (see appointmentHandlers.handleAppointmentAssign).
+  // Fetched once, reused below for the Assign-broker task skip too.
+  const claimModelMeta = await getFlagMeta('appointments.claimModel');
+  const isClaimModelActive = claimModelMeta?.value === 'claim';
+  if (data.brokerId && isClaimModelActive) {
+    throw { status: 400, message: 'Claim model is active — appointments cannot be booked with a broker chosen directly; they must be claimed from the pool' };
+  }
+
   // Changed 23 Jul 2026 (§45, Mark's request) — data.portfolios is now an
   // array (min 1, enforced by CreateAppointmentSchema). portfolioId (the
   // Appointment column) becomes the PRIMARY portfolio — the first one
@@ -389,23 +406,35 @@ export async function createAppointment(data) {
       entityId:    newId,
     });
   } else {
-    // No broker chosen at booking. Routed by REGION, not by the agent's own
-    // line management (lead.agentSupervisorId, still used elsewhere in this
-    // app for unrelated purposes) — an agent's manager has nothing to do
-    // with broker capacity. See userService.findLeastLoadedSupervisorForRegion
-    // for the full reasoning; falls back to the agent themselves if no
-    // active Supervisor has a matching region set, same "never orphan a
-    // task" pattern this app already uses elsewhere.
-    const leadName = [lead.title, lead.firstName, lead.lastName].filter(Boolean).join(' ');
-    const regionSupervisorId = await findLeastLoadedSupervisorForRegion(lead.agentRegion);
-    await createTask({
-      assignedToId: regionSupervisorId ?? agentId,
-      type:         'Appointment',
-      entityType:   'Appointment',
-      entityId:     newId,
-      title:        `Assign broker — ${leadName}`,
-      dueAt:        data.firstAppointmentDate,
-    });
+    // No broker chosen at booking.
+    if (isClaimModelActive) {
+      // §140 — no Assign-broker task in claim mode: the Supervisor Assign
+      // action this task would prompt is now itself blocked (see
+      // appointmentHandlers.handleAppointmentAssign), so creating a task
+      // telling someone to do something they're blocked from doing would
+      // be actively broken, not just redundant. The appointment sitting
+      // Unassigned, visible in the claim pool, already IS the mechanism —
+      // same "already visible elsewhere, no Task needed" reasoning this
+      // app uses for Reschedule/Held-outcome-pending (see §138).
+    } else {
+      // Routed by REGION, not by the agent's own line management
+      // (lead.agentSupervisorId, still used elsewhere in this app for
+      // unrelated purposes) — an agent's manager has nothing to do with
+      // broker capacity. See userService.findLeastLoadedSupervisorForRegion
+      // for the full reasoning; falls back to the agent themselves if no
+      // active Supervisor has a matching region set, same "never orphan a
+      // task" pattern this app already uses elsewhere.
+      const leadName = [lead.title, lead.firstName, lead.lastName].filter(Boolean).join(' ');
+      const regionSupervisorId = await findLeastLoadedSupervisorForRegion(lead.agentRegion);
+      await createTask({
+        assignedToId: regionSupervisorId ?? agentId,
+        type:         'Appointment',
+        entityType:   'Appointment',
+        entityId:     newId,
+        title:        `Assign broker — ${leadName}`,
+        dueAt:        data.firstAppointmentDate,
+      });
+    }
   }
 
   return newId;

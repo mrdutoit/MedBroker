@@ -22,17 +22,24 @@ original file — only this summary block at the top is newly written.
 0. CURRENT STATE — READ THIS FIRST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-NEXT ACTION, per §139 (12 Aug 2026): §137 (db.js driver swap) confirmed
-deployed and working. §138 was a long design conversation (Task vs
-Notification redesign, region-based Supervisor routing, an audit-log
-gap, a Callback-task-closure design, and a full meeting/appointment
-attempt-history redesign SPECED but not built). §139 then actually
-BUILT AND VERIFIED the Task/Lead portion of that design — see §139 for
-the full list of 8 items and how each was verified (including real
-Postgres execution, not just code review). NOT YET DEPLOYED, and
-migration 024 has not been run against Neon. One assumption needs
-Mark's confirmation before or shortly after deploy — see §139's own
-"ONE UNCONFIRMED ASSUMPTION" entry (which region field feeds the new
+NEXT ACTION, per §140 (12 Aug 2026): §137 confirmed deployed and
+working. §139 (Task/Lead changes) was deployed and tested by Mark, who
+caught the "will old data cause issues" question himself before it bit
+him — that surfaced and fixed a real bug (see §139's own addendum) and
+confirmed the region assumption (agent's own region) was right, since
+listAvailableToClaim() already used the exact same signal — see §140.
+§140 then closed a real gap Mark spotted testing further: claimModel
+was only ever enforced on the claim-side endpoints, never on the two
+direct-assign paths (booking with a broker chosen, Supervisor Assign
+action) — both now genuinely blocked when claim model is active, not
+just hidden in the UI. NOT YET DEPLOYED.
+
+SEPARATE, caught while diffing before packaging §140: the entire
+frontend/db/migrations/ folder is missing from GitHub main again — same
+recurring issue as §136. Restored in §140's delivery. Drag the WHOLE
+folder every time, not just the newest file — this has now happened at
+least twice despite that guidance already being written down here.
+
 Supervisor lookup).
 
 STILL fully deferred, zero code written: the meeting/appointment
@@ -10528,6 +10535,30 @@ FILES:
   frontend/src/pages/AppAdmin.jsx                  (AUDIT_ACTIONS: CallLogged, TaskAutoCompleted)
 Plus Status_Vercel.md and Project_Context_Vercel.md.
 
+ADDENDUM, same day, before Mark had finished testing: Mark asked
+directly "will old data cause any issues" before testing this delivery.
+Answering that properly (tracing every one of the 8 items above against
+pre-existing rows, not just asserting it's fine) surfaced a real bug in
+item 8's Tasks.jsx change: isRedirectOnly was keyed off "any non-manual
+task with a linked entity", which incorrectly also matched a
+Reschedule- or Outcome-type task created BEFORE this deploy (those
+types always had entityType/entityId set). Since both of those types'
+creation rules are now gone, and neither ever had auto-completion
+logic, an old still-open one would have had NO way left to ever
+complete — checkbox gone, no automated path, permanently stuck.
+FIXED before Mark deployed: narrowed to category === 'callback' ||
+'appointment' specifically — an old Reschedule/Outcome task keeps its
+checkbox exactly as before, the only way it can still be resolved.
+Re-verified: full build + 55-test suite clean after the fix.
+
+Also surfaced, NOT a code bug, Mark's own action needed: the new
+region-based Supervisor routing only works for Supervisors who actually
+have a region set, and the mandatory-region rule only applies at
+creation — existing Supervisor rows aren't retroactively touched. Gave
+Mark a query to find which of his existing Supervisors need a region
+set via User Admin before "couldn't find a broker" will route to them
+correctly rather than silently falling back to the agent.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SESSION 20 PAUSED HERE — 12 Aug 2026
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
@@ -10547,3 +10578,97 @@ waiting on Mark's clean retest before touching that function again.
 
 If picking up a pending item, reference it by section number — same
 convention as before.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+140. CLAIM MODEL NOW GENUINELY EXCLUSIVE OF DIRECT-ASSIGN — 12 Aug 2026 (session 20, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark asked a sharp architectural question after testing §139: if an
+Agent can assign a broker directly at booking, how does the Claim model
+(brokers self-serving from a filtered queue, paying tokens) actually
+work? Investigated before answering rather than guessing:
+
+CONFIRMED ALREADY WORKING, no changes needed: listAvailableToClaim()
+already filters the claim pool by region (BrokerRegion vs the booking
+agent's own User.region) and product (BrokerProduct vs
+productsInterestedIn, intersected in JS) — built back in §117, 4 Aug
+2026, well before this session. Worth noting: it matches on the
+AGENT's region, the exact same signal §139 used for the new Supervisor
+routing — confirming that assumption (flagged as unconfirmed in §139)
+actually matches established precedent already in this codebase, not
+an arbitrary guess.
+
+CONFIRMED A REAL GAP: appointments.claimModel is a single org-wide
+toggle, but isClaimModelEnabled() was only ever checked on the two
+claim-side endpoints (claim, available-to-claim) — never on the two
+direct-assign paths: createAppointment() accepting a brokerId at
+booking, and handleAppointmentAssign (the Supervisor/Admin Assign
+action). AppointmentList.jsx already hid the Assign/Reassign buttons in
+claim mode (frontend-only, pre-existing), but the backend never
+enforced it — exactly the "flag genuinely gates behaviour, not just
+frontend visibility" principle this same file's own isClaimModelEnabled()
+comment already states, just not applied consistently to these two.
+
+Mark's explicit decision: block both, no exceptions, when claim model
+is active.
+
+FIXED:
+  - appointmentHandlers.handleAppointmentAssign — now checks
+    isClaimModelEnabled() and returns 403 if claim model is active.
+    Same helper this file already used elsewhere, just not here before.
+  - appointmentService.createAppointment() — rejects (400) a supplied
+    brokerId outright when claim model is active. Also: when NO broker
+    is chosen and claim model is active, the Assign-broker Task is no
+    longer created at all — creating a task telling a Supervisor to do
+    something they're now blocked from doing would be actively broken,
+    not just redundant. The appointment sitting Unassigned, visible in
+    the claim pool, already IS the mechanism in that mode — same
+    "already visible elsewhere, no Task needed" reasoning §138 already
+    established for Reschedule/Held-outcome-pending. Region-routing
+    logic (§139) is completely unchanged for 'assign' mode — only
+    reachable behind the new isClaimModelActive check now, not
+    rewritten.
+  - LeadDetail.jsx booking form — the entire broker-search/select
+    section (region+products+date/time search, broker list, "couldn't
+    find a broker" option — now redundant in this mode since there's no
+    search to fail) is hidden when claim model is active, replaced with
+    a plain message that the appointment will book Unassigned into the
+    claim pool. Frontend hiding here is matched by real backend
+    rejection above — not hiding-as-the-only-defense the way
+    Assign/Reassign's buttons were before this fix.
+
+VERIFIED: node --check clean, ESM import smoke test on both changed
+backend files, full Vite build clean (validates the LeadDetail.jsx
+fragment restructuring), existing 55-test suite unaffected. Manually
+traced the full branch logic (reject-with-brokerId / skip-notification /
+skip-task-in-claim-mode / unchanged-region-routing-in-assign-mode) since
+this delivery's real Postgres verification hit the same known limit as
+§137/§139 — db.js's Neon HTTP driver can't reach a local Postgres
+instance, only the flag row's stored value could be confirmed directly
+via psql (confirmed 'claim' stores and reads correctly). No new SQL was
+introduced this round — createAppointment reuses flagService.getFlagMeta()
+unchanged; the risk here was JS control flow, not query correctness,
+and that's what got the careful manual trace plus the full build/test
+pass.
+
+SEPARATE FINDING, caught while diffing before packaging, UNRELATED to
+the work above: the ENTIRE frontend/db/migrations/ folder is missing
+from GitHub main again — same exact recurring issue flagged at §136
+(7 Aug 2026) and presumably again since. schema.postgres.sql itself is
+fine (cumulative, already has migration 024's column) so a fresh
+deployment isn't affected, but the individual migration files
+(022/023/024) have no source-control record right now. Restored in
+this delivery — dragging the WHOLE migrations/ folder in every time,
+not just the newest file, remains the fix; worth checking GitHub's own
+repo browser after each github.dev upload to confirm nothing silently
+vanished, since this has now happened at least twice.
+
+MIGRATION: none new this session — 024 already covers everything
+needed; this is backend/frontend logic only.
+
+FILES:
+  frontend/api-lib/handlers/appointmentHandlers.js  (handleAppointmentAssign blocked in claim mode)
+  frontend/api-lib/services/appointmentService.js   (createAppointment: reject brokerId, skip task, in claim mode)
+  frontend/src/pages/LeadDetail.jsx                 (booking form hides broker-search in claim mode)
+  frontend/db/migrations/ (all three files RESTORED — see finding above)
+Plus this Status_Vercel.md.

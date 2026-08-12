@@ -197,6 +197,20 @@ export async function handleAppointmentAssign(req, res, id) {
     const claims = await validateToken(req);
     requireRole(claims, ['Admin', 'Supervisor', 'GlobalAdmin']);
 
+    // §140, 12 Aug 2026 — Mark's explicit decision: when claim model is
+    // active, every unassigned appointment must go through the claim
+    // queue, no direct-assign escape hatch for anyone, Supervisor/Admin
+    // included. Same isClaimModelEnabled() this file already uses to gate
+    // claim()/available-to-claim — this is the one place that flag was
+    // NOT already checked despite the exact same "flag genuinely gates
+    // behaviour, not just frontend visibility" principle this file's own
+    // isClaimModelEnabled() comment states. AppointmentList.jsx already
+    // hides this button when claim model is active, but that was
+    // frontend-only — this endpoint was still callable directly.
+    if (await isClaimModelEnabled()) {
+      return res.status(403).json({ error: 'Claim model is active — appointments can only be resolved by a broker claiming them, not assigned directly' });
+    }
+
     if (!isUuid(id)) return res.status(400).json({ error: 'Invalid appointment ID format' });
 
     const parsed = AssignBrokerSchema.safeParse(req.body);
