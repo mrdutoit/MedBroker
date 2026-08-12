@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status (VERCEL VERSION)
 ==================================================
-Last updated: 7 August 2026
+Last updated: 12 August 2026
 Scope: this file tracks ONLY the Vercel + Neon Postgres deployment —
 frontend/api/ + frontend/api-lib/ + frontend/src/. It does NOT cover the
 separate Azure Functions/Azure SQL codebase (api/src/, infra/), which is
@@ -22,28 +22,33 @@ original file — only this summary block at the top is newly written.
 0. CURRENT STATE — READ THIS FIRST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-NEXT ACTION, per Mark (7 Aug 2026, session 18, §136): §134 AND §135's
-code are both CONFIRMED DEPLOYED and live — Mark tested the Integrations
-page himself and reported real product feedback (see §136 below), which
-only happens against a genuinely deployed app. §136 (this session) is a
-small, isolated frontend fix — BUILT AND VERIFIED (real build, no
-backend changes at all, so no new database/sandbox testing was needed
-beyond confirming the build compiles and the existing 55-test Vitest
-suite is unaffected) — NOT YET DEPLOYED. A SEPARATE, unrelated finding
-from this session's pre-work re-hydrate: migrations/022_add_integration_
-credentials.sql had gone MISSING from GitHub (only 023 remained) —
-almost certainly github.dev's drag-and-drop replacing the whole
-migrations/ folder rather than merging into it, when only the §135
-delivery's files were dropped in. Restored in this delivery; Mark's live
-Neon database itself is unaffected either way (a migration doesn't need
-to stay in the repo once it's been run) — this was a source-control gap,
-not a data gap. WORTH FLAGGING FOR EVERY FUTURE DELIVERY: drag the ENTIRE
-db/migrations/ folder each time, not just the newest file, or check
-GitHub's own repo browser after each deploy to confirm nothing vanished.
+NEXT ACTION, per session 19 (12 Aug 2026, §137): Mark reported Audit Log
+(both the AppAdmin tab and entity panels), broker Reports, and
+Integrations all failing on the live deployment. Root cause found and
+fixed, NOT a query/schema bug (proved by actually executing every one
+of the relevant functions against a real, correctly-migrated local
+Postgres — all ran cleanly) — db.js's pg.Pool had no error handler and
+no idle/connection timeouts, a known-bad pattern under Vercel's
+freeze/thaw execution model that can silently crash a function on a
+stale pooled connection. Fixed at the root, not patched: services/db.js
+now runs on @neondatabase/serverless's HTTP driver instead of pg.Pool —
+no persistent connection at all, so there's nothing left to go stale
+across a freeze/thaw cycle. See §137 for full detail. BUILT AND VERIFIED
+AS FAR AS THIS SANDBOX CAN VERIFY (see §137's own VERIFIED section) but
+NOT YET DEPLOYED, and NOT exercised against a real live Neon endpoint
+end-to-end (this sandbox's network can't reach neon.tech) — that's the
+one thing for Mark to confirm himself post-deploy, starting with
+GET /api/health.
+
+SEPARATELY, STILL OPEN FROM SESSION 18: §136 (Integrations conditional-
+card-visibility fix) was showing as NOT YET DEPLOYED as of that
+session's end. Unconfirmed whether it was deployed in the days since —
+ask Mark rather than assume either way when picking this up.
 
 Whether migration 022 has actually been run against Neon is still
 unconfirmed either way from this sandbox; migration 023 likewise. Ask
-Mark directly if unsure before assuming either has run.
+Mark directly if unsure before assuming either has run. (§137 makes no
+schema change, so this is unrelated to and unaffected by that fix.)
 
 §135 (7 Aug 2026) added Paystack as a second, fully independent
 appointments.tokens.paymentProvider option alongside Stripe — CONFIRMED
@@ -10030,6 +10035,137 @@ worth Mark spending two minutes confirming the Paystack/Stripe/SMTP
 cards now show and hide correctly as Feature Flags change, and that the
 neutral notices' "already configured" wording matches what he actually
 has saved.
+
+If picking up a pending item, reference it by section number — same
+convention as before.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+137. DB LAYER MOVED OFF pg.Pool ONTO NEON'S HTTP DRIVER — ROOT-CAUSE FIX, NOT A PATCH — 12 Aug 2026 (session 19)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark reported several genuinely unrelated areas failing on the live
+deployment at once: AppAdmin's Audit Log tab, the Lead/Appointment
+entity Audit Log panels, the broker Reports drill-down, and the
+Integrations page ("Could not load integration settings" every time).
+Two Node process warnings appeared in the Vercel logs when he tested
+Integrations — a DEP0169 url.parse() deprecation notice and a
+pg-connection-string SSL-mode aliasing warning.
+
+DIAGNOSIS, DONE BY ACTUALLY RUNNING THE CODE, NOT BY READING IT — same
+discipline §132 established for exactly this class of bug. Hydrated
+fresh from GitHub, stood up a real local Postgres, applied the current
+schema.postgres.sql plus migrations 022 and 023, seeded realistic data,
+and called listAllAuditLog(), listAuditLog(), listAuditLogForLead(),
+getBrokerDetailReport(), getBrokerReport(), and getMaskedStatus() (all
+three providers) directly against it — every one of them ran cleanly.
+That ruled out a SQL/logic bug in the current codebase as the cause of
+what Mark was seeing.
+
+The two warnings pointed at the real one. The SSL-mode line is
+pg-connection-string identifying itself — confirming Postgres was being
+reached at all — and checking what's actually shared across every one
+of the failing features led to db.js: getPool() cached a single
+pg.Pool at module scope, with no pool.on('error', ...) handler and no
+idleTimeoutMillis/connectionTimeoutMillis configured. Two compounding
+problems: (1) node-postgres treats an unlistened background 'error' on
+an idle pooled client as unhandled — it crashes the whole process, not
+just the one query; (2) Vercel freezes a function's entire process
+between invocations, and a frozen container's open TCP sockets can be
+reset by the network or Neon's proxy while suspended — the next warm
+invocation hands out that same dead connection, the first query against
+it fails, and that feeds straight into (1). One shared file, so one
+root cause plausibly explaining several unrelated-looking failures at
+once — more consistent with what Mark described than three independent
+bugs would be.
+
+Mark asked for the proper fix, not a patch that would need patching
+again — so this is a driver swap, not a pool.on('error') band-aid.
+
+REWRITE — services/db.js now uses @neondatabase/serverless's neon()
+   HTTP driver instead of pg.Pool. This doesn't mitigate the freeze/
+   thaw failure mode, it removes it: neon() holds no persistent
+   connection at all — every call is its own stateless HTTPS request to
+   Neon's data API, so there is nothing to go stale across a freeze/thaw
+   cycle and no pool 'error' event to go unhandled, because there's no
+   pool. Confirmed first that nothing in this codebase relies on an
+   explicit multi-statement transaction (grepped for BEGIN/COMMIT/
+   pool.connect() across all of api-lib — the only hit was a comment in
+   tokenService.js noting the ABSENCE of one) — every write here is
+   already a single guarded statement, so the HTTP driver's
+   single-statement-per-call model costs this app nothing.
+   toPositional() (the @name -> $1,$2... rewriter) is completely
+   unchanged — only the execution call underneath it moved, from
+   pool.query(text, values) (returns {rows}) to
+   sql.query(text, values) (returns rows directly, confirmed from the
+   installed package's own type definitions, not assumed) — so
+   executeQuery/executeQueryOne keep the exact same signature and return
+   shape every service file already depends on. The sql export
+   (the inert mssql-style type-marker proxy every service imports
+   alongside executeQuery) is untouched and deliberately NOT the same
+   name as Neon's own query function, which is never assigned to a
+   module-level name here at all.
+
+DATABASE_URL DOES NOT NEED TO CHANGE — worth stating plainly since it's
+   the one thing that'd otherwise need a Vercel env var edit alongside
+   this deploy. Neon's HTTP driver works against either the pooled
+   (-pooler) or direct connection string; whatever's set today keeps
+   working as-is.
+
+OTHER FILES TOUCHED, MINIMAL:
+   api/health.js was the only other consumer of the old getPool()
+   export (GET /api/health, no-auth, confirms the deployment can reach
+   Neon) — updated to call executeQuery() like every other route does,
+   rather than keep a second, differently-shaped way of reaching the
+   database alive for one file. vite.config.js had a comment
+   referencing db.js's old getPool() by name — corrected, not left
+   stale (this codebase's own established standard — see the Login.jsx/
+   App.jsx precedents).
+
+PACKAGE.JSON: pg removed, @neondatabase/serverless (^1.1.0) added.
+   Clean npm install, no peer-dependency conflicts; npm audit findings
+   are pre-existing (esbuild/vite dev-tooling, xlsx) and unrelated to
+   this change — checked, not assumed.
+
+VERIFIED: node --check + a real ESM import smoke test on every one of
+   the 17 service files that import db.js (all import cleanly), full
+   Vite production build clean, existing 55-test Vitest suite
+   unaffected. Re-hydrated fresh from GitHub and diffed before
+   packaging — confirmed exactly these four files changed, nothing else
+   drifted from a parallel session.
+   NOT VERIFIED: an actual live HTTPS round-trip against Mark's real
+   Neon endpoint — this sandbox's network egress doesn't reach
+   neon.tech or a Docker registry (needed for Neon's own local-dev
+   proxy), so neon()'s data-API call itself couldn't be exercised
+   end-to-end from here, only confirmed correct by construction (exact
+   method signature and return shape read from the installed package's
+   own type definitions, not from memory) and by the fact that
+   everything importing and calling into this file does so cleanly.
+   This is the one thing worth Mark confirming himself once deployed —
+   hit GET /api/health first (cheapest, no-auth check), then the three
+   pages that were failing.
+
+MIGRATION: none — no schema change, driver/execution-layer change only.
+
+FILES:
+  frontend/api-lib/services/db.js   (rewritten — neon() HTTP driver replaces pg.Pool)
+  frontend/api/health.js            (updated — executeQuery() instead of the removed getPool())
+  frontend/vite.config.js           (comment corrected — stale getPool() reference)
+  frontend/package.json             (pg removed, @neondatabase/serverless added)
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 19 PAUSED HERE — 12 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§137 is built and verified as far as this sandbox can verify it (see
+VERIFIED above) but NOT YET DEPLOYED. §136 (7 Aug 2026, previous
+session) — the Integrations conditional-card-visibility fix — was ALSO
+still showing as not yet deployed as of last session's end; unconfirmed
+whether Mark deployed it between sessions 18 and 19. Ask before
+assuming either way. Once §137 deploys: check GET /api/health first,
+then Audit Log (both the AppAdmin tab and an entity's own panel),
+Broker Reports, and Integrations — all four were the ones Mark reported
+failing, and all four go through this one file.
 
 If picking up a pending item, reference it by section number — same
 convention as before.

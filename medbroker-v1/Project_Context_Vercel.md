@@ -545,8 +545,17 @@ theme-driven (set per [data-theme] block in themes.css), never set
 inline on individual inputs — that makes native controls follow the OS's
 light/dark preference instead of MedBroker's selected theme.
 
-BACKEND DATE SERIALIZATION: pg returns TIMESTAMPTZ/DATE columns as native
-JS Date objects, not strings. String(dateObj) calls .toString(), which
+BACKEND DATE SERIALIZATION: the Postgres driver returns TIMESTAMPTZ/DATE
+columns as native JS Date objects, not strings — still true after §137's
+move from pg.Pool to @neondatabase/serverless's HTTP driver (12 Aug
+2026): confirmed via the installed package's own source and its
+documented guarantee that HTTP-driver results match its WebSocket Pool/
+Client, which itself uses the same pg-types OID-to-parser mapping pg
+does (DATE/TIMESTAMPTZ -> Date object). Not exercised against a live
+Neon endpoint from this sandbox (no network path to neon.tech here), so
+worth Mark spot-checking one date-bearing field for real post-deploy —
+but this is not expected to have changed, and nothing in this rule's own
+advice below changes either way. String(dateObj) calls .toString(), which
 omits the year in a way that silently defaults to 2001 if ever re-parsed
 via new Date(...) on the frontend (a real bug this cost — "Overdue
 9129d" on a task due in 3 days). Always .toISOString().slice(0, 10) on a
@@ -802,15 +811,26 @@ APPLICATION
 CLOUD POSTURE
   Neon Postgres — connection via a standard connection string
     (executeQuery/executeQueryOne in db.js), not Azure's Managed
-    Identity model. Backup/PITR is Neon's own built-in capability
-    (point-in-time recovery), not something to configure separately the
-    way Azure SQL geo-redundancy was.
-  ⬜ TLS certificate verification (found 30 Jul 2026, §70 in
-     Status_Vercel.md): db.js sets ssl: { rejectUnauthorized: false } —
-     the connection to Neon is encrypted but the certificate isn't
-     verified. Low practical risk (same trusted cloud infrastructure),
-     tracked not urgent. Tightening this touches every DB query the app
-     makes, so it needs its own careful verification pass, not a quick fix.
+    Identity model. UPDATED §137 (12 Aug 2026): db.js runs on
+    @neondatabase/serverless's neon() HTTP driver now, not pg.Pool — no
+    persistent connection held between invocations at all, which is
+    what actually fixed the Audit Log/Reports/Integrations failures
+    §137 was built for (a stale pooled connection surviving Vercel's
+    freeze/thaw cycle with no error handler on it, not a query bug).
+    DATABASE_URL is unchanged either way. Backup/PITR is Neon's own
+    built-in capability (point-in-time recovery), not something to
+    configure separately the way Azure SQL geo-redundancy was.
+  ✅ TLS certificate verification — RESOLVED AS A SIDE EFFECT OF §137
+     (12 Aug 2026), not independently tightened. Originally found 30 Jul
+     2026 (§70): db.js set ssl: { rejectUnauthorized: false } on the
+     pg.Pool, so the connection was encrypted but the certificate wasn't
+     verified. The HTTP driver has no equivalent override — it goes over
+     standard HTTPS via fetch(), which validates the certificate by
+     default with nothing in this codebase disabling that. Confirmed by
+     reading the installed package's connection options (arrayMode/
+     fullResults/fetchOptions/isolationLevel/readOnly/deferrable/
+     authToken/disableWarningInBrowsers — no TLS-skipping option among
+     them), not assumed from the driver switch alone.
   ⬜ Backup/restore actually tested (Neon's PITR capability exists;
      hasn't been exercised).
   ⬜ Least-privilege DB role/grants — the app currently connects with
