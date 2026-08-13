@@ -468,12 +468,20 @@ export default function LeadDetail() {
                 {reopening ? 'Reopening…' : '↺ Reopen Lead'}
               </button>
             )}
-            <button
-              onClick={() => navigate(baseLead.appointmentId ? `/appointments/${baseLead.appointmentId}` : '/appointments')}
-              style={{ background:'var(--live)', color:'white', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
-            >
-              View in Appointments →
-            </button>
+            {/* §142 follow-up (13 Aug 2026, Mark's request) — was
+                ungated entirely, visible to every role including Agent.
+                canManage already encodes "Supervisor and up"
+                (isAdminRole || role === 'Supervisor') and is used the
+                same way for Reopen Lead right above; reused rather than
+                a new check, since it's exactly the intended rule. */}
+            {canManage && (
+              <button
+                onClick={() => navigate(baseLead.appointmentId ? `/appointments/${baseLead.appointmentId}` : '/appointments')}
+                style={{ background:'var(--live)', color:'white', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap' }}
+              >
+                View in Appointments →
+              </button>
+            )}
           </div>
         </div>
       )}

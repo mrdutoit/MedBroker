@@ -53,25 +53,28 @@ scoped functionality gap Mark raised alongside (1): nothing currently
 surfaces unclaimed/unassigned appointments nearing their date —
 separate from the bug fix, needs its own scoping pass.
 
-SEPARATE FINDING, same session: frontend/db/migrations/ is missing
-022-024 again (4th occurrence — §136, §140, §141, now this). Traced
-via GitHub's commit history this time, not just re-observed: a commit
-titled "Delete medbroker-v1/frontend/db/migrations directory",
-authored by Mark, landed today. Checked the commit immediately BEFORE
-that deletion too — 022-024 were already absent even there, so the
-loss predates today's delete-directory commit. Attempted to page
-further back through commit history to find the last point 022-024
-existed; hit GitHub's REST API rate limit (shared sandbox IP, already
-at 0/60 before this session's own calls) before getting there. NOT
-RECOVERED THIS SESSION. Mark: worth checking your own machine/earlier
-downloads for these three files directly, or browsing github.com's own
-commit history in a browser (not subject to this API limit) for
-medbroker-v1/frontend/db/migrations. Operationally lower-risk than it
-sounds IF 022-024 have already been run against Neon (their own
-ALTER/CREATE statements would already be reflected in schema.postgres.sql,
-which stays current) — but per §0's own long-standing note, whether
-022 specifically has actually been run is still unconfirmed either
-way. Worth Mark confirming directly rather than assuming.
+MYSTERY RESOLVED, same session: frontend/db/migrations/ repeatedly
+appearing to lose files (§136, §140, §141, and this session's own
+initial misdiagnosis) was NEVER a bug or a github.dev artifact — Mark
+clarified directly: he deletes migration files himself, deliberately,
+once he's run them against Neon, because schema.postgres.sql is kept
+current with the same change in the same delivery, so the migration
+file serves no further purpose afterward. The actual cause of the
+repeated "loss": every delivery ZIP this session (and apparently
+before) packaged the FULL cumulative set of every file touched that
+session, which silently resurrected migration files Mark had already
+deliberately removed — he'd then remove them again before committing,
+a cycle mistaken for recurring data loss across four separate
+write-ups. CORRECTED — see the "Delivery packaging" section of
+Project_Context_Vercel.md, revised same session: zips now contain only
+the delta since the previous delivery, never a full re-inclusion.
+STILL OPEN: whether migrations 025 and 026 specifically (the two most
+recent, covering §140's default claim token cost and §140d's meeting
+type) were actually executed against Neon before Mark deleted the
+folder — his own explanation implies yes (he only deletes after
+running), but worth Mark confirming directly rather than assumed,
+since §141's own NEXT ACTION note (immediately below) had flagged
+deployment of §140's changes as pending at the start of this session.
 
 NEXT ACTION, per §141 (13 Aug 2026): §137 and §139 both confirmed
 deployed and working, including Mark catching and helping fix a real
@@ -11111,13 +11114,13 @@ FILES (all five items):
   frontend/src/styles/tokens.js            (CHART_PALETTE.won: var(--live) -> var(--chart2))
 Plus this Status_Vercel.md.
 
-SEPARATE FINDING, MIGRATIONS DIRECTORY — RECOVERY ATTEMPTED, NOT
-RESOLVED: see §0's "SEPARATE FINDING" paragraph above for the full
-detail (commit history traced, "Delete...migrations directory" commit
-found, 022-024 confirmed already missing even one commit earlier,
-GitHub REST API rate limit hit while trying to page back further from
-this shared sandbox IP). Not re-duplicated here — that paragraph is
-the authoritative account, per this file's own stated convention of
+MIGRATIONS DIRECTORY MYSTERY — RESOLVED, see §0's "MYSTERY RESOLVED"
+paragraph above for the full account. Not a bug, never was: Mark
+deliberately deletes migration files after running them against Neon,
+and this session's own full-cumulative delivery packaging (corrected
+in §145, and in Project_Context_Vercel.md directly) was resurrecting
+them each time. Not re-duplicated here — that paragraph is the
+authoritative account, per this file's own stated convention of
 correcting/updating the one real entry rather than accumulating a
 second, possibly-disagreeing copy elsewhere in the file.
 
@@ -11238,3 +11241,85 @@ corrected.
 FILES, this addendum only (item 6): appointment.js, LeadDetail.jsx
 (both already listed in the cumulative FILES list for this session —
 no new files introduced).
+
+145. DELIVERY PACKAGING CORRECTED — FULL CUMULATIVE ZIPS WERE THE ROOT
+     CAUSE OF THE "VANISHING MIGRATIONS" MYSTERY — 13 Aug 2026 (session
+     21, continued)
+
+Mark questioned why the last few delivery ZIPs kept including
+themes.css and tokens.js unchanged since item 5, when only item 6
+(appointment.js, LeadDetail.jsx) had actually changed. Verified with
+direct MD5 comparison between this session's two most recent zips
+before responding — themes.css and tokens.js were confirmed byte-for-
+byte identical, no drift, no accidental re-edit. The zips had been
+packaging the FULL cumulative set of every file touched THIS session,
+every time, on the assumption that was the safer default (drag the
+whole folder over each time, nothing to track). Mark corrected this
+directly: he only ever wants the actual delta — files changed since
+the previous delivery — and explained why the previous full-cumulative
+behaviour had a real cost beyond noise: it's what was resurrecting
+migration files he'd deliberately deleted after running them against
+Neon (see §0's "MYSTERY RESOLVED" paragraph, and the corrected entry
+replacing what used to sit under §142's "SEPARATE FINDING, MIGRATIONS
+DIRECTORY") — previously misdiagnosed as data loss across four
+separate session write-ups (§136, §140, §141, and this session's own
+first pass), when it was actually his own normal cleanup running
+head-on into Claude re-adding what he'd just removed.
+
+CORRECTED:
+  - Project_Context_Vercel.md's "Delivery packaging" line (§14),
+    updated directly — zips now contain only the delta since the
+    previous delivery in the session, never a full re-inclusion of
+    every file touched earlier that session. Status_Vercel.md /
+    Project_Context_Vercel.md themselves are the one deliberate
+    exception — they're presented standalone AND included in the zip
+    whenever either actually changes, which is nearly every delivery,
+    so that part of the convention is unchanged.
+  - Claude's own cross-session memory (separate from this file, not
+    stored in the repo) updated with the same correction, so this
+    doesn't need to be re-explained at the start of a future session.
+
+GOING FORWARD: before packaging any delivery, check what's actually
+changed since the LAST zip sent this session (diff or just track it
+directly through the session's own edit history) and include only
+that — plus Status_Vercel.md/Project_Context_Vercel.md when they're
+part of what changed.
+
+CONFIRMED, same session: migrations 025 (default claim token cost) and
+026 (appointment meetingType column) were both run against Neon
+successfully — Mark confirmed with a screenshot of the Neon Console
+SQL Editor's own query history, both showing "Statement executed
+successfully" at 9:34am and 9:38am today respectively, before the
+migrations folder was deleted. This closes out the one thing his
+delete-after-running explanation hadn't fully settled on its own.
+Practical effect: §140's default claim token cost and §140d's
+meetingType column (which items 1 and 2 above, and item 6, all build
+on or interact with) are confirmed live in the actual database, not
+just in schema.postgres.sql on paper — nothing from this session is
+blocked on an unrun migration.
+
+146. "VIEW IN APPOINTMENTS" BUTTON UNGATED BY ROLE — FIXED — 13 Aug
+     2026 (session 21, continued)
+
+Mark found the "View in Appointments →" button, shown on a converted
+Lead's conversion banner in LeadDetail.jsx, was visible to every role
+including Agent. Should only ever show for Supervisor and up.
+ROOT CAUSE: the button had no role check at all — only its neighbour,
+Reopen Lead, was gated (via `canReopen`, itself built on `canManage`).
+FIX, BUILT AND VERIFIED: wrapped the button in `{canManage && (...)}`.
+canManage already exists on this page and already encodes exactly
+"Supervisor and up" — `isAdminRole || role === 'Supervisor'`, where
+isAdminRole is Admin or GlobalAdmin — and is the same check already
+driving Reopen Lead right next to it, so this reuses an existing,
+already-correct pattern rather than introducing a new one. Correctly
+excludes both Agent and Broker. Verified via full Vite build (clean)
+and the existing 55-test Vitest suite (unaffected). Diffed
+LeadDetail.jsx against a fresh GitHub hydration — confirmed this
+change is isolated and correctly cumulative alongside item 6's
+products.length check, nothing else disturbed.
+NOT YET DEPLOYED. No migration required.
+
+FILES, this addendum only: frontend/src/pages/LeadDetail.jsx (already
+in the cumulative set — no new files). Per the corrected delivery
+convention (§145), the next zip contains ONLY this file, since it's
+the only thing that changed since the last delivery.
