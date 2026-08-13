@@ -491,4 +491,5 @@ export const reportsApi = {
   leadsByPortfolio:           (period, referenceDate) => request(`/reports/leads-by-portfolio?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
   appointmentsByPortfolio:    (period, referenceDate) => request(`/reports/appointments-by-portfolio?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
   appointmentsByMeetingType:  (period, referenceDate) => request(`/reports/appointments-by-meeting-type?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
+  closedWonByProduct:         (period, referenceDate) => request(`/reports/closed-won-by-product?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
 };

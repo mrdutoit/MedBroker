@@ -318,9 +318,15 @@ export async function getAgentDetailReport(agentId, period, scope, referenceDate
   );
   const k = kpiRows[0] ?? { leads: 0, calls: 0, callbacks: 0, noAnswer: 0, appts: 0 };
   const leads = Number(k.leads), appts = Number(k.appts);
+  // §153 (13 Aug 2026, Mark's decision) — was a '%' string, could exceed
+  // 100 (Stacey Brookes' 200% — a lead with one appointment Returned to
+  // Leads, then re-booked, both counted in the same period). Nothing
+  // was wrong with the underlying counts — the "rate"/"%" framing was
+  // just misleading for a metric with no natural upper bound. Now a
+  // plain ratio (e.g. "2.0"), same numbers, no implied 0-100% ceiling.
   const kpi = {
     leads, calls: Number(k.calls), callbacks: Number(k.callbacks), noAnswer: Number(k.noAnswer), appts,
-    conversion: leads === 0 ? '0%' : `${Math.round((appts / leads) * 100)}%`,
+    conversion: leads === 0 ? '0.0' : (appts / leads).toFixed(1),
   };
 
   // Call outcome breakdown — all 7 real CallAttempt.outcome values, not the
@@ -739,10 +745,14 @@ export async function getAgentReport(period, scope, referenceDate) {
   return rows.map(r => {
     const leads = Number(r.leads);
     const appts = Number(r.appts);
+    // §153 (13 Aug 2026, Mark's decision) — same fix as
+    // getAgentDetailReport() above: ratio, not a '%' string that could
+    // exceed 100 for the same structural reason (a lead can get more
+    // than one appointment attempt in a period).
     return {
       id: r.id, name: r.name, leads, calls: Number(r.calls),
       appts, callbacks: Number(r.callbacks),
-      conversion: leads === 0 ? '0%' : `${Math.round((appts / leads) * 100)}%`,
+      conversion: leads === 0 ? '0.0' : (appts / leads).toFixed(1),
     };
   });
 }
@@ -784,66 +794,55 @@ function mergeClosedMetrics(countRows, avgDaysRows) {
 }
 
 /**
- * Leads by Source — §151. Cohort (leads created in period) crossed with
- * closed-date metrics (appointments that closed in period, joined back
- * to their lead's source), plus the no-appointment 'Closed' path
- * (approximated via Lead.updatedAt, same imprecision already accepted
- * in getReportSummary — not newly introduced here).
- *
- * IMPORTANT, found while building this (13 Aug 2026) — Lead.leadSource
- * is NOT a real column. leadService.js's own header comment documents
- * this directly: the CreateLeadSchema enum value (EventAttendance/
- * CSVImport/ManualEntry/Referral/WebForm) is accepted by the API for
- * validation but never actually inserted anywhere — createLead()'s
- * INSERT doesn't reference it at all. The only real source data is
- * linkedEventId/linkedSubscriptionId/csvImportBatchId/manualSourceName,
- * and the rest of the app (listSources(), LeadList.jsx's own source
- * filter dropdown, the sourceLabel shown in "Recent Lead Activity"
- * tables) already treats a COALESCE across those four as "the source" —
- * a free-text label (an event's name, a subscription's name, or
- * whatever manualSourceName/csvSource string was typed in), not the
- * 5-category enum. This report groups by that same sourceLabel, to
- * match the one definition of "source" already used everywhere else in
- * this app, rather than inventing a second, inconsistent one. Practical
- * effect: this can be more than 5 rows — one per distinct event,
- * subscription, or manual source string that actually exists, not a
- * clean Event/CSV/Manual/Referral/WebForm five-way split, since that
- * split was never actually captured in the data to begin with.
+ * Leads by Source (Origin) — §151, corrected §155 (13 Aug 2026). First
+ * pass grouped by the free-text sourceLabel (event name, subscription
+ * name, or manual source string) — Mark clarified that's not what he
+ * wanted at all: he wants the four ORIGIN categories (Manual entry vs
+ * CSV Import vs Medical Subscription vs Event), not which specific
+ * event or CSV batch a lead came from. Derived directly from which of
+ * the four linkage columns is populated on the Lead row — the same
+ * columns leadService.js's own sourceLabel COALESCE already reads, just
+ * bucketed into categories instead of concatenated into a free-text
+ * name. linkedSubscriptionId takes priority over csvImportBatchId
+ * deliberately: LeadImport.jsx's "subscription" tab sets BOTH
+ * (confirmed directly — see §142's own note on this), and "Medical
+ * Subscription" is the more specific, more useful category for those
+ * rows than a generic "Import" bucket would be.
  */
 export async function getLeadsBySourceReport(period, referenceDate) {
   const organisationId = resolveOrganisationId();
   const { start, end } = getPeriodRange(period, referenceDate);
   const params = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
-  const sourceJoins = `LEFT JOIN Event ev ON l.linkedEventId = ev.id LEFT JOIN MedicalSubscription ms ON l.linkedSubscriptionId = ms.id`;
-  const sourceLabelExpr = `COALESCE(ev.name, ms.name, l.manualSourceName, 'Unknown')`;
+  const originExpr = `CASE
+    WHEN l.linkedEventId IS NOT NULL THEN 'Event'
+    WHEN l.linkedSubscriptionId IS NOT NULL THEN 'Medical Subscription'
+    WHEN l.csvImportBatchId IS NOT NULL THEN 'Import'
+    ELSE 'Manual'
+  END`;
 
   const [leadsRows, closedCountRows, noApptClosedRows, avgDaysRows] = await Promise.all([
     executeQuery(
-      `SELECT ${sourceLabelExpr} AS "groupKey", COUNT(*) AS count FROM Lead l
-       ${sourceJoins}
+      `SELECT ${originExpr} AS "groupKey", COUNT(*) AS count FROM Lead l
        WHERE l.createdAt >= @start AND l.createdAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId
-       GROUP BY ${sourceLabelExpr}`, params
+       GROUP BY ${originExpr}`, params
     ),
     executeQuery(
-      `SELECT ${sourceLabelExpr} AS "groupKey", a.status, COUNT(*) AS count
+      `SELECT ${originExpr} AS "groupKey", a.status, COUNT(*) AS count
        FROM Appointment a JOIN Lead l ON l.id = a.leadId
-       ${sourceJoins}
        WHERE a.status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
-       GROUP BY ${sourceLabelExpr}, a.status`, params
+       GROUP BY ${originExpr}, a.status`, params
     ),
     executeQuery(
-      `SELECT ${sourceLabelExpr} AS "groupKey", COUNT(*) AS count FROM Lead l
-       ${sourceJoins}
+      `SELECT ${originExpr} AS "groupKey", COUNT(*) AS count FROM Lead l
        WHERE l.pipelineStatus = 'Closed' AND l.updatedAt >= @start AND l.updatedAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId
-       GROUP BY ${sourceLabelExpr}`, params
+       GROUP BY ${originExpr}`, params
     ),
     executeQuery(
-      `SELECT ${sourceLabelExpr} AS "groupKey", a.status,
+      `SELECT ${originExpr} AS "groupKey", a.status,
          AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays"
        FROM Appointment a JOIN Lead l ON l.id = a.leadId
-       ${sourceJoins}
        WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
-       GROUP BY ${sourceLabelExpr}, a.status`, params
+       GROUP BY ${originExpr}, a.status`, params
     ),
   ]);
   const leadsByGroup = Object.fromEntries(leadsRows.map(r => [r.groupKey, Number(r.count)]));
@@ -1038,4 +1037,31 @@ export async function getAppointmentsByMeetingTypeReport(period, referenceDate) 
       avgPolicyValueWon: avgPolicyByGroup[meetingType] ?? null,
     };
   });
+}
+
+/**
+ * Closed Won by Product — §155 (13 Aug 2026), Mark's explicit request,
+ * new cut not covered by any of §151's four reports. "Which products
+ * actually get sold when we win a deal" — distinct from Appointments by
+ * Portfolio, which shows deal volume, not product mix within those
+ * deals. No fan-out risk: each row of AppointmentProduct already IS one
+ * product association, the natural grain for "how many of this product
+ * did we sell" — no junction-table multiplication like the Portfolio
+ * reports have to guard against.
+ */
+export async function getClosedWonByProductReport(period, referenceDate) {
+  const organisationId = resolveOrganisationId();
+  const { start, end } = getPeriodRange(period, referenceDate);
+
+  const rows = await executeQuery(
+    `SELECT p.name AS "product", COUNT(*) AS "count", COALESCE(SUM(ap.policyValue), 0) AS "totalValue"
+     FROM AppointmentProduct ap
+     JOIN Appointment a ON a.id = ap.appointmentId
+     JOIN Product p ON p.id = ap.productId
+     WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
+     GROUP BY p.name
+     ORDER BY "totalValue" DESC`,
+    { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  return rows.map(r => ({ product: r.product, count: Number(r.count), totalValue: Number(r.totalValue) }));
 }

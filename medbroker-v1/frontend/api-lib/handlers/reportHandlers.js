@@ -11,6 +11,7 @@ import { validateToken, requireRole, authErrorResponse } from '../middleware/aut
 import {
   getReportSummary, getBrokerReport, getAgentReport, getAgentDetailReport, getBrokerDetailReport,
   getLeadsBySourceReport, getLeadsByPortfolioReport, getAppointmentsByPortfolioReport, getAppointmentsByMeetingTypeReport,
+  getClosedWonByProductReport,
 } from '../services/reportService.js';
 import { ReportPeriodQuerySchema } from '../models/report.js';
 import { isSupervisorOnly, isAgentOnly } from '../services/userService.js';
@@ -280,6 +281,32 @@ export async function handleAppointmentsByMeetingType(req, res) {
       return res.status(status).json(body);
     }
     console.error('reports/appointments-by-meeting-type error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** GET /api/reports/closed-won-by-product — §155, 13 Aug 2026 */
+export async function handleClosedWonByProduct(req, res) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ALLOWED_ROLES);
+
+    const parsed = ReportPeriodQuerySchema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const rows = await getClosedWonByProductReport(parsed.data.period, parsed.data.referenceDate);
+    return res.status(200).json({ rows });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('reports/closed-won-by-product error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

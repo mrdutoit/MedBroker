@@ -11920,3 +11920,162 @@ Mark's direction on the recommendation above.
 
 FILES: frontend/src/pages/UserAdmin.jsx, frontend/src/pages/
 Reports.jsx.
+
+154. AGENT BOOKING RATE -> RATIO — BUILT AND VERIFIED — 13 Aug 2026
+     (session 21, continued)
+
+Mark went with the recommendation from §153: present Agent "booking
+rate" (appts/leads) as a ratio, not a percentage, since it has no
+natural 0-100% ceiling (a lead can get more than one appointment
+attempt in a period — e.g. after a Return to Leads and re-booking,
+exactly Stacey Brookes' 200% case).
+
+BUILT:
+  - getAgentDetailReport() and getAgentReport() (reportService.js):
+    conversion changed from `Math.round((appts/leads)*100) + '%'` to
+    `(appts/leads).toFixed(1)` — a plain ratio string, e.g. "2.0".
+  - Reports.jsx's Agent Activity table: column renamed "Booking rate"
+    -> "Appts / lead"; the progress bar removed entirely, not just
+    relabelled. FOUND WHILE FIXING: the bar's width was literally using
+    a.conversion's raw string as a CSS value — worked by coincidence
+    when it was a '%'-suffixed string, would have been invalid CSS
+    (no unit) with the new unitless ratio. A filled bar toward 100%
+    also has no coherent meaning for a value with no ceiling at all, so
+    removed rather than patched — plain bold number instead.
+  - Reports.jsx's self-view KPI card: label "Booking rate" -> "Appts /
+    lead", matching the table.
+  - AgentDetail.jsx's "Appts booked" KPI card sub-label: "X% booking
+    rate" -> "X.X per lead".
+  - CAUGHT DURING THIS FIX: first attempt at the AgentDetail.jsx label
+    used `{/* comment */}` syntax inside a plain JS array literal (not
+    JSX children, where that syntax is only valid) — genuine syntax
+    error, caught immediately by the build failing, corrected before
+    it went anywhere near a delivery.
+
+VERIFIED: full Vite build clean, existing 55-test Vitest suite
+unaffected, and a direct functional test of Stacey's exact scenario
+(leads=1, appts=2) confirming "2.0" instead of "200%", plus a
+no-leads-at-all edge case ("0.0", not a divide-by-zero) and a normal
+sub-1.0 case (4 leads, 3 appts -> "0.8"). Diffed all three touched
+files against a fresh GitHub hydration — confirmed isolated, correctly
+cumulative.
+NOT YET DEPLOYED. No migration required.
+
+FLAGGED, NOT CHANGED — same underlying pattern exists in four other
+places built earlier today, not touched here since Mark's decision was
+specifically about the Agent booking-rate metric:
+  - getBrokerDetailReport()/getBrokerReport()'s own "conversion"
+    (signed/appts) — already explicitly flagged as mixed-basis in
+    §153's own code comments when built (closedAt-scoped numerator,
+    createdAt-scoped denominator), same >100%-possible characteristic.
+  - The four §151 breakdown reports' "conversion" columns (Leads by
+    Source/Portfolio, Appointments by Portfolio/Meeting Type) —
+    closedWon/leads or closedWon/booked, same mixed-cohort structure
+    as the org-wide "Closed Won" conversion % this was all modelled on.
+Worth Mark's explicit decision on whether the same ratio treatment
+should extend to these, rather than silently leaving them differently
+formatted despite sharing the identical characteristic — not assumed
+either way.
+
+FILES: frontend/api-lib/services/reportService.js, frontend/src/pages/
+Reports.jsx, frontend/src/pages/AgentDetail.jsx.
+
+155. REPORTS: SPACING FIX, LEADS-BY-SOURCE CORRECTED, TABLES DROPPED
+     FOR CHART-ONLY DESIGN, TWO NEW REPORTS ADDED — 13 Aug 2026
+     (session 21, continued)
+
+Four items from Mark's review of §151/§154's output, the last one
+explicitly asking to be approached "like a senior data scientist"
+rather than mechanically patched.
+
+1. AGENT ACTIVITY TABLE SPACING — FIXED. Its outer card never had
+   marginBottom set, unlike every other card on this page — a
+   pre-existing gap (not introduced this session), just newly visible
+   since §151's new report cards now sit directly below it. Added
+   marginBottom: '16px', matching every other card.
+
+2. LEADS BY SOURCE — CORRECTED, NOT JUST RELABELLED. §151 grouped by
+   the derived free-text sourceLabel (event name, subscription name, or
+   manual source string — e.g. "Gym Session", "Out on Run"). Mark
+   clarified that's not what he wanted: the four ORIGIN categories
+   (Manual / Import / Medical Subscription / Event), not which specific
+   event or CSV batch. Rebuilt the grouping expression as a CASE off the
+   same four linkage columns (linkedEventId/linkedSubscriptionId/
+   csvImportBatchId), bucketed into categories instead of concatenated
+   into a name — linkedSubscriptionId checked before csvImportBatchId
+   deliberately, since LeadImport.jsx's "subscription" tab sets both
+   (confirmed directly, §142's own note) and "Medical Subscription" is
+   the more specific, more useful bucket for those rows than a generic
+   "Import" would be. Verified against real Postgres. Removed the
+   now-stale §151 docblock explaining the abandoned sourceLabel
+   approach rather than leaving two conflicting comments in the file.
+
+3. TABLES DROPPED ENTIRELY, DONUT + RANKED BAR PER REPORT WITH RICH
+   HOVER — REDESIGNED, NOT PATCHED. Mark: "drop the tables and just
+   have the charts with the hover capability." Approached deliberately
+   as a metrics-design question, not a mechanical table-to-chart
+   translation:
+     - Volume (Leads/Booked count) is a "share of whole" question —
+       stays a donut.
+     - Conversion % is fundamentally a CROSS-CATEGORY COMPARISON
+       question — donuts are poor at precise magnitude comparison
+       across several slices; added a dedicated horizontal ranked bar
+       chart (highest-converting category first) specifically for this,
+       rather than trying to cram it into the donut.
+     - Won/Lost counts, Avg Days to Close (Won/Lost), and Avg Policy
+       Value (Won) — these don't reduce to a single chart shape
+       cleanly and were the table's most detail-dense columns. Moved
+       into a rich custom hover tooltip (BreakdownTooltip, new
+       component) on the donut — nothing lost, just moved from a
+       permanent row into on-demand detail, matching "charts with hover
+       capability" literally.
+     - Colour consistency handled deliberately: a per-report colour map
+       is computed once (by category name, from the donut's natural
+       row order) and used for BOTH the donut and the bar chart, even
+       though the bar re-sorts by conversion % — without this, the same
+       category could render a different colour in each chart just
+       because the two charts order their data differently.
+   fmtDays moved from component-local to module level (alongside the
+   existing fmt) — BreakdownTooltip is a module-level component and
+   can't reach a function-scoped const the old fmtDays was.
+
+4. TWO NEW REPORTS ADDED, PER MARK'S EXPLICIT REQUEST:
+     - Closed Won vs Closed Lost by Portfolio: a single grouped
+       horizontal bar (green=Won, red=Lost, one bar-pair per portfolio)
+       rather than two separate pie charts — deliberately, since a
+       grouped bar makes Won-vs-Lost directly comparable both within
+       and across portfolios, which two independent donuts wouldn't do
+       as well. Colours reuse the existing --pl-won/--pl-lost theme
+       tokens (§152) for consistency with the Pipeline Status Breakdown
+       chart elsewhere on the page. No new backend query — reuses
+       apptsByPortfolio's existing closedWon/closedLost fields.
+     - Closed Won by Product: genuinely new — no existing report
+       tracked products at all. New getClosedWonByProductReport()
+       (reportService.js), grouping AppointmentProduct by product name
+       for ClosedWon appointments closing in the period, ranked by
+       total Rand value (the business-relevant framing — "what's
+       actually generating revenue" — with count shown alongside in
+       the tooltip/legend, not instead of value). No fan-out risk: each
+       AppointmentProduct row already is the correct grain for "how
+       much of this product did we sell", unlike the Portfolio reports'
+       junction-table joins.
+   New endpoint wired the same way as §151's four: handler in
+   reportHandlers.js, route folded into the existing reports-router.js
+   slug dispatcher (no new Vercel function, still under the Hobby-plan
+   12-function ceiling), new reportsApi.closedWonByProduct() in api.js.
+
+VERIFIED: full Vite build clean, existing 55-test Vitest suite
+unaffected, node --check on all four touched backend files, and the
+new Closed Won by Product query verified directly against real
+Postgres test data (R1,500 Life Insurance, matching the test won
+appointment from earlier verification this session) before being
+wired up. Diffed all five touched files against a fresh GitHub
+hydration — confirmed each diff contains only the intended changes,
+correctly cumulative with everything else built today.
+NOT YET DEPLOYED. No migration required — the new report reads off
+data already in place (closedAt from migration 027, AppointmentProduct/
+Product tables pre-existing).
+
+FILES: frontend/api-lib/services/reportService.js, frontend/api-lib/
+handlers/reportHandlers.js, frontend/api/reports-router.js, frontend/
+src/services/api.js, frontend/src/pages/Reports.jsx.
