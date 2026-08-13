@@ -700,3 +700,296 @@ export async function getAgentReport(period, scope, referenceDate) {
     };
   });
 }
+
+// §151 (13 Aug 2026) — four new breakdown reports, Mark's explicit
+// request: Leads by Source, Leads by Portfolio, Appointments by
+// Portfolio, Appointments by Meeting Type. No drill-through by design
+// (Mark's decision — a category like "CSVImport" or "Discovery" isn't a
+// single navigable entity the way an Agent or Broker is, and doing a
+// date-scoped drill-through properly would have meant adding date-range
+// filtering to LeadList.jsx/AppointmentList.jsx, which he chose to skip
+// rather than take on). Summary tables only.
+//
+// All four closed-date metrics (Closed Won/Lost counts, Avg Days to
+// Close) follow the same closedAt-based scoping established in §148/149
+// — a deal counts against the period it actually closed in, not when
+// its lead or appointment was created. "Booked"/"Leads" counts stay
+// cohort-based (created in period), matching the rest of Reports.jsx.
+//
+// Small shared helper below merges a COUNT-by-(group,status) result set
+// and an AVG-days-by-(group,status) result set into one map per group —
+// the same merge shape repeats across all four functions, pulled out
+// once rather than copy-pasted four times.
+function mergeClosedMetrics(countRows, avgDaysRows) {
+  const map = {};
+  const ensure = (key) => (map[key] ??= { closedWon: 0, closedLost: 0, avgDaysWon: null, avgDaysLost: null });
+  for (const row of countRows) {
+    const g = ensure(row.groupKey);
+    if (row.status === 'ClosedWon') g.closedWon += Number(row.count);
+    else g.closedLost += Number(row.count); // ClosedLost + ReturnedToLeads + the no-appointment 'Closed' path all fold in here
+  }
+  for (const row of avgDaysRows) {
+    const g = ensure(row.groupKey);
+    const days = row.avgDays === null ? null : Number(row.avgDays);
+    if (row.status === 'ClosedWon') g.avgDaysWon = days;
+    else if (row.status === 'ClosedLost') g.avgDaysLost = days;
+  }
+  return map;
+}
+
+/**
+ * Leads by Source — §151. Cohort (leads created in period) crossed with
+ * closed-date metrics (appointments that closed in period, joined back
+ * to their lead's source), plus the no-appointment 'Closed' path
+ * (approximated via Lead.updatedAt, same imprecision already accepted
+ * in getReportSummary — not newly introduced here).
+ *
+ * IMPORTANT, found while building this (13 Aug 2026) — Lead.leadSource
+ * is NOT a real column. leadService.js's own header comment documents
+ * this directly: the CreateLeadSchema enum value (EventAttendance/
+ * CSVImport/ManualEntry/Referral/WebForm) is accepted by the API for
+ * validation but never actually inserted anywhere — createLead()'s
+ * INSERT doesn't reference it at all. The only real source data is
+ * linkedEventId/linkedSubscriptionId/csvImportBatchId/manualSourceName,
+ * and the rest of the app (listSources(), LeadList.jsx's own source
+ * filter dropdown, the sourceLabel shown in "Recent Lead Activity"
+ * tables) already treats a COALESCE across those four as "the source" —
+ * a free-text label (an event's name, a subscription's name, or
+ * whatever manualSourceName/csvSource string was typed in), not the
+ * 5-category enum. This report groups by that same sourceLabel, to
+ * match the one definition of "source" already used everywhere else in
+ * this app, rather than inventing a second, inconsistent one. Practical
+ * effect: this can be more than 5 rows — one per distinct event,
+ * subscription, or manual source string that actually exists, not a
+ * clean Event/CSV/Manual/Referral/WebForm five-way split, since that
+ * split was never actually captured in the data to begin with.
+ */
+export async function getLeadsBySourceReport(period, referenceDate) {
+  const organisationId = resolveOrganisationId();
+  const { start, end } = getPeriodRange(period, referenceDate);
+  const params = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+  const sourceJoins = `LEFT JOIN Event ev ON l.linkedEventId = ev.id LEFT JOIN MedicalSubscription ms ON l.linkedSubscriptionId = ms.id`;
+  const sourceLabelExpr = `COALESCE(ev.name, ms.name, l.manualSourceName, 'Unknown')`;
+
+  const [leadsRows, closedCountRows, noApptClosedRows, avgDaysRows] = await Promise.all([
+    executeQuery(
+      `SELECT ${sourceLabelExpr} AS "groupKey", COUNT(*) AS count FROM Lead l
+       ${sourceJoins}
+       WHERE l.createdAt >= @start AND l.createdAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId
+       GROUP BY ${sourceLabelExpr}`, params
+    ),
+    executeQuery(
+      `SELECT ${sourceLabelExpr} AS "groupKey", a.status, COUNT(*) AS count
+       FROM Appointment a JOIN Lead l ON l.id = a.leadId
+       ${sourceJoins}
+       WHERE a.status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
+       GROUP BY ${sourceLabelExpr}, a.status`, params
+    ),
+    executeQuery(
+      `SELECT ${sourceLabelExpr} AS "groupKey", COUNT(*) AS count FROM Lead l
+       ${sourceJoins}
+       WHERE l.pipelineStatus = 'Closed' AND l.updatedAt >= @start AND l.updatedAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId
+       GROUP BY ${sourceLabelExpr}`, params
+    ),
+    executeQuery(
+      `SELECT ${sourceLabelExpr} AS "groupKey", a.status,
+         AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays"
+       FROM Appointment a JOIN Lead l ON l.id = a.leadId
+       ${sourceJoins}
+       WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
+       GROUP BY ${sourceLabelExpr}, a.status`, params
+    ),
+  ]);
+  const leadsByGroup = Object.fromEntries(leadsRows.map(r => [r.groupKey, Number(r.count)]));
+  const closed = mergeClosedMetrics([...closedCountRows, ...noApptClosedRows.map(r => ({ groupKey: r.groupKey, status: 'ClosedLost', count: r.count }))], avgDaysRows);
+
+  const allKeys = new Set([...Object.keys(leadsByGroup), ...Object.keys(closed)]);
+  return [...allKeys].sort().map(source => {
+    const leads = leadsByGroup[source] ?? 0;
+    const c = closed[source] ?? { closedWon: 0, closedLost: 0, avgDaysWon: null, avgDaysLost: null };
+    return {
+      source, leads, closedWon: c.closedWon, closedLost: c.closedLost,
+      conversion: leads === 0 ? '0%' : `${Math.round((c.closedWon / leads) * 100)}%`,
+      avgDaysToCloseWon: c.avgDaysWon, avgDaysToCloseLost: c.avgDaysLost,
+    };
+  });
+}
+
+/**
+ * Leads by Portfolio — §151. Same shape as by-Source, but Portfolio is
+ * multi-valued (LeadPortfolio for the cohort, AppointmentPortfolio for
+ * closed metrics) — a lead or appointment tagged with two portfolios
+ * contributes to both portfolios' rows, matching this app's established
+ * "not limited to one portfolio" treatment everywhere else (§41, §45).
+ * COUNT(DISTINCT ...) throughout to guard against the LeadPortfolio/
+ * AppointmentPortfolio join fan-out this project has been bitten by
+ * before (see Status_Vercel.md's own documented SQL fan-out lesson).
+ */
+export async function getLeadsByPortfolioReport(period, referenceDate) {
+  const organisationId = resolveOrganisationId();
+  const { start, end } = getPeriodRange(period, referenceDate);
+  const params = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+
+  const [leadsRows, closedCountRows, noApptClosedRows, avgDaysRows] = await Promise.all([
+    executeQuery(
+      `SELECT p.name AS "groupKey", COUNT(DISTINCT l.id) AS count
+       FROM Lead l JOIN LeadPortfolio lp ON lp.leadId = l.id JOIN Portfolio p ON p.id = lp.portfolioId
+       WHERE l.createdAt >= @start AND l.createdAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId
+       GROUP BY p.name`, params
+    ),
+    executeQuery(
+      `SELECT p.name AS "groupKey", a.status, COUNT(DISTINCT a.id) AS count
+       FROM Appointment a JOIN AppointmentPortfolio ap ON ap.appointmentId = a.id JOIN Portfolio p ON p.id = ap.portfolioId
+       WHERE a.status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
+       GROUP BY p.name, a.status`, params
+    ),
+    executeQuery(
+      `SELECT p.name AS "groupKey", COUNT(DISTINCT l.id) AS count
+       FROM Lead l JOIN LeadPortfolio lp ON lp.leadId = l.id JOIN Portfolio p ON p.id = lp.portfolioId
+       WHERE l.pipelineStatus = 'Closed' AND l.updatedAt >= @start AND l.updatedAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId
+       GROUP BY p.name`, params
+    ),
+    executeQuery(
+      `SELECT p.name AS "groupKey", a.status,
+         AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays"
+       FROM Appointment a JOIN AppointmentPortfolio ap ON ap.appointmentId = a.id JOIN Portfolio p ON p.id = ap.portfolioId
+       JOIN Lead l ON l.id = a.leadId
+       WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
+       GROUP BY p.name, a.status`, params
+    ),
+  ]);
+  const leadsByGroup = Object.fromEntries(leadsRows.map(r => [r.groupKey, Number(r.count)]));
+  const closed = mergeClosedMetrics([...closedCountRows, ...noApptClosedRows.map(r => ({ groupKey: r.groupKey, status: 'ClosedLost', count: r.count }))], avgDaysRows);
+
+  const allKeys = new Set([...Object.keys(leadsByGroup), ...Object.keys(closed)]);
+  return [...allKeys].sort().map(portfolio => {
+    const leads = leadsByGroup[portfolio] ?? 0;
+    const c = closed[portfolio] ?? { closedWon: 0, closedLost: 0, avgDaysWon: null, avgDaysLost: null };
+    return {
+      portfolio, leads, closedWon: c.closedWon, closedLost: c.closedLost,
+      conversion: leads === 0 ? '0%' : `${Math.round((c.closedWon / leads) * 100)}%`,
+      avgDaysToCloseWon: c.avgDaysWon, avgDaysToCloseLost: c.avgDaysLost,
+    };
+  });
+}
+
+/**
+ * Appointments by Portfolio — §151. Appointment-centric rather than
+ * Lead-centric: "booked" is the appointment's own createdAt (matches
+ * "Appts booked" semantics used everywhere else in this file), closed
+ * metrics are closedAt-scoped as usual. Avg policy value added — the
+ * one metric unique to Appointments among the four new reports, since
+ * policy value only exists at the appointment/product level. The
+ * per-appointment total is computed once via a LATERAL scalar subquery
+ * BEFORE joining AppointmentPortfolio, specifically to avoid a double
+ * fan-out (AppointmentPortfolio rows x AppointmentProduct rows) that a
+ * direct join of both multi-valued tables would cause — same class of
+ * bug this project's own documented SQL fan-out lesson warns about.
+ */
+export async function getAppointmentsByPortfolioReport(period, referenceDate) {
+  const organisationId = resolveOrganisationId();
+  const { start, end } = getPeriodRange(period, referenceDate);
+  const params = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+
+  const [bookedRows, closedCountRows, avgDaysRows, avgPolicyRows] = await Promise.all([
+    executeQuery(
+      `SELECT p.name AS "groupKey", COUNT(DISTINCT a.id) AS count
+       FROM Appointment a JOIN AppointmentPortfolio ap ON ap.appointmentId = a.id JOIN Portfolio p ON p.id = ap.portfolioId
+       WHERE a.createdAt >= @start AND a.createdAt <= @end AND a.organisationId = @organisationId
+       GROUP BY p.name`, params
+    ),
+    executeQuery(
+      `SELECT p.name AS "groupKey", a.status, COUNT(DISTINCT a.id) AS count
+       FROM Appointment a JOIN AppointmentPortfolio ap ON ap.appointmentId = a.id JOIN Portfolio p ON p.id = ap.portfolioId
+       WHERE a.status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
+       GROUP BY p.name, a.status`, params
+    ),
+    executeQuery(
+      `SELECT p.name AS "groupKey", a.status,
+         AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays"
+       FROM Appointment a JOIN AppointmentPortfolio ap ON ap.appointmentId = a.id JOIN Portfolio p ON p.id = ap.portfolioId
+       JOIN Lead l ON l.id = a.leadId
+       WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
+       GROUP BY p.name, a.status`, params
+    ),
+    executeQuery(
+      `SELECT p.name AS "groupKey", AVG(av.total) AS "avgPolicyValue"
+       FROM Appointment a
+       JOIN AppointmentPortfolio ap ON ap.appointmentId = a.id
+       JOIN Portfolio p ON p.id = ap.portfolioId
+       CROSS JOIN LATERAL (SELECT COALESCE(SUM(pr.policyValue), 0) AS total FROM AppointmentProduct pr WHERE pr.appointmentId = a.id) av
+       WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
+       GROUP BY p.name`, params
+    ),
+  ]);
+  const bookedByGroup = Object.fromEntries(bookedRows.map(r => [r.groupKey, Number(r.count)]));
+  const closed = mergeClosedMetrics(closedCountRows, avgDaysRows);
+  const avgPolicyByGroup = Object.fromEntries(avgPolicyRows.map(r => [r.groupKey, r.avgPolicyValue === null ? null : Number(r.avgPolicyValue)]));
+
+  const allKeys = new Set([...Object.keys(bookedByGroup), ...Object.keys(closed)]);
+  return [...allKeys].sort().map(portfolio => {
+    const booked = bookedByGroup[portfolio] ?? 0;
+    const c = closed[portfolio] ?? { closedWon: 0, closedLost: 0, avgDaysWon: null, avgDaysLost: null };
+    return {
+      portfolio, booked, closedWon: c.closedWon, closedLost: c.closedLost,
+      conversion: booked === 0 ? '0%' : `${Math.round((c.closedWon / booked) * 100)}%`,
+      avgDaysToCloseWon: c.avgDaysWon, avgDaysToCloseLost: c.avgDaysLost,
+      avgPolicyValueWon: avgPolicyByGroup[portfolio] ?? null,
+    };
+  });
+}
+
+/**
+ * Appointments by Meeting Type (In Person vs Virtual) — §151. The
+ * simplest of the four: meetingType is a single-value column directly
+ * on Appointment (§140d), no junction table, no fan-out risk at all.
+ * Same metric set as Appointments by Portfolio, including avg policy
+ * value.
+ */
+export async function getAppointmentsByMeetingTypeReport(period, referenceDate) {
+  const organisationId = resolveOrganisationId();
+  const { start, end } = getPeriodRange(period, referenceDate);
+  const params = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+
+  const [bookedRows, closedCountRows, avgDaysRows, avgPolicyRows] = await Promise.all([
+    executeQuery(
+      `SELECT meetingType AS "groupKey", COUNT(*) AS count FROM Appointment
+       WHERE createdAt >= @start AND createdAt <= @end AND organisationId = @organisationId
+       GROUP BY meetingType`, params
+    ),
+    executeQuery(
+      `SELECT meetingType AS "groupKey", status, COUNT(*) AS count FROM Appointment
+       WHERE status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId
+       GROUP BY meetingType, status`, params
+    ),
+    executeQuery(
+      `SELECT a.meetingType AS "groupKey", a.status,
+         AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays"
+       FROM Appointment a JOIN Lead l ON l.id = a.leadId
+       WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
+       GROUP BY a.meetingType, a.status`, params
+    ),
+    executeQuery(
+      `SELECT a.meetingType AS "groupKey", AVG(av.total) AS "avgPolicyValue"
+       FROM Appointment a
+       CROSS JOIN LATERAL (SELECT COALESCE(SUM(pr.policyValue), 0) AS total FROM AppointmentProduct pr WHERE pr.appointmentId = a.id) av
+       WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
+       GROUP BY a.meetingType`, params
+    ),
+  ]);
+  const bookedByGroup = Object.fromEntries(bookedRows.map(r => [r.groupKey, Number(r.count)]));
+  const closed = mergeClosedMetrics(closedCountRows, avgDaysRows);
+  const avgPolicyByGroup = Object.fromEntries(avgPolicyRows.map(r => [r.groupKey, r.avgPolicyValue === null ? null : Number(r.avgPolicyValue)]));
+
+  const allKeys = new Set([...Object.keys(bookedByGroup), ...Object.keys(closed)]);
+  return [...allKeys].sort().map(meetingType => {
+    const booked = bookedByGroup[meetingType] ?? 0;
+    const c = closed[meetingType] ?? { closedWon: 0, closedLost: 0, avgDaysWon: null, avgDaysLost: null };
+    return {
+      meetingType, booked, closedWon: c.closedWon, closedLost: c.closedLost,
+      conversion: booked === 0 ? '0%' : `${Math.round((c.closedWon / booked) * 100)}%`,
+      avgDaysToCloseWon: c.avgDaysWon, avgDaysToCloseLost: c.avgDaysLost,
+      avgPolicyValueWon: avgPolicyByGroup[meetingType] ?? null,
+    };
+  });
+}

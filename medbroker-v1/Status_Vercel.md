@@ -11580,3 +11580,158 @@ FILES: frontend/db/schema.postgres.sql, frontend/db/migrations/
 appointmentService.js, frontend/api-lib/services/reportService.js,
 frontend/src/pages/Reports.jsx, frontend/src/pages/AgentDetail.jsx,
 frontend/src/pages/BrokerDetail.jsx.
+
+150. AGENTDETAIL WEEKLY CHART LEGEND/BAR COLOUR MISMATCH — FIXED
+     (ARCHITECTURAL, NOT A HEX PATCH) — 13 Aug 2026 (session 21,
+     continued)
+
+Mark caught this via an Ember-theme screenshot: "Calls made" legend
+swatch showed blue, the actual bar rendered brown. NOT a repeat of
+§142 item 5's Terra collision fix — that was Reports.jsx's TrendChart
+(Recharts, CHART_PALETTE-driven). This is AgentDetail.jsx's Weekly
+Call Activity chart — a fully custom-built chart, no Recharts
+involved, with its own separate legend markup that was never touched
+by the earlier fix.
+ROOT CAUSE: the legend swatches used hardcoded, theme-independent hex
+(#3b82f6 blue, #10b981 green) while the bars themselves used
+theme-aware CSS variables (color-mix(...var(--accent)...) for calls,
+originally a hardcoded #10b981 for booked too, coincidentally matching
+its own legend swatch by chance). Bar and legend were never the same
+source — only "matched" in themes where --accent happens to render
+close to blue.
+MARK'S OWN QUESTION, ANSWERED DIRECTLY: "would it be easier to keep
+those in sync... or fix the theme changes" — sync, not manual
+matching. Recommended and built accordingly: bar and legend swatch now
+reference the literal same value (CALLS_COLOUR/BOOKED_COLOUR
+constants, computed once, used in both places) — structurally cannot
+diverge in any theme, current or future, unlike hardcoded hex kept
+"in sync" by hand. BOOKED_COLOUR now points at the existing --chart2
+token (introduced in §148 for exactly this kind of decoupling), not a
+fresh one.
+CHECKED FOR THE SAME PATTERN ELSEWHERE before considering this done —
+grepped every page for hardcoded hex near a legend swatch character:
+  - EventDetail.jsx's RSVP/Walk-ins attendance bar: hardcoded but
+    genuinely self-consistent (bar and legend both use the identical
+    #10b981/#db2777) — not a mismatch, just not theme-reactive. Not
+    fixed, not asked for, flagged here for the record only.
+  - BrokerDetail.jsx's PRODUCT_COLOURS array and a status-badge colour:
+    unrelated to this bug class (no legend pairing at risk of
+    diverging).
+  - Reports.jsx's PIPELINE_COLOURS 'Closed Won' entry: no separate
+    Legend component on that chart at all (labels sit directly on the
+    Y-axis, per §142 item 5's own diagnosis) — nothing to mismatch.
+VERIFIED: full Vite build (clean), existing 55-test Vitest suite
+(unaffected). Diffed AgentDetail.jsx against a fresh GitHub hydration
+— cumulative with §148's maxActivity fix, nothing else disturbed.
+NOT YET DEPLOYED. No migration required.
+
+SEPARATE, OPEN: Mark also asked to review Reports functionality for
+Leads, wanting it to "work in a similar way" — to the Avg Days to
+Close / Agent-Broker-detail treatment just built in §149. Reports.jsx
+currently has exactly two drill-down performance tables (Broker
+Performance -> BrokerDetail.jsx, Agent Performance -> AgentDetail.jsx)
+and no equivalent for Leads at all — the closest existing thing is the
+Pipeline Status Breakdown chart, an aggregate count view, not a
+drillable table. Asked Mark to clarify exact shape before building
+(new Lead Source performance table? by Portfolio? something else) —
+not guessed at, given the size of what a wrong guess would cost to
+redo.
+
+151. FOUR NEW REPORTS: LEADS BY SOURCE, LEADS BY PORTFOLIO, APPOINTMENTS
+     BY PORTFOLIO, APPOINTMENTS BY MEETING TYPE — BUILT AND VERIFIED
+     AGAINST REAL POSTGRES — 13 Aug 2026 (session 21, continued)
+
+Mark asked to review Leads reporting "to work in a similar way" to the
+§149 Avg Days to Close work. Scoped properly before building — asked
+what dimension(s) (source and portfolio, both), whether to drill
+through like Agent/Broker (no — a category like "CSVImport" isn't a
+single navigable entity, and doing a date-scoped drill-through
+properly would have meant adding date-range filtering to LeadList.jsx/
+AppointmentList.jsx, which Mark chose to skip), and whether Appointments
+should get the same treatment (yes, "ones that would make the most
+sense" — Mark's call, delegated to me: Portfolio for symmetry with
+Leads, and Meeting Type since In Person vs Virtual conversion is a real
+question the data already supports and nothing currently reports on).
+
+FOUND WHILE BUILDING, caught before shipping by testing against real
+Postgres rather than just reading the code: Lead.leadSource is NOT a
+real column. leadService.js's own header comment documents this
+directly — the CreateLeadSchema enum (EventAttendance/CSVImport/
+ManualEntry/Referral/WebForm) is accepted by the API for validation but
+never actually persisted; createLead()'s INSERT doesn't reference it at
+all. The real, queryable data is a COALESCE across linkedEventId/
+linkedSubscriptionId/csvImportBatchId/manualSourceName — already used
+everywhere else in the app as "source" (listSources(), LeadList.jsx's
+own source filter dropdown, the sourceLabel column shown in Agent
+Detail's Recent Lead Activity table). Leads by Source groups by that
+same sourceLabel, matching the one existing definition rather than
+inventing a second, inconsistent one. Practical consequence worth
+knowing: this can be more than a clean five-way split — one row per
+distinct event, subscription, or manual source string that actually
+exists in the data, since the five-category enum was never actually
+captured to begin with. Not a new problem, a pre-existing one this
+report simply surfaces.
+
+BUILT, all four following the same closedAt-based scoping as §148/149
+(closed metrics scoped to when the appointment actually closed, not
+when created; Leads/Booked counts stay cohort-based, created in
+period):
+  - getLeadsBySourceReport() — sourceLabel-grouped, see above.
+  - getLeadsByPortfolioReport() — LeadPortfolio for the cohort count,
+    AppointmentPortfolio for closed metrics; both multi-valued, a
+    lead/appointment tagged with two portfolios contributes to both
+    rows (matches this app's established "not limited to one
+    portfolio" treatment, §41/§45).
+  - getAppointmentsByPortfolioReport() — appointment-centric (booked =
+    the appointment's own createdAt), plus Avg Policy Value (Won) — the
+    one metric unique to the Appointments reports. Computed via a
+    LATERAL scalar subquery BEFORE the AppointmentPortfolio join,
+    specifically to avoid a double fan-out (portfolio rows x product
+    rows) that joining both multi-valued tables directly would cause —
+    the exact class of bug this project's own documented SQL fan-out
+    lesson warns about.
+  - getAppointmentsByMeetingTypeReport() — simplest of the four,
+    meetingType is a single-value column (§140d), no junction table, no
+    fan-out risk.
+  - Shared mergeClosedMetrics() helper pulled out once, since the same
+    COUNT-by-(group,status) + AVG-days-by-(group,status) merge shape
+    repeated across all four rather than being copy-pasted.
+
+WIRING: four new handlers in reportHandlers.js (same ALLOWED_ROLES/
+ReportPeriodQuerySchema pattern as the existing handleReportSummary),
+folded into the EXISTING reports-router.js slug dispatcher — no new
+Vercel function file, stays under the Hobby-plan 12-function ceiling.
+Four new reportsApi methods in api.js, matching the existing call
+pattern exactly. Four new summary tables on Reports.jsx, no drill-
+through, gated to showOrgCharts (the same condition already gating the
+Pipeline/Trend charts) since these are cross-cutting org-wide
+aggregates, not something scoped to a single Agent/Broker's self-view.
+
+VERIFIED AGAINST REAL POSTGRES, same test database as §149, extended
+with multi-portfolio test data specifically to exercise the fan-out-
+sensitive queries:
+  - Leads by Source: confirmed grouping by the derived sourceLabel
+    works correctly once the leadSource-column mistake was caught and
+    fixed (the original version would have failed outright — column
+    doesn't exist).
+  - Leads by Portfolio / Appointments by Portfolio: a lead and its won
+    appointment both tagged with two portfolios — confirmed each
+    portfolio's count comes back as 1, not 2 (no fan-out corruption
+    from the LeadPortfolio/AppointmentPortfolio join).
+  - Avg Policy Value by Portfolio: confirmed R1,500 for EACH of the two
+    portfolios (not doubled to R3,000, not halved to R750) — the
+    LATERAL subquery correctly collapsed AppointmentProduct to one
+    number per appointment before the portfolio join multiplied rows.
+  - Appointments by Meeting Type: confirmed against the existing
+    InPerson-only test data.
+Also: full Vite build (clean), existing 55-test Vitest suite
+(unaffected), node --check on all three touched backend files. Diffed
+all five touched files against a fresh GitHub hydration — confirmed
+each diff contains only the intended additions.
+NOT YET DEPLOYED. No new migration required — everything reads off
+columns already in place (closedAt from migration 027, LeadPortfolio/
+AppointmentPortfolio/meetingType all pre-existing).
+
+FILES: frontend/api-lib/services/reportService.js, frontend/api-lib/
+handlers/reportHandlers.js, frontend/api/reports-router.js, frontend/
+src/services/api.js, frontend/src/pages/Reports.jsx.

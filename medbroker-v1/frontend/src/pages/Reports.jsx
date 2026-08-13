@@ -166,15 +166,34 @@ export default function Reports() {
     useFetch(() => reportsApi.brokers(period, refParam), [period, refParam]);
   const { data: agentsData, loading: agentsLoading, error: agentsError } =
     useFetch(() => reportsApi.agents(period, refParam), [period, refParam]);
+  // §151 (13 Aug 2026) — four new breakdown reports, Mark's explicit
+  // request. Fetched unconditionally, same as brokersData/agentsData
+  // just above, even though only rendered in the org-wide view below —
+  // matches this page's existing pattern rather than introducing a
+  // second, inconsistent conditional-fetch approach.
+  const { data: leadsBySourceData, loading: leadsBySourceLoading, error: leadsBySourceError } =
+    useFetch(() => reportsApi.leadsBySource(period, refParam), [period, refParam]);
+  const { data: leadsByPortfolioData, loading: leadsByPortfolioLoading, error: leadsByPortfolioError } =
+    useFetch(() => reportsApi.leadsByPortfolio(period, refParam), [period, refParam]);
+  const { data: apptsByPortfolioData, loading: apptsByPortfolioLoading, error: apptsByPortfolioError } =
+    useFetch(() => reportsApi.appointmentsByPortfolio(period, refParam), [period, refParam]);
+  const { data: apptsByMeetingTypeData, loading: apptsByMeetingTypeLoading, error: apptsByMeetingTypeError } =
+    useFetch(() => reportsApi.appointmentsByMeetingType(period, refParam), [period, refParam]);
 
 
   const pipeline = summaryData?.pipeline ?? [];
   const trend    = summaryData?.trend ?? [];
   const brokers  = brokersData?.brokers ?? [];
   const agents   = agentsData?.agents ?? [];
+  const leadsBySource     = leadsBySourceData?.rows ?? [];
+  const leadsByPortfolio  = leadsByPortfolioData?.rows ?? [];
+  const apptsByPortfolio  = apptsByPortfolioData?.rows ?? [];
+  const apptsByMeetingType = apptsByMeetingTypeData?.rows ?? [];
 
-  const anyLoading = summaryLoading || brokersLoading || agentsLoading;
-  const anyError   = summaryError ?? brokersError ?? agentsError;
+  const anyLoading = summaryLoading || brokersLoading || agentsLoading
+    || leadsBySourceLoading || leadsByPortfolioLoading || apptsByPortfolioLoading || apptsByMeetingTypeLoading;
+  const anyError   = summaryError ?? brokersError ?? agentsError
+    ?? leadsBySourceError ?? leadsByPortfolioError ?? apptsByPortfolioError ?? apptsByMeetingTypeError;
 
   // Section visibility — driven by what actually came back, not a client-
   // side role filter (the API already scoped the rows).
@@ -417,6 +436,61 @@ export default function Reports() {
           </tbody>
         </table>
       </div>
+      )}
+
+      {/* ── §151 (13 Aug 2026) — four new breakdown reports, Mark's
+          explicit request. No drill-through by design (his decision —
+          see reportService.js's own header comment on why). Gated to
+          showOrgCharts, same condition as the Pipeline/Trend charts
+          above — these are cross-cutting, org-wide aggregates, not
+          something scoped to a single Agent/Broker's self-view. ── */}
+      {showOrgCharts && (
+      <>
+      {[
+        { title: 'Leads by Source', rows: leadsBySource, keyField: 'source', keyLabel: 'Source', countField: 'leads', countLabel: 'Leads', showPolicyValue: false },
+        { title: 'Leads by Portfolio', rows: leadsByPortfolio, keyField: 'portfolio', keyLabel: 'Portfolio', countField: 'leads', countLabel: 'Leads', showPolicyValue: false },
+        { title: 'Appointments by Portfolio', rows: apptsByPortfolio, keyField: 'portfolio', keyLabel: 'Portfolio', countField: 'booked', countLabel: 'Booked', showPolicyValue: true },
+        { title: 'Appointments by Meeting Type', rows: apptsByMeetingType, keyField: 'meetingType', keyLabel: 'Meeting Type', countField: 'booked', countLabel: 'Booked', showPolicyValue: true },
+      ].map(t => (
+        <div key={t.title} style={{ ...s.tableCard, overflowX: 'auto', marginBottom: '16px' }}>
+          <div style={{ padding: '14px 16px 12px', borderBottom: `1px solid ${colors.lineSoft}` }}>
+            <h2 style={{ ...s.cardTitle, marginBottom: 0, paddingBottom: 0, borderBottom: 'none' }}>{t.title}</h2>
+          </div>
+          {t.rows.length === 0 ? (
+            <div style={{ padding: '16px', color: colors.ink400, fontSize: '0.875rem' }}>No data for this period.</div>
+          ) : (
+          <table style={{ ...s.table, minWidth: '700px' }}>
+            <thead>
+              <tr>
+                <th style={s.th}>{t.keyLabel}</th>
+                <th style={{ ...s.th, textAlign: 'right' }}>{t.countLabel}</th>
+                <th style={{ ...s.th, textAlign: 'right' }}>Closed Won</th>
+                <th style={{ ...s.th, textAlign: 'right' }}>Closed Lost</th>
+                <th style={{ ...s.th, textAlign: 'right' }}>Conversion</th>
+                <th style={{ ...s.th, textAlign: 'right' }}>Avg days to close (Won)</th>
+                <th style={{ ...s.th, textAlign: 'right' }}>Avg days to close (Lost)</th>
+                {t.showPolicyValue && <th style={{ ...s.th, textAlign: 'right' }}>Avg policy value (Won)</th>}
+              </tr>
+            </thead>
+            <tbody>
+              {t.rows.map(row => (
+                <tr key={row[t.keyField]} style={s.tr}>
+                  <td style={{ ...s.td, fontWeight: 600, color: colors.ink }}>{row[t.keyField]}</td>
+                  <td style={{ ...s.td, textAlign: 'right' }}>{row[t.countField].toLocaleString()}</td>
+                  <td style={{ ...s.td, textAlign: 'right', color: colors.success, fontWeight: 600 }}>{row.closedWon}</td>
+                  <td style={{ ...s.td, textAlign: 'right' }}>{row.closedLost}</td>
+                  <td style={{ ...s.td, textAlign: 'right' }}>{row.conversion}</td>
+                  <td style={{ ...s.td, textAlign: 'right' }}>{fmtDays(row.avgDaysToCloseWon)}</td>
+                  <td style={{ ...s.td, textAlign: 'right' }}>{fmtDays(row.avgDaysToCloseLost)}</td>
+                  {t.showPolicyValue && <td style={{ ...s.td, textAlign: 'right' }}>{row.avgPolicyValueWon === null ? '—' : fmt(row.avgPolicyValueWon)}</td>}
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          )}
+        </div>
+      ))}
+      </>
       )}
     </div>
   );

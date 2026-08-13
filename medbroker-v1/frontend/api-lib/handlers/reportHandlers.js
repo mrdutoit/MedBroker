@@ -8,7 +8,10 @@
  */
 
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
-import { getReportSummary, getBrokerReport, getAgentReport, getAgentDetailReport, getBrokerDetailReport } from '../services/reportService.js';
+import {
+  getReportSummary, getBrokerReport, getAgentReport, getAgentDetailReport, getBrokerDetailReport,
+  getLeadsBySourceReport, getLeadsByPortfolioReport, getAppointmentsByPortfolioReport, getAppointmentsByMeetingTypeReport,
+} from '../services/reportService.js';
 import { ReportPeriodQuerySchema } from '../models/report.js';
 import { isSupervisorOnly, isAgentOnly } from '../services/userService.js';
 import { isUuid } from '../http/helpers.js';
@@ -167,6 +170,116 @@ export async function handleBrokerDetail(req, res, id) {
       return res.status(status).json(body);
     }
     console.error('reports/broker/[id] error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+// §151 (13 Aug 2026) — four new breakdown-report handlers, same pattern
+// as handleReportSummary above: ALLOWED_ROLES (org-wide numbers, same
+// existing access model getReportSummary already uses — the frontend,
+// not the API, is what limits these to the org-wide report view rather
+// than self-view), ReportPeriodQuerySchema, straight passthrough.
+
+/** GET /api/reports/leads-by-source */
+export async function handleLeadsBySource(req, res) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ALLOWED_ROLES);
+
+    const parsed = ReportPeriodQuerySchema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const rows = await getLeadsBySourceReport(parsed.data.period, parsed.data.referenceDate);
+    return res.status(200).json({ rows });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('reports/leads-by-source error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** GET /api/reports/leads-by-portfolio */
+export async function handleLeadsByPortfolio(req, res) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ALLOWED_ROLES);
+
+    const parsed = ReportPeriodQuerySchema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const rows = await getLeadsByPortfolioReport(parsed.data.period, parsed.data.referenceDate);
+    return res.status(200).json({ rows });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('reports/leads-by-portfolio error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** GET /api/reports/appointments-by-portfolio */
+export async function handleAppointmentsByPortfolio(req, res) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ALLOWED_ROLES);
+
+    const parsed = ReportPeriodQuerySchema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const rows = await getAppointmentsByPortfolioReport(parsed.data.period, parsed.data.referenceDate);
+    return res.status(200).json({ rows });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('reports/appointments-by-portfolio error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/** GET /api/reports/appointments-by-meeting-type */
+export async function handleAppointmentsByMeetingType(req, res) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ALLOWED_ROLES);
+
+    const parsed = ReportPeriodQuerySchema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const rows = await getAppointmentsByMeetingTypeReport(parsed.data.period, parsed.data.referenceDate);
+    return res.status(200).json({ rows });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('reports/appointments-by-meeting-type error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }
