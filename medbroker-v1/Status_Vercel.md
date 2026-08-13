@@ -11323,3 +11323,53 @@ FILES, this addendum only: frontend/src/pages/LeadDetail.jsx (already
 in the cumulative set — no new files). Per the corrected delivery
 convention (§145), the next zip contains ONLY this file, since it's
 the only thing that changed since the last delivery.
+
+147. TASKS PAGE CATEGORY TABS NOT ROLE-AWARE — TRACED TO SESSION 20,
+     NEVER ACTUALLY BUILT, NOW FIXED — 13 Aug 2026 (session 21,
+     continued)
+
+Mark asked "did we lose this somewhere along the line" — checked
+properly via conversation_search rather than guessing. Traced to the
+same long design conversation as §138/139 (session 20, previous day):
+Mark's original wording, mid-conversation — "the Task feature will
+need to be role or context aware i.e. don't show Callbacks to Brokers,
+or Appointments to Agents... Tasks that are visible to Supervisors are
+for their direct reports, and Admins can see all." That same
+conversation then pivoted into a much bigger "worklist" redesign
+exploration (a unified due/overdue view spanning Tasks, Leads, and
+Appointments, with a Leads tab) before circling back to a narrower,
+different implementation — §139's own "WHAT CHANGED" list covers
+Reschedule/Outcome task removal, notification routing changes, and
+redirect-only task rows, but never mentions category-tab visibility at
+all, and §138 explicitly flagged only the meeting/attempt-history
+redesign as "genuinely deferred" — the tab-visibility piece was never
+built AND never logged as deferred, unlike the meeting redesign. Not a
+regression — confirmed by reading the live CATEGORIES array and its
+render site directly: no role logic existed there at all, for any
+role, ever, in the current code.
+VERIFIED SEPARATELY, before building: the OTHER half of Mark's
+original request — Supervisor sees direct reports only, Admin sees
+everything — was already correctly built. taskHandlers.js's own
+listTasks() scoping (its docblock explicitly states this) already
+matches the Leads/Appointments pattern. Only the tab-visibility half
+was missing.
+FIX, BUILT AND VERIFIED: Tasks.jsx's static CATEGORIES array is now
+filtered through a new `visibleCategories` at render time — Broker
+never sees the Callbacks tab, Agent never sees the Appointments tab.
+'All tasks' and 'Manual' stay visible for every role, per Mark's own
+original wording ("keep Manual for everyone"). GlobalAdmin/Admin/
+Supervisor see every tab, matching this page's existing `isAdmin`
+definition. Checked `activeTab`'s state handling before building — it
+initialises to 'all' and can only change via clicking a rendered tab
+button (no URL param drives it), so there's no edge case where a role
+could land on a now-hidden category. Verified via full Vite build
+(clean) and the existing 55-test Vitest suite (unaffected). Diffed
+Tasks.jsx against a fresh GitHub hydration — confirmed the change is
+fully isolated: two additions (isAgent, visibleCategories) and one
+render-site swap (CATEGORIES -> visibleCategories), nothing else
+touched.
+NOT YET DEPLOYED. No migration required.
+
+FILES, this addendum only: frontend/src/pages/Tasks.jsx. Per the
+corrected delivery convention (§145), the next zip contains ONLY this
+file — nothing else has changed since the last delivery.

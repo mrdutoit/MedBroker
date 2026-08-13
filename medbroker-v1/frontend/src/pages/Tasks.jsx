@@ -536,9 +536,27 @@ export default function Tasks() {
 
   const isAdmin  = ['GlobalAdmin', 'Admin', 'Supervisor'].includes(role);
   const isBroker = role === 'Broker';
+  const isAgent  = role === 'Agent';
   // Narrower than isAdmin — matches the API's own DELETE gate (Admin/
   // GlobalAdmin only, not Supervisor; see taskHandlers.js).
   const canDelete = ['GlobalAdmin', 'Admin'].includes(role);
+
+  // Originally requested alongside §138/139's task/notification redesign
+  // (session 20) — "don't show Callbacks to Brokers, or Appointments to
+  // Agents" — but never actually built, and never logged as deferred
+  // either; found missing 13 Aug 2026 when Mark re-tested it. Backend
+  // data-scoping (Supervisor sees direct reports, Admin sees everything
+  // — taskHandlers.js's own listTasks scoping) was already correct; this
+  // was purely the category-tab visibility half. 'all' and 'manual' stay
+  // visible for every role — Mark's own original wording: "keep Manual
+  // for everyone". GlobalAdmin/Admin/Supervisor see every tab, matching
+  // isAdmin's existing definition just above (they manage across roles,
+  // need visibility into every task type).
+  const visibleCategories = CATEGORIES.filter(({ key }) => {
+    if (key === 'callback' && isBroker) return false;
+    if (key === 'appointment' && isAgent) return false;
+    return true;
+  });
 
   // Role-scoping already happened server-side (taskHandlers.js) — Agent/
   // Broker only ever receive their own tasks, Supervisor receives self +
@@ -725,7 +743,7 @@ export default function Tasks() {
 
       {/* ── Category tabs ───────────────────────────────────────────────── */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '4px', overflowX: 'auto' }}>
-        {CATEGORIES.map(({ key, label }) => {
+        {visibleCategories.map(({ key, label }) => {
           const count = key === 'all'
             ? tasks.filter(t => !t.done).length
             : tasks.filter(t => t.category === key && !t.done).length;
