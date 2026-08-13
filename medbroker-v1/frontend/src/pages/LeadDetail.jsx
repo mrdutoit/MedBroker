@@ -355,6 +355,12 @@ export default function LeadDetail() {
       const payload = { outcome: callForm.outcome, notes: callForm.notes || undefined };
       if (callForm.callbackDateTime) payload.callbackDateTime = callForm.callbackDateTime;
       await leadsApi.logCall(id, payload);
+      // §142, item 3 (13 Aug 2026) — the backend write (leadService.js's
+      // logCallAttempt(), added §138) was always correct; this call was
+      // simply missing, unlike the reopen/reassign handlers on this same
+      // page which both already call refetchAudit(). Without it the
+      // Audit Log card stayed stale until the next full page load.
+      refetchAudit();
       // Compute new status from transition machine and apply locally
       const newStatus = computeNewStatus(currentStatus, callForm.outcome);
       if (newStatus !== currentStatus) setStatusOverride(newStatus);
@@ -988,6 +994,30 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
           </div>
         )}
 
+        {/* Date/Time — moved here 13 Aug 2026 (§142, item 1), now OUTSIDE
+            the isClaimModel branch below and always rendered. Previously
+            lived inside the assign-mode-only branch (see the "24 Jul
+            2026" comment further down, where it used to sit right above
+            the Find Brokers button) — every claim-model booking was
+            silently unable to satisfy isFormValid's date/time
+            requirement because the fields themselves never rendered.
+            Minor field-order change versus before (Date/Time now
+            precedes Region rather than following it in assign mode) —
+            functionally equivalent, and arguably more sensible: pick
+            when before searching who's free. */}
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
+          <div>
+            <label style={labelStyle}>Date *</label>
+            <input type="date" style={inputStyle} value={date} onChange={(e) => { setDate(e.target.value); setSearched(false); }} />
+            {fieldErrors.date && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.date}</div>}
+          </div>
+          <div>
+            <label style={labelStyle}>Time *</label>
+            <input type="time" style={inputStyle} value={time} onChange={(e) => { setTime(e.target.value); setSearched(false); }} />
+            {fieldErrors.time && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.time}</div>}
+          </div>
+        </div>
+
         {isClaimModel ? (
           <div style={{ background: 'color-mix(in srgb, #15803d 14%, var(--panel))', border: '1px solid color-mix(in srgb, #15803d 30%, var(--panel))', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: '#15803d' }}>
             ⚡ Claim model is active — this appointment will be booked Unassigned and made available for brokers to claim. Brokers aren't picked manually while claim model is on.
@@ -1002,24 +1032,12 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
           </select>
         </div>
 
-        {/* Moved above the search button, 24 Jul 2026 (Mark's request) —
-            checking broker "availability" without knowing when doesn't
-            mean anything. The backend now requires date+time on this
-            search too (BrokerMatchingQuerySchema), so this isn't just a
-            UI nicety. */}
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
-          <div>
-            <label style={labelStyle}>Date *</label>
-            <input type="date" style={inputStyle} value={date} onChange={(e) => { setDate(e.target.value); setSearched(false); }} />
-            {fieldErrors.date && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.date}</div>}
-          </div>
-          <div>
-            <label style={labelStyle}>Time *</label>
-            <input type="time" style={inputStyle} value={time} onChange={(e) => { setTime(e.target.value); setSearched(false); }} />
-            {fieldErrors.time && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.time}</div>}
-          </div>
-        </div>
-
+        {/* Date/Time moved out of this branch entirely, 13 Aug 2026
+            (§142, item 1) — was nested only in the assign-mode branch
+            below, so it silently never rendered at all while claim
+            model was active, even though isFormValid/handleConfirm
+            both still required date+time unconditionally. Now rendered
+            unconditionally, above this branch — see above. */}
         <button
           type="button"
           onClick={handleFindBrokers}

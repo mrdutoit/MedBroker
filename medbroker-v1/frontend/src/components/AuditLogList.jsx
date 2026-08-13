@@ -24,6 +24,10 @@ const ACTION_LABELS = {
   LeadUpdated:                 'Lead details updated',
   LeadReopened:                'Lead reopened after Closed Lost',
   LeadDeleted:                 'Lead deleted',
+  // §142, item 3 (13 Aug 2026) — the write itself (§138) and this label
+  // were two separate gaps; the write always worked, this was always
+  // falling back to describeEntry()'s raw entry.action string below.
+  CallLogged:                  'Call logged',
   AppointmentCreated:          'Appointment booked',
   AppointmentBrokerAssigned:   'Broker assigned',
   AppointmentReassigned:       'Broker reassigned',

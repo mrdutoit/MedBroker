@@ -9,7 +9,17 @@
  *
  * Contract: --bg --bg2 --panel --panel2 --ink --mut --line --glass
  *           --accent --accent2 --live --limited --na --danger --glow
- *           --disp --body --mono --mesh --grain --gridop --gridline
+ *           --chart2 --disp --body --mono --mesh --grain --gridop --gridline
+ *
+ * --chart2 added 13 Aug 2026 (§142, item 5) — a dedicated second chart-
+ * series colour, decoupled from --live entirely. Previously TrendChart's
+ * two bar series (Leads/Closed Won) mapped onto --accent/--live directly;
+ * Terra defines --accent and --live as the identical hex value, so those
+ * two series (and their Legend swatches) rendered indistinguishably in
+ * that theme specifically. Genuinely status-driven UI (success badges,
+ * confirm buttons) still uses --live unchanged — only chart series now
+ * point at --chart2, closing off this whole class of collision for any
+ * future theme too, not just patching Terra's one value.
  */
 
 :root{
@@ -24,6 +34,7 @@
   --bg:#0A1622; --bg2:#0B1A28; --panel:#13283b; --panel2:#0f2030; --ink:#EAF2FA; --mut:#8FA6BC;
   --line:rgba(255,255,255,.09); --glass:rgba(255,255,255,.04);
   --accent:#00AEEF; --accent2:#2DD4BF; --live:#2DD4BF; --limited:#F5A623; --na:#5C7088; --danger:#F4737B;
+  --chart2:#2DD4BF;
   --glow:rgba(45,212,191,.35); --disp:'Syne',sans-serif;
   --mesh:radial-gradient(900px 600px at 12% -8%,rgba(45,212,191,.16),transparent 60%),radial-gradient(1000px 700px at 100% 110%,rgba(0,174,239,.18),transparent 55%),linear-gradient(160deg,#0A1622 0%,#0B1A28 55%,#091420 100%);
   --grain:.05; --gridop:.5; --gridline:rgba(255,255,255,.07);
@@ -33,6 +44,9 @@
   --bg:#16100D; --bg2:#1C1411; --panel:#241A14; --panel2:#1d140f; --ink:#F3E9DF; --mut:#B39E8C;
   --line:rgba(255,235,210,.1); --glass:rgba(255,240,225,.04);
   --accent:#E8853B; --accent2:#E0B23C; --live:#E0A23C; --limited:#C9692E; --na:#6E5C4C; --danger:#E8696F;
+  --chart2:#E0A23C; /* still close to --accent's hue, same as before — not
+    a collision like Terra's, not touched without being asked; flagged in
+    §142's own detail if Mark wants it moved further apart later. */
   --glow:rgba(232,133,59,.3); --disp:'Unbounded',sans-serif;
   --mesh:radial-gradient(900px 600px at 12% -8%,rgba(232,133,59,.18),transparent 60%),radial-gradient(1000px 700px at 100% 110%,rgba(224,178,60,.14),transparent 55%),linear-gradient(160deg,#16100D 0%,#1C1411 55%,#130D0A 100%);
   --grain:.05; --gridop:.4; --gridline:rgba(255,235,210,.06);
@@ -42,6 +56,14 @@
   --bg:#F4EEE0; --bg2:#EFE7D5; --panel:#FBF7EC; --panel2:#F5EFDF; --ink:#2C2A24; --mut:#7A7363;
   --line:rgba(60,50,30,.14); --glass:rgba(255,250,240,.55);
   --accent:#5E7A4F; --accent2:#8A9A5B; --live:#5E7A4F; --limited:#C08A3E; --na:#A89C84; --danger:#B8503F;
+  --chart2:#3E7C8C; /* the actual fix, §142 item 5 — --accent and --live
+    are the identical #5E7A4F in this theme, so TrendChart's two series
+    would render indistinguishably if left pointing at --live. A muted
+    teal-blue, clearly outside Terra's green/amber/rust hue range, stays
+    harmonious with the earthy palette without colliding with --accent,
+    --limited, or --danger. --live itself deliberately left unchanged —
+    it's still the general "success" token (confirm buttons, status
+    badges) and isn't chart-specific. */
   --glow:rgba(94,122,79,.25); --disp:'Fraunces',serif;
   --mesh:radial-gradient(900px 600px at 10% -10%,rgba(138,154,91,.22),transparent 60%),radial-gradient(1000px 700px at 105% 110%,rgba(192,138,62,.16),transparent 55%),linear-gradient(160deg,#F6F0E2 0%,#F0E8D6 55%,#EFE7D3 100%);
   --grain:.04; --gridop:.35; --gridline:rgba(80,60,30,.1);
@@ -51,6 +73,7 @@
   --bg:#F7F6F2; --bg2:#F1F0EA; --panel:#FFFFFF; --panel2:#F7F7F4; --ink:#1F2328; --mut:#6B7280;
   --line:rgba(20,30,40,.1); --glass:rgba(255,255,255,.6);
   --accent:#2F5D8A; --accent2:#3B82A6; --live:#2E7D6B; --limited:#B8862E; --na:#A7AEB6; --danger:#C0504A;
+  --chart2:#2E7D6B;
   --glow:rgba(47,93,138,.2); --disp:'Fraunces',serif;
   --mesh:radial-gradient(900px 600px at 10% -10%,rgba(47,93,138,.1),transparent 60%),radial-gradient(1000px 700px at 105% 110%,rgba(46,125,107,.1),transparent 55%),linear-gradient(160deg,#FAF9F6 0%,#F2F1EC 100%);
   --grain:.03; --gridop:.3; --gridline:rgba(20,30,40,.06);

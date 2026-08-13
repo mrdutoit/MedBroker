@@ -238,6 +238,11 @@ export default function LeadImport() {
     if (!form.occupation)     errors.occupation  = 'Required';
     if (!form.mobileNumber)   errors.mobileNumber = 'Required';
     if (!form.email)          errors.email       = 'Required';
+    // §142, item 2 (13 Aug 2026, Mark's request) — was fully optional
+    // both sides; backend CreateLeadSchema.portfolios now enforces the
+    // same rule (z.array().min(1)), this is the matching client-side
+    // gate, not a UI-only check.
+    if (form.portfolios.length === 0) errors.portfolios = 'Select at least one portfolio';
     if (Object.keys(errors).length) { setFormErrors(errors); return; }
     setFormSubmitting(true);
     try {
@@ -578,7 +583,7 @@ export default function LeadImport() {
           </div>
 
           <div style={s.formGroup}>
-            <label style={s.formLabel}>Portfolio</label>
+            <label style={s.formLabel}>Portfolio *</label>
             <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
               {allPortfolios.map(p => {
                 const checked = form.portfolios.includes(p.name);
@@ -609,7 +614,8 @@ export default function LeadImport() {
                 );
               })}
             </div>
-            <p style={s.formHint}>Optional, and not limited to one — a lead can be interested in more than one portfolio, same as a broker isn't limited to selling from just one. If known this early, it carries through to Book Appointment later.</p>
+            <p style={s.formHint}>Select at least one — not limited to one, a lead can be interested in more than one portfolio, same as a broker isn't limited to selling from just one. Carries through to Book Appointment later.</p>
+            {formErrors.portfolios && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.portfolios}</div>}
           </div>
 
           <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>

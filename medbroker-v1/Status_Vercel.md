@@ -23,27 +23,55 @@ original file — only this summary block at the top is newly written.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 NEW, per §142 (13 Aug 2026, session 21): five items Mark found through
-his own live testing, all fully diagnosed against the live codebase but
-ZERO CODE WRITTEN YET — logged first so nothing gets lost, fixes to
-follow in this same session per Mark's explicit ASAP priority. Full
-detail, root cause, and fix approach for each in §142 below; summary:
-(1) claim-model booking modal never renders Date/Time fields at all,
-so Confirm Booking can never become enabled while claim model is
-active — real regression, high priority; (2) Portfolio genuinely
-optional on Lead creation both sides, no validation either side; (3)
-Audit Log/Change Log card doesn't refresh after logging a call — the
-backend write from §138 is correct, the frontend just never calls
-refetchAudit() in that one handler; (4) Contact Number regex
-(saMobile, shared across Lead/Event/Lead Portal) is far stricter than
-Mark wants — no spaces/dashes/brackets tolerated at all; (5) Terra
-theme's chart Legend/key becomes meaningless because --accent and
---live are the identical hex value there, so the two TrendChart
-series (and their legend swatches) render identically — a theme-token
-design gap, not a rendering bug (Ember's pairing is close enough to
-flag too). §142 also carries an open, not-yet-scoped functionality
-gap Mark raised alongside (1): nothing currently surfaces
-unclaimed/unassigned appointments nearing their date — separate from
-the bug fix, needs its own scoping pass.
+his own live testing, all fully diagnosed against the live codebase.
+ALL FIVE NOW BUILT AND VERIFIED (real Vite build run twice, real
+55-test Vitest suite both times, ESM import smoke test, and direct
+functional tests of every new validation rule), NOT YET DEPLOYED: (1)
+claim-model booking modal never rendered Date/Time fields at all, so
+Confirm Booking could never become enabled while claim model was
+active — Date/Time moved out from the assign-mode-only branch to
+render unconditionally; (2) Portfolio was genuinely optional on Lead
+creation both sides, now mandatory both sides (CreateLeadSchema.
+portfolios changed from .optional() to .min(1) — NOTE, this also now
+requires CSV bulk-import rows to carry a resolvable portfolio, not
+just the manual form, since both paths share the one schema; flag if
+that breaks a real import); (3) Audit Log/Change Log card wasn't
+refreshing after logging a call — the backend write from §138 was
+already correct, LeadDetail.jsx's handleLogCall() just never called
+refetchAudit() (the page's other two mutation handlers already did);
+added a CallLogged label to AuditLogList.jsx while in there; (4)
+Contact Number regex was far stricter than Mark wanted — replaced with
+a character-set check (digits, spaces, + - ( )) plus Mark's chosen
+7-digit minimum, shared across Lead/Event/Lead Portal via one change
+in lead.js; (5) Reports Legend/key collision in Terra theme
+(--accent and --live were the identical hex value there) — fixed per
+Mark's chosen option (b): a new dedicated --chart2 CSS token, added to
+all four themes and wired into CHART_PALETTE.won, decoupling chart
+colours from the --live status/success semantic entirely rather than
+just moving Terra's one value. §142 also carries an open, not-yet-
+scoped functionality gap Mark raised alongside (1): nothing currently
+surfaces unclaimed/unassigned appointments nearing their date —
+separate from the bug fix, needs its own scoping pass.
+
+SEPARATE FINDING, same session: frontend/db/migrations/ is missing
+022-024 again (4th occurrence — §136, §140, §141, now this). Traced
+via GitHub's commit history this time, not just re-observed: a commit
+titled "Delete medbroker-v1/frontend/db/migrations directory",
+authored by Mark, landed today. Checked the commit immediately BEFORE
+that deletion too — 022-024 were already absent even there, so the
+loss predates today's delete-directory commit. Attempted to page
+further back through commit history to find the last point 022-024
+existed; hit GitHub's REST API rate limit (shared sandbox IP, already
+at 0/60 before this session's own calls) before getting there. NOT
+RECOVERED THIS SESSION. Mark: worth checking your own machine/earlier
+downloads for these three files directly, or browsing github.com's own
+commit history in a browser (not subject to this API limit) for
+medbroker-v1/frontend/db/migrations. Operationally lower-risk than it
+sounds IF 022-024 have already been run against Neon (their own
+ALTER/CREATE statements would already be reflected in schema.postgres.sql,
+which stays current) — but per §0's own long-standing note, whether
+022 specifically has actually been run is still unconfirmed either
+way. Worth Mark confirming directly rather than assuming.
 
 NEXT ACTION, per §141 (13 Aug 2026): §137 and §139 both confirmed
 deployed and working, including Mark catching and helping fix a real
@@ -10852,8 +10880,8 @@ convention as before.
 SESSION 21 STARTED — 13 Aug 2026
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-142. FIVE ITEMS FROM MARK'S LIVE TESTING — LOGGED AND FULLY DIAGNOSED,
-     ZERO CODE WRITTEN YET — 13 Aug 2026 (session 21)
+142. FIVE ITEMS FROM MARK'S LIVE TESTING — ALL FIVE BUILT AND
+     VERIFIED — 13 Aug 2026 (session 21)
 
 Hydrated fresh from GitHub (codeload tarball) at session start per
 standing protocol before touching anything. Mark listed five items he
@@ -10861,9 +10889,12 @@ found using the live app. Rather than transcribing his descriptions
 verbatim, each was traced against the actual hydrated code first — per
 the "verified delivery over claimed delivery" principle, a backlog
 entry with the wrong root cause just wastes the next session's time
-re-diagnosing it. All five are logged here; none are fixed yet. Mark's
-explicit instruction: log first so nothing gets lost, then fix all
-five ASAP in this same session.
+re-diagnosing it. Mark's explicit instruction: log first so nothing
+gets lost, then fix ASAP in this same session. Items 1, 2, 3 had no
+open design questions and were built immediately after logging; items
+4 and 5 each carried a real decision — Mark answered both (7-digit
+minimum for item 4; option (b), a dedicated chart token, for item 5)
+and both were then built in the same session.
 
 1. CLAIM-MODEL BOOKING MODAL NEVER RENDERS DATE/TIME FIELDS
    Screenshot evidence: claim model active, Book Appointment modal open,
@@ -10881,12 +10912,15 @@ five ASAP in this same session.
    a pre-existing gap — §140's isClaimModel branching was scoped to
    "hide the broker-search escape hatch" but the JSX nesting caught
    Date/Time in the same net.
-   FIX (not yet built): move the Date/Time input block out of the
+   FIX, BUILT AND VERIFIED: moved the Date/Time input block out of the
    isClaimModel-conditional entirely so it always renders; only the
    region + "Find available brokers" + broker-selection subsection
    stays gated on `!isClaimModel`. No schema or backend change needed —
    firstAppointmentDate/firstAppointmentTime were never the problem,
-   only their form inputs were unreachable.
+   only their form inputs were unreachable. Minor field-order change in
+   assign mode as a side effect: Date/Time now precedes Region rather
+   than following it — functionally equivalent, not flagged as a
+   concern.
 
    RELATED, NOT THE SAME ISSUE — genuinely new functionality, not a bug:
    Mark also raised, while testing this, that nothing currently surfaces
@@ -10898,103 +10932,171 @@ five ASAP in this same session.
    queued in §138 given the overlap). Flagged here so it isn't lost,
    deliberately not conflated with the Date/Time field fix above.
 
-2. PORTFOLIO NOT MANDATORY ON LEAD CREATION
-   Confirmed optional on both sides:
-     - Backend: CreateLeadSchema.portfolios in api-lib/models/lead.js is
+2. PORTFOLIO NOT MANDATORY ON LEAD CREATION — FIXED
+   Was optional on both sides:
+     - Backend: CreateLeadSchema.portfolios in api-lib/models/lead.js was
        `z.array(z.string()).optional()`.
      - Frontend: LeadImport.jsx's handleManualSubmit() validation block
-       checks title/source/firstName/lastName/dateOfBirth/occupation/
-       mobileNumber/email but has no portfolios entry at all. The
-       field's own on-screen hint text currently reads "Optional, and
-       not limited to one" — will need updating once this changes.
-   FIX (not yet built): add `.min(1, 'Select at least one portfolio')`
-   (or equivalent) server-side, and a matching required-field check in
-   handleManualSubmit's errors object client-side, per the project's
-   standing "both frontend gating and server-side validation, never
-   UI-only" rule. Update the hint text to match.
+       checked title/source/firstName/lastName/dateOfBirth/occupation/
+       mobileNumber/email but had no portfolios entry at all. The
+       field's own on-screen hint text used to read "Optional, and not
+       limited to one".
+   FIX, BUILT AND VERIFIED: CreateLeadSchema.portfolios changed to
+   `z.array(z.string()).min(1, 'Select at least one portfolio')`;
+   matching required-field check added to handleManualSubmit's errors
+   object client-side; label changed to "Portfolio *" and hint text
+   updated; error message rendered beneath the checkboxes matching
+   every other required field's pattern on this form. Verified via a
+   direct functional test against the live schema: empty array
+   rejected with the custom message, field omitted entirely rejected
+   as "Required", one portfolio accepted.
+   FLAGGED, NOT RESOLVED: CreateLeadSchema.portfolios is the one shared
+   schema behind BOTH the manual "Create Lead" tab AND CSV bulk import
+   (LeadImport.jsx's "csv" tab, same leadsApi.create() call per row).
+   This fix therefore also now requires every CSV import row to carry a
+   resolvable portfolio value — a CSV without a portfolio column, or
+   with blank cells, will now fail those rows (400, not 409, so they'd
+   land in the "fail" count with no per-row detail shown to Mark). Not
+   raised as a question before building since Mark's instruction was
+   specific to "the Lead Creation form" and this was built to match
+   that literally — flagging so it's a deliberate, visible choice
+   rather than a silent side effect discovered later during a real
+   import.
 
-3. AUDIT LOG DOESN'T REFLECT A LOGGED CALL WITHOUT A MANUAL RELOAD
-   Confirmed the backend write is already correct — this is NOT a
+3. AUDIT LOG DOESN'T REFLECT A LOGGED CALL WITHOUT A MANUAL RELOAD — FIXED
+   Confirmed the backend write was already correct — this was NOT a
    repeat of §138's original gap. §138 (12 Aug 2026) added
    `writeAuditLog({ entityType: 'Lead', action: 'CallLogged', ... })`
-   inside logCallAttempt() in leadService.js, and 'CallLogged' is
+   inside logCallAttempt() in leadService.js, and 'CallLogged' was
    already present in both auditHandlers.js's VALID_ACTIONS and
    AppAdmin.jsx's mirrored frontend list — confirmed both, no drift.
    ROOT CAUSE: LeadDetail.jsx's handleLogCall() calls leadsApi.logCall(),
-   then on success only does an optimistic local update to the Call
-   History card (`setCalls`) and `setStatusOverride` — it never calls
+   then on success only did an optimistic local update to the Call
+   History card (`setCalls`) and `setStatusOverride` — it never called
    `refetchAudit()`. The page's other two mutation handlers (reopen,
-   reassign) both do call refetchAudit() after their own actions; this
-   one was missed.
-   FIX (not yet built): add `refetchAudit()` to handleLogCall's success
-   path. While touching it, also add a 'CallLogged' entry to
-   AuditLogList.jsx's ACTION_LABELS map ("Call logged" or similar) —
-   right now, once it does refresh, it would fall back to rendering the
-   raw string "CallLogged" rather than a proper label, since
-   describeEntry() only has a hardcoded label map, not a fallback
-   formatter.
+   reassign) both call refetchAudit() after their own actions; this one
+   was missed.
+   FIX, BUILT AND VERIFIED: added `refetchAudit()` to handleLogCall's
+   success path. Also added a 'CallLogged': 'Call logged' entry to
+   AuditLogList.jsx's ACTION_LABELS map while in there — previously,
+   even once refreshed, it would have fallen back to rendering the raw
+   string "CallLogged" rather than a proper label, since describeEntry()
+   only has a hardcoded label map, not a fallback formatter.
 
-4. CONTACT NUMBER REGEX TOO RIGID
-   Confirmed: `saMobile` in api-lib/models/lead.js is
-   `/^(\+27|0)[6-8]\d{8}$/` — accepts only an unformatted SA mobile
+4. CONTACT NUMBER REGEX TOO RIGID — FIXED
+   Was: `saMobile` in api-lib/models/lead.js was
+   `/^(\+27|0)[6-8]\d{8}$/` — accepted only an unformatted SA mobile
    number in exactly that shape. No spaces, dashes, brackets, or
    international format tolerated at all. Shared across three intake
    surfaces via import: lead.js, event.js, leadPortal.js — one fix
    covers Lead creation, Events, and the public Lead Portal
    self-registration form together.
-   Mark's spec: accept digits, +, -, (, ), and spaces only — drop the
-   SA-mobile-format enforcement entirely.
-   TRADE-OFF FLAGGED (not objected to, just noted): this is a genuine
-   loosening, not a bug-for-bug fix — a landline number or a malformed-
-   but-character-valid string would now pass where the old regex
-   correctly rejected it. Accepted as intentional given WhatsApp/SMS
-   deliverability isn't a hard requirement for every lead.
-   FIX (not yet built): replace the regex, e.g.
-   `/^[0-9+\-() ]+$/` with a sensible minimum-length check alongside it
-   (a bare regex on character set alone would accept a 2-digit string).
-   Exact minimum length not yet decided with Mark — needs a quick call
-   before building (see open question below).
+   Mark's spec: accept digits, +, -, (, ), and spaces only, minimum 7
+   digits — drop the SA-mobile-format enforcement entirely.
+   TRADE-OFF FLAGGED (not objected to, just noted, Mark's own call):
+   genuine loosening, not a bug-for-bug fix — a landline number or any
+   non-SA number now passes where the old regex correctly rejected it.
+   Accepted as intentional given WhatsApp/SMS deliverability isn't a
+   hard requirement for every lead.
+   FIX, BUILT AND VERIFIED:
+     saMobile = z.string()
+       .regex(/^[0-9+\-() ]+$/, '...')
+       .refine((val) => (val.match(/\d/g) ?? []).length >= 7, '...')
+   Digit count is measured on actual digit characters only, not raw
+   string length — a value padded with spaces/brackets can't fake its
+   way past the minimum. Verified with 10 direct test cases against the
+   live schema: plain SA mobile, SA international format, spaced,
+   bracketed+dashed, a landline (now correctly allowed), exactly 6
+   digits (correctly rejected), exactly 7 digits (correctly accepted),
+   letters (correctly rejected), empty string (correctly rejected),
+   international with spaces — all ten behaved exactly as intended.
 
-5. REPORTS CHART LEGEND/KEY MEANINGLESS IN TERRA THEME
+5. REPORTS CHART LEGEND/KEY MEANINGLESS IN TERRA THEME — FIXED
    Traced to themes.css, not a rendering bug. Recharts' own
    DefaultLegendContent source confirms the legend swatch and the bar
    itself both derive fill from the same source (Bar's own `fill` prop,
    passed through to the legend's payload.color) — both are genuinely
    live CSS-variable-driven and track theme changes together, no
-   caching involved. The actual defect: Terra's theme block defines
+   caching involved. The actual defect: Terra's theme block defined
    `--accent:#5E7A4F` and `--live:#5E7A4F` — the IDENTICAL hex value.
-   TrendChart.jsx maps its two Bar series directly onto those two
+   TrendChart.jsx mapped its two Bar series directly onto those two
    tokens (CHART_PALETTE.leads = var(--accent), CHART_PALETTE.won =
    var(--live)), so in Terra specifically, "Leads" and "Closed Won"
-   render as the exact same green — bars and legend swatches both
-   genuinely indistinguishable. Ember's pairing (#E8853B accent vs
-   #E0A23C live) is close enough to flag too, though not an exact
-   collision.
-   BLAST RADIUS CHECKED before proposing a fix: --live isn't chart-only
-   — it's the general "success" semantic token, also driving confirm
-   buttons and status badges in App.jsx, LeadDetail.jsx, and
-   LeadImport.jsx (plus tokens.js's own `success` alias). Changing
-   Terra's --live value moves more than just the chart.
-   TWO FIX OPTIONS PRESENTED TO MARK, NEITHER DECIDED YET:
-     (a) Give Terra's --live a distinct hue from --accent — smallest
-         change, but shifts Terra's "success" colour everywhere it's
-         used, not just charts.
-     (b) Add a dedicated chart-series token (e.g. --chart2), decoupled
-         from --live entirely — chart colours stop depending on status
-         semantics, closes off this whole class of collision for any
-         future theme too, at the cost of a new token threaded through
-         themes.css and CHART_PALETTE.
-   Open question for Mark before building: (a) or (b), and if (a),
-   what Terra --live value to use.
+   rendered as the exact same green — bars and legend swatches both
+   genuinely indistinguishable.
+   MARK'S DECISION: option (b) — a dedicated chart-series token,
+   decoupled from --live entirely, rather than just moving Terra's
+   --live value.
+   FIX, BUILT AND VERIFIED: added a new `--chart2` CSS variable to
+   every theme in themes.css (documented in the file's own header
+   contract comment), and changed CHART_PALETTE.won in tokens.js from
+   var(--live) to var(--chart2). --live itself is UNCHANGED everywhere
+   — it's still the general "success" semantic token driving confirm
+   buttons and status badges (App.jsx, LeadDetail.jsx, LeadImport.jsx,
+   tokens.js's own `success` alias); only chart series now depend on
+   --chart2 instead. Per-theme --chart2 values:
+     Midnight: #2DD4BF (same as current --live — no collision existed,
+               visual appearance unchanged)
+     Ember:    #E0A23C (same as current --live — this pairing is close
+               to --accent's hue but not an exact collision like
+               Terra's; deliberately NOT moved further apart, since
+               that wasn't part of what Mark asked for or decided —
+               flag if it should be revisited)
+     Terra:    #3E7C8C — the actual fix. A muted teal-blue, clearly
+               outside Terra's green/amber/rust hue range, distinct
+               from --accent (#5E7A4F), --limited (#C08A3E), and
+               --danger (#B8503F), while staying harmonious with the
+               theme's earthy palette
+     Linen:    #2E7D6B (same as current --live — no collision existed,
+               visual appearance unchanged)
+   Net effect: Midnight, Ember, and Linen look exactly as before (their
+   --chart2 matches their existing --live value); only Terra's "Closed
+   Won" bar and legend swatch actually change colour, from the
+   collision green to the new teal-blue. Verified via full Vite build
+   (compiles the CSS variable references cleanly) — visual confirmation
+   across all four themes still needs Mark's own eyes on the deployed
+   app, not something verifiable from this sandbox.
 
-OPEN QUESTIONS BEFORE BUILDING (both need Mark's answer, everything
-else above is ready to build as-is):
-  - Item 4: minimum acceptable length for the loosened Contact Number
-    field.
-  - Item 5: fix approach (a) or (b) above, and Terra's replacement
-    --live value if (a).
+ALL FIVE ITEMS NOW BUILT — no open questions remain. Mark answered
+both: item 4's minimum is 7 digits; item 5 is option (b), a dedicated
+--chart2 token.
 
-NONE of the five have been built yet. Mark's stated priority: fix all
-five in this same session, ASAP, once logged — this entry exists so
-the diagnosis work already done isn't lost if that doesn't happen in
-one sitting.
+VERIFIED (all five items): full Vite build clean twice (once after
+items 1-3, once after items 4-5), existing 55-test Vitest suite
+unaffected both times, ESM import smoke test + node --check on
+lead.js, a direct functional test against the live CreateLeadSchema
+confirming the portfolios rule (empty array rejected with the custom
+message, omitted field rejected as "Required", one portfolio
+accepted), and a 10-case direct functional test against the live
+saMobile validator (SA mobile, SA international, spaced, bracketed and
+dashed, a landline now correctly allowed, 6 digits correctly rejected,
+exactly 7 correctly accepted, letters correctly rejected, empty string
+correctly rejected, international with spaces — all ten as intended).
+themes.css/tokens.js changes verified by clean build only; the actual
+visual result across all four themes needs Mark's own eyes on the
+deployed app, not verifiable from this sandbox. Diffed all six touched
+files against a fresh GitHub hydration before writing this entry —
+confirmed each diff contains only the intended change, nothing else
+disturbed.
+NOT YET DEPLOYED — all five are built and verified in-sandbox only;
+Mark still needs to push these six files to GitHub for Vercel to pick
+them up. No migration required for any of the five.
+
+FILES (all five items):
+  frontend/api-lib/models/lead.js          (portfolios: .optional() -> .min(1); saMobile regex loosened + 7-digit minimum)
+  frontend/src/pages/LeadDetail.jsx        (Date/Time hoisted out of isClaimModel branch; refetchAudit() added to handleLogCall)
+  frontend/src/pages/LeadImport.jsx        (Portfolio required client-side, label/hint/error updated)
+  frontend/src/components/AuditLogList.jsx (CallLogged label added)
+  frontend/src/themes.css                  (--chart2 added to all four themes; header contract comment updated)
+  frontend/src/styles/tokens.js            (CHART_PALETTE.won: var(--live) -> var(--chart2))
+Plus this Status_Vercel.md.
+
+SEPARATE FINDING, MIGRATIONS DIRECTORY — RECOVERY ATTEMPTED, NOT
+RESOLVED: see §0's "SEPARATE FINDING" paragraph above for the full
+detail (commit history traced, "Delete...migrations directory" commit
+found, 022-024 confirmed already missing even one commit earlier,
+GitHub REST API rate limit hit while trying to page back further from
+this shared sandbox IP). Not re-duplicated here — that paragraph is
+the authoritative account, per this file's own stated convention of
+correcting/updating the one real entry rather than accumulating a
+second, possibly-disagreeing copy elsewhere in the file.

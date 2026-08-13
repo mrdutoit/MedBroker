@@ -60,8 +60,15 @@ export const type = {
   display: 'var(--disp)', body: 'var(--body)', mono: 'var(--mono)',
 };
 
+// Changed 13 Aug 2026 (§142, item 5) — `won` used to be var(--live),
+// which collided with `leads`'s var(--accent) in the Terra theme (both
+// #5E7A4F there), making the two TrendChart series and their Legend
+// swatches indistinguishable. Now points at the dedicated --chart2
+// token (themes.css), decoupled from the --live status/success
+// semantic entirely — see themes.css's own header note for the full
+// per-theme rationale.
 export const CHART_PALETTE = {
-  leads: 'var(--accent)', won: 'var(--live)',
+  leads: 'var(--accent)', won: 'var(--chart2)',
   grid: 'var(--line)', axis: 'var(--mut)', future: 'var(--na)',
 };
 

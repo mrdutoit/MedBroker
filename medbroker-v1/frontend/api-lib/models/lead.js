@@ -30,8 +30,20 @@
 
 import { z } from 'zod';
 
+// Changed 13 Aug 2026 (§142, item 4, Mark's explicit request) — was
+// `/^(\+27|0)[6-8]\d{8}$/`, accepting only an unformatted SA mobile
+// number in exactly that one shape: no spaces, dashes, brackets, or
+// any other format tolerated at all. Replaced with a character-set
+// check (digits, +, -, (, ), spaces only) plus a minimum of 7 actual
+// digits — deliberately drops SA-mobile-format enforcement entirely,
+// Mark's own trade-off: a landline or non-SA number now passes where
+// the old regex correctly rejected it, in exchange for not rejecting
+// real numbers typed with normal formatting. Shared via import across
+// lead.js/event.js/leadPortal.js — one change covers Lead creation,
+// Events, and the public Lead Portal together.
 export const saMobile = z.string()
-  .regex(/^(\+27|0)[6-8]\d{8}$/, 'Mobile number must be a valid South African number');
+  .regex(/^[0-9+\-() ]+$/, 'Mobile number can only contain digits, spaces, and + - ( )')
+  .refine((val) => (val.match(/\d/g) ?? []).length >= 7, 'Mobile number must contain at least 7 digits');
 
 const saIdNumber = z.string()
   .regex(/^\d{13}$/, 'South African ID number must be exactly 13 digits')
@@ -87,11 +99,19 @@ export const CreateLeadSchema = z.object({
   // userService.js already uses for User's multi-portfolio support.
   // Changed 23 Jul 2026 from a single value to an array (Mark's request,
   // see §41) — a lead's declared interest isn't limited to one portfolio
-  // any more than a broker is limited to selling from one. Optional: a
-  // Lead can exist for a long time before anyone knows any of its
-  // portfolios. Carries through to Book Appointment's own (still
-  // single-select — one appointment is for one portfolio) pre-fill.
-  portfolios:           z.array(z.string()).optional(),
+  // any more than a broker is limited to selling from one. Carries
+  // through to Book Appointment's own (still single-select — one
+  // appointment is for one portfolio) pre-fill.
+  // Changed 13 Aug 2026 (§142, item 2) — was optional (the comment here
+  // used to read "a Lead can exist for a long time before anyone knows
+  // any of its portfolios"), now mandatory: Mark's explicit instruction,
+  // at least one Portfolio required. NOTE, not raised back to Mark before
+  // building since this is the one existing shared schema for both entry
+  // paths: this also now requires CSV bulk import rows (LeadImport.jsx's
+  // "csv" tab, same leadsApi.create() call per row) to carry a resolvable
+  // portfolio value, not just the manual "Create Lead" tab — flag if a
+  // CSV without portfolio data needs to keep working.
+  portfolios:           z.array(z.string()).min(1, 'Select at least one portfolio'),
   leadSource:           LeadSource.default('ManualEntry'),
   linkedEventId:        z.string().uuid().optional(),
   linkedSubscriptionId: z.string().uuid().optional(),
