@@ -21,315 +21,175 @@ original file — only this summary block at the top is newly written.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0. CURRENT STATE — READ THIS FIRST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+REWRITTEN FROM SCRATCH 13 Aug 2026, end of session 21 — the previous
+version of this block had become a long chain of session-to-session
+patches (§136 through §142, several explicitly correcting stale claims
+in the paragraph before it) and was no longer a reliable "read this
+first." Full session 21 detail lives in §141 through §155 below, each
+self-contained and dated — this block is now a short pointer to that,
+not a second, competing summary of it.
 
-NEW, per §142 (13 Aug 2026, session 21): five items Mark found through
-his own live testing, all fully diagnosed against the live codebase.
-ALL FIVE NOW BUILT AND VERIFIED (real Vite build run twice, real
-55-test Vitest suite both times, ESM import smoke test, and direct
-functional tests of every new validation rule), NOT YET DEPLOYED: (1)
-claim-model booking modal never rendered Date/Time fields at all, so
-Confirm Booking could never become enabled while claim model was
-active — Date/Time moved out from the assign-mode-only branch to
-render unconditionally; (2) Portfolio was genuinely optional on Lead
-creation both sides, now mandatory both sides (CreateLeadSchema.
-portfolios changed from .optional() to .min(1) — NOTE, this also now
-requires CSV bulk-import rows to carry a resolvable portfolio, not
-just the manual form, since both paths share the one schema; flag if
-that breaks a real import); (3) Audit Log/Change Log card wasn't
-refreshing after logging a call — the backend write from §138 was
-already correct, LeadDetail.jsx's handleLogCall() just never called
-refetchAudit() (the page's other two mutation handlers already did);
-added a CallLogged label to AuditLogList.jsx while in there; (4)
-Contact Number regex was far stricter than Mark wanted — replaced with
-a character-set check (digits, spaces, + - ( )) plus Mark's chosen
-7-digit minimum, shared across Lead/Event/Lead Portal via one change
-in lead.js; (5) Reports Legend/key collision in Terra theme
-(--accent and --live were the identical hex value there) — fixed per
-Mark's chosen option (b): a new dedicated --chart2 CSS token, added to
-all four themes and wired into CHART_PALETTE.won, decoupling chart
-colours from the --live status/success semantic entirely rather than
-just moving Terra's one value. §142 also carries an open, not-yet-
-scoped functionality gap Mark raised alongside (1): nothing currently
-surfaces unclaimed/unassigned appointments nearing their date —
-separate from the bug fix, needs its own scoping pass.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+TOP PRIORITY FOR THE NEXT SESSION — Mark's own explicit instruction,
+13 Aug 2026: MEETING / APPOINTMENT ATTEMPT-HISTORY REDESIGN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-MYSTERY RESOLVED, same session: frontend/db/migrations/ repeatedly
-appearing to lose files (§136, §140, §141, and this session's own
-initial misdiagnosis) was NEVER a bug or a github.dev artifact — Mark
-clarified directly: he deletes migration files himself, deliberately,
-once he's run them against Neon, because schema.postgres.sql is kept
-current with the same change in the same delivery, so the migration
-file serves no further purpose afterward. The actual cause of the
-repeated "loss": every delivery ZIP this session (and apparently
-before) packaged the FULL cumulative set of every file touched that
-session, which silently resurrected migration files Mark had already
-deliberately removed — he'd then remove them again before committing,
-a cycle mistaken for recurring data loss across four separate
-write-ups. CORRECTED — see the "Delivery packaging" section of
-Project_Context_Vercel.md, revised same session: zips now contain only
-the delta since the previous delivery, never a full re-inclusion.
-STILL OPEN: whether migrations 025 and 026 specifically (the two most
-recent, covering §140's default claim token cost and §140d's meeting
-type) were actually executed against Neon before Mark deleted the
-folder — his own explanation implies yes (he only deletes after
-running), but worth Mark confirming directly rather than assumed,
-since §141's own NEXT ACTION note (immediately below) had flagged
-deployment of §140's changes as pending at the start of this session.
+Full spec lives in §138 (session 20, 12 Aug 2026) — read that section
+in full before starting, it is not repeated here. Zero code written as
+of the end of session 21. The one open question the spec was missing
+is now answered:
 
-NEXT ACTION, per §141 (13 Aug 2026): §137 and §139 both confirmed
-deployed and working, including Mark catching and helping fix a real
-bug himself in §139's own addendum. §140 closed a real claim-model
-enforcement gap. §141 (this session's latest) fixed four things Mark
-found testing the claim model directly: the Active tab hiding Claimed
-appointments, the token balance never actually moving (real root
-cause: claimTokenCost was never set anywhere, not a refetch bug — see
-§141), Address never being mandatory, and added the meeting-type
-(InPerson/Virtual) field Mark asked for, which now drives that
-validation. §141 is BUILT AND VERIFIED (including real Postgres
-execution of both new migrations, twice each) but NOT YET DEPLOYED.
-Migrations 025 and 026 have not been run against Neon.
+  BACKFILL DECISION (Mark, 13 Aug 2026): YES — existing, already-
+  in-flight appointments get backfilled into the new attempt-row model,
+  not just new appointments going forward. This was the one item §138
+  explicitly flagged as unresolved; it's the only thing that changed
+  about the spec since it was written. Everything else in §138 stands
+  as originally specced: the new append-only attempt-row model
+  (Scheduled / Held – Interested / Held – Not Interested / Rescheduled),
+  the separate "is a follow-up meeting required?" question, the full
+  four-branch outcome-form routing table, and dropping the "Mark
+  Meeting Held" button in favour of the Status dropdown itself being
+  the save action.
 
-STILL fully deferred, zero code written, now explicitly NEXT per
-Mark's decision in §141: the meeting/appointment attempt-history
-redesign itself (§138 has the full spec — read that before starting,
-don't re-derive it). After that: the Reports date-scoping fix, which
-depends on the redesign existing first.
+  Before starting: this needs its own migration (new attempt-row
+  table) plus a backfill script for existing appointments' current
+  flat meeting1Date/meeting1Status/etc. values — thinking through the
+  backfill mapping (what attempt-row(s) does an existing appointment's
+  flat-column state translate to, especially one already mid-Rescheduled
+  or with meeting2/meeting3 data populated) is real design work in its
+  own right, not just "run an INSERT," and hasn't been thought through
+  yet. Do that thinking before writing the migration, the same way
+  every migration this session was verified against real Postgres
+  before being considered done — this one in particular touches
+  existing production data and deserves at least as much care.
 
-RECURRING ISSUE, now three times (§136, §140, §141): frontend/db/
-migrations/ keeps vanishing from GitHub main after github.dev uploads.
-Restored again each time it's been caught. Drag the WHOLE folder every
-time, not just the newest file, and check GitHub's own repo browser
-after each upload — the guidance alone hasn't stopped it recurring.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 21 (13 Aug 2026) — WHAT HAPPENED, IN BRIEF
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-A session-isolation footgun was discovered in session 20
-(sessionStorage is per-tab, the mb_session cookie is not — multiple
-tabs/InPrivate windows sharing one browser silently share one auth
-session too). This throws real doubt on one specific conclusion from
-that session — whether logCallAttempt() actually needs to route
-Callback tasks to lead.assignedAgentId rather than the caller — see
-§138's own "SESSION-ISOLATION FOOTGUN" entry before touching that
-function's routing. Mark has not yet retested cleanly to confirm
-either way; still deliberately left unchanged as of §141.
+Full detail in §141 through §155, each self-contained. Roughly, in
+order: four bugs Mark found live-testing the claim model (§141) closed
+out §140's remaining gaps; a large backlog-logging-then-fixing pass
+covering Portfolio/Products mandatory rules, Contact Number validation,
+Terra theme collision, and the "View in Appointments" role gate
+(§142-144, §146); the delivery-packaging convention itself got
+corrected mid-session after Mark caught unchanged files being
+re-sent — zips are delta-only now, not full-cumulative (§145,
+Project_Context_Vercel.md's own "Delivery packaging" section);
+Tasks.jsx's category tabs became properly role-aware, tracing back to
+an incomplete build from session 20 rather than a regression (§147);
+closed-date reporting was built from the ground up — a new
+Appointment.closedAt column (migration 027), rewired report queries,
+a new Avg Days to Close metric — and verified against a real, locally
+installed Postgres instance throughout, not just read for syntax
+(§148-149); a legend/bar colour-sync bug on Agent Detail (§150), four
+more items from a follow-up testing pass including a real reporting
+bug traced back to an incomplete §148 fix (§152-153); the Agent
+booking-rate metric changed from a misleading percentage to a plain
+ratio (§154); and finally a full redesign of the four new breakdown
+reports per Mark's explicit "think like a senior data scientist"
+request — tables dropped for donut + ranked-bar-with-hover charts,
+plus two new reports (Closed Won/Lost by Portfolio, Closed Won by
+Product) (§155).
 
-Whether migration 022 has actually been run against Neon is still
-unconfirmed either way from this sandbox; migration 023 likewise. Ask
-Mark directly if unsure before assuming either has run.
+DEPLOYMENT STATE, going into the next session: everything through §155
+is built and verified in-sandbox; Mark said he would deploy the §141
+batch and has been applying deltas as they were delivered through the
+session, but there is no explicit per-item deployment confirmation
+logged for everything after that early message — worth Mark confirming
+directly what's actually live before assuming, rather than the next
+session assuming a stale state either way.
 
-§135 (7 Aug 2026) added Paystack as a second, fully independent
-appointments.tokens.paymentProvider option alongside Stripe — CONFIRMED
-DEPLOYED (Mark's own hands-on testing this session, screenshot-verified,
-is what surfaced §136's fix below; that only happens against a live
-app). Full design/build/verification detail lives in §135 itself, not
-duplicated here — this paragraph previously WAS a full duplicate of that
-entry and stale-claimed "NOT YET DEPLOYED"; trimmed down and corrected
-rather than left to accumulate as a second, disagreeing copy.
+MIGRATION 027 (Appointment.closedAt) specifically needs to have been
+run against Neon before any of §148 through §155's reporting work
+means anything in production — everything from the Avg Days to Close
+metric through the new donut/bar reports reads off that column. If it
+hasn't run yet, none of that reporting work will show correct data
+even though the code itself is deployed and correct.
 
-§136 (7 Aug 2026, this session) is a small, isolated Integrations-page
-fix, prompted directly by that testing: Mark turned on only Paystack but
-still saw full Stripe AND SMTP credential forms too — a "free-for-all"
-rather than "here's what's actually live." Now each card is shown ONLY
-when its corresponding flag actually matches, with a neutral notice
-(naming whether credentials are already saved, so switching providers
-never reads as "did I lose my setup?") in place of whichever isn't
-active. Frontend-only, no backend/schema change, so no new sandbox DB
-testing was needed — verified via a real build + the existing 55-test
-Vitest suite staying green. NOT YET DEPLOYED. Full detail in §136 below.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+OTHER OUTSTANDING ITEMS — roughly by priority, each verified against
+this file directly rather than assumed from memory
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-FULLY BUILT AND WORKING (real backend, real Neon Postgres, not mock data):
-  Auth            Local email/password, JWT, 8-hour expiry, full policy
-                  controls (rotation/lockout/reuse, GlobalAdmin-forced
-                  password reset §118). Entra ID SSO — all 4 stages
-                  built and live end to end: "Sign in with Microsoft" on
-                  the login page (§120), JIT provisioning + email-match
-                  auto-link + GlobalAdmin manual link-identity (§114),
-                  password-fallback toggle (§121), on-demand offboarding
-                  sync via Graph API (§121, needs ENTRA_CLIENT_SECRET +
-                  User.Read.All admin consent to actually run). Off by
-                  default (auth.sso.enabled) — local login is always
-                  the fallback unless a GlobalAdmin deliberately
-                  disables it, and even then GlobalAdmin itself is
-                  permanently exempt.
-  Leads           Full CRUD, assignment, call logging, reopen, audit log,
-                  real duplicate detection (check-duplicates batch
-                  endpoint + create-time 409), CSV/Excel/JSON bulk import
-                  via SheetJS, formula-injection hardening. The auto-
-                  return banner shows the org's real configured period
-                  now, not a hardcoded "6 months" (§108) — the auto-
-                  return job itself always used the real value; only the
-                  banner text was wrong.
-  Appointments    Full CRUD, assign/reassign broker & agent, return-to-
-                  leads, outcome recording, broker matching, Appointment
-                  History card on Lead Detail (surfaces the full
-                  one-to-many set, not just the most recent). Claim model
-                  (appointments.claimModel = 'claim') is real as of §117 —
-                  self-serve claiming, TokenLedger, monthly free
-                  allocation with lazy reset (no cron in this stack).
-                  Two independent payment-provider paths, both real:
-                  Stripe (§134, 6 Aug 2026) — not usable for this
-                  deployment, Stripe doesn't support South African
-                  merchants at all — and Paystack (§135, 7 Aug 2026,
-                  Stripe-owned, ZAR-native, South-Africa-supported) —
-                  the one Mark will actually use. Both: Checkout/
-                  transaction creation, raw-body-verified webhook credit,
-                  idempotent against each provider's own documented
-                  at-least-once webhook redelivery, sharing one
-                  creditPurchasedTokens() function underneath. Manual
-                  admin top-up ('none' provider, §117) still exists as a
-                  separate, independent funding path — all three
-                  coexist, switching the flag doesn't remove any of them.
-  Users           Admin CRUD + real self-service profile (PUT /users/me
-                  — theme/avatar/timezone, structurally separate schema
-                  from the admin-editing-someone-else route)
-  Flags           Full GET/PATCH, tiered (Core/Operational/Phase2)
-  Reports         Pipeline + broker-activity, server-enforced Supervisor
-                  team-scoping. Broker Performance table's Appointments/
-                  Signed counts were silently doubled for any broker
-                  with 2+ portfolios (a JOIN fan-out bug) — fixed §107.
-                  Selected period now carries from Reports through to
-                  BrokerDetail/AgentDetail's "View →" via a URL query
-                  param (§107) — one-way only, deliberately; navigating
-                  back to Reports still resets to the current month.
-  Events          Full backend — registration, dual QR codes
-                  (registration vs attendance), walk-in check-in
-  Lead Portal     Public self-service registration + venue check-in,
-                  own separate auth (ProspectAuthContext, own JWT secret,
-                  own httpOnly cookie as of §115 — mb_portal_session,
-                  same hardening staff auth got in §113).
-                  All four password screens (Login, Register, Activate,
-                  walk-in Check-in) have a Show/Hide toggle now (§101);
-                  the "zooms in and won't use the full screen" mobile
-                  bug is fixed too (§101 — was a 14px input font-size,
-                  under iOS Safari's 16px auto-zoom threshold; this was
-                  a global tokens.js fix, so it also applies to every
-                  staff-side input, not just the portal).
-  Tasks           Full REST API, all five generation rules event-driven
-                  off real actions (no scheduled job needed), cascade
-                  reassign/delete when the Lead/Appointment a task is
-                  about changes owner or closes out, manual creation +
-                  deletion (Admin/GlobalAdmin, manual-type only), real
-                  sidebar badge (own incomplete-task count), creator
-                  tracking (createdById, §69) — a creator's own tasks
-                  are always visible to them regardless of who they're
-                  assigned to, plus a "Created by me" filter. Reassign
-                  is real now too (§104) — was in the backend
-                  (taskHandlers.js) but had no UI control at all until
-                  this session. A Supervisor's assignee targets are
-                  team-scoped (self + direct reports) everywhere this
-                  now comes up — Reassign (§105), NewTaskModal's "Assign
-                  to", and the Assignee filter (§108) — with the actual
-                  restriction enforced server-side on both POST and
-                  PATCH, not just hidden in the dropdown.
-  Notifications   All 5 real-data-driven types now generate for real:
-                  LeadAssigned + AppointmentAssigned (action-driven, §61)
-                  and AppointmentReminder + CallbackReminder +
-                  LeadAutoReturned (daily Vercel Cron scan, §68). Only
-                  needs CRON_SECRET set in Vercel's env vars to actually
-                  fire — see §68.
-  Settings        Real backend for theme/name/avatar/timezone, plus a
-                  Security card (§72) for self-service password change.
-                  Photo upload is an honest disabled "coming soon" stub.
-  Password policy (§72) — fully real now: rotation (30/60/90/180/custom
-                  days), lockout, and calendar-year reuse prevention are
-                  all admin-configurable (AppAdmin -> System Settings)
-                  and actually enforced. Manually created users are
-                  always forced to set their own password on first
-                  login. AppAdmin's whole System Settings tab is now
-                  real-wired too, not just the password fields — it was
-                  entirely mock before this.
-  Audit Log (§76) — AppAdmin's Audit Log tab is real now, paginated,
-                  org-wide. Was showing ten hardcoded fake entries
-                  unconditionally before this. Filters (date range,
-                  Entity, Action, Performed By) + CSV/JSON export (§77).
-                  Detail column shows what actually changed, not just
-                  which entity (§96), and every entity type — including
-                  Task/Event/EventAttendee, previously a raw id — now
-                  resolves to a readable name, with ids never shown
-                  redundantly alongside a resolved name (§103).
-  Email notifications (§78) — real, built on standard SMTP
-                  (nodemailer) rather than any provider's proprietary
-                  API, deliberately, so it's swappable for a customer's
-                  own mail server or M365 later without a rewrite.
-                  UPDATED §134 (6 Aug 2026) — SMTP credentials now come
-                  from the Integrations settings page (App Admin ->
-                  Integrations, GlobalAdmin only, encrypted at rest)
-                  FIRST, falling back to the original SMTP_HOST/
-                  SMTP_USER/SMTP_PASSWORD/SMTP_FROM env vars if nothing's
-                  saved on that page yet. Either way,
-                  notifications.email.enabled (AppAdmin -> Feature
-                  Flags) still has to be switched on before anything
-                  actually sends — that flag isn't done yet, only the
-                  credential source changed.
-  POPIA Subject Access Request processing (§79) — real. AppAdmin ->
-                  Data Requests: log a request against a Lead, track its
-                  status, export everything MedBroker holds about that
-                  Lead (JSON or CSV) once ready to fulfil it. Admin/
-                  GlobalAdmin only. Properly flag-gated now too (§109) —
-                  popia.subjectAccessRequest.enabled actually controls
-                  whether the tab appears, closing the gap where it was
-                  unconditionally visible regardless of the flag's value.
-  Medical Subscription lead import (§80) — real now, same underlying
-                  mechanism as CSV import (file upload, real duplicate
-                  check), tagged with linkedSubscriptionId instead of a
-                  free-text source name. AppAdmin's Subscriptions tab is
-                  real too (was hardcoded mock data + a dead "+ Add
-                  Subscription" button before this).
-  Portfolio/Product management (§89/§90) — real. AppAdmin -> Portfolios
-                  and Products tabs can genuinely add a new portfolio or
-                  product now (products belong to a portfolio, matching
-                  the real FK constraint) — every consumer across the
-                  app (Lead Detail, Lead Import, Appointment Detail's
-                  products-sold, User Admin's assignment checkboxes)
-                  reads this same live data through RoleContext.jsx's
-                  useRole() hook, not a hardcoded constant, so a new
-                  portfolio/product shows up everywhere immediately.
+1. Mixed-basis conversion ratios elsewhere — §154 changed Agent
+   booking rate from a "%" to a ratio, since it had no natural 0-100%
+   ceiling. The exact same structural issue (closedAt-scoped numerator,
+   createdAt-scoped denominator, can exceed 100%) exists in Broker
+   conversion (signed/appts) and in all four of §151's breakdown-report
+   "Conversion" columns/bars. Flagged explicitly in §154, not changed —
+   Mark's decision needed on whether to extend the same ratio treatment
+   there, or leave those as percentages.
 
-SEED DEFAULTS (NOT necessarily current live state — Claude has no live DB
-access, ever, so this section only reflects what a brand-new database
-gets on first creation, per feature-flags.postgres.sql's ON CONFLICT DO
-NOTHING inserts. Any of these may already be flipped in the real
-deployment — check Feature Flags in the app itself, not this file, for
-what's actually live right now):
-  - tasks.enabled — seeded off. Mark has been actively testing Tasks all
-    session, so this is almost certainly already on in the real
-    deployment — this file previously kept describing it as "off by
-    default" in a way that read as a current-state claim; that was the
-    seed value, not a live check, and shouldn't have been repeated as
-    if it were one.
-  - notifications.email.enabled — seeded off. Still needs SMTP credentials
-    set somewhere — the Integrations page (App Admin -> Integrations,
-    §134) or the original SMTP_HOST/SMTP_USER/SMTP_PASSWORD/SMTP_FROM
-    Vercel env vars as a fallback — regardless of the flag's live value
-    (§78) — that part IS independently verifiable (neither the page's
-    saved state nor the env vars are visible from Feature Flags), so
-    still worth calling out as outstanding until Mark confirms otherwise.
-  - auth.sso.enabled — seeded off, and no real SSO provider is wired up
-    in the code regardless of the flag's live value (confirmed by
-    grepping for entraObjectId/googleUid usage — see §109's SSO
-    continuity design notes for the full picture). Toggling this flag
-    on its own does not enable working SSO login.
+2. Unclaimed/unassigned appointments nearing their date — raised
+   alongside §142's Date/Time fix, genuinely new functionality (not a
+   bug), never scoped. Nothing currently surfaces a claim-model or
+   assign-model appointment as it approaches its own appointment date
+   with no broker attached yet.
 
-DELIBERATELY NOT BUILT (real gaps, not yet scoped or blocked on
-something outside this session's control):
-  - (none currently outstanding for the token economy — see §134;
-    claim model, TokenLedger, manual top-up, and Stripe payment are all
-    real now)
+3. Products on Lead — §143's open scoping question, not built. Lead
+   currently has no products field at all (only Portfolio does); Book
+   Appointment is where Products first gets captured, with no earlier
+   Lead-level prompt or carry-through the way Portfolio now has. Two
+   real decisions needed before building: mandatory or optional, and
+   manual-form-only or also CSV import.
 
-FLAGGED, NOT BUILT — small, explicitly scoped-out while doing adjacent
-work, worth revisiting if the same question comes up again:
-  - Reports period retention (§107) is one-way — Reports -> BrokerDetail/
-    AgentDetail carries the selected period; navigating back to Reports
-    does not carry it back, always resets to the current month. Confirmed
-    with Mark as expected/acceptable as-is.
-  - Settings -> photo upload: honest disabled "coming soon" stub, not
-    built. Deliberately parked (§110) — Mark doesn't want to take on a
-    paid dependency (Vercel Blob) for a feature with no clear business
-    value unless a customer actually asks for it.
-  - GlobalAdmin guide's §2.2 Flag Reference table has TWO stale entries
-    now: popia.subjectAccessRequest.enabled (described as dead/unwired,
-    stale since §109 actually wired it up) and auth.sso.enabled/
-    auth.sso.provider (still described by their pre-§114 meaning). Needs
-    a single docx correction pass whenever documentation is next touched
-    — same edit-and-verify process as the rest of that document.
+4. GlobalAdmin guide docx — §2.2 Flag Reference table has two stale
+   entries: popia.subjectAccessRequest.enabled (described as dead/
+   unwired; actually wired up since §109) and auth.sso.enabled/
+   auth.sso.provider (still described by their pre-§114 meaning). Small
+   correction pass, whenever documentation is next touched — the app
+   itself is correct, only the document text is stale.
+
+5. xlsx dependency — DISCREPANCY FOUND, worth Mark's direct check.
+   This file's own history (§63 era) says Mark manually bumped the live
+   repo's xlsx to patched 0.20.3 via a GitHub Codespace, since neither
+   npm's registry nor SheetJS's GitHub tags carry anything past 0.18.5.
+   This session's own fresh GitHub hydration shows package.json still
+   pinned to "^0.18.5" — either the manual bump didn't survive a later
+   commit, or was only ever done in a Codespace that never got merged
+   to main. Not something to silently re-patch without knowing why it
+   reverted; ask Mark directly what he sees in the live repo before
+   touching this.
+
+6. Migrations 022 and 023 — still unconfirmed either way whether
+   they've actually been run against Neon, carried forward unresolved
+   from before this session. Ask Mark directly rather than assume.
+
+7. Session-isolation footgun retest — discovered session 20 (§138's
+   own "SESSION-ISOLATION FOOTGUN" entry has the full detail):
+   sessionStorage is per-tab, the mb_session cookie is not, so multiple
+   tabs/InPrivate windows in one browser can silently share one auth
+   session. This throws real doubt on whether logCallAttempt() actually
+   needs to route Callback tasks to lead.assignedAgentId rather than
+   the caller (claims.oid) — the routing was deliberately left
+   unchanged pending a clean retest (single window, single fresh
+   login, nothing else open) that Mark has not yet done as of the end
+   of session 21.
+
+8. Vercel Pro upgrade — still an open business decision, required
+   before commercial launch (higher function-count ceiling, Vercel's
+   own rate-limiting tier). Development has stayed on Hobby by design
+   (§29's route-consolidation work chose free consolidation over the
+   $20/mo upgrade at the time) — this is about the separate,
+   later commercial-launch threshold, not a reversal of that choice.
+
+9. Dev-tooling, lowest priority, zero production exposure: ESLint v10
+   plus the still-missing eslint.config.js (lint cannot run at all
+   right now), and the Vite v8 / Vitest v4 major version bumps.
+
+10. Settings -> photo upload — still an honest "coming soon" disabled
+    stub, deliberately parked (§110/§111 era) — Mark's own call not to
+    take on a paid Vercel Blob dependency without a customer actually
+    asking for it. Not a bug, not forgotten, just genuinely low
+    priority by design.
+
+11. Architecture diagrams (HTML overview microsite) needing a Midnight-
+    theme redraw — could not verify current status against this file;
+    doesn't appear to be tracked in Status_Vercel.md's own history at
+    all, so this may live only in Mark's own notes or a different
+    project file. Flagging with that uncertainty rather than asserting
+    a status I can't back up from this file.
 
 CURRENT SECURITY / DEPENDENCY STATE (as of 30 Jul 2026):
   - react-router: migrated 6->7 (7.18.2). The open-redirect + SSR-
@@ -10390,10 +10250,14 @@ session can pick this up without re-deriving it:
   "Mark Meeting Held" button drops entirely — the Status dropdown
   itself is the save action now.
 
-  NOT YET DECIDED, future session needs to ask: does an
-  in-flight/existing appointment get backfilled into the new attempt
-  table, or does this only apply going forward? Mark flagged this as
-  open when the spec was agreed and it was never actually answered.
+  DECIDED 13 Aug 2026 (session 21, asked directly at the end of that
+  session): YES, backfill existing/in-flight appointments into the new
+  attempt-row model — this was the one open item in this spec, now
+  resolved. Everything else above stands as originally specced.
+  Backfill MAPPING ITSELF (what attempt row(s) an existing appointment's
+  current flat-column state translates to) has not been designed yet —
+  real thinking required before writing the migration, not a mechanical
+  copy.
 
 SESSION-ISOLATION FOOTGUN — DISCOVERED, EXPLAINS SEVERAL "BUGS" THAT
 MAY NOT HAVE BEEN BUGS. Mark had been testing across multiple users in
