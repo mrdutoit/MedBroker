@@ -54,7 +54,19 @@ export const CreateAppointmentSchema = z.object({
   firstAppointmentAddress: z.string().max(500).optional(),
   virtualMeetingLink:      z.string().max(500).optional(),
   currentInsurer:          z.string().max(200).optional(),
-  productsInterestedIn:    z.array(z.string()).optional(), // product NAMEs, stored as JSON text — see appointmentService.js
+  // Changed 13 Aug 2026 (§143, item 6, Mark's decision) — was optional.
+  // Products is the field that actually drives broker/claim-pool
+  // eligibility (region+product match — see brokerMatchingService.js's
+  // findMatchingBrokers and appointmentService.js's listAvailableToClaim),
+  // in BOTH claim and assign mode, yet was never required at the one
+  // point it's captured. The Assign flow's own broker-search function
+  // separately required it already (throws if called with zero
+  // products), but that was a search-time check, not a booking-time
+  // one, and never applied to claim-model bookings at all — confirmed
+  // via testing that a claim-model appointment could be confirmed with
+  // zero products selected. Now required in both modes, matching
+  // portfolios' existing `.min(1)` treatment just above.
+  productsInterestedIn:    z.array(z.string()).min(1, 'Select at least one product'), // product NAMEs, stored as JSON text — see appointmentService.js
   // claimTokenCost REMOVED §140c, 12 Aug 2026 — was optional/caller-supplied
   // (the original §117 comment here said a Supervisor/Admin could set it
   // manually) but no frontend ever actually did, so every appointment was

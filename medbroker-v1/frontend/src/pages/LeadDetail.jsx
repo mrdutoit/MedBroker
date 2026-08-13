@@ -868,9 +868,20 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
   // §140d — the meeting-type-conditional part applies regardless of
   // claimModel, since it's about the meeting itself, not who's attending.
   const isMeetingDetailValid = meetingType === 'InPerson' ? !!address.trim() : !!virtualMeetingLink.trim();
+  // §143, item 6 (13 Aug 2026, Mark's decision) — products.length > 0
+  // added to both branches. Was never checked before, in either mode:
+  // the Assign flow's own broker-search function (findMatchingBrokers)
+  // separately throws if called with zero products, but that's a
+  // search-time check, not a booking-time one, and it never ran at all
+  // in claim mode — confirmed via testing that Confirm Booking stayed
+  // enabled with zero products selected in claim mode specifically.
+  // Products drives broker/claim-pool eligibility in both flows
+  // (region+product match, see brokerMatchingService.js and
+  // appointmentService.js's listAvailableToClaim), so both now require
+  // it explicitly at the one point it's actually captured.
   const isFormValid = isClaimModel
-    ? (!!date && !!time && portfolios.length > 0 && isMeetingDetailValid)
-    : ((!!brokerId || noBrokerAvailable) && !!date && !!time && portfolios.length > 0 && isMeetingDetailValid);
+    ? (!!date && !!time && portfolios.length > 0 && products.length > 0 && isMeetingDetailValid)
+    : ((!!brokerId || noBrokerAvailable) && !!date && !!time && portfolios.length > 0 && products.length > 0 && isMeetingDetailValid);
 
   // Products available now union across every selected portfolio, not
   // just one — the whole point of allowing more than one portfolio here
@@ -979,7 +990,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
 
         {portfolios.length > 0 && (
           <div style={{ marginBottom: '10px' }}>
-            <label style={labelStyle}>Products the client is interested in</label>
+            <label style={labelStyle}>Products the client is interested in *</label>
             <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
               {availableProducts.map((prod) => {
                 const checked = products.includes(prod);
@@ -1138,7 +1149,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
             onClick={handleConfirmBooking}
             style={{ ...btn.primary, opacity: (submitting || !isFormValid) ? 0.5 : 1 }}
             disabled={submitting || !isFormValid}
-            title={!isFormValid ? (isClaimModel ? 'Select a portfolio, date and time, and an address or meeting link, before confirming' : 'Select a portfolio, date and time, a broker or "couldn\'t find a broker", and an address or meeting link, before confirming') : undefined}
+            title={!isFormValid ? (isClaimModel ? 'Select a portfolio, at least one product, date and time, and an address or meeting link, before confirming' : 'Select a portfolio, at least one product, date and time, a broker or "couldn\'t find a broker", and an address or meeting link, before confirming') : undefined}
           >
             {submitting ? 'Booking…' : 'Confirm Booking'}
           </button>

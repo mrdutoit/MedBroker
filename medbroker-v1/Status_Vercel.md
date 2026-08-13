@@ -11179,3 +11179,62 @@ treatment) or stay optional is Mark's call, not decided. NOT SCOPED
 FURTHER OR BUILT THIS SESSION — flagged as a real next-session
 candidate, deliberately not built speculatively without Mark deciding
 mandatory-or-optional and manual-form-only-or-also-CSV first.
+
+144. TWO DECISIONS RESOLVED, ONE NEW ITEM BUILT AND VERIFIED — 13 Aug
+     2026 (session 21, continued)
+
+Mark reviewed §143's correction and made two decisions:
+
+DECISION 1 — Lead-level Portfolio requirement (§142 item 2, revised):
+KEEP AS BUILT. Manual-entry leads still require Portfolio at creation;
+CSV/subscription imports stay exempt. No change needed — already live
+in §142's revised fix.
+
+DECISION 2 — Products on Book Appointment: MAKE MANDATORY, in both
+Claim and Assign mode. Reasoning confirmed by Mark's own live testing
+first (see §143's correction) — Confirm Booking stayed enabled with
+zero products selected in claim mode, which traced back to
+isFormValid never checking products in either mode, ever, matching
+CreateAppointmentSchema's productsInterestedIn being genuinely
+`.optional()` — not a bug, but a real gap now closed given Products is
+the field that actually drives broker/claim-pool eligibility.
+
+FIX, BUILT AND VERIFIED (item 6):
+  - Backend: CreateAppointmentSchema.productsInterestedIn changed from
+    `.optional()` to `.min(1, 'Select at least one product')`, in
+    api-lib/models/appointment.js. No .partial()/.omit() consumer found
+    downstream (confirmed via grep before building — only .safeParse()
+    calls this schema elsewhere), so no ZodEffects restructure needed
+    this time, unlike §142 item 2's revision.
+  - Frontend: LeadDetail.jsx's isFormValid now includes
+    `products.length > 0` in BOTH the claim-mode and assign-mode
+    branches. Label changed to "Products the client is interested in *"
+    to match every other required field's asterisk convention on this
+    form. Disabled-button tooltip text updated to mention "at least one
+    product" alongside the existing requirements, both mode variants.
+  - Checked for other appointment-creation callers before building —
+    grepped the whole frontend for appointmentsApi.create; LeadDetail.jsx
+    is the only caller, so no other flow needed updating.
+VERIFIED: full Vite build clean, existing 55-test Vitest suite
+unaffected, node --check on appointment.js, and a 3-case direct
+functional test against the live CreateAppointmentSchema (no
+productsInterestedIn field at all -> rejected "Required"; empty array
+-> rejected with the custom message; one product -> accepted). Diffed
+both touched files (appointment.js, LeadDetail.jsx) against a fresh
+GitHub hydration — confirmed each diff contains only the intended
+changes, correctly cumulative with everything else built this session.
+NOT YET DEPLOYED.
+
+CORRECTION LOGGED for the record: an earlier message this session
+(after §142/§143's first pass) stated "Products is already mandatory
+at Book Appointment time" — inaccurate. That claim conflated the
+Assign flow's own search-time requirement (findMatchingBrokers throws
+if called with zero products) with a general booking-time requirement,
+which never existed for claim-model bookings at all. Corrected in
+§143 once Mark's own testing surfaced the discrepancy; noting the
+error explicitly here rather than letting it stand only implicitly
+corrected.
+
+FILES, this addendum only (item 6): appointment.js, LeadDetail.jsx
+(both already listed in the cumulative FILES list for this session —
+no new files introduced).
