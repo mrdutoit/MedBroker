@@ -751,7 +751,7 @@ export async function returnToLeads(id) {
   if (appt.customerSigned === true) throw { status: 400, message: 'Cannot return a signed (ClosedWon) appointment to the leads queue' };
 
   await executeQuery(
-    `UPDATE Appointment SET status = 'ReturnedToLeads', updatedAt = NOW()
+    `UPDATE Appointment SET status = 'ReturnedToLeads', closedAt = NOW(), updatedAt = NOW()
      WHERE id = @id AND organisationId = @organisationId`,
     { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
@@ -833,6 +833,17 @@ export async function saveOutcome(id, data) {
     status: { type: sql.NVarChar(50),     value: newStatus },
     organisationId: { type: sql.UniqueIdentifier, value: organisationId },
   };
+
+  // §148 (13 Aug 2026, migration 027) — set exactly once, the moment this
+  // save is the one that actually closes the deal. current.status is
+  // checked (not newStatus) so a save that merely re-confirms an
+  // already-closed status can't happen at all (the guard above already
+  // throws for that), and so a save that transitions through an
+  // intermediate state on the way to closed still gets the real close
+  // timestamp from the save that actually got it there, not an earlier one.
+  if (['ClosedWon', 'ClosedLost'].includes(newStatus) && !['ClosedWon', 'ClosedLost'].includes(current.status)) {
+    setClauses.push('closedAt = NOW()');
+  }
 
   if (data.customerSigned !== undefined) {
     setClauses.push('customerSigned = @customerSigned');

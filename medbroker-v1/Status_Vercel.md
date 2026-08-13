@@ -11373,3 +11373,210 @@ NOT YET DEPLOYED. No migration required.
 FILES, this addendum only: frontend/src/pages/Tasks.jsx. Per the
 corrected delivery convention (§145), the next zip contains ONLY this
 file — nothing else has changed since the last delivery.
+
+148. AGENT DETAIL WEEKLY CHART OVERFLOW — FIXED; REPORTS CLOSED-DATE
+     SCOPING — DIAGNOSED, NOT BUILT, SCOPING QUESTIONS OPEN — 13 Aug
+     2026 (session 21, continued)
+
+Two separate items from the same message.
+
+PART 1 — VISUAL BUG, FIXED AND VERIFIED. AgentDetail.jsx's Weekly Call
+Activity chart: the "Appts booked" (green) bar rendered right through
+the card's own title text. ROOT CAUSE: `maxActivity = Math.max(
+...activity.map(d => d.calls), 1)` only ever considered the calls
+series — never booked. Whenever a week's booked count exceeded its
+calls count (this account: 1 call, 2 appointments booked, same week —
+ordinary, an agent can book a second appointment on an existing lead
+without a fresh call), the bar's height computed to over 100% of its
+120px container (in this exact case, 200% — matching the "200%
+booking rate" KPI shown elsewhere on the same page) and rendered
+straight through, since nothing clips overflow on the bar's parent.
+FIX: `Math.max(...activity.flatMap(d => [d.calls, d.booked]), 1)`.
+Checked BrokerDetail.jsx and every other page for the same
+single-series maxActivity pattern before considering this closed — this
+was the only occurrence. Verified via full Vite build (clean), the
+existing 55-test Vitest suite (unaffected), and a direct Node
+functional test reproducing the exact W1-W5 data from Mark's
+screenshot — confirmed booked now renders at 100% (not 200%) and calls
+at a correctly-proportioned 50%. Diffed AgentDetail.jsx against a
+fresh GitHub hydration — isolated, single-line change (plus a
+comment). NOT YET DEPLOYED. No migration required.
+
+PART 2 — REPORTS CLOSED-DATE SCOPING, DIAGNOSED, NOT BUILT. Mark's
+example: a Lead created in July but the customer only signs in August
+should report as a closed item in August, not July. Confirmed this is
+real and matches a DELIBERATE, DOCUMENTED design choice — reportService.
+js's own header comment states "period-over-period trend/pipeline
+scoping is by Lead.createdAt (the cohort of leads created within the
+period)" — a deliberate cohort-based design from 23 Jul 2026, not an
+oversight, but Mark's testing has now surfaced that it doesn't match
+what he actually wants for CLOSED items specifically.
+CONFIRMED VIA CODE, not assumed:
+  - getReportSummary()'s pipeline breakdown (Reports.jsx overview
+    page): entirely Lead.createdAt-scoped, including which period a
+    Closed Won/Closed Lost bucket assignment falls into. This is
+    exactly Mark's described bug.
+  - getReportSummary()'s trend chart "won" series: already closer —
+    uses Appointment.updatedAt, not createdAt — but updatedAt is a
+    general last-modified timestamp, not a dedicated close date; any
+    later edit to a closed appointment (e.g. a note correction) would
+    silently shift its apparent close period.
+  - getReportSummary()'s totalPolicyValue: Appointment.createdAt-scoped
+    (booking date, not close date) — same question applies, not yet
+    raised with Mark.
+  - getAgentDetailReport() (the page in Mark's screenshot) has no
+    Closed Won/Lost metric at all — Leads Assigned, Calls Made, Appts
+    Booked, Callbacks Pending, No Answer are all correctly
+    activity/assignment-date-scoped already; this page isn't actually
+    affected by the closed-date question, confirmed by reading it in
+    full.
+  - No dedicated closedAt (or equivalent) column exists anywhere in
+    schema.postgres.sql — checked directly, not assumed. Doing this
+    properly means a real schema change: a new Appointment.closedAt
+    timestamp, set once at the exact point status transitions to
+    ClosedWon/ClosedLost/ReturnedToLeads (appointmentStatusService.js),
+    mirroring the existing claimedAt pattern — not another read
+    scoped off updatedAt, which stays fragile for exactly the reason
+    above.
+OPEN SCOPING QUESTIONS, put to Mark, none decided yet:
+  1. Which metrics move to close-date basis — just the pipeline
+     breakdown's Closed Won/Closed Lost buckets and the trend chart's
+     "won" series (my read of what Mark actually wants), or does
+     totalPolicyValue move too (arguably a deal's value only exists
+     once it's actually won)?
+  2. Does the rest of the pipeline breakdown (Unassigned/Assigned/
+     InProgress/Appointment Booked buckets) stay Lead.createdAt cohort-
+     scoped, or does Mark want the whole chart to become a snapshot
+     view ("what does the pipeline look like as of this period") rather
+     than a cohort view ("of leads created in this period, what
+     happened to them")? These are genuinely different report
+     semantics — not assuming which one Mark wants beyond the specific
+     closed-item example he gave.
+  3. Historical already-closed appointments have no closedAt to
+     backfill precisely — best-effort backfill from their current
+     updatedAt (imperfect, but better than leaving them unattributed),
+     or leave pre-migration closed appointments out of the corrected
+     view until Mark says otherwise?
+NOT BUILT — genuine schema change, not scoped without Mark's answers
+to the above.
+
+149. CLOSED-DATE REPORTING + AVG DAYS TO CLOSE — BUILT AND VERIFIED
+     AGAINST A REAL POSTGRES INSTANCE — 13 Aug 2026 (session 21,
+     continued)
+
+Full build for §148's closed-date scoping issue, following Mark's
+three decisions: (1) Closed Won/Lost buckets, the trend chart's "won"
+series, AND Total Policy Value all move to close-date basis; (2) the
+rest of the pipeline chart (Unassigned/Assigned/InProgress/Appointment
+Booked) stays a cohort view; (3) historical closed appointments
+best-effort backfilled from their own updatedAt. Plus a new metric
+Mark asked for mid-conversation: Avg Days to Close, Won and Lost
+tracked separately, on the Reports overview AND broken down per
+Agent/Broker on their detail pages.
+
+SCHEMA CHANGE — migration 027_add_appointment_closed_at.sql: one
+additive, nullable Appointment.closedAt TIMESTAMPTZ column, same
+pattern as the existing claimedAt. Backfill UPDATE included in the same
+migration, scoped to rows already in a closed status with closedAt
+still NULL — won't touch open appointments, won't re-touch rows that
+already have a value (idempotent, safe to re-run). schema.postgres.sql
+updated to match.
+
+WRITE PATH — appointmentService.js: closedAt now set at the exact
+moment a deal actually closes, not approximated after the fact.
+  - saveOutcome(): closedAt = NOW() added to the UPDATE's SET clause,
+    gated on `newStatus` being ClosedWon/ClosedLost AND `current.status`
+    NOT already being one of those two — guards against ever
+    overwriting a real close timestamp with a later, unrelated save
+    (the function's own existing guard already throws before this
+    point if a closed appointment is edited again at all, so this is
+    belt-and-braces, not the only protection).
+  - returnToLeads(): closedAt = NOW() added alongside the existing
+    status = 'ReturnedToLeads' write — this transition closes the deal
+    just as much as an outcome save does, for reporting purposes.
+  - Grepped every 'ClosedWon'/'ClosedLost' reference across the whole
+    backend before considering this complete — confirmed saveOutcome()
+    is the only write path that can ever set either status; no other
+    location needed the same treatment.
+
+READ PATH — reportService.js, all three report functions:
+  - getReportSummary(): pipeline breakdown query split into two
+    genuinely independent queries (a lead's cohort membership and its
+    appointment's close-period membership stopped being the same
+    question the moment Closed Won/Lost moved off l.createdAt) — one
+    cohort query for the four non-closed buckets, one closedAt-scoped
+    query for Closed Won/Closed Lost, merged in JS. The one sub-case
+    with no equivalent closedAt (a Lead closed directly via a call
+    outcome, no Appointment ever existed) still approximates via
+    Lead.updatedAt, same imprecision as before this fix — flagged to
+    Mark in §148, not silently resolved, no worse than before. Trend
+    chart's "won" series: updatedAt -> closedAt. Total Policy Value:
+    createdAt -> closedAt AND a genuine correction, not just a date-
+    basis change — the old query had no status filter at all and
+    summed policyValue across every appointment created in the period
+    regardless of outcome; now filtered to status = 'ClosedWon' only,
+    per Mark's own reasoning ("a deal's value only really exists once
+    won"). New avgDaysToClose { won, lost } added to the return value,
+    measured from the parent Lead's createdAt (not the appointment's
+    own — a lead can have multiple Appointment rows over its life; see
+    §148's own note on why this matters for correctness).
+  - getAgentDetailReport() / getBrokerDetailReport(): same
+    avgDaysToClose { won, lost } added to each, scoped to that specific
+    agentId/brokerId, per Mark's decision to break it down per person.
+  - reportHandlers.js checked, not assumed — every one of these three
+    functions' full return object passes straight through to
+    res.status(200).json(...), no field allowlisting anywhere that
+    would need updating to let the new fields through.
+
+FRONTEND:
+  - Reports.jsx: two new KPI cards on the org-wide view, "Avg days to
+    close (Won)" and "(Lost)", showing an em dash rather than "0 days"
+    when nothing of that outcome closed in the period (null, not 0, is
+    the honest answer — genuinely different states).
+  - AgentDetail.jsx / BrokerDetail.jsx: same two cards added to each
+    page's own KPI grid. Grid changed from a fixed repeat(5, 1fr) to
+    repeat(auto-fit, minmax(150px, 1fr)) on both pages so the now-7
+    cards wrap onto a second row on narrower screens instead of
+    cramming into the same width the original 5 had.
+
+VERIFIED — went further than usual given the scope and the SQL
+complexity (JOINs, UNION ALL, EXTRACT/EPOCH date math): installed
+Postgres 16 directly in the sandbox and ran the actual queries against
+real data, not just read for syntax, consistent with this project's
+own established lesson that raw SQL needs real-Postgres verification.
+  - Loaded the actual schema.postgres.sql (with closedAt already in
+    it) into a fresh test database — confirmed it applies cleanly.
+  - Inserted Mark's exact scenario: a Lead created 5 Jul, its
+    Appointment closed (ClosedWon) 10 Aug. Ran the OLD pipeline-bucket
+    query and the NEW one side by side: OLD put it in July (reproducing
+    the bug precisely); NEW put it in August and confirmed July's own
+    query now correctly returns 0 for it — the deal genuinely moved,
+    not just got double-counted.
+  - Ran the Avg Days to Close query against that same data: returned
+    36.1666667 days, matching the real interval between 5 Jul 10:05 and
+    10 Aug 14:00 by hand-calculation.
+  - Added a second appointment (still InProgress, not won) with its own
+    recorded policy value, to specifically test Total Policy Value's
+    new status filter: OLD query wrongly included it (and, separately,
+    entirely missed the actually-won deal's value, since that
+    appointment's own createdAt fell in July, outside August's old
+    createdAt-scoped window); NEW query correctly includes only the
+    won deal's value and excludes the still-open one.
+  - Simulated a pre-migration closed appointment with closedAt still
+    NULL, ran migration 027 against it: backfill UPDATE correctly
+    updated exactly that one row from its own updatedAt, left the
+    still-open appointment's NULL untouched, and correctly no-op'd on
+    the already-correct row (idempotency confirmed, not just assumed).
+  - Full Vite build (clean) and the existing 55-test Vitest suite
+    (unaffected) on top of the above.
+  - Diffed all six touched files against a fresh GitHub hydration —
+    confirmed each diff contains only the intended changes.
+NOT YET DEPLOYED. Migration 027 needs to run against Neon before this
+takes effect in production — none of the other five items shipped
+earlier this session needed one, this is the first since 025/026.
+
+FILES: frontend/db/schema.postgres.sql, frontend/db/migrations/
+027_add_appointment_closed_at.sql (new), frontend/api-lib/services/
+appointmentService.js, frontend/api-lib/services/reportService.js,
+frontend/src/pages/Reports.jsx, frontend/src/pages/AgentDetail.jsx,
+frontend/src/pages/BrokerDetail.jsx.

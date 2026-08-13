@@ -122,35 +122,74 @@ export async function getReportSummary(period, referenceDate) {
   const organisationId = resolveOrganisationId();
   const { start, end } = getPeriodRange(period, referenceDate);
 
-  const pipelineRows = await executeQuery(
-    `SELECT
-       CASE
-         WHEN l.pipelineStatus = 'Unassigned' THEN 'Unassigned'
-         WHEN l.pipelineStatus = 'Assigned'   THEN 'Assigned'
-         WHEN l.pipelineStatus = 'InProgress' THEN 'InProgress'
-         WHEN l.pipelineStatus = 'Closed'     THEN 'ClosedLost'
-         WHEN l.pipelineStatus = 'AppointmentScheduled' THEN
-           CASE
-             WHEN ap.status = 'ClosedWon' THEN 'ClosedWon'
-             WHEN ap.status IN ('ClosedLost', 'ReturnedToLeads') THEN 'ClosedLost'
-             ELSE 'AppointmentBooked'
-           END
-       END AS bucket,
-       COUNT(*) AS count
-     FROM Lead l
-     LEFT JOIN LATERAL (
-       SELECT status FROM Appointment WHERE leadId = l.id ORDER BY createdAt DESC LIMIT 1
-     ) ap ON true
-     WHERE l.createdAt >= @start AND l.createdAt <= @end
-       AND l.deletedAt IS NULL AND l.organisationId = @organisationId
-     GROUP BY bucket`,
-    {
-      start: { type: sql.DateTimeOffset, value: start },
-      end: { type: sql.DateTimeOffset, value: end },
-      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
-    }
-  );
-  const pipelineCounts = Object.fromEntries(pipelineRows.map(r => [r.bucket, Number(r.count)]));
+  // §148 (13 Aug 2026) — pipeline breakdown split into two genuinely
+  // different scopes, per Mark's explicit decision: Unassigned/Assigned/
+  // InProgress/Appointment Booked stay a COHORT view (leads CREATED in
+  // this period — unchanged from the original 23 Jul design). Closed
+  // Won/Closed Lost move to a SNAPSHOT view instead (appointments that
+  // CLOSED in this period, via the new Appointment.closedAt column,
+  // regardless of when their parent Lead was created) — this was the
+  // actual bug Mark's testing surfaced: a lead created in July that only
+  // closed in August was being reported against July.
+  //
+  // These can no longer live in one combined query the way they used
+  // to — a lead's cohort membership and its appointment's close-period
+  // membership are independent questions now, not both driven by the
+  // same l.createdAt filter.
+  const [cohortRows, closedRows] = await Promise.all([
+    executeQuery(
+      `SELECT
+         CASE
+           WHEN l.pipelineStatus = 'Unassigned' THEN 'Unassigned'
+           WHEN l.pipelineStatus = 'Assigned'   THEN 'Assigned'
+           WHEN l.pipelineStatus = 'InProgress' THEN 'InProgress'
+           WHEN l.pipelineStatus = 'AppointmentScheduled' AND ap.status NOT IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads')
+             THEN 'AppointmentBooked'
+           ELSE NULL
+         END AS bucket,
+         COUNT(*) AS count
+       FROM Lead l
+       LEFT JOIN LATERAL (
+         SELECT status FROM Appointment WHERE leadId = l.id ORDER BY createdAt DESC LIMIT 1
+       ) ap ON true
+       WHERE l.createdAt >= @start AND l.createdAt <= @end
+         AND l.deletedAt IS NULL AND l.organisationId = @organisationId
+       GROUP BY bucket`,
+      {
+        start: { type: sql.DateTimeOffset, value: start },
+        end: { type: sql.DateTimeOffset, value: end },
+        organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+      }
+    ),
+    // Closed Won/Lost, snapshot view: appointments whose OWN closedAt
+    // falls in this period. Folded in here too: leads that closed
+    // without ever having an appointment at all (pipelineStatus =
+    // 'Closed', a direct call-outcome close) — no equivalent closedAt
+    // exists for that path (there's no Appointment row to hang one off),
+    // so this one sub-case still approximates via Lead.updatedAt, same
+    // imprecision as before this fix, not silently resolved — flagged
+    // to Mark, not decided unilaterally.
+    executeQuery(
+      `SELECT 'ClosedWon' AS bucket, COUNT(*) AS count FROM Appointment
+       WHERE status = 'ClosedWon' AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId
+       UNION ALL
+       SELECT 'ClosedLost' AS bucket, COUNT(*) AS count FROM Appointment
+       WHERE status IN ('ClosedLost', 'ReturnedToLeads') AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId
+       UNION ALL
+       SELECT 'ClosedLost' AS bucket, COUNT(*) AS count FROM Lead
+       WHERE pipelineStatus = 'Closed' AND updatedAt >= @start AND updatedAt <= @end
+         AND deletedAt IS NULL AND organisationId = @organisationId`,
+      {
+        start: { type: sql.DateTimeOffset, value: start },
+        end: { type: sql.DateTimeOffset, value: end },
+        organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+      }
+    ),
+  ]);
+  const pipelineCounts = Object.fromEntries(cohortRows.filter(r => r.bucket).map(r => [r.bucket, Number(r.count)]));
+  for (const row of closedRows) {
+    pipelineCounts[row.bucket] = (pipelineCounts[row.bucket] ?? 0) + Number(row.count);
+  }
   const pipeline = [
     { status: 'Unassigned',          count: pipelineCounts.Unassigned ?? 0 },
     { status: 'Assigned',            count: pipelineCounts.Assigned ?? 0 },
@@ -170,9 +209,11 @@ export async function getReportSummary(period, referenceDate) {
          WHERE createdAt >= @start AND createdAt <= @end AND deletedAt IS NULL AND organisationId = @organisationId`,
         { start: { type: sql.DateTimeOffset, value: b.start }, end: { type: sql.DateTimeOffset, value: b.end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
       ),
+      // §148 — was updatedAt (drifts on any later edit to a closed
+      // appointment); now closedAt, set once at the actual close moment.
       executeQuery(
         `SELECT COUNT(*) AS count FROM Appointment
-         WHERE status = 'ClosedWon' AND updatedAt >= @start AND updatedAt <= @end AND organisationId = @organisationId`,
+         WHERE status = 'ClosedWon' AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId`,
         { start: { type: sql.DateTimeOffset, value: b.start }, end: { type: sql.DateTimeOffset, value: b.end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
       ),
     ]);
@@ -183,15 +224,48 @@ export async function getReportSummary(period, referenceDate) {
   // standalone query, not folded into the pipeline/trend queries above,
   // to avoid any fan-out risk from joining AppointmentProduct alongside
   // Lead/Appointment aggregates that weren't designed around it.
+  // §148 (13 Aug 2026) — two changes, both Mark's explicit decision:
+  // (1) scoped by the appointment's closedAt, not createdAt (a deal's
+  // value is realised when it closes, not when the appointment was
+  // booked); (2) now filtered to status = 'ClosedWon' only — "a deal's
+  // value only really exists once won" — the old query had no status
+  // filter at all and summed policyValue across every appointment
+  // created in the period regardless of outcome, which is a genuine
+  // correction, not just a date-basis change.
   const policyValueRows = await executeQuery(
     `SELECT COALESCE(SUM(ap.policyValue), 0) AS "total" FROM AppointmentProduct ap
      JOIN Appointment a ON a.id = ap.appointmentId
-     WHERE a.createdAt >= @start AND a.createdAt <= @end AND a.organisationId = @organisationId`,
+     WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId`,
     { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
   const totalPolicyValue = Number(policyValueRows[0].total);
 
-  return { pipeline, trend, totalPolicyValue };
+  // Avg Days to Close — new metric, §148, Mark's explicit request. Won
+  // and Lost tracked separately (his choice — "interesting to compare").
+  // Measured from the parent LEAD's createdAt, not the appointment's own
+  // — a lead can have several Appointment rows over its life (a failed
+  // attempt, a Reopen, a second attempt that succeeds), so measuring
+  // from the appointment's own createdAt would understate the true
+  // time-to-close by missing everything before the final, successful
+  // attempt. Matches how Mark framed the original bug report too ("the
+  // Lead was created in July").
+  const daysToCloseRows = await executeQuery(
+    `SELECT a.status,
+       AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays"
+     FROM Appointment a
+     JOIN Lead l ON l.id = a.leadId
+     WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end
+       AND a.organisationId = @organisationId
+     GROUP BY a.status`,
+    { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  const daysToCloseByStatus = Object.fromEntries(daysToCloseRows.map(r => [r.status, r.avgDays === null ? null : Number(r.avgDays)]));
+  const avgDaysToClose = {
+    won:  daysToCloseByStatus.ClosedWon  ?? null,
+    lost: daysToCloseByStatus.ClosedLost ?? null,
+  };
+
+  return { pipeline, trend, totalPolicyValue, avgDaysToClose };
 }
 
 /**
@@ -323,9 +397,29 @@ export async function getAgentDetailReport(agentId, period, scope, referenceDate
     { agentId: { type: sql.UniqueIdentifier, value: agentId } }
   );
 
+  // §148 (13 Aug 2026) — Avg Days to Close, broken down per agent per
+  // Mark's decision. Same measurement basis as the org-wide version in
+  // getReportSummary(): parent Lead's createdAt to Appointment.closedAt,
+  // Won and Lost tracked separately.
+  const agentDaysToCloseRows = await executeQuery(
+    `SELECT a.status,
+       AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays"
+     FROM Appointment a
+     JOIN Lead l ON l.id = a.leadId
+     WHERE a.agentId = @agentId AND a.status IN ('ClosedWon', 'ClosedLost')
+       AND a.closedAt >= @start AND a.closedAt <= @end
+     GROUP BY a.status`,
+    { agentId: { type: sql.UniqueIdentifier, value: agentId }, start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end } }
+  );
+  const agentDaysToCloseByStatus = Object.fromEntries(agentDaysToCloseRows.map(r => [r.status, r.avgDays === null ? null : Number(r.avgDays)]));
+  const avgDaysToClose = {
+    won:  agentDaysToCloseByStatus.ClosedWon  ?? null,
+    lost: agentDaysToCloseByStatus.ClosedLost ?? null,
+  };
+
   return {
     meta: { name: meta.name, region: meta.region, portfolios: meta.portfolios },
-    kpi, callOutcomes, activity,
+    kpi, callOutcomes, activity, avgDaysToClose,
     recentLeads: recentLeads.map(r => ({
       leadId: r.leadId, name: `${r.firstName} ${r.lastName}`, source: r.source,
       status: r.status, lastOutcome: r.lastOutcome, lastCallTime: r.lastCallTime,
@@ -454,9 +548,28 @@ export async function getBrokerDetailReport(brokerId, period, scope, referenceDa
     { brokerId: { type: sql.UniqueIdentifier, value: brokerId } }
   );
 
+  // §148 (13 Aug 2026) — Avg Days to Close, broken down per broker per
+  // Mark's decision. Same basis as the agent version just above: parent
+  // Lead's createdAt to Appointment.closedAt, Won and Lost separately.
+  const brokerDaysToCloseRows = await executeQuery(
+    `SELECT a.status,
+       AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays"
+     FROM Appointment a
+     JOIN Lead l ON l.id = a.leadId
+     WHERE a.brokerId = @brokerId AND a.status IN ('ClosedWon', 'ClosedLost')
+       AND a.closedAt >= @start AND a.closedAt <= @end
+     GROUP BY a.status`,
+    { brokerId: { type: sql.UniqueIdentifier, value: brokerId }, start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end } }
+  );
+  const brokerDaysToCloseByStatus = Object.fromEntries(brokerDaysToCloseRows.map(r => [r.status, r.avgDays === null ? null : Number(r.avgDays)]));
+  const avgDaysToClose = {
+    won:  brokerDaysToCloseByStatus.ClosedWon  ?? null,
+    lost: brokerDaysToCloseByStatus.ClosedLost ?? null,
+  };
+
   return {
     meta: { name: meta.name, region: meta.region, portfolios: meta.portfolios },
-    kpi, productsSold, meetingSummary,
+    kpi, productsSold, meetingSummary, avgDaysToClose,
     recentAppointments: recentRows.map(r => ({
       id: r.id, name: `${r.firstName} ${r.lastName}`, portfolio: r.portfolio, portfolios: r.portfolios,
       m1: r.m1, m2: r.m2, signed: r.signed, products: r.products, totalValue: Number(r.totalValue),

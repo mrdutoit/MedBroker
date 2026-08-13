@@ -100,8 +100,16 @@ export default function AgentDetail() {
     );
   }
 
-  const { meta, kpi, callOutcomes, activity, recentLeads } = data;
-  const maxActivity = Math.max(...activity.map(d => d.calls), 1);
+  const { meta, kpi, callOutcomes, activity, recentLeads, avgDaysToClose } = data;
+  // FIXED 13 Aug 2026 (Mark caught it via a live testing screenshot) —
+  // was Math.max(...activity.map(d => d.calls), 1), entirely ignoring
+  // d.booked. Whenever a week's appointments-booked count exceeded its
+  // calls-made count (e.g. 2 booked, 1 call — perfectly normal, an agent
+  // can book a second appointment on an existing lead without a fresh
+  // call that same week), the green bar's height computed to well over
+  // 100% of its 120px container and rendered right through the card
+  // title above it, since nothing clips overflow on the bar's parent.
+  const maxActivity = Math.max(...activity.flatMap(d => [d.calls, d.booked]), 1);
 
   return (
     <div style={{ padding: isMobile ? '12px' : '24px' }}>
@@ -132,13 +140,21 @@ export default function AgentDetail() {
       )}
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: '12px', marginBottom: '18px' }}>
+      {/* §148 (13 Aug 2026) — grid changed from a fixed repeat(5, 1fr) to
+          auto-fit/minmax so the two new Avg Days to Close cards (Mark's
+          request) wrap onto a second row on narrower screens instead of
+          cramming 7 columns into the same width the original 5 had. */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '18px' }}>
         {[
           { label: 'Leads assigned',    value: kpi.leads.toLocaleString(),    colour: 'var(--ink)' },
           { label: 'Calls made',        value: kpi.calls.toLocaleString(),    colour: 'var(--ink)' },
           { label: 'Appts booked',      value: kpi.appts.toString(),          colour: '#7c3aed', sub: `${kpi.conversion} booking rate` },
           { label: 'Callbacks pending', value: kpi.callbacks.toString(),      colour: '#d97706' },
           { label: 'No answer',         value: kpi.noAnswer.toString(),       colour: '#ef4444' },
+          // §148 — new, Mark's explicit request. null (no deals of that
+          // outcome closed this period) shown as an em dash, not "0 days".
+          { label: 'Avg days to close (Won)',  value: avgDaysToClose.won  === null ? '—' : `${avgDaysToClose.won.toFixed(1)}`,  colour: '#15803d', sub: avgDaysToClose.won === null ? undefined : 'days' },
+          { label: 'Avg days to close (Lost)', value: avgDaysToClose.lost === null ? '—' : `${avgDaysToClose.lost.toFixed(1)}`, colour: '#ef4444', sub: avgDaysToClose.lost === null ? undefined : 'days' },
         ].map(m => (
           <div key={m.label} style={s.metricCard}>
             <div style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{m.label}</div>

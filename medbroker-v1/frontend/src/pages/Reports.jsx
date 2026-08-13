@@ -191,6 +191,15 @@ export default function Reports() {
   const orgAppts          = agents.reduce((sum, a) => sum + a.appts, 0);
   const activeBrokers     = brokers.filter(b => b.appts > 0).length;
   const orgTotalPolicyValue = summaryData?.totalPolicyValue ?? 0;
+  // §148 (13 Aug 2026) — new metric, Mark's explicit request: how long,
+  // on average, from a Lead's creation to its Appointment actually
+  // closing. Won and Lost tracked separately per his decision ("interesting
+  // to compare"). null (not 0) means no deals of that outcome closed in
+  // this period at all — genuinely different from "closed instantly",
+  // so it's shown as an em dash rather than "0 days" below.
+  const fmtDays = (d) => d === null || d === undefined ? '—' : `${d.toFixed(1)} days`;
+  const orgAvgDaysToCloseWon  = summaryData?.avgDaysToClose?.won  ?? null;
+  const orgAvgDaysToCloseLost = summaryData?.avgDaysToClose?.lost ?? null;
 
   const kpis = selfView
     ? (isAgentView && myAgent
@@ -214,6 +223,9 @@ export default function Reports() {
         { label: 'Appointments booked',value: orgAppts.toLocaleString(),      sub: 'Booked this period' },
         { label: 'Active brokers',     value: activeBrokers.toString(),       sub: 'With ≥1 appointment' },
         { label: 'Total policy value', value: fmt(orgTotalPolicyValue),       sub: 'Across all products sold' },
+        // §148 (13 Aug 2026) — new, Mark's explicit request.
+        { label: 'Avg days to close (Won)',  value: fmtDays(orgAvgDaysToCloseWon),  sub: 'Lead created → appointment won' },
+        { label: 'Avg days to close (Lost)', value: fmtDays(orgAvgDaysToCloseLost), sub: 'Lead created → appointment lost' },
       ];
 
   const noSelfData = selfView && !anyLoading && kpis.length === 0;

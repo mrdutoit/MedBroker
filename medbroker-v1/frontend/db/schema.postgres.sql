@@ -529,6 +529,21 @@ CREATE TABLE IF NOT EXISTS Appointment (
     customerSigned              BOOLEAN         NULL,
     isBrokerSwitch              BOOLEAN         NULL,
 
+    -- §148 follow-up (13 Aug 2026, migration 027) — set exactly once, at
+    -- the moment status transitions to ClosedWon, ClosedLost, or
+    -- ReturnedToLeads (appointmentStatusService.js), mirroring claimedAt
+    -- just below rather than relying on updatedAt (which drifts on any
+    -- later edit — a note correction on a closed appointment would
+    -- silently shift its apparent close period under the old approach).
+    -- Reports scope Closed Won/Lost, the trend chart's "won" series,
+    -- Total Policy Value, and the new Avg Days to Close metric off this
+    -- column now, not createdAt/updatedAt. NULL for every appointment
+    -- that hasn't closed yet, and for the small number of already-closed
+    -- ones predating this column (best-effort backfilled from their own
+    -- updatedAt in this same migration — see migration 027's own header
+    -- for why that's imprecise but accepted).
+    closedAt                    TIMESTAMPTZ     NULL,
+
     claimedByBrokerId           UUID            NULL,
     claimedAt                   TIMESTAMPTZ     NULL,
     claimTokenCost              INT             NULL DEFAULT 0,

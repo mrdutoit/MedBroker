@@ -100,7 +100,7 @@ export default function BrokerDetail() {
     );
   }
 
-  const { meta, kpi, productsSold, meetingSummary, recentAppointments } = data;
+  const { meta, kpi, productsSold, meetingSummary, recentAppointments, avgDaysToClose } = data;
   // Bar width must scale with value, not count — count only tells you how
   // many times a product was sold, not how much it was worth. With every
   // product sold exactly once (as in early test data), every bar computed
@@ -138,17 +138,25 @@ export default function BrokerDetail() {
       )}
 
       {/* KPIs */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: '12px', marginBottom: '18px' }}>
+      {/* §148 (13 Aug 2026) — grid changed from a fixed repeat(5, 1fr) to
+          auto-fit/minmax, same reasoning as AgentDetail.jsx's identical
+          change: 7 columns now, not 5. */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '18px' }}>
         {[
           { label: 'Appointments',    value: kpi.appts.toString(),        colour: 'var(--ink)' },
           { label: 'Signed',          value: kpi.signed.toString(),       colour: '#15803d' },
           { label: 'Conversion',      value: kpi.conversion,              colour: '#15803d' },
           { label: 'Policy value',    value: `R${kpi.policyValue.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, colour: '#15803d' },
           { label: 'Broker switches', value: kpi.switches.toString(),     colour: 'var(--ink)' },
+          // §148 — new, Mark's explicit request. null (no deals of that
+          // outcome closed this period) shown as an em dash, not "0 days".
+          { label: 'Avg days to close (Won)',  value: avgDaysToClose.won  === null ? '—' : `${avgDaysToClose.won.toFixed(1)}`,  colour: '#15803d', sub: avgDaysToClose.won === null ? undefined : 'days' },
+          { label: 'Avg days to close (Lost)', value: avgDaysToClose.lost === null ? '—' : `${avgDaysToClose.lost.toFixed(1)}`, colour: '#ef4444', sub: avgDaysToClose.lost === null ? undefined : 'days' },
         ].map(m => (
           <div key={m.label} style={s.metricCard}>
             <div style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{m.label}</div>
             <div style={{ fontSize: '1.5rem', fontWeight: 700, color: m.colour, lineHeight: 1 }}>{m.value}</div>
+            {m.sub && <div style={{ fontSize: '0.75rem', color:'var(--mut)', marginTop: '4px' }}>{m.sub}</div>}
           </div>
         ))}
       </div>
