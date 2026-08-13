@@ -206,8 +206,15 @@ export default function LeadImport() {
     for (let i = 0; i < csvRows.length; i++) {
       if (dupeIndices.has(i)) continue; // already known — don't even attempt these
       try {
+        // Found 13 Aug 2026 while scoping §142 item 2's revision — this
+        // branch never set leadSource at all, so it silently defaulted
+        // to 'ManualEntry' (CreateLeadSchema's own .default()). Harmless
+        // before today; would have wrongly tripped the new
+        // ManualEntry-only mandatory-portfolio rule otherwise, since
+        // this is bulk-imported the same way the csv tab is, just tagged
+        // to a subscription instead of a named source.
         const tag = isSubscription
-          ? { linkedSubscriptionId: subId }
+          ? { leadSource: 'CSVImport', linkedSubscriptionId: subId }
           : { leadSource: 'CSVImport', manualSourceName: csvSource };
         await leadsApi.create(stripEmpty({ ...csvRows[i], ...tag }));
         ok++;

@@ -76,7 +76,15 @@ export const LeadSource = z.enum([
   'WebForm',
 ]);
 
-export const CreateLeadSchema = z.object({
+// §142, item 2 revision (13 Aug 2026) — split into a bare shape
+// (CreateLeadShape, a plain ZodObject) and the exported, refined
+// CreateLeadSchema below it. Needed because UpdateLeadSchema further
+// down derives via CreateLeadSchema.partial() — .partial() only exists
+// on ZodObject, not on the ZodEffects wrapper .superRefine() produces.
+// UpdateLeadSchema intentionally derives from the bare shape, not the
+// refined one: the ManualEntry-only mandatory-portfolio rule is a
+// creation-time gate, not something a partial edit should re-trigger.
+const CreateLeadShape = z.object({
   title:                Title,
   firstName:            z.string().min(1, 'First name is required').max(100),
   lastName:             z.string().min(1, 'Last name is required').max(100),
@@ -102,16 +110,18 @@ export const CreateLeadSchema = z.object({
   // any more than a broker is limited to selling from one. Carries
   // through to Book Appointment's own (still single-select — one
   // appointment is for one portfolio) pre-fill.
-  // Changed 13 Aug 2026 (§142, item 2) — was optional (the comment here
-  // used to read "a Lead can exist for a long time before anyone knows
-  // any of its portfolios"), now mandatory: Mark's explicit instruction,
-  // at least one Portfolio required. NOTE, not raised back to Mark before
-  // building since this is the one existing shared schema for both entry
-  // paths: this also now requires CSV bulk import rows (LeadImport.jsx's
-  // "csv" tab, same leadsApi.create() call per row) to carry a resolvable
-  // portfolio value, not just the manual "Create Lead" tab — flag if a
-  // CSV without portfolio data needs to keep working.
-  portfolios:           z.array(z.string()).min(1, 'Select at least one portfolio'),
+  // Changed 13 Aug 2026 (§142, item 2, revised same day) — first pass
+  // made this field itself `.min(1)`, which also blocked CSV/subscription
+  // bulk import rows (they share this schema, same leadsApi.create()
+  // call). Mark caught this: he wants it mandatory on the manual "Create
+  // Lead" form specifically, not on bulk import, where portfolio often
+  // genuinely isn't known yet. Reverted to .optional() here — the actual
+  // requirement now lives in the superRefine() below, conditioned on
+  // leadSource === 'ManualEntry', so backend enforcement still exists
+  // for that one path (not UI-only) while CSVImport/EventAttendance/
+  // Referral/WebForm-sourced leads stay exempt, matching pre-existing
+  // behaviour for those sources.
+  portfolios:           z.array(z.string()).optional(),
   leadSource:           LeadSource.default('ManualEntry'),
   linkedEventId:        z.string().uuid().optional(),
   linkedSubscriptionId: z.string().uuid().optional(),
@@ -119,7 +129,24 @@ export const CreateLeadSchema = z.object({
   manualSourceName:     z.string().max(300).optional(),
 });
 
-export const UpdateLeadSchema = CreateLeadSchema.partial().omit({
+export const CreateLeadSchema = CreateLeadShape.superRefine((data, ctx) => {
+  // §142, item 2 (13 Aug 2026) — Portfolio mandatory on manual Lead
+  // creation only. Gated on leadSource, not on the caller (there's no
+  // reliable "who's calling" signal other than what the row itself
+  // declares) — LeadImport.jsx's manual "Create Lead" tab hardcodes
+  // leadSource: 'ManualEntry'; its CSV tab hardcodes 'CSVImport'; its
+  // "subscription" tab was found NOT setting leadSource at all (silently
+  // defaulting to 'ManualEntry' via .default() above) — fixed alongside
+  // this change in LeadImport.jsx to explicitly tag those rows
+  // 'CSVImport' too, since they're bulk-imported the same way, or this
+  // refine would have caught subscription imports in the same trap CSV
+  // import was just pulled out of.
+  if (data.leadSource === 'ManualEntry' && (!data.portfolios || data.portfolios.length === 0)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['portfolios'], message: 'Select at least one portfolio' });
+  }
+});
+
+export const UpdateLeadSchema = CreateLeadShape.partial().omit({
   leadSource: true,
   linkedEventId: true,
 });

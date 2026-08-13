@@ -10932,7 +10932,8 @@ and both were then built in the same session.
    queued in §138 given the overlap). Flagged here so it isn't lost,
    deliberately not conflated with the Date/Time field fix above.
 
-2. PORTFOLIO NOT MANDATORY ON LEAD CREATION — FIXED
+2. PORTFOLIO NOT MANDATORY ON LEAD CREATION — FIXED, THEN REVISED SAME
+   DAY after Mark caught a real consequence of the first pass
    Was optional on both sides:
      - Backend: CreateLeadSchema.portfolios in api-lib/models/lead.js was
        `z.array(z.string()).optional()`.
@@ -10941,27 +10942,46 @@ and both were then built in the same session.
        mobileNumber/email but had no portfolios entry at all. The
        field's own on-screen hint text used to read "Optional, and not
        limited to one".
-   FIX, BUILT AND VERIFIED: CreateLeadSchema.portfolios changed to
-   `z.array(z.string()).min(1, 'Select at least one portfolio')`;
-   matching required-field check added to handleManualSubmit's errors
-   object client-side; label changed to "Portfolio *" and hint text
-   updated; error message rendered beneath the checkboxes matching
-   every other required field's pattern on this form. Verified via a
-   direct functional test against the live schema: empty array
-   rejected with the custom message, field omitted entirely rejected
-   as "Required", one portfolio accepted.
-   FLAGGED, NOT RESOLVED: CreateLeadSchema.portfolios is the one shared
-   schema behind BOTH the manual "Create Lead" tab AND CSV bulk import
-   (LeadImport.jsx's "csv" tab, same leadsApi.create() call per row).
-   This fix therefore also now requires every CSV import row to carry a
-   resolvable portfolio value — a CSV without a portfolio column, or
-   with blank cells, will now fail those rows (400, not 409, so they'd
-   land in the "fail" count with no per-row detail shown to Mark). Not
-   raised as a question before building since Mark's instruction was
-   specific to "the Lead Creation form" and this was built to match
-   that literally — flagging so it's a deliberate, visible choice
-   rather than a silent side effect discovered later during a real
-   import.
+   FIRST PASS (superseded): made CreateLeadSchema.portfolios itself
+   `.min(1)`. Correctly matched Mark's literal instruction but also
+   blocked CSV bulk-import rows, since they share this one schema.
+   Flagged at the time as a deliberate, visible trade-off rather than a
+   silent side effect — Mark came back and asked for it resolved
+   properly instead of accepted.
+   REVISED FIX, BUILT AND VERIFIED: portfolios field itself reverted to
+   `.optional()`; the actual requirement now lives in a `.superRefine()`
+   on CreateLeadSchema, conditioned on `leadSource === 'ManualEntry'`.
+   Backend enforcement still exists for the manual-entry path specifically
+   (not UI-only — hitting the API directly with leadSource: 'ManualEntry'
+   and no portfolios is still correctly rejected), while CSVImport/
+   EventAttendance/Referral/WebForm-sourced leads stay exempt, matching
+   their pre-existing behaviour. Required a structural change alongside
+   it: CreateLeadSchema.superRefine() returns a ZodEffects wrapper, which
+   doesn't support `.partial()` — and UpdateLeadSchema further down
+   derives via `CreateLeadSchema.partial()`. Split the plain object into
+   an internal `CreateLeadShape`, with UpdateLeadSchema now deriving from
+   that bare shape instead (a partial edit shouldn't re-trigger a
+   creation-time gate anyway) and the exported CreateLeadSchema being
+   `CreateLeadShape.superRefine(...)`.
+   FOUND WHILE SCOPING THIS: LeadImport.jsx's "subscription" import tab
+   (tab === 'subscription') never set leadSource at all in its tag
+   object — only linkedSubscriptionId — silently defaulting to
+   'ManualEntry' via the schema's own .default(). Pre-existing quirk,
+   not introduced by this change, but would have reproduced the exact
+   CSV-breaking problem for subscription-linked bulk imports specifically
+   if left alone, since it's bulk-imported the same way the csv tab is.
+   Fixed alongside this: that branch's tag now explicitly includes
+   `leadSource: 'CSVImport'` too.
+   VERIFIED: 8-case direct functional test against the live schema —
+   ManualEntry with no portfolios (rejected), ManualEntry with empty
+   array (rejected), ManualEntry with one portfolio (accepted),
+   CSVImport with no portfolios (accepted), CSVImport with empty array
+   (accepted), leadSource omitted entirely / defaults to ManualEntry
+   (rejected, matches manual-form behaviour correctly), WebForm with no
+   portfolios (accepted, confirms other sources aren't accidentally
+   gated), and UpdateLeadSchema still accepting a plain partial edit
+   (confirms the .partial()/.omit() restructure didn't break lead
+   editing). All eight behaved exactly as intended.
 
 3. AUDIT LOG DOESN'T REFLECT A LOGGED CALL WITHOUT A MANUAL RELOAD — FIXED
    Confirmed the backend write was already correct — this was NOT a
@@ -11100,3 +11120,62 @@ this shared sandbox IP). Not re-duplicated here — that paragraph is
 the authoritative account, per this file's own stated convention of
 correcting/updating the one real entry rather than accumulating a
 second, possibly-disagreeing copy elsewhere in the file.
+
+143. BROKER-MATCHING FILTER CRITERIA — CORRECTED MARK'S OWN
+     ASSUMPTION, AND A GENUINE OPEN SCOPING QUESTION — 13 Aug 2026
+     (session 21, continued)
+
+Mark asked three related questions while reviewing item 2's revision
+above: whether Portfolio filters broker availability in the Assign
+flow (he believed it does), whether the Claim model's pool is filtered
+by Portfolio and/or Products, and whether Lead should capture Products
+the same way it now captures Portfolio.
+
+CORRECTION, verified by reading both matching code paths directly:
+Portfolio does NOT drive broker eligibility anywhere in this codebase.
+  - Assign flow: brokerMatchingService.js's findMatchingBrokers()
+    filters strictly by region (BrokerRegion) and product specialisation
+    (BrokerProduct) — no portfolio reference anywhere in the file.
+    Products is already a hard backend requirement here: `if (!products
+    || products.length === 0) throw { status: 400, message: 'at least
+    one product is required for broker matching' }`.
+  - Claim model: appointmentService.js's listAvailableToClaim() filters
+    the same way — region match via BrokerRegion, then product overlap
+    via BrokerProduct, computed in JS against the appointment's
+    productsInterestedIn. Its own docblock confirms this mirrors
+    findMatchingBrokers()'s eligibility rule exactly, just inverted. An
+    appointment with no productsInterestedIn recorded is shown to every
+    region-matched broker rather than excluded — a deliberate existing
+    design choice ("the alternative would make an appointment
+    permanently unclaimable over a data-entry gap"), not something
+    changed today.
+  - Portfolio's only role, confirmed by grep across both services: pure
+    storage/reporting/filtering on the Appointment record itself
+    (AppointmentPortfolio, listAppointments's own `portfolio` filter
+    param, Reports.jsx). No BrokerPortfolio table exists. Mark's mental
+    model was off on which field does the filtering — Products, not
+    Portfolio — corrected here rather than silently building around the
+    wrong premise.
+  - One consistency point worth noting: CreateAppointmentSchema has
+    required data.portfolios (min 1) since §41/§45 already — today's
+    Lead-level portfolio fix (item 2 above) brings Lead creation in line
+    with what Appointment creation already enforced, not a new
+    standard.
+
+OPEN SCOPING QUESTION, NOT BUILT — Mark's "should Lead not include
+Products as well?": well-founded. Products is the field that actually
+drives matching in both flows (and is already backend-mandatory at
+Appointment-creation time), yet — confirmed by grep — Lead has no
+products-equivalent field at all; it's only ever captured for the
+first time at Book Appointment. Portfolio, by contrast, now has the
+early-capture-and-carry-through treatment Products arguably needs more.
+Making this real would mean: adding a products array to
+CreateLeadSchema, a Products selector on the manual Create Lead form
+(CSV import less obviously — a products column in a spreadsheet is a
+reasonable ask, not yet discussed), and wiring Book Appointment's own
+Products selection to pre-fill from the Lead the same way Portfolio
+does now. Whether it should be mandatory (matching Portfolio's new
+treatment) or stay optional is Mark's call, not decided. NOT SCOPED
+FURTHER OR BUILT THIS SESSION — flagged as a real next-session
+candidate, deliberately not built speculatively without Mark deciding
+mandatory-or-optional and manual-form-only-or-also-CSV first.
