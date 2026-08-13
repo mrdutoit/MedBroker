@@ -36,7 +36,7 @@ import { useState }     from 'react';
 import { useNavigate }  from 'react-router';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, LabelList, Legend,
+  ResponsiveContainer, Cell, LabelList, Legend, PieChart, Pie,
 } from 'recharts';
 import { useRole }       from '../context/RoleContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
@@ -74,6 +74,22 @@ const PIPELINE_COLOURS = {
   'Closed Won':          'var(--pl-won)',
   'Closed Lost':         'var(--pl-lost)',
 };
+
+// §152 follow-up (13 Aug 2026) — Mark asked for the four new breakdown
+// reports (§151) to include donut/stacked-bar visuals rather than being
+// plain tables. This palette is deliberately NOT theme-derived the way
+// PIPELINE_COLOURS/CHART_PALETTE are — those cover a fixed, small,
+// semantically-meaningful set of statuses (Won should read as
+// "success", Lost as "danger", consistently with the rest of the app).
+// A Lead Source or Portfolio breakdown has no such inherent meaning and
+// a variable, open-ended category count (could be 3 rows, could be 15)
+// — a standard rotating categorical palette is the right tool for this
+// shape of data, same as most charting libraries default to for
+// open-ended category axes.
+const CATEGORICAL_PALETTE = [
+  '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444',
+  '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1',
+];
 
 const TREND_LABELS = {
   Monthly:   'Weekly Lead Volume vs Closed Won',
@@ -464,34 +480,85 @@ export default function Reports() {
           {t.rows.length === 0 ? (
             <div style={{ padding: '16px', color: colors.ink400, fontSize: '0.875rem' }}>No data for this period.</div>
           ) : (
-          <table style={{ ...s.table, minWidth: '700px' }}>
-            <thead>
-              <tr>
-                <th style={s.th}>{t.keyLabel}</th>
-                <th style={{ ...s.th, textAlign: 'right' }}>{t.countLabel}</th>
-                <th style={{ ...s.th, textAlign: 'right' }}>Closed Won</th>
-                <th style={{ ...s.th, textAlign: 'right' }}>Closed Lost</th>
-                <th style={{ ...s.th, textAlign: 'right' }}>Conversion</th>
-                <th style={{ ...s.th, textAlign: 'right' }}>Avg days to close (Won)</th>
-                <th style={{ ...s.th, textAlign: 'right' }}>Avg days to close (Lost)</th>
-                {t.showPolicyValue && <th style={{ ...s.th, textAlign: 'right' }}>Avg policy value (Won)</th>}
-              </tr>
-            </thead>
-            <tbody>
-              {t.rows.map(row => (
-                <tr key={row[t.keyField]} style={s.tr}>
-                  <td style={{ ...s.td, fontWeight: 600, color: colors.ink }}>{row[t.keyField]}</td>
-                  <td style={{ ...s.td, textAlign: 'right' }}>{row[t.countField].toLocaleString()}</td>
-                  <td style={{ ...s.td, textAlign: 'right', color: colors.success, fontWeight: 600 }}>{row.closedWon}</td>
-                  <td style={{ ...s.td, textAlign: 'right' }}>{row.closedLost}</td>
-                  <td style={{ ...s.td, textAlign: 'right' }}>{row.conversion}</td>
-                  <td style={{ ...s.td, textAlign: 'right' }}>{fmtDays(row.avgDaysToCloseWon)}</td>
-                  <td style={{ ...s.td, textAlign: 'right' }}>{fmtDays(row.avgDaysToCloseLost)}</td>
-                  {t.showPolicyValue && <td style={{ ...s.td, textAlign: 'right' }}>{row.avgPolicyValueWon === null ? '—' : fmt(row.avgPolicyValueWon)}</td>}
+          <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '20px', padding: '16px' }}>
+            {/* Donut — volume distribution across categories. Deliberately
+                just the count, not Won/Lost/days-to-close — those don't
+                reduce to a single "share of whole" number the way volume
+                does, and stay in the table where precision matters more
+                than a shape-at-a-glance read. */}
+            <div style={{ flexShrink: 0, width: isMobile ? '100%' : '220px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie
+                    data={t.rows.map(r => ({ name: r[t.keyField], value: r[t.countField] }))}
+                    cx="50%" cy="50%" innerRadius={50} outerRadius={80}
+                    paddingAngle={t.rows.length > 1 ? 2 : 0} dataKey="value"
+                  >
+                    {t.rows.map((r, i) => <Cell key={r[t.keyField]} fill={CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length]} />)}
+                  </Pie>
+                  <Tooltip formatter={(value, name) => [`${value} ${t.countLabel.toLowerCase()}`, name]} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', justifyContent: 'center', marginTop: '4px' }}>
+                {t.rows.map((r, i) => (
+                  <span key={r[t.keyField]} style={{ fontSize: '0.6875rem', color: 'var(--mut)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                    <span style={{ width: '8px', height: '8px', borderRadius: '2px', background: CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length], display: 'inline-block' }} />
+                    {r[t.keyField]}
+                  </span>
+                ))}
+              </div>
+            </div>
+
+            <div style={{ flex: 1, minWidth: 0, overflowX: 'auto' }}>
+            <table style={{ ...s.table, minWidth: '620px' }}>
+              <thead>
+                <tr>
+                  <th style={s.th}>{t.keyLabel}</th>
+                  <th style={{ ...s.th, textAlign: 'right' }}>{t.countLabel}</th>
+                  {/* Won/Lost — was two plain number columns; now one
+                      inline stacked bar (green=won, red=lost, grey=
+                      neither closed yet this period) plus the exact
+                      counts as text underneath, same "visual shape +
+                      precise number together" pattern the Broker/Agent
+                      Performance tables already use for Conversion. */}
+                  <th style={{ ...s.th, minWidth: '140px' }}>Won / Lost</th>
+                  <th style={{ ...s.th, textAlign: 'right' }}>Conversion</th>
+                  <th style={{ ...s.th, textAlign: 'right' }}>Avg days to close (Won)</th>
+                  <th style={{ ...s.th, textAlign: 'right' }}>Avg days to close (Lost)</th>
+                  {t.showPolicyValue && <th style={{ ...s.th, textAlign: 'right' }}>Avg policy value (Won)</th>}
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {t.rows.map(row => {
+                  const total = row[t.countField] || 1; // guard div/0 — bar just renders empty at count 0
+                  const wonPct  = Math.round((row.closedWon  / total) * 100);
+                  const lostPct = Math.round((row.closedLost / total) * 100);
+                  return (
+                  <tr key={row[t.keyField]} style={s.tr}>
+                    <td style={{ ...s.td, fontWeight: 600, color: colors.ink }}>{row[t.keyField]}</td>
+                    <td style={{ ...s.td, textAlign: 'right' }}>{row[t.countField].toLocaleString()}</td>
+                    <td style={s.td}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <div style={{ width: '70px', flexShrink: 0, background: colors.surfaceSubtle, borderRadius: '999px', height: '6px', overflow: 'hidden', display: 'flex' }}>
+                          <div style={{ width: `${wonPct}%`, background: colors.success, height: '100%' }} />
+                          <div style={{ width: `${lostPct}%`, background: '#ef4444', height: '100%' }} />
+                        </div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--mut)', whiteSpace: 'nowrap' }}>
+                          <span style={{ color: colors.success, fontWeight: 600 }}>{row.closedWon}</span> / <span style={{ color: '#ef4444', fontWeight: 600 }}>{row.closedLost}</span>
+                        </span>
+                      </div>
+                    </td>
+                    <td style={{ ...s.td, textAlign: 'right' }}>{row.conversion}</td>
+                    <td style={{ ...s.td, textAlign: 'right' }}>{fmtDays(row.avgDaysToCloseWon)}</td>
+                    <td style={{ ...s.td, textAlign: 'right' }}>{fmtDays(row.avgDaysToCloseLost)}</td>
+                    {t.showPolicyValue && <td style={{ ...s.td, textAlign: 'right' }}>{row.avgPolicyValueWon === null ? '—' : fmt(row.avgPolicyValueWon)}</td>}
+                  </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+            </div>
+          </div>
           )}
         </div>
       ))}

@@ -416,6 +416,27 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
           </div>
         )}
 
+        {/* §151 follow-up (13 Aug 2026) — was missing entirely in edit
+            mode. Mark's own earlier request made display name read-only
+            everywhere EXCEPT here specifically, but this input never
+            actually existed in the edit-mode form — only the read-only
+            identity card above showed the current value as plain text.
+            The save handler already sent form.displayName in the isEdit
+            branch's payload (unaffected by this — always correct), and
+            UpdateUserSchema (this admin-edit schema, not the self-service
+            UpdateOwnProfileSchema locked down earlier) already accepted
+            it — the ENTIRE gap was this one missing input, nothing else.
+            Not gated to GlobalAdmin-only like the Sign-in identity
+            section below (email/Entra correction) — available to anyone
+            who can already open this edit modal at all, consistent with
+            Mark's original ask having no such restriction. */}
+        {isEdit && (
+          <div style={s.formGroup}>
+            <label style={s.formLabel}>Display name *</label>
+            <input style={s.formInput} value={form.displayName} onChange={e => setForm(f => ({ ...f, displayName: e.target.value }))} placeholder="Dr Jane Smith" />
+          </div>
+        )}
+
         {/* §114 — Sign-in identity: GlobalAdmin only, edit mode only.
             Email correction + manual Entra Object ID link/unlink — the
             action design decision (a), §109/§110, deliberately scoped

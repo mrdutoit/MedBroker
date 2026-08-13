@@ -11835,3 +11835,88 @@ frontend/api-lib/models/user.js, frontend/api-lib/services/
 userService.js, frontend/src/pages/Settings.jsx, frontend/api-lib/
 services/reportService.js, frontend/src/themes.css, frontend/src/
 pages/Reports.jsx.
+
+153. THREE ITEMS FROM MARK'S REVIEW OF §151/§152 — 13 Aug 2026 (session
+     21, continued)
+
+1. USER ADMIN DISPLAY NAME EDIT — REAL GAP, MARK CAUGHT A FALSE CLAIM
+   IN §151's OWN SUMMARY, FIXED PROPERLY. §151 stated "confirmed
+   UserAdmin.jsx already supports editing displayName for other users"
+   — Mark tested it directly and it doesn't. Traced precisely: the
+   Display Name (and Email) input was wrapped in `{!isEdit && (...)}` —
+   only ever rendered when CREATING a new user, never when EDITING an
+   existing one. In edit mode, only a read-only "identity card" showed
+   the current name as plain text. The earlier claim was based on
+   seeing form.displayName referenced in the file, without checking
+   whether the actual input rendered in edit mode specifically — a real
+   verification failure, not a hedge, owned directly rather than
+   re-asserted.
+   GOOD NEWS FOUND WHILE FIXING: the save payload (isEdit branch) and
+   the backend UpdateUserSchema (the admin-edit schema, separate from
+   the self-service UpdateOwnProfileSchema locked down earlier this
+   session) both already correctly accepted/sent displayName — the
+   entire gap was the one missing input field, nothing deeper.
+   FIX: added an editable Display Name input in edit mode, placed right
+   after the existing read-only identity card. Not gated to
+   GlobalAdmin-only like the separate Sign-in identity (email/Entra)
+   correction section below it — available to anyone who can already
+   open the edit modal at all, matching Mark's original request having
+   no such restriction.
+   VERIFIED: full Vite build clean.
+
+2. BOOKING RATE >100% (STACEY BROOKES, 200%) — ANALYSED, NOT BUILT,
+   RECOMMENDATION GIVEN, MARK'S DECISION NEEDED. Traced to: "appts"
+   (COUNT(DISTINCT a.id), no status filter) counts every Appointment
+   row created in the period for that agent, including one that was
+   ReturnedToLeads and then re-booked — two real Appointment rows for
+   one Lead within the same period. "leads" counts distinct leads.
+   1 lead, 2 appointments -> 200%.
+   ARCHITECTURALLY: the data is correct (nothing double-counted in
+   error) and the underlying behaviour (re-booking after a return) is
+   the intended, designed workflow ReturnedToLeads exists to enable —
+   should NOT be restricted. The actual issue is the metric's framing:
+   "rate" implies a bounded 0-100% percentage, but appts/leads has no
+   such bound once a lead can get more than one appointment attempt in
+   a period. RECOMMENDATION given to Mark, not decided unilaterally:
+   present it as a ratio (e.g. "1.0", "2.0") rather than a "%", which
+   removes the "how can a rate exceed 100" confusion without changing
+   any underlying numbers or restricting the real workflow. Genuinely
+   Mark's call — could also stay as-is with an explanatory note, or the
+   denominator/numerator could be redefined to cap at 100% by
+   construction (a bigger, more debatable semantic change). NOT BUILT
+   pending his direction.
+
+3. LEADS/APPOINTMENTS REPORTS VISUAL REDESIGN — BUILT AND VERIFIED.
+   Mark: the four §151 breakdown reports "look awful as they are just
+   tables". Added, per report: a donut chart (Recharts PieChart,
+   innerRadius'd) showing volume distribution across categories, plus
+   an inline stacked bar in the table itself (green=Won, red=Lost,
+   replacing what were two plain number columns) — same "visual shape +
+   precise number together" pattern the existing Broker/Agent
+   Performance tables already use for their own Conversion column, not
+   a new one-off pattern. Table kept for the numbers that don't reduce
+   to a single shape-at-a-glance chart (Avg Days to Close, Avg Policy
+   Value — both need precision, not a donut slice).
+   New CATEGORICAL_PALETTE (10 rotating colours) introduced specifically
+   for these donuts — deliberately NOT theme-derived the way
+   PIPELINE_COLOURS/CHART_PALETTE are. Those cover a fixed, small,
+   semantically-meaningful status set (Won should read as success,
+   consistently theme to theme); a Lead Source or Portfolio breakdown
+   has no inherent colour meaning and an open-ended, variable category
+   count (3 rows one period, 15 the next) — a standard rotating
+   categorical palette is the right tool for this shape of data, not a
+   gap in the theme-consistency work done earlier today.
+   Responsive: donut + legend stacks above the table on mobile, sits
+   beside it on desktop.
+   VERIFIED: full Vite build clean, existing 55-test Vitest suite
+   unaffected.
+
+VERIFIED (all three): full Vite build, existing 55-test Vitest suite.
+Diffed both touched files (UserAdmin.jsx, Reports.jsx) against a fresh
+GitHub hydration — confirmed isolated, correctly cumulative with
+everything else built today.
+NOT YET DEPLOYED. No migration required. Item 2 not built — awaiting
+Mark's direction on the recommendation above.
+
+FILES: frontend/src/pages/UserAdmin.jsx, frontend/src/pages/
+Reports.jsx.
