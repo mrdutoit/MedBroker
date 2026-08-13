@@ -61,13 +61,18 @@ const TOOLTIP_STYLE = {
 // detail stays client-side) — 6 buckets now, not 7: Uncontactable dropped
 // (see file header), Closed Won/Lost now genuinely reflect the Appointment
 // outcome rather than a status that never existed on the Lead itself.
+// §151 follow-up (13 Aug 2026) — was hardcoded, theme-independent hex;
+// Mark flagged it directly. Now six dedicated CSS variables (themes.css),
+// one per theme, verified pairwise-distinct rather than reusing existing
+// semantic tokens (which would have reintroduced real collisions — see
+// themes.css's own header note on this).
 const PIPELINE_COLOURS = {
-  Unassigned:           '#9ca3af',
-  Assigned:              '#60a5fa',
-  'In Progress':         '#f59e0b',
-  'Appointment Booked':  '#a78bfa',
-  'Closed Won':          '#10b981',
-  'Closed Lost':         '#f87171',
+  Unassigned:           'var(--pl-unassigned)',
+  Assigned:              'var(--pl-assigned)',
+  'In Progress':         'var(--pl-progress)',
+  'Appointment Booked':  'var(--pl-booked)',
+  'Closed Won':          'var(--pl-won)',
+  'Closed Lost':         'var(--pl-lost)',
 };
 
 const TREND_LABELS = {

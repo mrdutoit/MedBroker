@@ -40,22 +40,24 @@ export default function Settings() {
   const { isMobile }           = useWindowSize();
 
   // Real values off the authenticated session.
+  // §151 follow-up (13 Aug 2026, Mark's request) — displayName is no
+  // longer editable here at all (removed from UpdateOwnProfileSchema
+  // server-side too — see models/user.js). Read directly, no local
+  // edit state needed for something that can't change from this page.
   const initialDisplayName = user?.displayName ?? persona.displayName;
   const initialAvatarId    = user?.avatarColour ?? AVATAR_OPTIONS[0].id;
   const initialTimezone    = user?.timezone ?? getUserTimezone();
 
-  const [displayName, setDisplayName] = useState(initialDisplayName);
   const [avatarId, setAvatarId]       = useState(initialAvatarId);
   const [timezone, setTimezone]       = useState(initialTimezone);
 
   // Saved baseline — what was last committed
-  const [savedName,     setSavedName]     = useState(initialDisplayName);
   const [savedAvatarId, setSavedAvatarId] = useState(initialAvatarId);
   const [savedTimezone, setSavedTimezone] = useState(initialTimezone);
   const [saveStatus,  setSaveStatus]  = useState(null); // null | 'saving' | 'saved'
   const [saveError,   setSaveError]   = useState('');
 
-  const isDirty = displayName !== savedName || avatarId !== savedAvatarId || timezone !== savedTimezone;
+  const isDirty = avatarId !== savedAvatarId || timezone !== savedTimezone;
 
   async function handleSave() {
     if (!isDirty) return;
@@ -63,10 +65,9 @@ export default function Settings() {
     setSaveError('');
 
     try {
-      const updated = await usersApi.updateMe({ displayName, avatarColour: avatarId, timezone });
+      const updated = await usersApi.updateMe({ avatarColour: avatarId, timezone });
       updateUser(updated); // patches the cached session — sidebar/persona reflect this immediately
       setUserTimezone(timezone); // dateFormat.js's own display helpers still read this locally
-      setSavedName(displayName);
       setSavedAvatarId(avatarId);
       setSavedTimezone(timezone);
       setSaveStatus('saved');
@@ -166,7 +167,10 @@ export default function Settings() {
           <h2 style={s.cardTitle}>Profile</h2>
           <div style={s.formGroup}>
             <label style={s.formLabel}>Display name</label>
-            <input style={s.formInput} value={displayName} onChange={e => setDisplayName(e.target.value)} />
+            <input style={{ ...s.formInput, opacity: 0.6 }} value={initialDisplayName} disabled />
+            <p style={{ fontSize: '0.75rem', color: 'var(--mut)', marginTop: '4px' }}>
+              Only editable by an Admin, via User Admin.
+            </p>
           </div>
           <div style={s.formGroup}>
             <label style={s.formLabel}>Email</label>

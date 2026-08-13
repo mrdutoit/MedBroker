@@ -460,7 +460,6 @@ export async function getBrokerDetailReport(brokerId, period, scope, referenceDa
   const kpiRows = await executeQuery(
     `SELECT
        COUNT(a.id) AS "appts",
-       COUNT(a.id) FILTER (WHERE a.status = 'ClosedWon') AS "signed",
        COUNT(a.id) FILTER (WHERE a.isBrokerSwitch = true) AS "switches",
        COUNT(a.id) FILTER (WHERE a.meeting1Status = 'Seen') +
        COUNT(a.id) FILTER (WHERE a.meeting2Status = 'Seen') +
@@ -469,18 +468,39 @@ export async function getBrokerDetailReport(brokerId, period, scope, referenceDa
      WHERE a.brokerId = @brokerId AND a.createdAt >= @start AND a.createdAt <= @end`,
     { brokerId: { type: sql.UniqueIdentifier, value: brokerId }, start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end } }
   );
-  const k = kpiRows[0] ?? { appts: 0, signed: 0, switches: 0, meetingsHeld: 0 };
-  const appts = Number(k.appts), signed = Number(k.signed);
+  // §148 follow-up (13 Aug 2026) — found via Mark's own testing: "Signed"
+  // was still scoped by a.createdAt (when booked), not closedAt (when
+  // actually won), same bug §148 fixed for the org-wide Closed Won count
+  // but missed carrying through here. A deal booked in an earlier month
+  // that closed this month wouldn't count as "Signed" for this month at
+  // all under the old query — exactly what Mark caught (a signed R106,000
+  // deal visible in Recent Appointments but not reflected in Signed/
+  // Policy Value above it). Split into its own query, closedAt-scoped,
+  // matching the definition established everywhere else in this file.
+  const signedRows = await executeQuery(
+    `SELECT COUNT(*) AS "signed" FROM Appointment
+     WHERE brokerId = @brokerId AND status = 'ClosedWon' AND closedAt >= @start AND closedAt <= @end`,
+    { brokerId: { type: sql.UniqueIdentifier, value: brokerId }, start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end } }
+  );
+  const k = kpiRows[0] ?? { appts: 0, switches: 0, meetingsHeld: 0 };
+  const appts = Number(k.appts), signed = Number(signedRows[0]?.signed ?? 0);
 
   // Products sold — real, via AppointmentProduct (already fully wired by
   // the outcome-save flow; nothing new needed there). policyValue added
   // 23 Jul 2026, §44 — per-product Rand value, now tracked and summed.
+  // §148 follow-up (13 Aug 2026) — same two corrections already applied
+  // to the org-wide Total Policy Value: (1) closedAt-scoped, not
+  // createdAt (a deal's value is realised when it closes); (2) filtered
+  // to status = 'ClosedWon' — the old query summed policyValue across
+  // every appointment created in the period regardless of outcome, no
+  // status filter at all. Both missed here when §148 fixed the org-wide
+  // version; caught by the same R106,000 discrepancy Mark found.
   const productRows = await executeQuery(
     `SELECT p.name, COUNT(*) AS count, COALESCE(SUM(ap.policyValue), 0) AS "totalValue"
      FROM AppointmentProduct ap
      JOIN Appointment a ON a.id = ap.appointmentId
      JOIN Product p ON p.id = ap.productId
-     WHERE a.brokerId = @brokerId AND a.createdAt >= @start AND a.createdAt <= @end
+     WHERE a.brokerId = @brokerId AND a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end
      GROUP BY p.name
      ORDER BY "totalValue" DESC`,
     { brokerId: { type: sql.UniqueIdentifier, value: brokerId }, start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end } }
@@ -488,6 +508,15 @@ export async function getBrokerDetailReport(brokerId, period, scope, referenceDa
   const productsSold = productRows.map(r => ({ name: r.name, count: Number(r.count), value: Number(r.totalValue) }));
   const totalPolicyValue = productsSold.reduce((sum, p) => sum + p.value, 0);
 
+  // Conversion = signed (closedAt-scoped) / appts (createdAt-scoped) —
+  // deliberately mixed basis, matching the exact same shape already
+  // established for the org-wide "Closed Won" conversion % in
+  // getReportSummary (orgClosedWon / orgTotalLeads has the identical
+  // characteristic). Not a new inconsistency introduced here — the
+  // precedent already exists; flagging so it reads as a considered
+  // choice, not an oversight, if it looks odd (a broker can show >100%
+  // conversion in a period where more deals close than were newly
+  // booked).
   const kpi = {
     appts, signed, switches: Number(k.switches), meetingsHeld: Number(k.meetingsHeld),
     policyValue: totalPolicyValue,
@@ -610,7 +639,17 @@ export async function getBrokerReport(period, scope, referenceDate) {
        -- signed up to the same standard rather than restructuring the
        -- whole query, since DISTINCT alone fully closes the gap here.
        COUNT(DISTINCT a.id) AS "appts",
-       COUNT(DISTINCT a.id) FILTER (WHERE a.status = 'ClosedWon') AS "signed",
+       -- §148 follow-up (13 Aug 2026) — was COUNT(DISTINCT a.id) FILTER
+       -- (WHERE a.status = 'ClosedWon') off the same createdAt-scoped
+       -- JOIN as "appts" above. Same bug just fixed in
+       -- getBrokerDetailReport(): a deal booked in an earlier period
+       -- that closed THIS period wouldn't count as signed at all. Now a
+       -- scalar subquery, closedAt-scoped, independent of the "appts"
+       -- JOIN's own (correctly different) date window.
+       COALESCE((
+         SELECT COUNT(*) FROM Appointment a3
+         WHERE a3.brokerId = u.id AND a3.status = 'ClosedWon' AND a3.closedAt >= @start AND a3.closedAt <= @end
+       ), 0) AS "signed",
        COALESCE(array_agg(DISTINCT p.name) FILTER (WHERE p.name IS NOT NULL), ARRAY[]::text[]) AS "portfolios",
        -- Scalar subquery, not a direct JOIN to AppointmentProduct — a
        -- direct join would fan out one row per product sold, silently
@@ -618,10 +657,17 @@ export async function getBrokerReport(period, scope, referenceDate) {
        -- products sold would count as 3 appointments). This keeps the
        -- appointment-level aggregates correct regardless of how many
        -- products any given appointment has.
+       -- §148 follow-up (13 Aug 2026) — two corrections, same as
+       -- getBrokerDetailReport() just above and the org-wide Total
+       -- Policy Value fixed earlier in §148: closedAt-scoped, not
+       -- createdAt, AND filtered to status = 'ClosedWon' — this
+       -- subquery had no status filter at all before, summing every
+       -- product recorded on any appointment created in the period
+       -- regardless of outcome.
        COALESCE((
          SELECT SUM(ap2.policyValue) FROM AppointmentProduct ap2
          JOIN Appointment a2 ON a2.id = ap2.appointmentId
-         WHERE a2.brokerId = u.id AND a2.createdAt >= @start AND a2.createdAt <= @end
+         WHERE a2.brokerId = u.id AND a2.status = 'ClosedWon' AND a2.closedAt >= @start AND a2.closedAt <= @end
        ), 0) AS "policyValue"
      FROM "User" u
      LEFT JOIN Appointment a ON a.brokerId = u.id AND a.createdAt >= @start AND a.createdAt <= @end

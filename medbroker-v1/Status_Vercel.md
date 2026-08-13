@@ -11735,3 +11735,103 @@ AppointmentPortfolio/meetingType all pre-existing).
 FILES: frontend/api-lib/services/reportService.js, frontend/api-lib/
 handlers/reportHandlers.js, frontend/api/reports-router.js, frontend/
 src/services/api.js, frontend/src/pages/Reports.jsx.
+
+152. FOUR ITEMS FROM MARK'S LIVE TESTING — ALL FOUR BUILT AND VERIFIED
+     — 13 Aug 2026 (session 21, continued)
+
+1. FAVICON — FIXED. The MedBroker mark already existed as an asset
+   (src/assets/favicon.svg) but was never linked in index.html at all —
+   not a missing asset, a missing <link> tag. Copied to a new public/
+   folder (Vite serves that as-is at the site root; a static <link> in
+   the HTML head needs a direct URL, not a bundled module import) and
+   added `<link rel="icon" type="image/svg+xml" href="/favicon.svg" />`.
+
+2. DISPLAY NAME NOW READ-ONLY — FIXED, BOTH SIDES. Was editable via
+   Settings.jsx; only Admin/GlobalAdmin editing someone else through
+   User Admin should be able to change it, per Mark's explicit request.
+   Removed `displayName` from UpdateOwnProfileSchema (models/user.js)
+   entirely — not just hidden in the UI. Verified directly: even if a
+   client sends displayName in the PUT body, Zod strips it before
+   updateOwnProfile() ever sees it (confirmed with a live parse test,
+   not assumed from reading the schema). Removed the matching field
+   from updateOwnProfile()'s own fieldTypes map too, closing the door
+   even for a hypothetical direct caller bypassing the schema.
+   Settings.jsx's Display Name input changed to disabled/dimmed,
+   matching the Email field's existing treatment exactly, with a note
+   pointing to User Admin — confirmed UserAdmin.jsx already supports
+   editing displayName for other users, so no further work needed
+   there. Removed the now-dead local edit state (displayName/
+   setDisplayName/savedName) entirely rather than leaving it unused.
+
+3. REPORTS DATA MISMATCH — REAL BUG, FOUND AND FIXED. Mark's exact
+   report: a signed R106,000 deal visible in "Recent Appointments" on
+   William's Broker Detail page, but not reflected in his own Signed/
+   Policy Value KPI cards above it, despite the org-wide Total Policy
+   Value for the same period correctly including it. Traced to an
+   incomplete §148 fix: getBrokerDetailReport()'s kpiRows/productRows
+   and getBrokerReport()'s (the Reports overview table) equivalent
+   fields were STILL scoped by a.createdAt (when booked), not closedAt
+   (when actually won) — the exact bug §148 fixed for the org-wide
+   Total Policy Value, never carried through to the per-broker
+   versions. productRows also had NO status filter at all in both
+   functions (same missing-filter bug §148 separately fixed org-wide,
+   also missed here) — summing policy value across every appointment
+   regardless of outcome.
+   FIX: kpiRows split — "appts" (booked count) stays createdAt-scoped,
+   "signed" moved to its own closedAt-scoped, status='ClosedWon' query.
+   productRows changed to closedAt-scoped + status='ClosedWon' filter,
+   in both getBrokerDetailReport() and getBrokerReport(). Conversion
+   (signed/appts) is now deliberately mixed-basis — flagged explicitly
+   in the code, not silently accepted: this matches the exact same
+   characteristic the org-wide "Closed Won" conversion % already has in
+   getReportSummary (not a new inconsistency, the established
+   precedent from §148).
+   VERIFIED against real Postgres, Mark's exact scenario reproduced: an
+   appointment booked in July, closed (won) in August. OLD query:
+   0 signed in August (matches the bug exactly). NEW query: 1 signed,
+   R1,500 correctly attributed to August. Confirmed getAgentReport()/
+   getAgentDetailReport() have no equivalent Signed/Policy Value
+   concept at all — this bug was isolated to the Broker side, not
+   present on the Agent side.
+   CAUGHT DURING THIS FIX: a stray backtick inside a SQL template
+   literal comment broke JS syntax entirely — caught immediately by
+   node --check before it went anywhere near a build.
+
+4. PIPELINE STATUS BREAKDOWN HARDCODED COLOURS — FIXED, PROPERLY, NOT
+   A QUICK PATCH. Confirmed PIPELINE_COLOURS (Reports.jsx) was a
+   hardcoded, theme-independent 6-colour hex map. Checked whether
+   reusing existing semantic tokens (--accent/--live/etc, per the
+   §142/§148 pattern) would work before building anything — it would
+   NOT have: Midnight's --accent2 already equals --live, and Terra's
+   --accent already equals --live (the exact collision --chart2 exists
+   to prevent for the OTHER chart) — naively reusing those six tokens
+   for six pipeline stages would have silently reintroduced the same
+   class of bug already fixed twice this session.
+   FIX: six dedicated CSS variables per theme (--pl-unassigned/
+   -assigned/-progress/-booked/-won/-lost), NOT reused from the
+   existing semantic set, each theme's six values verified pairwise-
+   distinct via an actual RGB-channel-distance script before being
+   committed — not eyeballed. Closest pair across all four themes: 64
+   (Linen, Assigned vs Closed Won) — every other pair further apart.
+   PIPELINE_COLOURS now references these six tokens via var(...)
+   instead of hardcoded hex. Single usage site checked (a Recharts Cell
+   fill prop) — same var()-via-SVG-attribute pattern already proven
+   working for CHART_PALETTE elsewhere on this page.
+
+VERIFIED (all four): full Vite build clean, existing 55-test Vitest
+suite unaffected, node --check on every touched backend file, a live
+Zod parse test confirming displayName is actually stripped server-side
+(not just assumed from reading the schema), and the Postgres
+reproduction of the Signed/Policy Value bug described above. Diffed
+all seven touched files against a fresh GitHub hydration — confirmed
+each diff contains only the intended changes.
+NOT YET DEPLOYED. No migration required — everything here is schema-
+column-agnostic (favicon is a static asset, display name is a Zod/UI
+change, the report fix reads off closedAt already added in migration
+027, the pipeline colours are pure CSS).
+
+FILES: frontend/index.html, frontend/public/favicon.svg (new),
+frontend/api-lib/models/user.js, frontend/api-lib/services/
+userService.js, frontend/src/pages/Settings.jsx, frontend/api-lib/
+services/reportService.js, frontend/src/themes.css, frontend/src/
+pages/Reports.jsx.

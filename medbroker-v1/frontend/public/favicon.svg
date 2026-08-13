@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#2F4FE0"/><stop offset="100%" stop-color="#17B6C9"/>
+    </linearGradient>
+    <linearGradient id="mk" x1="20" y1="0" x2="130" y2="0" gradientUnits="userSpaceOnUse">
+      <stop offset="0%"   stop-color="#fff" stop-opacity="1"/>
+      <stop offset="100%" stop-color="#fff" stop-opacity=".88"/>
+    </linearGradient>
+  </defs>
+  <rect width="32" height="32" rx="7" fill="url(#bg)"/>
+  <!-- Mark centred: 32×32 tile, 3px padding each side → 26×17 mark area -->
+  <svg x="3" y="7.5" width="26" height="17" viewBox="13.5 17.5 123 81">
+    <g fill="none" stroke="#fff" stroke-width="13" stroke-linejoin="round">
+      <polyline points="20,92 20,24 52,62 84,24" stroke-linecap="round"/>
+      <path d="M90,24 L118,24 Q130,24 130,36 L130,46 Q130,58 118,58 L90,58" stroke-linecap="square" opacity=".9"/>
+      <path d="M90,58 L118,58 Q130,58 130,70 L130,80 Q130,92 118,92 L90,92" stroke-linecap="square" opacity=".9"/>
+    </g>
+  </svg>
+</svg>

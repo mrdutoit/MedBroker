@@ -117,8 +117,18 @@ export const ForcePasswordResetSchema = z.object({
 // two schemas separate — rather than making this a permissive subset of
 // UpdateUserSchema — is what stops a self-service save from ever being
 // able to smuggle in a role/isActive/portfolio change even by accident.
+// §151 follow-up (13 Aug 2026, Mark's request) — displayName removed
+// from this schema entirely. Was previously editable via self-service
+// (Settings.jsx); Mark wants display name read-only everywhere except
+// User Admin (an Admin/GlobalAdmin editing someone ELSE's row, via
+// handleUserById, a completely separate schema/endpoint from this
+// one — see UpdateUserSchema, unaffected by this change). Not just a
+// frontend hide: Zod strips unrecognized keys by default on a plain
+// z.object() (not .strict()), so even if a client still sends
+// displayName in the PUT body, it's silently dropped before reaching
+// updateOwnProfile() — matches the project's standing "never UI-only"
+// enforcement rule.
 export const UpdateOwnProfileSchema = z.object({
-  displayName:     z.string().min(1).max(200).optional(),
   avatarColour:    z.enum(['grad', 'violet', 'cyan', 'green', 'amber']).optional(),
   themePreference: z.enum(['linen', 'terra', 'midnight', 'ember']).optional(),
   timezone:        z.enum(['Africa/Johannesburg', 'UTC', 'Europe/London', 'Europe/Amsterdam']).optional(),

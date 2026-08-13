@@ -121,8 +121,11 @@ export async function updateOwnProfile(id, data) {
   const setClauses = [];
   const params = { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
 
+  // §151 follow-up (13 Aug 2026) — displayName removed. Matches
+  // UpdateOwnProfileSchema in models/user.js, which no longer accepts
+  // it at all; removed here too so this function can't apply it even
+  // if ever called directly with a raw object that bypassed the schema.
   const fieldTypes = {
-    displayName:     sql.NVarChar(200),
     avatarColour:    sql.NVarChar(20),
     themePreference: sql.NVarChar(20),
     timezone:        sql.NVarChar(50),
