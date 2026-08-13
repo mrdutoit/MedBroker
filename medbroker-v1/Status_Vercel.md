@@ -22,6 +22,29 @@ original file — only this summary block at the top is newly written.
 0. CURRENT STATE — READ THIS FIRST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+NEW, per §142 (13 Aug 2026, session 21): five items Mark found through
+his own live testing, all fully diagnosed against the live codebase but
+ZERO CODE WRITTEN YET — logged first so nothing gets lost, fixes to
+follow in this same session per Mark's explicit ASAP priority. Full
+detail, root cause, and fix approach for each in §142 below; summary:
+(1) claim-model booking modal never renders Date/Time fields at all,
+so Confirm Booking can never become enabled while claim model is
+active — real regression, high priority; (2) Portfolio genuinely
+optional on Lead creation both sides, no validation either side; (3)
+Audit Log/Change Log card doesn't refresh after logging a call — the
+backend write from §138 is correct, the frontend just never calls
+refetchAudit() in that one handler; (4) Contact Number regex
+(saMobile, shared across Lead/Event/Lead Portal) is far stricter than
+Mark wants — no spaces/dashes/brackets tolerated at all; (5) Terra
+theme's chart Legend/key becomes meaningless because --accent and
+--live are the identical hex value there, so the two TrendChart
+series (and their legend swatches) render identically — a theme-token
+design gap, not a rendering bug (Ember's pairing is close enough to
+flag too). §142 also carries an open, not-yet-scoped functionality
+gap Mark raised alongside (1): nothing currently surfaces
+unclaimed/unassigned appointments nearing their date — separate from
+the bug fix, needs its own scoping pass.
+
 NEXT ACTION, per §141 (13 Aug 2026): §137 and §139 both confirmed
 deployed and working, including Mark catching and helping fix a real
 bug himself in §139's own addendum. §140 closed a real claim-model
@@ -10824,3 +10847,154 @@ date-scoping fix, which depends on the redesign existing first.
 
 If picking up a pending item, reference it by section number — same
 convention as before.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 21 STARTED — 13 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+142. FIVE ITEMS FROM MARK'S LIVE TESTING — LOGGED AND FULLY DIAGNOSED,
+     ZERO CODE WRITTEN YET — 13 Aug 2026 (session 21)
+
+Hydrated fresh from GitHub (codeload tarball) at session start per
+standing protocol before touching anything. Mark listed five items he
+found using the live app. Rather than transcribing his descriptions
+verbatim, each was traced against the actual hydrated code first — per
+the "verified delivery over claimed delivery" principle, a backlog
+entry with the wrong root cause just wastes the next session's time
+re-diagnosing it. All five are logged here; none are fixed yet. Mark's
+explicit instruction: log first so nothing gets lost, then fix all
+five ASAP in this same session.
+
+1. CLAIM-MODEL BOOKING MODAL NEVER RENDERS DATE/TIME FIELDS
+   Screenshot evidence: claim model active, Book Appointment modal open,
+   no Date or Time field visible anywhere, Confirm Booking correctly
+   disabled (per isFormValid) but with no way to satisfy it.
+   ROOT CAUSE, confirmed by reading BookAppointmentModal in
+   LeadDetail.jsx: the Date and Time <input> fields are nested INSIDE
+   the `{isClaimModel ? (...) : (<>...)}` block's ELSE branch only —
+   alongside the region/broker-search section that's deliberately
+   hidden in claim mode per §140. When claim model is active, that
+   whole branch (including Date/Time, not just broker search) is
+   skipped. Meanwhile isFormValid and handleConfirmBooking's own error
+   checks both still require `date` and `time` unconditionally,
+   regardless of claimModel. Genuine regression from §140's change, not
+   a pre-existing gap — §140's isClaimModel branching was scoped to
+   "hide the broker-search escape hatch" but the JSX nesting caught
+   Date/Time in the same net.
+   FIX (not yet built): move the Date/Time input block out of the
+   isClaimModel-conditional entirely so it always renders; only the
+   region + "Find available brokers" + broker-selection subsection
+   stays gated on `!isClaimModel`. No schema or backend change needed —
+   firstAppointmentDate/firstAppointmentTime were never the problem,
+   only their form inputs were unreachable.
+
+   RELATED, NOT THE SAME ISSUE — genuinely new functionality, not a bug:
+   Mark also raised, while testing this, that nothing currently surfaces
+   an unclaimed (claim model) or unassigned (assign model) appointment
+   as it nears its own appointment date. NOT SCOPED. No design decided
+   yet — needs its own pass (options include a Task/Notification
+   trigger off firstAppointmentDate proximity, a dedicated dashboard
+   card, or folding into the meeting/attempt-history redesign already
+   queued in §138 given the overlap). Flagged here so it isn't lost,
+   deliberately not conflated with the Date/Time field fix above.
+
+2. PORTFOLIO NOT MANDATORY ON LEAD CREATION
+   Confirmed optional on both sides:
+     - Backend: CreateLeadSchema.portfolios in api-lib/models/lead.js is
+       `z.array(z.string()).optional()`.
+     - Frontend: LeadImport.jsx's handleManualSubmit() validation block
+       checks title/source/firstName/lastName/dateOfBirth/occupation/
+       mobileNumber/email but has no portfolios entry at all. The
+       field's own on-screen hint text currently reads "Optional, and
+       not limited to one" — will need updating once this changes.
+   FIX (not yet built): add `.min(1, 'Select at least one portfolio')`
+   (or equivalent) server-side, and a matching required-field check in
+   handleManualSubmit's errors object client-side, per the project's
+   standing "both frontend gating and server-side validation, never
+   UI-only" rule. Update the hint text to match.
+
+3. AUDIT LOG DOESN'T REFLECT A LOGGED CALL WITHOUT A MANUAL RELOAD
+   Confirmed the backend write is already correct — this is NOT a
+   repeat of §138's original gap. §138 (12 Aug 2026) added
+   `writeAuditLog({ entityType: 'Lead', action: 'CallLogged', ... })`
+   inside logCallAttempt() in leadService.js, and 'CallLogged' is
+   already present in both auditHandlers.js's VALID_ACTIONS and
+   AppAdmin.jsx's mirrored frontend list — confirmed both, no drift.
+   ROOT CAUSE: LeadDetail.jsx's handleLogCall() calls leadsApi.logCall(),
+   then on success only does an optimistic local update to the Call
+   History card (`setCalls`) and `setStatusOverride` — it never calls
+   `refetchAudit()`. The page's other two mutation handlers (reopen,
+   reassign) both do call refetchAudit() after their own actions; this
+   one was missed.
+   FIX (not yet built): add `refetchAudit()` to handleLogCall's success
+   path. While touching it, also add a 'CallLogged' entry to
+   AuditLogList.jsx's ACTION_LABELS map ("Call logged" or similar) —
+   right now, once it does refresh, it would fall back to rendering the
+   raw string "CallLogged" rather than a proper label, since
+   describeEntry() only has a hardcoded label map, not a fallback
+   formatter.
+
+4. CONTACT NUMBER REGEX TOO RIGID
+   Confirmed: `saMobile` in api-lib/models/lead.js is
+   `/^(\+27|0)[6-8]\d{8}$/` — accepts only an unformatted SA mobile
+   number in exactly that shape. No spaces, dashes, brackets, or
+   international format tolerated at all. Shared across three intake
+   surfaces via import: lead.js, event.js, leadPortal.js — one fix
+   covers Lead creation, Events, and the public Lead Portal
+   self-registration form together.
+   Mark's spec: accept digits, +, -, (, ), and spaces only — drop the
+   SA-mobile-format enforcement entirely.
+   TRADE-OFF FLAGGED (not objected to, just noted): this is a genuine
+   loosening, not a bug-for-bug fix — a landline number or a malformed-
+   but-character-valid string would now pass where the old regex
+   correctly rejected it. Accepted as intentional given WhatsApp/SMS
+   deliverability isn't a hard requirement for every lead.
+   FIX (not yet built): replace the regex, e.g.
+   `/^[0-9+\-() ]+$/` with a sensible minimum-length check alongside it
+   (a bare regex on character set alone would accept a 2-digit string).
+   Exact minimum length not yet decided with Mark — needs a quick call
+   before building (see open question below).
+
+5. REPORTS CHART LEGEND/KEY MEANINGLESS IN TERRA THEME
+   Traced to themes.css, not a rendering bug. Recharts' own
+   DefaultLegendContent source confirms the legend swatch and the bar
+   itself both derive fill from the same source (Bar's own `fill` prop,
+   passed through to the legend's payload.color) — both are genuinely
+   live CSS-variable-driven and track theme changes together, no
+   caching involved. The actual defect: Terra's theme block defines
+   `--accent:#5E7A4F` and `--live:#5E7A4F` — the IDENTICAL hex value.
+   TrendChart.jsx maps its two Bar series directly onto those two
+   tokens (CHART_PALETTE.leads = var(--accent), CHART_PALETTE.won =
+   var(--live)), so in Terra specifically, "Leads" and "Closed Won"
+   render as the exact same green — bars and legend swatches both
+   genuinely indistinguishable. Ember's pairing (#E8853B accent vs
+   #E0A23C live) is close enough to flag too, though not an exact
+   collision.
+   BLAST RADIUS CHECKED before proposing a fix: --live isn't chart-only
+   — it's the general "success" semantic token, also driving confirm
+   buttons and status badges in App.jsx, LeadDetail.jsx, and
+   LeadImport.jsx (plus tokens.js's own `success` alias). Changing
+   Terra's --live value moves more than just the chart.
+   TWO FIX OPTIONS PRESENTED TO MARK, NEITHER DECIDED YET:
+     (a) Give Terra's --live a distinct hue from --accent — smallest
+         change, but shifts Terra's "success" colour everywhere it's
+         used, not just charts.
+     (b) Add a dedicated chart-series token (e.g. --chart2), decoupled
+         from --live entirely — chart colours stop depending on status
+         semantics, closes off this whole class of collision for any
+         future theme too, at the cost of a new token threaded through
+         themes.css and CHART_PALETTE.
+   Open question for Mark before building: (a) or (b), and if (a),
+   what Terra --live value to use.
+
+OPEN QUESTIONS BEFORE BUILDING (both need Mark's answer, everything
+else above is ready to build as-is):
+  - Item 4: minimum acceptable length for the loosened Contact Number
+    field.
+  - Item 5: fix approach (a) or (b) above, and Terra's replacement
+    --live value if (a).
+
+NONE of the five have been built yet. Mark's stated priority: fix all
+five in this same session, ASAP, once logged — this entry exists so
+the diagnosis work already done isn't lost if that doesn't happen in
+one sitting.
