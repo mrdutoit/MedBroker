@@ -21,6 +21,10 @@ export const UpdateSystemConfigSchema = z.object({
   leadAutoUnassignMonths:         z.number().int().min(1).optional(),
   qrTokenExpiryHours:             z.number().int().min(1).optional(),
   brokerFreeAppointmentsPerMonth: z.number().int().min(0).optional(),
+  // §140c — flat cost, in tokens, to claim any appointment. Only shown/
+  // editable in the UI when claimModel = 'claim', but the schema itself
+  // doesn't need to know that — same pattern as every other field here.
+  defaultClaimTokenCost:          z.number().int().min(0).max(100).optional(),
   // 0 = disabled for either. Frontend presents 30/60/90/180 + custom for
   // rotation, 3/5/10 + custom for lockout — this schema just bounds sane values.
   passwordRotationDays:           z.number().int().min(0).max(3650).optional(),

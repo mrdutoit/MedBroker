@@ -526,7 +526,9 @@ export default function AppointmentDetail() {
       status:         apptData.status,
       firstDate:      apptData.firstAppointmentDate,
       firstTime:      (apptData.firstAppointmentTime ?? '').slice(0, 5),
+      meetingType:    apptData.meetingType ?? 'InPerson', // §140d — defensive default for any row from before the column existed
       address:        apptData.firstAppointmentAddress,
+      virtualMeetingLink: apptData.virtualMeetingLink,
       brokerId:       apptData.brokerId,
       brokerName:     apptData.brokerName,
       agentId:        apptData.agentId,
@@ -803,7 +805,20 @@ export default function AppointmentDetail() {
             </div>
           </FieldRow>
           <FieldRow label="First appt date">{formatDate(appt.firstDate)} · {formatTime(appt.firstTime)}</FieldRow>
-          <FieldRow label="Address">{appt.address}</FieldRow>
+          <FieldRow label="Meeting type">{appt.meetingType === 'Virtual' ? 'Virtual' : 'In person'}</FieldRow>
+          {appt.meetingType === 'Virtual' ? (
+            <FieldRow label="Meeting link">
+              {appt.virtualMeetingLink ? (
+                /^https?:\/\//i.test(appt.virtualMeetingLink) ? (
+                  <a href={appt.virtualMeetingLink} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+                    {appt.virtualMeetingLink}
+                  </a>
+                ) : appt.virtualMeetingLink
+              ) : '—'}
+            </FieldRow>
+          ) : (
+            <FieldRow label="Address">{appt.address || '—'}</FieldRow>
+          )}
           <FieldRow label="Broker">{appt.brokerName}</FieldRow>
           <FieldRow label="Agent">{appt.agentName}</FieldRow>
           <FieldRow label="Source">{appt.source}</FieldRow>

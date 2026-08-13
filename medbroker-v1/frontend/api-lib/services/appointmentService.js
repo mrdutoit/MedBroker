@@ -25,6 +25,7 @@ import { createTask, deleteTasksForEntity, reassignTasksForEntity } from './task
 import { createNotification } from './notificationService.js';
 import { debitTokensForClaim, refundTokens } from './tokenService.js';
 import { getFlagMeta } from './flagService.js';
+import { getSystemConfig } from './systemConfigService.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
 // ── Shared SELECT fragments ─────────────────────────────────────────────────
@@ -41,7 +42,9 @@ const APPOINTMENT_SELECT = `
    WHERE ap2.appointmentId = a.id) AS "portfolios",
   a.firstAppointmentDate AS "firstAppointmentDate",
   a.firstAppointmentTime AS "firstAppointmentTime",
+  a.meetingType AS "meetingType",
   a.firstAppointmentAddress AS "firstAppointmentAddress",
+  a.virtualMeetingLink AS "virtualMeetingLink",
   a.productsInterestedIn AS "productsInterestedIn",
   a.currentInsurer AS "currentInsurer",
   a.meeting1Date AS "meeting1Date", a.meeting1Status AS "meeting1Status",
@@ -297,6 +300,17 @@ export async function createAppointment(data) {
     throw { status: 400, message: 'Claim model is active — appointments cannot be booked with a broker chosen directly; they must be claimed from the pool' };
   }
 
+  // §140c, 12 Aug 2026 — root cause of the token balance never moving on a
+  // claim: claimTokenCost has always existed on this table but nothing
+  // ever set it to a nonzero value — CreateAppointmentSchema previously
+  // let a caller supply it directly, but no frontend ever did, so every
+  // appointment was created with cost 0 regardless of mode. Mark's
+  // explicit choice: a single flat org-wide cost, not caller-supplied —
+  // stamped from SystemConfig.defaultClaimTokenCost, fetched only when
+  // actually needed (claim mode active), not on every booking regardless
+  // of mode.
+  const claimTokenCost = isClaimModelActive ? (await getSystemConfig()).defaultClaimTokenCost : 0;
+
   // Changed 23 Jul 2026 (§45, Mark's request) — data.portfolios is now an
   // array (min 1, enforced by CreateAppointmentSchema). portfolioId (the
   // Appointment column) becomes the PRIMARY portfolio — the first one
@@ -340,11 +354,11 @@ export async function createAppointment(data) {
   await executeQuery(
     `INSERT INTO Appointment (
        id, organisationId, leadId, status, agentId, brokerId, portfolioId,
-       firstAppointmentDate, firstAppointmentTime, firstAppointmentAddress,
+       firstAppointmentDate, firstAppointmentTime, meetingType, firstAppointmentAddress, virtualMeetingLink,
        productsInterestedIn, currentInsurer, claimTokenCost, createdAt, updatedAt
      ) VALUES (
        @id, @organisationId, @leadId, @status, @agentId, @brokerId, @portfolioId,
-       @firstAppointmentDate, @firstAppointmentTime, @firstAppointmentAddress,
+       @firstAppointmentDate, @firstAppointmentTime, @meetingType, @firstAppointmentAddress, @virtualMeetingLink,
        @productsInterestedIn, @currentInsurer, @claimTokenCost, NOW(), NOW()
      )`,
     {
@@ -357,14 +371,16 @@ export async function createAppointment(data) {
       portfolioId:             { type: sql.UniqueIdentifier, value: portfolioId },
       firstAppointmentDate:    { type: sql.Date,              value: data.firstAppointmentDate },
       firstAppointmentTime:    { type: sql.NVarChar(8),       value: data.firstAppointmentTime },
+      meetingType:             { type: sql.NVarChar(20),      value: data.meetingType },
       firstAppointmentAddress: { type: sql.NVarChar(500),     value: data.firstAppointmentAddress ?? null },
+      virtualMeetingLink:      { type: sql.NVarChar(500),     value: data.virtualMeetingLink ?? null },
       productsInterestedIn:    { type: sql.NVarChar(sql.MAX), value: data.productsInterestedIn ? JSON.stringify(data.productsInterestedIn) : null },
       currentInsurer:          { type: sql.NVarChar(200),     value: data.currentInsurer ?? null },
       // §117 — only meaningful for an Unassigned appointment (data.brokerId
       // omitted), but stored regardless of status; a directly-booked
       // appointment (status Assigned) never reads this field since it
       // never enters the claim pool.
-      claimTokenCost:          { type: sql.Int,                value: data.claimTokenCost ?? 0 },
+      claimTokenCost:          { type: sql.Int,                value: claimTokenCost },
     }
   );
 

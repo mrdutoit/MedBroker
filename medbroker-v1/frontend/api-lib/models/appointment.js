@@ -46,16 +46,46 @@ export const CreateAppointmentSchema = z.object({
   portfolios:              z.array(z.string()).min(1, 'Select at least one portfolio'),
   firstAppointmentDate:    z.string().date('Must be a valid date (YYYY-MM-DD)'),
   firstAppointmentTime:    z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/, 'Must be a valid time (HH:mm)'),
+  // §140d, 12 Aug 2026 — meetingType added at Mark's request specifically
+  // to drive which of the next two fields is actually required, not just
+  // as an informational label. No default: the agent must make an
+  // explicit choice, since it changes what's mandatory below it.
+  meetingType:             z.enum(['InPerson', 'Virtual']),
   firstAppointmentAddress: z.string().max(500).optional(),
+  virtualMeetingLink:      z.string().max(500).optional(),
   currentInsurer:          z.string().max(200).optional(),
   productsInterestedIn:    z.array(z.string()).optional(), // product NAMEs, stored as JSON text — see appointmentService.js
-  // NEW §117 — only meaningful when brokerId is omitted (an Unassigned
-  // appointment headed for the claim pool, not a directly-booked one).
-  // Optional, defaults to 0 (free) server-side when omitted — a Supervisor/
-  // Admin/GlobalAdmin can set this to mark an appointment as costing
-  // tokens to claim; leaving it unset means any broker can claim for free.
-  claimTokenCost:          z.number().int().min(0).max(100).optional(),
-});
+  // claimTokenCost REMOVED §140c, 12 Aug 2026 — was optional/caller-supplied
+  // (the original §117 comment here said a Supervisor/Admin could set it
+  // manually) but no frontend ever actually did, so every appointment was
+  // silently created with cost 0 regardless of claim model. Mark's
+  // explicit choice going forward: a single flat org-wide cost, not
+  // caller-supplied — appointmentService.createAppointment() now derives
+  // it itself from SystemConfig.defaultClaimTokenCost whenever claim
+  // model is active, and this field is no longer part of the request
+  // shape at all.
+})
+  // §140d — Address wasn't mandatory at all before this (a real gap Mark
+  // caught while testing); now required specifically for InPerson, and a
+  // meeting link required specifically for Virtual, rather than both
+  // being unconditionally required (a Virtual meeting has no address to
+  // give, an InPerson one has no link).
+  .superRefine((data, ctx) => {
+    if (data.meetingType === 'InPerson' && !data.firstAppointmentAddress?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['firstAppointmentAddress'],
+        message: 'Address is required for an in-person meeting',
+      });
+    }
+    if (data.meetingType === 'Virtual' && !data.virtualMeetingLink?.trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['virtualMeetingLink'],
+        message: 'A meeting link is required for a virtual meeting',
+      });
+    }
+  });
 
 /**
  * Reassigning broker and/or agent on an existing appointment. Despite the

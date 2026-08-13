@@ -231,6 +231,7 @@ export default function AppAdmin() {
     useFetch(() => systemConfigApi.get(), []);
 
   const [monthlyTokens,      setMonthlyTokens]      = useState(10);
+  const [claimTokenCost,     setClaimTokenCost]      = useState(1); // §140c, 12 Aug 2026
   const [autoReturnMonths,   setAutoReturnMonths]    = useState(6);
   const [maxCallAttempts,    setMaxCallAttempts]     = useState(3);
   const [rotationPreset,     setRotationPreset]      = useState('90');
@@ -558,6 +559,7 @@ export default function AppAdmin() {
   useEffect(() => {
     if (!config) return;
     setMonthlyTokens(config.brokerFreeAppointmentsPerMonth ?? 10);
+    setClaimTokenCost(config.defaultClaimTokenCost ?? 1);
     setAutoReturnMonths(config.leadAutoUnassignMonths ?? 6);
     setMaxCallAttempts(config.maxCallAttempts ?? 3);
     const days = config.passwordRotationDays ?? 90;
@@ -573,6 +575,7 @@ export default function AppAdmin() {
     try {
       await systemConfigApi.update({
         brokerFreeAppointmentsPerMonth: monthlyTokens,
+        defaultClaimTokenCost:          claimTokenCost,
         leadAutoUnassignMonths:         autoReturnMonths,
         maxCallAttempts,
         passwordRotationDays:    rotationPreset === 'custom' ? rotationCustom : Number(rotationPreset),
@@ -935,6 +938,28 @@ export default function AppAdmin() {
                 </div>
                 <div style={s.formHint}>
                   Recommended: 10. Applies to all brokers. Individual overrides are not currently supported.
+                </div>
+              </div>
+              <div style={{ ...s.formGroup, marginTop: '14px' }}>
+                <label style={s.formLabel}>
+                  Tokens per claim *
+                  <span style={{ marginLeft: '8px', fontSize: '0.75rem', color:'var(--mut)', fontWeight: 400 }}>
+                    (stored in SystemConfig.defaultClaimTokenCost)
+                  </span>
+                </label>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                  <input
+                    type="number" min={0} max={100}
+                    value={claimTokenCost}
+                    onChange={e => setClaimTokenCost(Math.max(0, Math.min(100, parseInt(e.target.value) || 0)))}
+                    style={{ ...s.formInput, width: '100px' }}
+                  />
+                  <span style={{ fontSize: '0.875rem', color:'var(--mut)' }}>tokens per claim</span>
+                </div>
+                <div style={s.formHint}>
+                  Flat cost to claim any appointment, regardless of portfolio. Applied to
+                  appointments as they're booked — changing this doesn't retroactively change
+                  the cost of appointments already sitting in the pool.
                 </div>
               </div>
             </div>

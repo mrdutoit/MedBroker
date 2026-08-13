@@ -43,6 +43,18 @@ CREATE TABLE IF NOT EXISTS SystemConfig (
     leadAutoUnassignMonths          INT             NOT NULL DEFAULT 6,
     qrTokenExpiryHours              INT             NOT NULL DEFAULT 720,
     brokerFreeAppointmentsPerMonth  INT             NOT NULL DEFAULT 10,
+    -- §140c, 12 Aug 2026 — flat org-wide cost, in tokens, to claim any one
+    -- appointment (Mark's explicit choice over per-portfolio or
+    -- agent-set-per-booking). Only meaningful when appointments.claimModel
+    -- = 'claim' — read by appointmentService.createAppointment() and
+    -- stamped onto each new Appointment's own claimTokenCost column at
+    -- booking time, not read again at claim time (so changing this later
+    -- doesn't retroactively change the cost of appointments already sitting
+    -- in the pool — matches how brokerFreeAppointmentsPerMonth is a
+    -- monthly-computed value, not this kind of per-record snapshot, but
+    -- the snapshot approach is deliberate here: a broker eyeing the queue
+    -- should see a stable price, not one that moves under them).
+    defaultClaimTokenCost           INT             NOT NULL DEFAULT 1,
     -- v2.5 — local auth password policy. Admin-configurable (preset dropdown
     -- 30/60/90/180 + custom in the UI); 0 means "off" for either setting.
     passwordRotationDays            INT             NOT NULL DEFAULT 90,
@@ -54,7 +66,8 @@ CREATE TABLE IF NOT EXISTS SystemConfig (
     CONSTRAINT PK_SystemConfig      PRIMARY KEY (id),
     CONSTRAINT CK_SystemConfig_One  CHECK (id = 1),
     CONSTRAINT CK_SystemConfig_PwRotation CHECK (passwordRotationDays >= 0),
-    CONSTRAINT CK_SystemConfig_PwLockout  CHECK (passwordLockoutAttempts >= 0)
+    CONSTRAINT CK_SystemConfig_PwLockout  CHECK (passwordLockoutAttempts >= 0),
+    CONSTRAINT CK_SystemConfig_ClaimCost  CHECK (defaultClaimTokenCost >= 0)
 );
 
 INSERT INTO SystemConfig (id) VALUES (1) ON CONFLICT (id) DO NOTHING;
@@ -486,7 +499,13 @@ CREATE TABLE IF NOT EXISTS Appointment (
 
     firstAppointmentDate        DATE            NOT NULL,
     firstAppointmentTime        TIME            NOT NULL,
+    -- §140d, 12 Aug 2026 — added at Mark's request specifically to drive
+    -- validation: InPerson requires firstAppointmentAddress, Virtual
+    -- requires virtualMeetingLink (enforced in CreateAppointmentSchema's
+    -- superRefine, not just here). No default — the agent must choose.
+    meetingType                 VARCHAR(20)     NOT NULL DEFAULT 'InPerson',
     firstAppointmentAddress     VARCHAR(500)    NULL,
+    virtualMeetingLink          VARCHAR(500)    NULL,
     m365EventId                 VARCHAR(500)    NULL,
 
     productsInterestedIn        TEXT            NULL,
@@ -532,6 +551,7 @@ CREATE TABLE IF NOT EXISTS Appointment (
     CONSTRAINT FK_Appointment_ClaimedBy FOREIGN KEY (claimedByBrokerId) REFERENCES "User"(id),
     CONSTRAINT FK_Appointment_Portfolio FOREIGN KEY (portfolioId)       REFERENCES Portfolio(id),
     CONSTRAINT CK_Appointment_Status    CHECK (status IN ('Unassigned', 'Assigned', 'InProgress', 'ClosedWon', 'ClosedLost', 'Claimed', 'ReturnedToLeads')),
+    CONSTRAINT CK_Appointment_MeetingType CHECK (meetingType IN ('InPerson', 'Virtual')),
     CONSTRAINT CK_Appointment_M1Status  CHECK (meeting1Status IS NULL OR meeting1Status IN ('Seen', 'Rescheduled', 'Cancelled')),
     CONSTRAINT CK_Appointment_M2Status  CHECK (meeting2Status IS NULL OR meeting2Status IN ('Seen', 'Rescheduled', 'Cancelled')),
     CONSTRAINT CK_Appointment_M3Status  CHECK (meeting3Status IS NULL OR meeting3Status IN ('Seen', 'Rescheduled', 'Cancelled'))

@@ -22,39 +22,40 @@ original file — only this summary block at the top is newly written.
 0. CURRENT STATE — READ THIS FIRST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-NEXT ACTION, per §140 (12 Aug 2026): §137 confirmed deployed and
-working. §139 (Task/Lead changes) was deployed and tested by Mark, who
-caught the "will old data cause issues" question himself before it bit
-him — that surfaced and fixed a real bug (see §139's own addendum) and
-confirmed the region assumption (agent's own region) was right, since
-listAvailableToClaim() already used the exact same signal — see §140.
-§140 then closed a real gap Mark spotted testing further: claimModel
-was only ever enforced on the claim-side endpoints, never on the two
-direct-assign paths (booking with a broker chosen, Supervisor Assign
-action) — both now genuinely blocked when claim model is active, not
-just hidden in the UI. NOT YET DEPLOYED.
+NEXT ACTION, per §141 (13 Aug 2026): §137 and §139 both confirmed
+deployed and working, including Mark catching and helping fix a real
+bug himself in §139's own addendum. §140 closed a real claim-model
+enforcement gap. §141 (this session's latest) fixed four things Mark
+found testing the claim model directly: the Active tab hiding Claimed
+appointments, the token balance never actually moving (real root
+cause: claimTokenCost was never set anywhere, not a refetch bug — see
+§141), Address never being mandatory, and added the meeting-type
+(InPerson/Virtual) field Mark asked for, which now drives that
+validation. §141 is BUILT AND VERIFIED (including real Postgres
+execution of both new migrations, twice each) but NOT YET DEPLOYED.
+Migrations 025 and 026 have not been run against Neon.
 
-SEPARATE, caught while diffing before packaging §140: the entire
-frontend/db/migrations/ folder is missing from GitHub main again — same
-recurring issue as §136. Restored in §140's delivery. Drag the WHOLE
-folder every time, not just the newest file — this has now happened at
-least twice despite that guidance already being written down here.
+STILL fully deferred, zero code written, now explicitly NEXT per
+Mark's decision in §141: the meeting/appointment attempt-history
+redesign itself (§138 has the full spec — read that before starting,
+don't re-derive it). After that: the Reports date-scoping fix, which
+depends on the redesign existing first.
 
-Supervisor lookup).
+RECURRING ISSUE, now three times (§136, §140, §141): frontend/db/
+migrations/ keeps vanishing from GitHub main after github.dev uploads.
+Restored again each time it's been caught. Drag the WHOLE folder every
+time, not just the newest file, and check GitHub's own repo browser
+after each upload — the guidance alone hasn't stopped it recurring.
 
-STILL fully deferred, zero code written: the meeting/appointment
-attempt-history redesign itself (§138 has the full spec), and the
-Reports date-scoping fix that depends on it existing first.
-
-A session-isolation footgun was also discovered (sessionStorage is
-per-tab, the mb_session cookie is not — multiple tabs/InPrivate windows
-sharing one browser silently share one auth session too). This throws
-real doubt on one specific conclusion from session 20 — whether
-logCallAttempt() actually needs to route Callback tasks to
-lead.assignedAgentId rather than the caller — see §138's own
-"SESSION-ISOLATION FOOTGUN" entry before touching that function's
-routing. Mark has not yet retested cleanly to confirm either way; §139
-deliberately left this unchanged.
+A session-isolation footgun was discovered in session 20
+(sessionStorage is per-tab, the mb_session cookie is not — multiple
+tabs/InPrivate windows sharing one browser silently share one auth
+session too). This throws real doubt on one specific conclusion from
+that session — whether logCallAttempt() actually needs to route
+Callback tasks to lead.assignedAgentId rather than the caller — see
+§138's own "SESSION-ISOLATION FOOTGUN" entry before touching that
+function's routing. Mark has not yet retested cleanly to confirm
+either way; still deliberately left unchanged as of §141.
 
 Whether migration 022 has actually been run against Neon is still
 unconfirmed either way from this sandbox; migration 023 likewise. Ask
@@ -10672,3 +10673,154 @@ FILES:
   frontend/src/pages/LeadDetail.jsx                 (booking form hides broker-search in claim mode)
   frontend/db/migrations/ (all three files RESTORED — see finding above)
 Plus this Status_Vercel.md.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+141. FOUR TESTING FINDINGS FROM THE CLAIM MODEL — 13 Aug 2026 (session 20, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark tested §140's claim-model work directly (screenshots: claiming an
+appointment, checking Tasks/Notifications) and reported four things.
+Investigated each before building anything — two turned out to be
+deeper than their symptom suggested.
+
+1. CLAIMED APPOINTMENTS VANISHING FROM THE ACTIVE TAB — real, small
+   bug. AppointmentList.jsx's ACTIVE_APPT_STATUSES was
+   ['Unassigned', 'Assigned', 'InProgress'] — predates 'Claimed' as a
+   concept entirely, so a freshly claimed appointment (arguably the
+   MOST active state — a broker owns it, hasn't started the meeting
+   process) disappeared from Active until its first meeting moved it to
+   InProgress. Fixed: 'Claimed' added to the list. ReturnedToLeads
+   deliberately still excluded — it already has its own filter chip.
+
+2. TOKEN BALANCE NOT MOVING AFTER A CLAIM — not a refetch bug.
+   handleClaim() in AppointmentList.jsx already correctly calls
+   refetchTokens() after every successful claim — traced that code
+   before looking anywhere else, it was never the problem. Real cause:
+   claimAppointment() only debits `if (cost > 0)`, and cost comes from
+   Appointment.claimTokenCost — which has existed since §117 but was
+   NEVER SET to anything nonzero anywhere in the codebase. Checked every
+   reference: CreateAppointmentSchema had it as an optional
+   caller-supplied field, but no frontend ever sent one. Every
+   appointment ever booked has cost 0 to claim — the entire token-debit
+   mechanism has been dead since it was built, not failing silently,
+   just never actually invoked. The surrounding infrastructure (monthly
+   allocations, Stripe/Paystack purchase, refund-on-lost-race) is all
+   real and correctly wired; only the "what does THIS appointment cost"
+   input was never connected to anything.
+   FIXED, per Mark's explicit choice (flat org-wide cost via
+   SystemConfig, not per-portfolio or agent-set-per-booking):
+     - New SystemConfig.defaultClaimTokenCost column (migration 025,
+       default 1), with a matching AppAdmin field right below the
+       existing monthly-allocation setting in the same card.
+     - createAppointment() now derives claimTokenCost itself from that
+       setting whenever claim model is active (fetched only when
+       needed, not on every booking regardless of mode) — stamped onto
+       the Appointment row at booking time, not re-read at claim time,
+       so a later admin change doesn't retroactively move the price of
+       appointments already sitting in the pool.
+     - The old caller-supplied claimTokenCost field REMOVED from
+       CreateAppointmentSchema entirely — no longer part of the request
+       shape at all, closing off the exact gap that let this go unset
+       for as long as it did.
+
+3. FIRST MEETING DATE NOT PRE-FILLING FROM THE APPOINTMENT DATE — NOT a
+   new bug, and not something this session (or any recent one) broke.
+   Traced meeting1Date's every write site: it has never been set from
+   firstAppointmentDate anywhere, ever — a broker has always had to
+   type it in manually. This is exactly the gap the meeting/
+   attempt-history redesign (fully specced in §138, zero code written)
+   already exists to close. No code change here; Mark's own testing
+   surfaced real, current friction from a gap that was already on the
+   backlog — see the redesign-prioritization decision below.
+
+4. ADDRESS NOT MANDATORY — confirmed, genuinely optional both
+   server-side (Zod .optional()) and client-side (no validation at
+   all). Connected to Mark's own follow-on idea (meeting type,
+   in-person vs Teams/virtual) rather than fixed in isolation, since
+   fixing address alone would have needed redoing once meeting type
+   landed. Mark's explicit decision: meeting type DRIVES validation —
+   Address required only for InPerson, a new meeting-link field
+   required only for Virtual — not just an informational label.
+   BUILT:
+     - Appointment.meetingType (VARCHAR, 'InPerson'/'Virtual', default
+       'InPerson' for historical rows) and .virtualMeetingLink columns
+       — migration 026.
+     - CreateAppointmentSchema: meetingType now required (no default —
+       the agent must choose explicitly), with a .superRefine()
+       enforcing the conditional address/link requirement. Verified all
+       four cases directly against the schema (InPerson+address pass,
+       InPerson-no-address fail, Virtual+link pass, Virtual-no-link
+       fail) before touching anything else.
+     - LeadDetail.jsx booking form: a meeting-type radio (defaults to
+       InPerson — the only kind this app supported until now, avoids
+       forcing an extra click on the common case), swapping between an
+       Address field and a Meeting link field depending on the choice,
+       both validated client-side to match the schema exactly.
+     - AppointmentDetail.jsx: shows Meeting type, and either Address or
+       Meeting link (rendered as a clickable link only when it actually
+       looks like a URL — this field is free text, since sometimes
+       people paste dial-in instructions rather than a pure link;
+       forcing every value through an <a href> would produce broken
+       links for those).
+
+REDESIGN PRIORITIZATION, per Mark's decision: the meeting/attempt-
+history redesign (§138) moves from "deferred" to "next" — this
+session's finding #3 above is real, current evidence of the cost of
+continuing to defer it. NOT STARTED YET this session — still fully
+specced only, zero code written. Next session's primary work.
+
+VERIFIED: node --check clean on every touched .js file, ESM import
+smoke test, full Vite build clean (validates all three touched .jsx
+files), existing 55-test suite unaffected. REAL POSTGRES this time,
+not just SQL-text review — fresh instance, schema.postgres.sql loaded
+clean with all new columns, migrations 025 and 026 both applied twice
+each (fresh and idempotently against an already-current schema, no
+errors either time). Inserted a real Virtual-meeting appointment
+through the exact INSERT shape createAppointment() uses and confirmed
+it lands correctly; separately confirmed the CK_Appointment_MeetingType
+constraint genuinely rejects an invalid value ('Hologram'), not just
+that the happy path works. Confirmed SystemConfig.defaultClaimTokenCost
+updates correctly and its own bounds check rejects a negative value.
+
+SEPARATE, caught again while diffing before packaging: frontend/db/
+migrations/ is STILL missing from GitHub main (all of 022-024, not just
+this session's new 025/026) — third time this exact issue has surfaced
+this project (see §136, §140). Restored again in this delivery. Also
+confirmed while diffing: the Tasks.jsx fix from earlier this session
+(the isRedirectOnly bug — see the §139 addendum) has not been merged
+yet either — carried forward in this delivery's file list, unchanged
+from before, not a new edit.
+
+MIGRATION: 025_add_default_claim_token_cost.sql,
+026_add_appointment_meeting_type.sql — both additive only (new nullable/
+defaulted columns), no data loss risk against an existing database with
+live Appointment/SystemConfig rows.
+
+FILES:
+  frontend/api-lib/models/appointment.js            (meetingType/virtualMeetingLink added, claimTokenCost removed)
+  frontend/api-lib/models/auth.js                   (defaultClaimTokenCost added to UpdateSystemConfigSchema)
+  frontend/api-lib/services/appointmentService.js   (INSERT columns, claimTokenCost derivation)
+  frontend/api-lib/services/systemConfigService.js  (defaultClaimTokenCost read/write)
+  frontend/db/migrations/ (025, 026 NEW; 022-024 restored again — see finding above)
+  frontend/db/schema.postgres.sql                   (all new columns/constraints)
+  frontend/src/pages/AppAdmin.jsx                   (Tokens per claim field)
+  frontend/src/pages/AppointmentDetail.jsx          (Meeting type / Address-or-Link display)
+  frontend/src/pages/AppointmentList.jsx            (Active tab fix)
+  frontend/src/pages/LeadDetail.jsx                 (meeting type selector, conditional address/link)
+  frontend/src/pages/Tasks.jsx                      (carried forward, unmerged fix from earlier this session)
+Plus this Status_Vercel.md.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 20 PAUSED HERE — 13 Aug 2026
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+NEXT ACTION: §141 built and verified, NOT YET DEPLOYED. Migrations 025
+and 026 have not been run against Neon. Once deployed and migrated: the
+meeting/attempt-history redesign (§138) is next — genuinely large (new
+attempt-history table, migration, full outcome-flow rewrite of
+AppointmentDetail.jsx, interaction with the task/notification changes
+already built in §139), warrants its own dedicated session rather than
+being started at the tail end of this one. After that: the Reports
+date-scoping fix, which depends on the redesign existing first.
+
+If picking up a pending item, reference it by section number — same
+convention as before.

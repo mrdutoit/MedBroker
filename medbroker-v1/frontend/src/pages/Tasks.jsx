@@ -247,9 +247,21 @@ function TaskRow({ task, onToggle, onDelete, onReassign, isAdmin, canDelete, ass
   // §138, 12 Aug 2026 — Callback and Assign-broker tasks only complete as
   // a side effect of acting on their real entity (Log Call on the Lead;
   // assigning a broker on the Appointment) — ticking them off here isn't
-  // possible any more, by design. Keyed off having an actual linked
-  // entity, not off category alone: a MANUALLY created task can still be
-  // given category 'callback' or 'appointment' in the New Task modal, but
+  // possible any more, by design. Keyed off category being specifically
+  // 'callback' or 'appointment' (the only two with an automated closing
+  // path) AND actually having a linked entity — NOT "any non-manual task
+  // with a linked entity". That broader check was a real bug caught while
+  // reasoning through old data (12 Aug 2026): a Reschedule- or Outcome-
+  // type task created before this deploy still has entityType/entityId
+  // set (that was always true for those types) but, now that both
+  // creation rules are gone, has NO mechanism left to ever complete it —
+  // no checkbox (removed), no auto-completion (never built for those two
+  // types, unlike Callback/Assign-broker). The broader check would have
+  // made any such task permanently stuck if it was still open. This
+  // narrower one leaves an old open Reschedule/Outcome task exactly as
+  // completable as it always was (checkbox), which is the only way it
+  // can still be resolved. A manually created task can still be given
+  // category 'callback' or 'appointment' in the New Task modal, but
   // always has entityType/entityId = NULL (no entity-linking UI there),
   // so it correctly falls through to the checkbox below regardless of
   // which category was picked.
@@ -258,7 +270,7 @@ function TaskRow({ task, onToggle, onDelete, onReassign, isAdmin, canDelete, ass
     : task.linkedAppointment
       ? `/appointments/${task.linkedAppointment}`
       : null;
-  const isRedirectOnly = linkTarget !== null && task.category !== 'manual';
+  const isRedirectOnly = linkTarget !== null && (task.category === 'callback' || task.category === 'appointment');
 
   return (
     <div style={{

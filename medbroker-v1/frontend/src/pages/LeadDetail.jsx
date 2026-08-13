@@ -840,7 +840,13 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
 
   const [date,            setDate]            = useState('');
   const [time,             setTime]            = useState('');
+  // §140d, 12 Aug 2026 (Mark's request) — drives which of address/link is
+  // required below. Defaults to InPerson (the only kind this app supported
+  // until this change, and still the common case) rather than forcing an
+  // extra click on every booking, but the agent can switch it.
+  const [meetingType,      setMeetingType]     = useState('InPerson');
   const [address,          setAddress]         = useState('');
+  const [virtualMeetingLink, setVirtualMeetingLink] = useState('');
   const [currentInsurer,   setCurrentInsurer]  = useState('');
   const [fieldErrors,      setFieldErrors]     = useState({});
   const [submitting,       setSubmitting]      = useState(false);
@@ -853,9 +859,12 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
   // clearer signal than a click-then-discover error, though the inline
   // fieldErrors below are kept too (still useful if someone tabs through
   // fields without noticing what's outstanding).
+  // §140d — the meeting-type-conditional part applies regardless of
+  // claimModel, since it's about the meeting itself, not who's attending.
+  const isMeetingDetailValid = meetingType === 'InPerson' ? !!address.trim() : !!virtualMeetingLink.trim();
   const isFormValid = isClaimModel
-    ? (!!date && !!time && portfolios.length > 0)
-    : ((!!brokerId || noBrokerAvailable) && !!date && !!time && portfolios.length > 0);
+    ? (!!date && !!time && portfolios.length > 0 && isMeetingDetailValid)
+    : ((!!brokerId || noBrokerAvailable) && !!date && !!time && portfolios.length > 0 && isMeetingDetailValid);
 
   // Products available now union across every selected portfolio, not
   // just one — the whole point of allowing more than one portfolio here
@@ -906,6 +915,9 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
     if (!date)             errors.date = 'Required';
     if (!time)             errors.time = 'Required';
     if (portfolios.length === 0) errors.portfolios = 'Select at least one portfolio';
+    // §140d — conditional on meetingType, not both unconditionally required.
+    if (meetingType === 'InPerson' && !address.trim()) errors.address = 'Address is required for an in-person meeting';
+    if (meetingType === 'Virtual' && !virtualMeetingLink.trim()) errors.virtualMeetingLink = 'A meeting link is required for a virtual meeting';
     if (Object.keys(errors).length) { setFieldErrors(errors); return; }
 
     setSubmitting(true);
@@ -917,7 +929,9 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
         portfolios,
         firstAppointmentDate: date,
         firstAppointmentTime: time,
-        firstAppointmentAddress: address || undefined,
+        meetingType,
+        firstAppointmentAddress: meetingType === 'InPerson' ? address : undefined,
+        virtualMeetingLink: meetingType === 'Virtual' ? virtualMeetingLink : undefined,
         currentInsurer: currentInsurer || undefined,
         productsInterestedIn: products,
       });
@@ -1064,9 +1078,35 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
         )}
 
         <div style={{ marginBottom: '10px' }}>
-          <label style={labelStyle}>Address</label>
-          <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="123 Rivonia Rd, Sandton" />
+          <label style={labelStyle}>Meeting type *</label>
+          <div style={{ display: 'flex', gap: '10px' }}>
+            {[['InPerson', 'In person'], ['Virtual', 'Virtual (Teams etc.)']].map(([val, lbl]) => (
+              <label key={val} style={{
+                display: 'flex', alignItems: 'center', gap: '8px', flex: 1,
+                padding: '9px 12px', border: `1px solid ${meetingType === val ? 'var(--accent)' : 'var(--line)'}`,
+                borderRadius: '6px', cursor: 'pointer',
+                background: meetingType === val ? 'color-mix(in srgb, var(--accent) 12%, var(--panel))' : 'var(--panel)',
+              }}>
+                <input type="radio" name="meeting-type" checked={meetingType === val} onChange={() => setMeetingType(val)} style={{ accentColor: 'var(--accent)' }} />
+                <span style={{ fontSize: '0.875rem' }}>{lbl}</span>
+              </label>
+            ))}
+          </div>
         </div>
+
+        {meetingType === 'InPerson' ? (
+          <div style={{ marginBottom: '10px' }}>
+            <label style={labelStyle}>Address *</label>
+            <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="123 Rivonia Rd, Sandton" />
+            {fieldErrors.address && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.address}</div>}
+          </div>
+        ) : (
+          <div style={{ marginBottom: '10px' }}>
+            <label style={labelStyle}>Meeting link *</label>
+            <input style={inputStyle} value={virtualMeetingLink} onChange={(e) => setVirtualMeetingLink(e.target.value)} placeholder="https://teams.microsoft.com/..." />
+            {fieldErrors.virtualMeetingLink && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.virtualMeetingLink}</div>}
+          </div>
+        )}
         <div style={{ marginBottom: '16px' }}>
           <label style={labelStyle}>Current insurance company</label>
           <input style={inputStyle} value={currentInsurer} onChange={(e) => setCurrentInsurer(e.target.value)} placeholder="e.g. Old Mutual, Momentum" />
@@ -1080,7 +1120,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
             onClick={handleConfirmBooking}
             style={{ ...btn.primary, opacity: (submitting || !isFormValid) ? 0.5 : 1 }}
             disabled={submitting || !isFormValid}
-            title={!isFormValid ? (isClaimModel ? 'Select a portfolio, date and time before confirming' : 'Select a portfolio, date and time, and either a broker or "couldn\'t find a broker", before confirming') : undefined}
+            title={!isFormValid ? (isClaimModel ? 'Select a portfolio, date and time, and an address or meeting link, before confirming' : 'Select a portfolio, date and time, a broker or "couldn\'t find a broker", and an address or meeting link, before confirming') : undefined}
           >
             {submitting ? 'Booking…' : 'Confirm Booking'}
           </button>

@@ -397,7 +397,13 @@ export default function AppointmentList() {
   const sourceData = realAppointments;
   const brokerOptions = realBrokers.map(b => ({ id: b.id, displayName: b.displayName }));
 
-  const ACTIVE_APPT_STATUSES = ['Unassigned', 'Assigned', 'InProgress'];
+  // §140b, 12 Aug 2026 — 'Claimed' was missing here, meaning a freshly
+  // claimed appointment (the most active state there is — a broker owns
+  // it and hasn't started the meeting process yet) disappeared from the
+  // Active tab entirely until its first meeting moved it to InProgress.
+  // ReturnedToLeads deliberately stays excluded — it already has its own
+  // dedicated filter chip, same as ClosedWon/ClosedLost.
+  const ACTIVE_APPT_STATUSES = ['Unassigned', 'Assigned', 'Claimed', 'InProgress'];
   const CLOSED_APPT_STATUSES = ['ClosedWon', 'ClosedLost', 'ReturnedToLeads'];
 
   const filtered = sourceData.filter(a => {
