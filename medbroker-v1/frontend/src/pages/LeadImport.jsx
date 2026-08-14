@@ -62,6 +62,9 @@ const BLANK_FORM = {
   title: '', source: '', firstName: '', lastName: '', dateOfBirth: '', email: '',
   mobileNumber: '', occupation: '', hospitalOrPractice: '',
   universityAttended: '', yearOfAttendance: '', degreeAttained: '', portfolios: [],
+  // 14 Aug 2026 (§157/§158, Mark's decision: "Mandatory, manual form
+  // only") — mirrors portfolios immediately above.
+  products: [],
 };
 
 // Strips empty-string fields before sending. Left-blank optional fields
@@ -77,7 +80,7 @@ function stripEmpty(obj) {
 
 export default function LeadImport() {
   const navigate  = useNavigate();
-  const { portfolios: allPortfolios } = useRole();
+  const { portfolios: allPortfolios, productsByPortfolio } = useRole();
   const fileRef   = useRef();
   const [tab, setTab] = useState('csv');
 
@@ -253,6 +256,9 @@ export default function LeadImport() {
     // same rule (z.array().min(1)), this is the matching client-side
     // gate, not a UI-only check.
     if (form.portfolios.length === 0) errors.portfolios = 'Select at least one portfolio';
+    // 14 Aug 2026 (§157/§158, Mark's decision: "Mandatory, manual form
+    // only") — mirrors the portfolios check immediately above, exactly.
+    if (form.products.length === 0) errors.products = 'Select at least one product';
     if (Object.keys(errors).length) { setFormErrors(errors); return; }
     setFormSubmitting(true);
     try {
@@ -613,10 +619,16 @@ export default function LeadImport() {
                     <input
                       type="checkbox"
                       checked={checked}
-                      onChange={() => setForm(f => ({
-                        ...f,
-                        portfolios: checked ? f.portfolios.filter(x => x !== p.name) : [...f.portfolios, p.name],
-                      }))}
+                      onChange={() => setForm(f => {
+                        const next = checked ? f.portfolios.filter(x => x !== p.name) : [...f.portfolios, p.name];
+                        // 14 Aug 2026 (§157/§158) — drop any selected
+                        // product no longer offered once its portfolio
+                        // is deselected, same reasoning as the Book
+                        // Appointment modal's togglePortfolio()
+                        // (LeadDetail.jsx).
+                        const stillAvailable = next.flatMap(n => productsByPortfolio[n] ?? []);
+                        return { ...f, portfolios: next, products: f.products.filter(x => stillAvailable.includes(x)) };
+                      })}
                       style={{ accentColor: 'var(--accent)' }}
                     />
                     {p.name}
@@ -627,6 +639,52 @@ export default function LeadImport() {
             <p style={s.formHint}>Select at least one — not limited to one, a lead can be interested in more than one portfolio, same as a broker isn't limited to selling from just one. Carries through to Book Appointment later.</p>
             {formErrors.portfolios && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.portfolios}</div>}
           </div>
+
+          {/* 14 Aug 2026 (§157/§158, Mark's decision: "Mandatory, manual
+              form only") — Products on Lead. Scoped to the selected
+              portfolio(s)' own product lists, same dependent-selection
+              pattern as the Book Appointment modal's availableProducts
+              (LeadDetail.jsx) — only rendered once at least one
+              portfolio is picked, since there's nothing to offer before
+              that. Carries through to Book Appointment's own pre-fill,
+              same as portfolios already does. */}
+          {form.portfolios.length > 0 && (
+          <div style={s.formGroup}>
+            <label style={s.formLabel}>Products the client is interested in *</label>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '4px' }}>
+              {form.portfolios.flatMap(name => productsByPortfolio[name] ?? []).map(prod => {
+                const checked = form.products.includes(prod);
+                return (
+                  <label
+                    key={prod}
+                    style={{
+                      display: 'flex', alignItems: 'center', gap: '5px',
+                      cursor: 'pointer', padding: '6px 12px',
+                      border: `1px solid ${checked ? 'color-mix(in srgb, #15803d 30%, var(--panel))' : 'var(--line)'}`,
+                      borderRadius: '6px', fontSize: '0.875rem',
+                      background: checked ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'var(--panel)',
+                      color: checked ? '#15803d' : 'var(--ink)',
+                      userSelect: 'none',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => setForm(f => ({
+                        ...f,
+                        products: checked ? f.products.filter(x => x !== prod) : [...f.products, prod],
+                      }))}
+                      style={{ accentColor: '#15803d' }}
+                    />
+                    {prod}
+                  </label>
+                );
+              })}
+            </div>
+            <p style={s.formHint}>Select at least one. Carries through to Book Appointment later, same as Portfolio.</p>
+            {formErrors.products && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.products}</div>}
+          </div>
+          )}
 
           <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
             <button type="submit" disabled={formSubmitting} style={s.primaryBtn}>

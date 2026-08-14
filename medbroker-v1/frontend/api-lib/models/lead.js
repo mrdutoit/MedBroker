@@ -122,6 +122,13 @@ const CreateLeadShape = z.object({
   // Referral/WebForm-sourced leads stay exempt, matching pre-existing
   // behaviour for those sources.
   portfolios:           z.array(z.string()).optional(),
+  // 14 Aug 2026 (§157/§158, Mark's decision: "Mandatory, manual form
+  // only") — mirrors portfolios immediately above exactly: optional at
+  // the bare-shape level so CSV/subscription bulk import (which shares
+  // this schema via the same leadsApi.create() call) isn't blocked; the
+  // actual mandatory rule lives in the superRefine() below, gated on
+  // leadSource === 'ManualEntry' only.
+  products:             z.array(z.string()).optional(),
   leadSource:           LeadSource.default('ManualEntry'),
   linkedEventId:        z.string().uuid().optional(),
   linkedSubscriptionId: z.string().uuid().optional(),
@@ -143,6 +150,11 @@ export const CreateLeadSchema = CreateLeadShape.superRefine((data, ctx) => {
   // import was just pulled out of.
   if (data.leadSource === 'ManualEntry' && (!data.portfolios || data.portfolios.length === 0)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['portfolios'], message: 'Select at least one portfolio' });
+  }
+  // 14 Aug 2026 (§157/§158) — mirrors the portfolios rule immediately
+  // above, exactly, same ManualEntry-only gate.
+  if (data.leadSource === 'ManualEntry' && (!data.products || data.products.length === 0)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['products'], message: 'Select at least one product' });
   }
 });
 

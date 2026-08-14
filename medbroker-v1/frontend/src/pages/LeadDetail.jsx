@@ -296,6 +296,8 @@ export default function LeadDetail() {
       existingCover: baseLead.existingCover ?? null, policies: baseLead.policies ?? '',
       medicalAid: baseLead.medicalAid ?? null, medicalAidProvider: baseLead.medicalAidProvider ?? '',
       portfolios: baseLead.portfolios ?? [],
+      // 14 Aug 2026 (§157/§158) — mirrors portfolios immediately above.
+      products: baseLead.products ?? [],
     });
     setEditError('');
     setEditing(true);
@@ -303,6 +305,19 @@ export default function LeadDetail() {
 
   function setField(field, value) {
     setEditForm(prev => ({ ...prev, [field]: value }));
+  }
+
+  // 14 Aug 2026 (§157/§158) — dedicated handler, not the generic
+  // setField() above, because toggling a portfolio here now also needs
+  // to prune any selected product no longer offered — same reasoning
+  // and same shape as the Book Appointment modal's own togglePortfolio()
+  // further down this file.
+  function toggleEditPortfolio(name) {
+    setEditForm(prev => {
+      const next = prev.portfolios.includes(name) ? prev.portfolios.filter(x => x !== name) : [...prev.portfolios, name];
+      const stillAvailable = next.flatMap(n => productsByPortfolio[n] ?? []);
+      return { ...prev, portfolios: next, products: prev.products.filter(p => stillAvailable.includes(p)) };
+    });
   }
 
   async function handleSaveEdit() {
@@ -564,9 +579,7 @@ export default function LeadDetail() {
                       <input
                         type="checkbox"
                         checked={checked}
-                        onChange={() => setField('portfolios', checked
-                          ? editForm.portfolios.filter(x => x !== p.name)
-                          : [...editForm.portfolios, p.name])}
+                        onChange={() => toggleEditPortfolio(p.name)}
                         style={{ accentColor: 'var(--accent)' }}
                       />
                       {p.name}
@@ -580,6 +593,59 @@ export default function LeadDetail() {
               {baseLead.portfolios?.length
                 ? <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     {baseLead.portfolios.map(p => <PortfolioPill key={p} portfolio={p} />)}
+                  </div>
+                : '—'}
+            </Field>
+          )}
+          {/* 14 Aug 2026 (§157/§158, Mark's decision: "Mandatory, manual
+              form only" at creation) — editable here too, though, same
+              as Portfolio already is; scoped to editForm.portfolios so
+              the offered products update live as portfolios are
+              (de)selected during this same edit session. */}
+          {editing ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', padding: '7px 0', borderBottom:'1px solid var(--line)', fontSize: '0.875rem', gap: '12px' }}>
+              <span style={{ color:'var(--mut)', flexShrink: 0 }}>Products</span>
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                {editForm.portfolios.length === 0
+                  ? <span style={{ color: colors.ink400, fontSize: '0.75rem' }}>Select a portfolio first</span>
+                  : editForm.portfolios.flatMap(name => productsByPortfolio[name] ?? []).map(prod => {
+                      const checked = editForm.products.includes(prod);
+                      return (
+                        <label
+                          key={prod}
+                          style={{
+                            display: 'flex', alignItems: 'center', gap: '4px',
+                            cursor: 'pointer', padding: '3px 9px',
+                            border: `1px solid ${checked ? 'color-mix(in srgb, #15803d 30%, var(--panel))' : 'var(--line)'}`,
+                            borderRadius: '20px', fontSize: '0.75rem',
+                            background: checked ? 'color-mix(in srgb, #15803d 10%, var(--panel))' : 'var(--panel)',
+                            color: checked ? '#15803d' : 'var(--ink)',
+                            userSelect: 'none',
+                          }}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => setField('products', checked
+                              ? editForm.products.filter(x => x !== prod)
+                              : [...editForm.products, prod])}
+                            style={{ accentColor: '#15803d' }}
+                          />
+                          {prod}
+                        </label>
+                      );
+                    })}
+              </div>
+            </div>
+          ) : (
+            <Field label="Products">
+              {baseLead.products?.length
+                ? <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+                    {baseLead.products.map(p => (
+                      <span key={p} style={{ fontSize: '0.75rem', padding: '2px 10px', borderRadius: '999px', background: 'color-mix(in srgb, #15803d 14%, transparent)', color: '#15803d', fontWeight: 600 }}>
+                        {p}
+                      </span>
+                    ))}
                   </div>
                 : '—'}
             </Field>
@@ -836,7 +902,10 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
   // already tagged on the Lead (still fully editable here).
   const [region,       setRegion]       = useState('');
   const [portfolios,   setPortfolios]   = useState(lead.portfolios ?? []);
-  const [products,     setProducts]     = useState([]);
+  // 14 Aug 2026 (§157/§158) — was useState([]); now pre-fills from the
+  // Lead's own captured products, same as portfolios immediately above
+  // already does — still fully editable here via toggleProduct().
+  const [products,     setProducts]     = useState(lead.products ?? []);
   const [searched,     setSearched]     = useState(false);
   const [searching,    setSearching]    = useState(false);
   const [searchError,  setSearchError]  = useState('');

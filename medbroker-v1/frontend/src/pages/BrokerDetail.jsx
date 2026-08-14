@@ -145,7 +145,7 @@ export default function BrokerDetail() {
         {[
           { label: 'Appointments',    value: kpi.appts.toString(),        colour: 'var(--ink)' },
           { label: 'Signed',          value: kpi.signed.toString(),       colour: '#15803d' },
-          { label: 'Conversion',      value: kpi.conversion,              colour: '#15803d' },
+          { label: 'Signed / appts',  value: kpi.conversion,              colour: '#15803d' },
           { label: 'Policy value',    value: `R${kpi.policyValue.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, colour: '#15803d' },
           { label: 'Broker switches', value: kpi.switches.toString(),     colour: 'var(--ink)' },
           // §148 — new, Mark's explicit request. null (no deals of that

@@ -410,6 +410,25 @@ CREATE TABLE IF NOT EXISTS LeadPortfolio (
     CONSTRAINT UQ_LeadPortfolio           UNIQUE (leadId, portfolioId)
 );
 
+-- Many-to-many, mirrors LeadPortfolio exactly (14 Aug 2026, §157/§158,
+-- Mark's decision: "Mandatory, manual form only"). A Lead can declare
+-- interest in more than one product across its selected portfolio(s),
+-- same as Appointment already allows via AppointmentProduct — this is
+-- the Lead-level equivalent, captured earlier in the pipeline. No
+-- policyValue column here (unlike AppointmentProduct) — a Rand value
+-- only becomes meaningful once a product is actually sold on an
+-- Appointment, not while it's still just a declared interest on a Lead.
+CREATE TABLE IF NOT EXISTS LeadProduct (
+    id          UUID            NOT NULL DEFAULT gen_random_uuid(),
+    leadId      UUID            NOT NULL,
+    productId   UUID            NOT NULL,
+    createdAt   TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    CONSTRAINT PK_LeadProduct         PRIMARY KEY (id),
+    CONSTRAINT FK_LeadProduct_Lead    FOREIGN KEY (leadId)    REFERENCES Lead(id),
+    CONSTRAINT FK_LeadProduct_Product FOREIGN KEY (productId) REFERENCES Product(id),
+    CONSTRAINT UQ_LeadProduct         UNIQUE (leadId, productId)
+);
+
 CREATE INDEX IF NOT EXISTS IX_Lead_PipelineStatus
     ON Lead (pipelineStatus) WHERE deletedAt IS NULL;
 

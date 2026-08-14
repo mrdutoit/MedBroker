@@ -148,7 +148,7 @@ export default function AgentDetail() {
         {[
           { label: 'Leads assigned',    value: kpi.leads.toLocaleString(),    colour: 'var(--ink)' },
           { label: 'Calls made',        value: kpi.calls.toLocaleString(),    colour: 'var(--ink)' },
-          { label: 'Appts booked',      value: kpi.appts.toString(),          colour: '#7c3aed', sub: `${kpi.conversion} booking rate` },
+          { label: 'Appts booked',      value: kpi.appts.toString(),          colour: '#7c3aed', sub: `${kpi.conversion} per lead` },
           { label: 'Callbacks pending', value: kpi.callbacks.toString(),      colour: '#d97706' },
           { label: 'No answer',         value: kpi.noAnswer.toString(),       colour: '#ef4444' },
           // §148 — new, Mark's explicit request. null (no deals of that

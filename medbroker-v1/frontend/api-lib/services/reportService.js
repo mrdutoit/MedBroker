@@ -518,15 +518,16 @@ export async function getBrokerDetailReport(brokerId, period, scope, referenceDa
   // deliberately mixed basis, matching the exact same shape already
   // established for the org-wide "Closed Won" conversion % in
   // getReportSummary (orgClosedWon / orgTotalLeads has the identical
-  // characteristic). Not a new inconsistency introduced here — the
-  // precedent already exists; flagging so it reads as a considered
-  // choice, not an oversight, if it looks odd (a broker can show >100%
-  // conversion in a period where more deals close than were newly
-  // booked).
+  // characteristic). A broker can show >100% conversion in a period
+  // where more deals close than were newly booked — the exact reason
+  // §154 (13 Aug 2026) changed this same shape to a ratio for Agent
+  // booking rate. Extended here 14 Aug 2026 (§157/§158, Mark's decision:
+  // "most accurate metric, industry standard") — a plain ratio, not a
+  // '%' string with no real ceiling.
   const kpi = {
     appts, signed, switches: Number(k.switches), meetingsHeld: Number(k.meetingsHeld),
     policyValue: totalPolicyValue,
-    conversion: appts === 0 ? '0%' : `${Math.round((signed / appts) * 100)}%`,
+    conversion: appts === 0 ? '0.0' : (signed / appts).toFixed(1),
   };
 
   // Meeting outcome summary — real counts per meeting number/status, plus
@@ -854,7 +855,10 @@ export async function getLeadsBySourceReport(period, referenceDate) {
     const c = closed[source] ?? { closedWon: 0, closedLost: 0, avgDaysWon: null, avgDaysLost: null };
     return {
       source, leads, closedWon: c.closedWon, closedLost: c.closedLost,
-      conversion: leads === 0 ? '0%' : `${Math.round((c.closedWon / leads) * 100)}%`,
+      // Ratio, not '%' — same §157/§158 extension as Broker conversion
+      // (14 Aug 2026), same underlying mixed-basis shape §154 fixed for
+      // Agent booking rate.
+      conversion: leads === 0 ? '0.0' : (c.closedWon / leads).toFixed(1),
       avgDaysToCloseWon: c.avgDaysWon, avgDaysToCloseLost: c.avgDaysLost,
     };
   });
@@ -912,7 +916,9 @@ export async function getLeadsByPortfolioReport(period, referenceDate) {
     const c = closed[portfolio] ?? { closedWon: 0, closedLost: 0, avgDaysWon: null, avgDaysLost: null };
     return {
       portfolio, leads, closedWon: c.closedWon, closedLost: c.closedLost,
-      conversion: leads === 0 ? '0%' : `${Math.round((c.closedWon / leads) * 100)}%`,
+      // Ratio, not '%' — §157/§158 extension (14 Aug 2026), same reasoning
+      // as Leads by Source just above.
+      conversion: leads === 0 ? '0.0' : (c.closedWon / leads).toFixed(1),
       avgDaysToCloseWon: c.avgDaysWon, avgDaysToCloseLost: c.avgDaysLost,
     };
   });
@@ -977,7 +983,11 @@ export async function getAppointmentsByPortfolioReport(period, referenceDate) {
     const c = closed[portfolio] ?? { closedWon: 0, closedLost: 0, avgDaysWon: null, avgDaysLost: null };
     return {
       portfolio, booked, closedWon: c.closedWon, closedLost: c.closedLost,
-      conversion: booked === 0 ? '0%' : `${Math.round((c.closedWon / booked) * 100)}%`,
+      // Ratio, not '%' — §157/§158 extension (14 Aug 2026), same reasoning
+      // as the two Leads-based breakdown reports above (booked-scoped
+      // denominator here instead of leads-scoped, same >100%-possible
+      // characteristic).
+      conversion: booked === 0 ? '0.0' : (c.closedWon / booked).toFixed(1),
       avgDaysToCloseWon: c.avgDaysWon, avgDaysToCloseLost: c.avgDaysLost,
       avgPolicyValueWon: avgPolicyByGroup[portfolio] ?? null,
     };
@@ -1032,7 +1042,9 @@ export async function getAppointmentsByMeetingTypeReport(period, referenceDate) 
     const c = closed[meetingType] ?? { closedWon: 0, closedLost: 0, avgDaysWon: null, avgDaysLost: null };
     return {
       meetingType, booked, closedWon: c.closedWon, closedLost: c.closedLost,
-      conversion: booked === 0 ? '0%' : `${Math.round((c.closedWon / booked) * 100)}%`,
+      // Ratio, not '%' — §157/§158 extension (14 Aug 2026), completes the
+      // set (last of the four §151 breakdown reports + Broker conversion).
+      conversion: booked === 0 ? '0.0' : (c.closedWon / booked).toFixed(1),
       avgDaysToCloseWon: c.avgDaysWon, avgDaysToCloseLost: c.avgDaysLost,
       avgPolicyValueWon: avgPolicyByGroup[meetingType] ?? null,
     };

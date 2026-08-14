@@ -123,6 +123,17 @@ Lead
   Special/sensitive fields (idNumber) are field-level encrypted
   (AES-256-GCM) with a blind-index hash column for exact-match lookups
   without decrypting (encryption.js).
+  Portfolio and Products are both many-to-many (LeadPortfolio,
+  LeadProduct — migration 028, 14 Aug 2026, §157/§158/§159) — a Lead can
+  declare interest across more than one of each, mirroring
+  UserPortfolio/BrokerProduct. Both mandatory on the manual "Create Lead"
+  form specifically (leadSource === 'ManualEntry'), exempt on CSV/
+  subscription bulk import; both editable afterward on LeadDetail.jsx;
+  both pre-fill into Book Appointment, still fully editable there. Products
+  is scoped to whichever portfolio(s) are currently selected (same
+  dependent-selection shape Book Appointment already used for its own
+  product picker) — there is no Lead-level product list independent of
+  portfolio.
 
 Appointment
   status: Unassigned | Assigned | InProgress | ClosedWon | ClosedLost |
@@ -907,6 +918,24 @@ Lead <-> Appointment cardinality is one-to-many (changed 23 Jul 2026): a
 Claim model — no admin confirmation step: claiming is immediate. Broker
   clicks Claim -> appointment status = Assigned -> appears in My
   Appointments. No ClaimPending status, no admin confirmation queue.
+
+Products on Lead — built 14 Aug 2026 (§157/§158/§159, migration 028).
+  Mandatory only on the manual Create Lead form (leadSource ===
+  'ManualEntry'), exempt on CSV/subscription bulk import — Mark's
+  decision, mirrors exactly how Portfolio-on-Lead already worked (§142
+  item 2). Built as a full parallel to Portfolio throughout, not just the
+  creation-form slice: also editable afterward on LeadDetail.jsx, also
+  pre-fills into Book Appointment. Scoped to the Lead's selected
+  portfolio(s) — no portfolio-independent product list.
+
+Mixed-basis conversion metrics — ratio, not '%', wherever the shape is
+  closedAt-scoped numerator over createdAt-scoped denominator (can
+  exceed 100% in a period where more deals close than were newly
+  booked). Started with Agent booking rate (§154, 13 Aug 2026), extended
+  to Broker conversion and all four §151 breakdown-report Conversion
+  columns 14 Aug 2026 (§158) — Mark's standing instruction going
+  forward: this shape should read as a ratio, not a percentage, anywhere
+  it appears; don't reintroduce a '%'-formatted version of it.
 
 Task generation — REDESIGNED 12 Aug 2026 (session 20 design, session 21
   build — see Status_Vercel.md §138 for the full history). Core test,

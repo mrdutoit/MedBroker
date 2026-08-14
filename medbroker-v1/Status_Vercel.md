@@ -137,34 +137,24 @@ OTHER OUTSTANDING ITEMS — roughly by priority, each verified against
 this file directly rather than assumed from memory
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. Mixed-basis conversion ratios elsewhere — §154 changed Agent
-   booking rate from a "%" to a ratio, since it had no natural 0-100%
-   ceiling. The exact same structural issue (closedAt-scoped numerator,
-   createdAt-scoped denominator, can exceed 100%) exists in Broker
-   conversion (signed/appts) and in all four of §151's breakdown-report
-   "Conversion" columns/bars. Flagged explicitly in §154, not changed —
-   Mark's decision needed on whether to extend the same ratio treatment
-   there, or leave those as percentages.
+1. Mixed-basis conversion ratios — FIXED 14 Aug 2026 (§158), NOT YET
+   APPLIED TO THE LIVE REPO. Mark's decision: "Do what you recommend, or
+   think is the most accurate metric used as an industry standard" —
+   went with extending the ratio treatment (Broker conversion + all four
+   §151 breakdown-report Conversion columns), same reasoning §154 used
+   for Agent booking rate. Full detail in §158.
 
-2. Unclaimed/unassigned appointments nearing their date — raised
-   alongside §142's Date/Time fix, genuinely new functionality (not a
-   bug), never scoped. Nothing currently surfaces a claim-model or
-   assign-model appointment as it approaches its own appointment date
-   with no broker attached yet.
+2. Unclaimed/unassigned appointments nearing their date — STILL OPEN.
+   Asked Mark directly whether to scope this properly this pass or leave
+   it queued; no answer yet as of this entry. Not touched.
 
-3. Products on Lead — §143's open scoping question, not built. Lead
-   currently has no products field at all (only Portfolio does); Book
-   Appointment is where Products first gets captured, with no earlier
-   Lead-level prompt or carry-through the way Portfolio now has. Two
-   real decisions needed before building: mandatory or optional, and
-   manual-form-only or also CSV import.
+3. Products on Lead — FIXED 14 Aug 2026 (§159), NOT YET APPLIED TO THE
+   LIVE REPO. Mark's decision: "Mandatory, manual form only." Full
+   detail in §159.
 
-4. GlobalAdmin guide docx — §2.2 Flag Reference table has two stale
-   entries: popia.subjectAccessRequest.enabled (described as dead/
-   unwired; actually wired up since §109) and auth.sso.enabled/
-   auth.sso.provider (still described by their pre-§114 meaning). Small
-   correction pass, whenever documentation is next touched — the app
-   itself is correct, only the document text is stale.
+4. GlobalAdmin guide docx — still not touched this pass (documentation
+   wasn't what was in flight); §2.2's two stale entries remain as
+   described below. Carried forward.
 
 5. xlsx dependency — FIXED 14 Aug 2026 (§157), NOT YET APPLIED TO THE
    LIVE REPO. package.json's "xlsx" dependency changed from "^0.18.5" to
@@ -12213,3 +12203,196 @@ himself, never a direct commit.
 
 CLOSES outstanding item 5 in full (was: DISCREPANCY FOUND, worth Mark's
 direct check — now: FIXED, pending Mark applying the delivered files).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+158. MIXED-BASIS CONVERSION RATIOS EXTENDED (BROKER + FOUR §151 BREAKDOWN REPORTS) — BUILT AND VERIFIED, NOT YET DEPLOYED — 14 Aug 2026 (session 23)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Closes outstanding item 1. §154 (13 Aug 2026) changed Agent booking rate
+from a '%' string to a plain ratio, since the underlying shape
+(closedAt-scoped numerator, createdAt-scoped denominator) has no natural
+0-100% ceiling. Flagged, not changed at the time: the identical shape
+also exists in Broker conversion and all four of §151's breakdown-report
+Conversion columns. Asked Mark directly; his answer: "Do what you
+recommend, or think is the most accurate metric used as an industry
+standard." Recommendation given and followed: extend the ratio treatment
+everywhere the same mixed-basis shape appears, for the same reason §154
+already established — a bounded-looking '%' that can silently exceed
+100% is the less accurate representation, not a stylistic choice.
+
+BUILT — five backend spots (reportService.js), each `Math.round((n/d)*100)+'%'`
+changed to `(n/d).toFixed(1)`, '0%' fallback changed to '0.0':
+  - getBrokerDetailReport() — signed/appts.
+  - getLeadsBySourceReport() — closedWon/leads.
+  - getLeadsByPortfolioReport() — closedWon/leads.
+  - getAppointmentsByPortfolioReport() — closedWon/booked.
+  - getAppointmentsByMeetingTypeReport() — closedWon/booked.
+
+FRONTEND (Reports.jsx):
+  - Broker Performance table: column header "Conversion" -> "Signed /
+    appts"; progress bar removed entirely, plain bold ratio instead —
+    same fix §154 already made to the Agent table, same reason (the
+    bar's width was a '%'-suffixed CSS value; a ratio has no natural
+    ceiling for a fill-bar to represent coherently). This table's own
+    backend function, getBrokerReport(), never computed its own
+    'conversion' field at all (only signed/appts raw counts) — the
+    frontend was calling pct(b.signed, b.appts) itself; now computes
+    the ratio inline the same way, no backend change needed for this
+    specific endpoint.
+  - Broker self-view KPI cards: "Conversion rate" label -> "Signed /
+    appts"; both sub-labels' pct() calls replaced with the ratio calc.
+  - BreakdownTooltip (the four §151 reports' hover detail): "Conversion:"
+    label -> dynamic "Won ÷ {countLabel}:" (leads or booked, whichever
+    that report's denominator actually is) — matches the tooltip's
+    value to what it's actually showing now that it's not a percentage.
+  - Ranked-bar chart (the four §151 reports): dataKey/variable renamed
+    pct -> ratio throughout; XAxis tickFormatter, Tooltip formatter, and
+    LabelList formatter all dropped their '%' suffix; section label
+    "Conversion by X" -> "Won ÷ {countLabel} by X", matching the
+    tooltip's own new wording.
+
+FRONTEND (BrokerDetail.jsx): KPI card label "Conversion" -> "Signed /
+appts", matching AgentDetail.jsx's own §154 label change.
+
+REAL BUG FOUND AND FIXED WHILE IN THIS CODE (AgentDetail.jsx): §154's
+own changelog claimed the "Appts booked" KPI sub-label changed from "X%
+booking rate" to "X.X per lead" — checked the actual live code and it
+never did; the code still read `${kpi.conversion} booking rate}`,
+rendering e.g. "2.0 booking rate" — the numeric part was correctly
+fixed, the word "rate" never was, leaving a ratio mislabelled with
+percentage-flavoured language on the one card §154 was specifically
+about. Fixed here: "X.X per lead", matching what §154 actually claimed
+to have done. Exactly the kind of stale-claim gap the standing "verify
+against the real code, not the changelog" discipline exists to catch —
+found by reading the file directly while working nearby, not by
+assuming §154's own summary was accurate.
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 55/55 passing, `node
+--check` on every touched backend file. Functional check of the ratio
+formula against the exact edge cases §154 tested for Agent (a >100%
+case: signed=3/appts=2 -> "1.5", not "150%"; a divide-by-zero case:
+0/0 -> "0.0"; a normal sub-1.0 case: 5/20 -> "0.3"). Diffed all eight
+touched files (reportService.js, Reports.jsx, BrokerDetail.jsx,
+AgentDetail.jsx + the four Products-on-Lead files below, see §159)
+against a fresh GitHub hydration — every diff isolated to the intended
+change, nothing else drifted, confirmed via a full-repo diff scan, not
+just the touched-file list.
+
+NOT YET DEPLOYED — built and verified in-sandbox only, per the standing
+"Claude never pushes to GitHub" boundary (§157). Mark applies via the
+normal github.dev workflow.
+
+FILES: frontend/api-lib/services/reportService.js, frontend/src/pages/
+Reports.jsx, frontend/src/pages/BrokerDetail.jsx, frontend/src/pages/
+AgentDetail.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+159. PRODUCTS ON LEAD — BUILT AND VERIFIED, NOT YET DEPLOYED — 14 Aug 2026 (session 23)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Closes outstanding item 3. Mark's decision on both open questions:
+"Mandatory, manual form only" — mandatory at Lead creation, only on the
+manual Create Lead form (not CSV/subscription bulk import), exactly
+mirroring how Portfolio-on-Lead already works (§142 item 2: mandatory
+only when leadSource === 'ManualEntry'). Built as a full parallel to
+that existing feature throughout — schema, validation, backend sync,
+AND the two places Portfolio is also editable/pre-filling (LeadDetail.jsx's
+edit form, Book Appointment's pre-fill) — not just the creation form in
+isolation, since the original scoping of this item was explicitly
+"the way Portfolio now has," and a Products field that's mandatory at
+creation but frozen afterward would be a materially different, more
+restrictive feature than what Portfolio already demonstrates. Flagging
+this scope choice explicitly since Mark's own answer only directly
+confirmed the creation-form behaviour.
+
+SCHEMA — migration 028 (db/migrations/028_lead_product.sql), plus
+schema.postgres.sql updated to match (cumulative, per standing
+convention): new LeadProduct junction table, mirrors LeadPortfolio
+exactly (id/leadId/productId/createdAt, UNIQUE(leadId, productId)). No
+policyValue column, unlike AppointmentProduct — a Rand value only means
+something once a product is actually sold on an Appointment, not while
+it's still a declared interest on a Lead. No backfill needed: purely
+additive, every pre-existing Lead simply has zero rows here, which
+already degrades correctly (LeadDetail.jsx shows '—' the same way it
+already does for an empty Portfolio list).
+
+BACKEND:
+  - userService.js: resolveProductIds() was already there (Broker's own
+    product selection) but unexported — exported it so leadService.js
+    can reuse the identical name-to-id resolution, no duplicate logic.
+  - leadService.js: new syncLeadProducts(), a direct mirror of
+    syncLeadPortfolios() (same delete-then-reinsert replace-all
+    pattern). Wired into createLead() and updateLead() exactly where
+    syncLeadPortfolios() already is, same optional/tolerant semantics
+    (an explicit empty array on update means "clear all," same as
+    portfolios). getLeadById()'s single-row query gained a second
+    scalar subquery for "products", structured identically to the
+    existing "portfolios" one.
+  - models/lead.js: products field added to CreateLeadShape (optional at
+    the bare-shape level, same reasoning as portfolios — bulk import
+    shares this schema and must stay exempt), mandatory rule added to
+    the same superRefine() block, gated on leadSource === 'ManualEntry',
+    directly beside the portfolios rule it mirrors. UpdateLeadSchema
+    needed no separate change — it already derives via
+    CreateLeadShape.partial(), so products flows through the same way
+    portfolios does.
+
+FRONTEND:
+  - LeadImport.jsx (manual Create Lead form): products: [] added to
+    BLANK_FORM; productsByPortfolio destructured from useRole(); new
+    Products checkbox section rendered directly below Portfolio, scoped
+    to the currently-selected portfolio(s)' own product lists (same
+    dependent-selection shape as the Book Appointment modal's
+    availableProducts) and only shown once at least one portfolio is
+    picked; the Portfolio checkbox's onChange now also prunes any
+    selected product no longer offered when a portfolio is deselected,
+    matching the Book Appointment modal's own togglePortfolio() pruning
+    behaviour; validation added (mandatory, matching the portfolios
+    check immediately above it).
+  - LeadDetail.jsx: three separate spots, all mirroring their Portfolio
+    equivalent —
+      1. startEditing(): products: baseLead.products ?? [] added
+         alongside portfolios.
+      2. Lead-edit Field rows: new toggleEditPortfolio() helper (not the
+         generic setField()) added specifically because toggling a
+         portfolio here now also needs to prune products, same reasoning
+         as LeadImport.jsx above; new editable Products row (checkbox
+         chips, scoped to editForm.portfolios, live-reactive within the
+         same edit session) plus its display-mode pill row, styled
+         consistently with the existing PortfolioPill treatment but
+         without that component's Discovery/M&M-specific abbreviation
+         logic (not applicable to Products).
+      3. Book Appointment modal: products state changed from
+         useState([]) to useState(lead.products ?? []) — now pre-fills
+         from the Lead's own captured products, matching portfolios'
+         existing pre-fill exactly, still fully editable via the
+         existing toggleProduct().
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 55/55 passing, `node
+--check` on every touched backend file. ESM import smoke test on
+leadService.js confirmed the new resolveProductIds import resolves
+correctly at module-load time (failed only on the expected, unrelated
+missing-DATABASE_URL error once past the import stage — this sandbox
+has no live DB access, ever). Functional test of the new Zod rule
+directly: a ManualEntry submission with no products correctly rejected
+("Select at least one product"); the same submission with products
+correctly passed; a CSVImport submission with no products correctly
+passed too (confirms the bulk-import exemption works, not just the
+mandatory case). Diffed every touched file against a fresh GitHub
+hydration, plus a full-repo diff scan beyond just the touched-file list
+— confirmed isolated, correctly cumulative with §158's changes above,
+nothing else drifted.
+
+NOT YET DEPLOYED — same standing boundary as §157/§158: built and
+verified in-sandbox, Mark applies via the normal github.dev workflow.
+No live-DB verification was possible from this sandbox (as always) —
+worth Mark spot-checking one real Create Lead submission end-to-end
+post-deploy, the same way §137's date-serialization change carried a
+similar "not exercised against live Neon" caveat.
+
+FILES: frontend/db/migrations/028_lead_product.sql (new),
+frontend/db/schema.postgres.sql, frontend/api-lib/services/userService.js,
+frontend/api-lib/services/leadService.js, frontend/api-lib/models/lead.js,
+frontend/src/pages/LeadImport.jsx, frontend/src/pages/LeadDetail.jsx.

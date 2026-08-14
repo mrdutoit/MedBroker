@@ -215,7 +215,10 @@ export async function resolvePortfolioIds(names) {
   return rows.map((r) => r.id);
 }
 
-async function resolveProductIds(names) {
+// Exported 14 Aug 2026 (§157/§158) — was internal-only (Broker's own
+// products via syncUserProducts below); leadService.js now needs the
+// same name -> id resolution for Products on Lead.
+export async function resolveProductIds(names) {
   if (!names || names.length === 0) return [];
   const rows = await executeQuery(
     `SELECT id FROM Product WHERE name = ANY(@names)`,

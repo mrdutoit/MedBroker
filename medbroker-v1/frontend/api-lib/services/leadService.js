@@ -40,7 +40,7 @@
 import { executeQuery, executeQueryOne, sql } from './db.js';
 import { encrypt, blindIndex } from './encryption.js';
 import { computeLeadStatus } from './leadStatusService.js';
-import { getActiveUserById, resolvePortfolioIds } from './userService.js';
+import { getActiveUserById, resolvePortfolioIds, resolveProductIds } from './userService.js';
 import { createTask, deleteTasksForEntity, reassignTasksForEntity, completeOpenCallbackTasksForLead } from './taskService.js';
 import { writeAuditLog } from './auditService.js';
 import { config } from '../config.js';
@@ -220,7 +220,12 @@ export async function getLeadById(id) {
        -- LEFT JOINs/LATERAL below.
        (SELECT COALESCE(array_agg(p2.name ORDER BY p2.name), ARRAY[]::text[])
         FROM LeadPortfolio lp2 JOIN Portfolio p2 ON p2.id = lp2.portfolioId
-        WHERE lp2.leadId = l.id) AS "portfolios"
+        WHERE lp2.leadId = l.id) AS "portfolios",
+       -- 14 Aug 2026 (§157/§158) — mirrors the portfolios subquery
+       -- immediately above, exactly.
+       (SELECT COALESCE(array_agg(pr2.name ORDER BY pr2.name), ARRAY[]::text[])
+        FROM LeadProduct lpr2 JOIN Product pr2 ON pr2.id = lpr2.productId
+        WHERE lpr2.leadId = l.id) AS "products"
      FROM Lead l
      ${SOURCE_JOINS}
      -- Added 23 Jul 2026 — missing entirely before. listLeads() already
@@ -305,6 +310,24 @@ async function syncLeadPortfolios(leadId, portfolioIds) {
   }
 }
 
+// 14 Aug 2026 (§157/§158) — mirrors syncLeadPortfolios() exactly, same
+// replace-all pattern, same reasoning.
+async function syncLeadProducts(leadId, productIds) {
+  await executeQuery(`DELETE FROM LeadProduct WHERE leadId = @leadId`, {
+    leadId: { type: sql.UniqueIdentifier, value: leadId },
+  });
+  for (const productId of productIds) {
+    await executeQuery(
+      `INSERT INTO LeadProduct (id, leadId, productId) VALUES (@id, @leadId, @productId)`,
+      {
+        id:        { type: sql.UniqueIdentifier, value: crypto.randomUUID() },
+        leadId:    { type: sql.UniqueIdentifier, value: leadId },
+        productId: { type: sql.UniqueIdentifier, value: productId },
+      }
+    );
+  }
+}
+
 /**
  * Create a new lead. Encrypts id_number before storage.
  * @param {Object} data - validated CreateLeadSchema data
@@ -369,14 +392,20 @@ export async function createLead(data, createdById) {
     }
   );
 
-  // Optional — a Lead can exist long before anyone knows its portfolio(s).
-  // resolvePortfolioIds() silently ignores any name that doesn't match a
-  // real Portfolio rather than throwing — the dropdown only offers valid
-  // names, so a mismatch here isn't an expected path; matches the same
-  // tolerant behaviour userService.js's equivalent already has.
+  // Optional at the DB/service layer — the ManualEntry-only mandatory
+  // rule lives in models/lead.js's superRefine(), same split as
+  // portfolios. resolveProductIds() silently ignores any name that
+  // doesn't match a real Product, same tolerant behaviour as
+  // resolvePortfolioIds() above.
   if (data.portfolios?.length) {
     const portfolioIds = await resolvePortfolioIds(data.portfolios);
     await syncLeadPortfolios(newId, portfolioIds);
+  }
+  // 14 Aug 2026 (§157/§158) — mirrors the portfolios block immediately
+  // above, exactly.
+  if (data.products?.length) {
+    const productIds = await resolveProductIds(data.products);
+    await syncLeadProducts(newId, productIds);
   }
 
   return newId;
@@ -447,6 +476,15 @@ export async function updateLead(leadId, data) {
   if (data.portfolios !== undefined) {
     const portfolioIds = await resolvePortfolioIds(data.portfolios);
     await syncLeadPortfolios(leadId, portfolioIds);
+    changed = true;
+  }
+
+  // 14 Aug 2026 (§157/§158) — mirrors the portfolios block immediately
+  // above, exactly, including the "explicit empty array clears it"
+  // semantics.
+  if (data.products !== undefined) {
+    const productIds = await resolveProductIds(data.products);
+    await syncLeadProducts(leadId, productIds);
     changed = true;
   }
 
