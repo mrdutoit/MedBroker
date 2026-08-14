@@ -1,309 +1,186 @@
 /**
  * pages/Reports.jsx
  *
- * Executive reporting dashboard. Period selector (Monthly / Quarterly / Yearly)
- * controls all KPI metrics, the trend chart, broker performance table, and
- * agent activity table.
+ * REBUILT FROM THE GROUND UP 14 Aug 2026 (§156 external brief, §162 build).
+ * §151/§155's donut-and-bar layout is gone entirely — Mark rejected it
+ * outright (six donut charts across four reports, several pairing a volume
+ * donut with a conversion bar for the SAME categories, a 100%-width bar
+ * rendering for a single-appointment dataset, zero narrative layer, every
+ * metric equal visual weight). Full diagnosis and the brief itself live in
+ * Status_Vercel.md §156; the honest "what §158 did and didn't fix" account
+ * of the pushback that led here lives in §161.
  *
- * REWIRED TO REAL DATA 23 Jul 2026 — previously entirely mock. Backend:
- *   GET /api/reports/summary?period=Monthly|Quarterly|Yearly
- *   GET /api/reports/brokers?period=...
- *   GET /api/reports/agents?period=...
- * See api-lib/services/reportService.js for the full design writeup —
- * two real gaps were found and resolved with Mark before writing any
- * backend code, not assumed:
- *   - The mock's "Uncontactable" pipeline bucket has no backing data
- *     anywhere. Dropped. Converted leads are now split by their most
- *     recent Appointment's actual outcome (Won/Lost/still active) instead
- *     of a status that only ever lived on the Lead.
- *   - No monetary/premium field exists anywhere in the schema. "Policy
- *     Value" and everything derived from it (Avg per broker, Avg per
- *     signing) are dropped rather than inventing a new capture feature —
- *     replaced with real, already-available metrics (Appointments Booked
- *     / Active Brokers org-wide; Conversion Rate / Portfolios for a
- *     broker's own view).
+ * STRUCTURE follows the brief's own priority order: executive summary (6
+ * KPIs, period-over-period deltas) -> primary trend (multi-series,
+ * toggleable) -> pipeline health (stage-to-stage conversion, not just
+ * bucket counts) -> Broker/Agent performance tables -> Lead Source and
+ * Portfolio performance (TABLES, not donuts) -> Policy Value (real
+ * prominence, not a KPI card) -> Won vs Lost -> Appointment Analysis ->
+ * generated insights.
  *
- * Role-based scoping now happens SERVER-SIDE (reportService.js) — Admin/
- * GlobalAdmin see everything, Supervisor sees their own real direct
- * reports (getDirectReportIds(), not a hardcoded name list), Agent/Broker
- * see only their own row. The client no longer filters mock arrays by
- * persona name.
+ * NOT IN THIS DELIVERY, flagged explicitly rather than left for Mark to
+ * find (see §162 for the full account):
+ *   - The toolbar's broker/portfolio/source filters (brief item 1) — the
+ *     backend endpoint takes only period + referenceDate, same as every
+ *     existing report call. A fast-follow, not built here.
+ *   - Won vs Lost's loss-reason breakdown, and Appointment Analysis'
+ *     cancelled/missed breakdown — no such field exists anywhere in the
+ *     schema (checked directly, not assumed); inventing one wasn't this
+ *     session's call to make. Both sections render an honest "not
+ *     captured yet" note instead of silently omitting the sub-section.
  *
- * Charts use Recharts (responsive, accessible, themed from styles/tokens.js).
+ * Backend: GET /api/reports/dashboard (reportService.getDashboardData) for
+ * everything above; GET /api/reports/brokers, /agents, and
+ * /closed-won-by-product are REUSED unchanged (§162's own reuse-over-
+ * rebuild accounting) for the Broker/Agent tables and the product mix
+ * under Policy Value.
+ *
+ * Self-view (Agent/Broker) is deliberately NOT rebuilt to this same
+ * structure — the brief's whole frame ("how is my BROKERAGE performing")
+ * is an org-wide question; an individual's own four KPI cards from before
+ * are kept, since a personal Pipeline Health or Lead Source breakdown
+ * doesn't mean anything at that scope.
+ *
+ * SCOPE NOTE, flagged not assumed: getDashboardData() has no Supervisor-
+ * specific scoping — Admin/GlobalAdmin/Supervisor all see the same
+ * org-wide dashboard. Pipeline Health/Lead Source/Portfolio Performance
+ * are inherently org-wide concepts that don't cleanly scope to "one
+ * supervisor's direct reports" the way an individual KPI does — worth
+ * Mark confirming this is the right call, not silently decided as final.
  */
 
 import { useState }     from 'react';
 import { useNavigate }  from 'react-router';
-import {
-  BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, Cell, LabelList, Legend, PieChart, Pie,
-} from 'recharts';
 import { useRole }       from '../context/RoleContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch }      from '../hooks/useFetch.js';
 import { reportsApi } from '../services/api.js';
-import { s, colors, CHART_PALETTE } from '../styles/tokens.js';
+import { s, colors } from '../styles/tokens.js';
 import { PeriodSelector, getPeriodLabel, referenceDateToParam } from '../components/PeriodSelector.jsx';
+import {
+  KpiCard, TrendChart, PipelineHealth, DataTable, EmptyState, Section,
+  fmt, fmtDays, fmtRatio,
+} from '../components/ReportsWidgets.jsx';
 
-// ─── Helpers ───────────────────────────────────────────────────────────────────
-const pct = (n, d) => d === 0 ? '0%' : `${Math.round(n / d * 100)}%`;
-// Reintroduced 23 Jul 2026, §44 — removed in §42 when Policy Value was
-// dropped for having no real data source. It has one now.
-const fmt = v => `R${(v / 1000000).toFixed(2)}m`;
-// §149 (13 Aug 2026) — moved to module level §155, alongside fmt: pure
-// function, no component state, and BreakdownTooltip (below) needs it
-// too — can't reach a component-local const from a module-level one.
-const fmtDays = (d) => d === null || d === undefined ? '—' : `${d.toFixed(1)} days`;
-
-const TOOLTIP_STYLE = {
-  background: 'var(--panel)', color: 'var(--ink)', border: `1px solid ${colors.line}`,
-  borderRadius: '10px', boxShadow: '0 8px 24px rgba(0,0,0,0.18)',
-  fontSize: '0.75rem', padding: '8px 10px',
-};
-
-// Pipeline bucket -> colour. The backend returns counts only (presentation
-// detail stays client-side) — 6 buckets now, not 7: Uncontactable dropped
-// (see file header), Closed Won/Lost now genuinely reflect the Appointment
-// outcome rather than a status that never existed on the Lead itself.
-// §151 follow-up (13 Aug 2026) — was hardcoded, theme-independent hex;
-// Mark flagged it directly. Now six dedicated CSS variables (themes.css),
-// one per theme, verified pairwise-distinct rather than reusing existing
-// semantic tokens (which would have reintroduced real collisions — see
-// themes.css's own header note on this).
-const PIPELINE_COLOURS = {
-  Unassigned:           'var(--pl-unassigned)',
-  Assigned:              'var(--pl-assigned)',
-  'In Progress':         'var(--pl-progress)',
-  'Appointment Booked':  'var(--pl-booked)',
-  'Closed Won':          'var(--pl-won)',
-  'Closed Lost':         'var(--pl-lost)',
-};
-
-// §152 follow-up (13 Aug 2026) — Mark asked for the four new breakdown
-// reports (§151) to include donut/stacked-bar visuals rather than being
-// plain tables. This palette is deliberately NOT theme-derived the way
-// PIPELINE_COLOURS/CHART_PALETTE are — those cover a fixed, small,
-// semantically-meaningful set of statuses (Won should read as
-// "success", Lost as "danger", consistently with the rest of the app).
-// A Lead Source or Portfolio breakdown has no such inherent meaning and
-// a variable, open-ended category count (could be 3 rows, could be 15)
-// — a standard rotating categorical palette is the right tool for this
-// shape of data, same as most charting libraries default to for
-// open-ended category axes.
-const CATEGORICAL_PALETTE = [
-  '#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444',
-  '#06b6d4', '#ec4899', '#84cc16', '#f97316', '#6366f1',
-];
-
-// §155 (13 Aug 2026) — Mark's request to drop the tables entirely and
-// rely on chart hover instead. This is where the table's old columns
-// (Won/Lost, Conversion, Avg Days to Close, Avg Policy Value) actually
-// live now — not lost, just moved from a permanent row into on-demand
-// hover detail. `t` (the report config) is passed through so the
-// tooltip knows the field names and labels for whichever report it's
-// currently rendering.
-function BreakdownTooltip({ active, payload, t }) {
-  if (!active || !payload || !payload.length) return null;
-  const row = payload[0].payload;
-  const rowStyle = { color: 'var(--mut)', marginTop: '2px' };
-  const strong = { color: 'var(--ink)', fontWeight: 600 };
-  return (
-    <div style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '8px', padding: '10px 13px', fontSize: '0.75rem', boxShadow: '0 4px 16px rgba(0,0,0,0.18)', minWidth: '190px' }}>
-      <div style={{ fontWeight: 700, marginBottom: '6px', color: 'var(--ink)', fontSize: '0.8125rem' }}>{row.name}</div>
-      <div style={rowStyle}>{t.countLabel}: <span style={strong}>{row[t.countField]}</span></div>
-      <div style={rowStyle}>Won: <span style={{ ...strong, color: '#15803d' }}>{row.closedWon}</span> · Lost: <span style={{ ...strong, color: '#ef4444' }}>{row.closedLost}</span></div>
-      <div style={rowStyle}>Conversion Ratio: <span style={strong}>{row.conversion}</span></div>
-      <div style={rowStyle}>Avg days to close (Won): <span style={strong}>{fmtDays(row.avgDaysToCloseWon)}</span></div>
-      <div style={rowStyle}>Avg days to close (Lost): <span style={strong}>{fmtDays(row.avgDaysToCloseLost)}</span></div>
-      {row.avgPolicyValueWon != null && (
-        <div style={rowStyle}>Avg policy value (Won): <span style={strong}>{fmt(row.avgPolicyValueWon)}</span></div>
-      )}
-    </div>
-  );
-}
-
-const TREND_LABELS = {
-  Monthly:   'Weekly Lead Volume vs Closed Won',
-  Quarterly: 'Monthly Lead Volume vs Closed Won',
-  Yearly:    'Monthly Lead Volume vs Closed Won',
-};
-
-// Period label — computed from the real current date, not a fixed mock
-// reference date. Matches reportService.js's getPeriodRange() in spirit
-// (doesn't need to match exactly; this is just display copy).
-// ─── Trend chart (grouped bars: leads vs closed won) ────────────────────────────
-function TrendChart({ data }) {
-  return (
-    <div style={{ width: '100%', height: '240px' }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={data} margin={{ top: 8, right: 4, left: -16, bottom: 0 }} barGap={3}>
-          <CartesianGrid vertical={false} stroke={CHART_PALETTE.grid} />
-          <XAxis dataKey="label" tick={{ fontSize: 11, fill: colors.ink500 }} axisLine={{ stroke: colors.line }} tickLine={false} />
-          <YAxis tick={{ fontSize: 11, fill: colors.ink400 }} axisLine={false} tickLine={false} width={34} />
-          <Tooltip
-            contentStyle={TOOLTIP_STYLE}
-            labelStyle={{ color: colors.ink, fontWeight: 600, marginBottom: 2 }}
-            cursor={{ fill: 'rgba(37,99,235,0.05)' }}
-          />
-          <Legend
-            iconType="circle" iconSize={8}
-            wrapperStyle={{ fontSize: '0.6875rem', color: colors.ink500, paddingTop: 6 }}
-          />
-          <Bar dataKey="leads" name="Leads"      fill={CHART_PALETTE.leads} radius={[4, 4, 0, 0]} maxBarSize={34} />
-          <Bar dataKey="won"   name="Closed Won" fill={CHART_PALETTE.won}   radius={[4, 4, 0, 0]} maxBarSize={34} />
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-// ─── Pipeline breakdown (horizontal bars, one colour per status) ────────────────
-function PipelineFunnel({ data }) {
-  const total = data.reduce((a, b) => a + b.count, 0) || 1;
-  return (
-    <div style={{ width: '100%', height: '240px' }}>
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart layout="vertical" data={data} margin={{ top: 0, right: 28, left: 8, bottom: 0 }}>
-          <CartesianGrid horizontal={false} stroke={CHART_PALETTE.grid} />
-          <XAxis type="number" hide />
-          <YAxis
-            type="category" dataKey="status" width={118}
-            tick={{ fontSize: 11, fill: colors.ink700 }} axisLine={false} tickLine={false}
-          />
-          <Tooltip
-            contentStyle={TOOLTIP_STYLE}
-            cursor={{ fill: 'rgba(37,99,235,0.05)' }}
-            formatter={(value) => [`${value.toLocaleString()} (${Math.round(value / total * 100)}%)`, 'Leads']}
-          />
-          <Bar dataKey="count" radius={[0, 4, 4, 0]} maxBarSize={22}>
-            {data.map((row, i) => <Cell key={i} fill={PIPELINE_COLOURS[row.status] ?? '#9ca3af'} />)}
-            <LabelList dataKey="count" position="right" style={{ fontSize: 11, fill: colors.ink500, fontWeight: 600 }} />
-          </Bar>
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-// ─── Main page ─────────────────────────────────────────────────────────────────
 export default function Reports() {
-  const navigate          = useNavigate();
-  const { role, persona } = useRole();
-  const { isMobile }      = useWindowSize();
+  const navigate           = useNavigate();
+  const { role }           = useRole();
+  const { isMobile }       = useWindowSize();
   const [period, setPeriod] = useState('Monthly');
   const [referenceDate, setReferenceDate] = useState(undefined);
   const refParam = referenceDateToParam(referenceDate);
 
   // §107 — carries the currently-selected period across to BrokerDetail/
-  // AgentDetail's own View link, which otherwise silently resets to
-  // "this month" on arrival (Mark caught this: select July, drill into a
-  // broker, land back on whatever "now" is). URL query param, not router
-  // state, deliberately — survives a refresh, back button, or a shared/
-  // copied link, none of which state-based navigation would.
+  // AgentDetail's own View link, which otherwise silently resets to "this
+  // month" on arrival.
   const detailLinkQuery = `?period=${period}${refParam ? `&ref=${refParam}` : ''}`;
 
-  // ── Who is viewing ──────────────────────────────────────────────────────────
-  // Scoping itself now happens server-side (reportService.js) — these flags
-  // only control which SECTIONS of the page render, not which rows within
-  // a fetched table (the API already only returns rows this viewer may see).
-  const isManager    = role === 'GlobalAdmin' || role === 'Admin';
-  const isSupervisor = role === 'Supervisor';
   const isAgentView  = role === 'Agent';
   const isBrokerView = role === 'Broker';
   const selfView     = isAgentView || isBrokerView;
 
-  const { data: summaryData, loading: summaryLoading, error: summaryError } =
-    useFetch(() => reportsApi.summary(period, refParam), [period, refParam]);
+  // Dashboard + product-mix calls are org-wide data self-view users never
+  // render — skipped for them rather than fetched and discarded (an
+  // immediately-resolved null, not a real network call).
+  const { data: dashboardData, loading: dashboardLoading, error: dashboardError } =
+    useFetch(() => selfView ? Promise.resolve(null) : reportsApi.dashboard(period, refParam), [period, refParam, selfView]);
   const { data: brokersData, loading: brokersLoading, error: brokersError } =
     useFetch(() => reportsApi.brokers(period, refParam), [period, refParam]);
   const { data: agentsData, loading: agentsLoading, error: agentsError } =
     useFetch(() => reportsApi.agents(period, refParam), [period, refParam]);
-  // §151 (13 Aug 2026) — four new breakdown reports, Mark's explicit
-  // request. Fetched unconditionally, same as brokersData/agentsData
-  // just above, even though only rendered in the org-wide view below —
-  // matches this page's existing pattern rather than introducing a
-  // second, inconsistent conditional-fetch approach.
-  const { data: leadsBySourceData, loading: leadsBySourceLoading, error: leadsBySourceError } =
-    useFetch(() => reportsApi.leadsBySource(period, refParam), [period, refParam]);
-  const { data: leadsByPortfolioData, loading: leadsByPortfolioLoading, error: leadsByPortfolioError } =
-    useFetch(() => reportsApi.leadsByPortfolio(period, refParam), [period, refParam]);
-  const { data: apptsByPortfolioData, loading: apptsByPortfolioLoading, error: apptsByPortfolioError } =
-    useFetch(() => reportsApi.appointmentsByPortfolio(period, refParam), [period, refParam]);
-  const { data: apptsByMeetingTypeData, loading: apptsByMeetingTypeLoading, error: apptsByMeetingTypeError } =
-    useFetch(() => reportsApi.appointmentsByMeetingType(period, refParam), [period, refParam]);
-  // §155 (13 Aug 2026) — Mark's explicit request.
-  const { data: closedWonByProductData, loading: closedWonByProductLoading, error: closedWonByProductError } =
-    useFetch(() => reportsApi.closedWonByProduct(period, refParam), [period, refParam]);
+  const { data: productData, loading: productLoading, error: productError } =
+    useFetch(() => selfView ? Promise.resolve(null) : reportsApi.closedWonByProduct(period, refParam), [period, refParam, selfView]);
 
+  const brokers = brokersData?.brokers ?? [];
+  const agents  = agentsData?.agents ?? [];
+  const closedWonByProduct = productData?.rows ?? [];
 
-  const pipeline = summaryData?.pipeline ?? [];
-  const trend    = summaryData?.trend ?? [];
-  const brokers  = brokersData?.brokers ?? [];
-  const agents   = agentsData?.agents ?? [];
-  const leadsBySource     = leadsBySourceData?.rows ?? [];
-  const leadsByPortfolio  = leadsByPortfolioData?.rows ?? [];
-  const apptsByPortfolio  = apptsByPortfolioData?.rows ?? [];
-  const apptsByMeetingType = apptsByMeetingTypeData?.rows ?? [];
-  const closedWonByProduct = closedWonByProductData?.rows ?? [];
+  const anyLoading = dashboardLoading || brokersLoading || agentsLoading || productLoading;
+  const anyError   = dashboardError ?? brokersError ?? agentsError ?? productError;
 
-  const anyLoading = summaryLoading || brokersLoading || agentsLoading
-    || leadsBySourceLoading || leadsByPortfolioLoading || apptsByPortfolioLoading || apptsByMeetingTypeLoading || closedWonByProductLoading;
-  const anyError   = summaryError ?? brokersError ?? agentsError
-    ?? leadsBySourceError ?? leadsByPortfolioError ?? apptsByPortfolioError ?? apptsByMeetingTypeError ?? closedWonByProductError;
-
-  // Section visibility — driven by what actually came back, not a client-
-  // side role filter (the API already scoped the rows).
-  const showOrgCharts   = isManager || isSupervisor;
-  const showBrokerTable = brokers.length > 0;
-  const showAgentTable  = agents.length > 0;
-
-  // ── KPI cards — scoped to the viewer ────────────────────────────────────────
   const myAgent  = selfView ? agents[0]  : undefined;
   const myBroker = selfView ? brokers[0] : undefined;
 
-  const orgTotalLeads     = pipeline.reduce((sum, r) => sum + r.count, 0);
-  const orgClosedWon      = pipeline.find(r => r.status === 'Closed Won')?.count ?? 0;
-  const orgAppts          = agents.reduce((sum, a) => sum + a.appts, 0);
-  const activeBrokers     = brokers.filter(b => b.appts > 0).length;
-  const orgTotalPolicyValue = summaryData?.totalPolicyValue ?? 0;
-  // §148 (13 Aug 2026) — new metric, Mark's explicit request: how long,
-  // on average, from a Lead's creation to its Appointment actually
-  // closing. Won and Lost tracked separately per his decision ("interesting
-  // to compare"). null (not 0) means no deals of that outcome closed in
-  // this period at all — genuinely different from "closed instantly",
-  // so it's shown as an em dash rather than "0 days" below.
-  // (fmtDays itself now lives at module level, near fmt — see §155's note there.)
-  const orgAvgDaysToCloseWon  = summaryData?.avgDaysToClose?.won  ?? null;
-  const orgAvgDaysToCloseLost = summaryData?.avgDaysToClose?.lost ?? null;
+  const selfKpis = isAgentView && myAgent
+    ? [
+        { label: 'My leads',            value: myAgent.leads.toLocaleString(), sub: 'Assigned to you'      },
+        { label: 'Calls made',          value: myAgent.calls.toLocaleString(), sub: 'Outbound calls'       },
+        { label: 'Appointments booked', value: myAgent.appts.toString(),       sub: 'From your leads'      },
+        { label: 'Bookings Ratio',      value: myAgent.conversion,             sub: 'Appts booked / leads' },
+      ]
+    : isBrokerView && myBroker
+    ? [
+        { label: 'My appointments', value: myBroker.appts.toString(),  sub: 'Allocated to you'  },
+        { label: 'Signed',          value: myBroker.signed.toString(), sub: `${myBroker.appts === 0 ? '0.0' : (myBroker.signed / myBroker.appts).toFixed(1)} signed / appts` },
+        { label: 'Conversion Ratio', value: myBroker.appts === 0 ? '0.0' : (myBroker.signed / myBroker.appts).toFixed(1), sub: 'Signed / appointments' },
+        { label: 'My policy value', value: fmt(myBroker.policyValue),  sub: 'Products sold this period' },
+      ]
+    : [];
+  const noSelfData = selfView && !anyLoading && selfKpis.length === 0;
 
-  const kpis = selfView
-    ? (isAgentView && myAgent
-        ? [
-            { label: 'My leads',            value: myAgent.leads.toLocaleString(), sub: 'Assigned to you'      },
-            { label: 'Calls made',          value: myAgent.calls.toLocaleString(), sub: 'Outbound calls'       },
-            { label: 'Appointments booked', value: myAgent.appts.toString(),       sub: 'From your leads'      },
-            { label: 'Bookings Ratio',      value: myAgent.conversion,             sub: 'Appts booked / leads' },
-          ]
-        : isBrokerView && myBroker
-        ? [
-            { label: 'My appointments', value: myBroker.appts.toString(),  sub: 'Allocated to you'  },
-            { label: 'Signed',          value: myBroker.signed.toString(), sub: `${myBroker.appts === 0 ? '0.0' : (myBroker.signed / myBroker.appts).toFixed(1)} signed / appts` },
-            { label: 'Conversion Ratio',  value: myBroker.appts === 0 ? '0.0' : (myBroker.signed / myBroker.appts).toFixed(1), sub: 'Signed / appointments' },
-            { label: 'My policy value', value: fmt(myBroker.policyValue),  sub: 'Products sold this period' },
-          ]
-        : [])
-    : [
-        { label: 'Total leads',        value: orgTotalLeads.toLocaleString(), sub: 'All pipeline stages' },
-        { label: 'Closed Won',         value: orgClosedWon.toString(),        sub: `${pct(orgClosedWon, orgTotalLeads)} conversion` },
-        { label: 'Appointments booked',value: orgAppts.toLocaleString(),      sub: 'Booked this period' },
-        { label: 'Active brokers',     value: activeBrokers.toString(),       sub: 'With ≥1 appointment' },
-        { label: 'Total policy value', value: fmt(orgTotalPolicyValue),       sub: 'Across all products sold' },
-        // §148 (13 Aug 2026) — new, Mark's explicit request.
-        { label: 'Avg days to close (Won)',  value: fmtDays(orgAvgDaysToCloseWon),  sub: 'Lead created → appointment won' },
-        { label: 'Avg days to close (Lost)', value: fmtDays(orgAvgDaysToCloseLost), sub: 'Lead created → appointment lost' },
-      ];
+  const dash = dashboardData ?? {};
+  const kpis          = dash.kpis ?? [];
+  const trend         = dash.trend ?? [];
+  const pipeline      = dash.pipeline?.stages ?? [];
+  const stageConversion = dash.pipeline?.stageConversion ?? [];
+  const sourceTable    = dash.sourceTable ?? [];
+  const portfolioTable = dash.portfolioTable ?? [];
+  const policyValueBreakdown = dash.policyValueBreakdown ?? null;
+  const wonVsLost      = dash.wonVsLost ?? null;
+  const appointmentAnalysis = dash.appointmentAnalysis ?? null;
+  const insights       = dash.insights ?? [];
 
-  const noSelfData = selfView && !anyLoading && kpis.length === 0;
+  const brokerColumns = [
+    { key: 'name',         label: 'Broker', sortable: false, render: r => (
+        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          {r.topPerformer && <span title="Top performer">🏆</span>}{r.name}
+        </span>
+      ) },
+    { key: 'appts',        label: 'Appointments', align: 'right' },
+    { key: 'signed',       label: 'Signed',       align: 'right' },
+    { key: 'policyValue',  label: 'Policy Value', align: 'right', render: r => fmt(r.policyValue) },
+    { key: 'conversion',   label: 'Conversion Ratio', align: 'right', render: r => (r.appts === 0 ? '0.0' : (r.signed / r.appts).toFixed(1)) },
+  ];
+  const brokerRows = brokers.map(b => ({ ...b, id: b.id, conversion: b.appts === 0 ? 0 : b.signed / b.appts, topPerformer: b.policyValue > 0 && b.policyValue === Math.max(...brokers.map(x => x.policyValue)) }));
+
+  const agentColumns = [
+    { key: 'name',    label: 'Agent', sortable: false },
+    { key: 'leads',   label: 'Leads',   align: 'right' },
+    { key: 'calls',   label: 'Calls',   align: 'right' },
+    { key: 'appts',   label: 'Appts Booked', align: 'right' },
+    { key: 'conversion', label: 'Bookings Ratio', align: 'right' },
+  ];
+
+  const sourceColumns = [
+    { key: 'source',      label: 'Source', sortable: false },
+    { key: 'leads',       label: 'Leads',        align: 'right' },
+    { key: 'appointments',label: 'Appointments', align: 'right' },
+    { key: 'closedWon',   label: 'Won',          align: 'right' },
+    { key: 'conversion',  label: 'Conversion Ratio', align: 'right' },
+    { key: 'policyValue', label: 'Policy Value', align: 'right', render: r => fmt(r.policyValue) },
+  ];
+
+  const portfolioColumns = [
+    { key: 'portfolio',   label: 'Portfolio', sortable: false },
+    { key: 'booked',      label: 'Appointments', align: 'right' },
+    { key: 'closedWon',   label: 'Won',  align: 'right' },
+    { key: 'closedLost',  label: 'Lost', align: 'right' },
+    { key: 'conversion',  label: 'Conversion Ratio', align: 'right' },
+    { key: 'avgPolicyValueWon', label: 'Avg Policy Value (Won)', align: 'right', render: r => r.avgPolicyValueWon === null ? '—' : fmt(r.avgPolicyValueWon) },
+  ];
+
+  const meetingTypeColumns = [
+    { key: 'meetingType', label: 'Meeting Type', sortable: false },
+    { key: 'booked',      label: 'Booked', align: 'right' },
+    { key: 'closedWon',   label: 'Won',    align: 'right' },
+    { key: 'conversion',  label: 'Conversion Ratio', align: 'right' },
+  ];
+
+  const productColumns = [
+    { key: 'product', label: 'Product', sortable: false },
+    { key: 'count',   label: 'Sold', align: 'right' },
+    { key: 'totalValue', label: 'Value', align: 'right', render: r => fmt(r.totalValue) },
+  ];
 
   return (
     <div style={{ padding: isMobile ? '12px' : '24px' }}>
@@ -322,334 +199,169 @@ export default function Reports() {
         />
       </div>
 
-      {anyLoading && (
-        <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading report data…</div>
-      )}
+      {anyLoading && <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading report data…</div>}
       {anyError && (
         <div style={{ ...s.errorBox, marginBottom: '14px' }}>
           Could not load some report data: {anyError.message ?? 'An unexpected error occurred.'}
         </div>
       )}
 
-      {/* ── KPI summary ─────────────────────────────────────────────────── */}
-      {noSelfData ? (
-        <div style={{ ...s.card, marginBottom: '16px', color: colors.ink500, fontSize: '0.875rem' }}>
-          No reporting data for your account in this period.
-        </div>
-      ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : `repeat(${kpis.length}, 1fr)`, gap: '12px', marginBottom: '16px' }}>
-          {kpis.map(c => (
-            <div key={c.label} style={s.card}>
-              <div style={s.kpiLabel}>{c.label}</div>
-              <div style={{ ...s.kpiValue, marginTop: '6px' }}>{c.value}</div>
-              <div style={s.kpiSub}>{c.sub}</div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {/* ── Charts row — org-wide, management/supervisor only ───────────── */}
-      {showOrgCharts && (
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-        <div style={s.card}>
-          <h2 style={s.cardTitle}>Pipeline Status Breakdown</h2>
-          <PipelineFunnel data={pipeline} />
-        </div>
-        <div style={s.card}>
-          <h2 style={s.cardTitle}>{TREND_LABELS[period]}</h2>
-          <TrendChart data={trend} />
-        </div>
-      </div>
-      )}
-
-      {/* ── Broker performance ──────────────────────────────────────────── */}
-      {showBrokerTable && (
-      <div style={{ ...s.tableCard, overflowX: 'auto', marginBottom: '16px' }}>
-        <div style={{ padding: '14px 16px 12px', borderBottom: `1px solid ${colors.lineSoft}` }}>
-          <h2 style={{ ...s.cardTitle, marginBottom: 0, paddingBottom: 0, borderBottom: 'none' }}>
-            {isBrokerView ? 'My Performance' : 'Broker Performance'}
-          </h2>
-        </div>
-        <table style={{ ...s.table, minWidth: '600px' }}>
-          <thead>
-            <tr>
-              <th style={s.th}>Broker</th>
-              <th style={s.th}>Portfolio</th>
-              <th style={{ ...s.th, textAlign: 'right' }}>Appointments</th>
-              <th style={{ ...s.th, textAlign: 'right' }}>Signed</th>
-              <th style={{ ...s.th, textAlign: 'right' }}>Policy Value</th>
-              <th style={{ ...s.th, textAlign: 'right' }}>Conversion Ratio</th>
-              <th style={s.th}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {brokers
-              .slice()
-              .sort((a, b) => b.policyValue - a.policyValue)
-              .map((b, i) => (
-                <tr key={b.id} style={s.tr}>
-                  <td style={s.td}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                      {!isBrokerView && i === 0 && b.policyValue > 0 && <span title="Top performer">🏆</span>}
-                      <span style={{ fontWeight: 600, color: colors.ink }}>{b.name}</span>
-                    </div>
-                  </td>
-                  <td style={s.td}>
-                    <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>
-                      {b.portfolios.length === 0 && <span style={{ color: colors.ink400, fontSize: '0.75rem' }}>—</span>}
-                      {b.portfolios.map(p => (
-                        <span key={p} style={{
-                          fontSize: '0.75rem', padding: '2px 10px', borderRadius: '999px',
-                          background: p === 'Discovery' ? colors.primarySoft : 'color-mix(in srgb, var(--accent2) 16%, transparent)',
-                          color: p === 'Discovery' ? colors.primary : 'var(--accent2)',
-                          fontWeight: 600,
-                        }}>
-                          {p}
-                        </span>
-                      ))}
-                    </div>
-                  </td>
-                  <td style={{ ...s.td, textAlign: 'right' }}>{b.appts}</td>
-                  <td style={{ ...s.td, textAlign: 'right' }}>{b.signed}</td>
-                  <td style={{ ...s.td, textAlign: 'right', fontWeight: 600, color: colors.success }}>
-                    {fmt(b.policyValue)}
-                  </td>
-                  <td style={{ ...s.td, textAlign: 'right', fontWeight: 600 }}>
-                    {b.appts === 0 ? '0.0' : (b.signed / b.appts).toFixed(1)}
-                  </td>
-                  <td style={s.td}>
-                    <button style={s.viewBtn} onClick={() => navigate(`/reports/broker/${b.id}${detailLinkQuery}`)}>
-                      View →
-                    </button>
-                  </td>
-                </tr>
-              ))}
-          </tbody>
-        </table>
-      </div>
-      )}
-
-      {/* ── Agent activity ──────────────────────────────────────────────── */}
-      {showAgentTable && (
-      <div style={{ ...s.tableCard, overflowX: 'auto', marginBottom: '16px' }}>
-        {/* §154 follow-up (13 Aug 2026) — this card never had
-            marginBottom set, unlike every other card on this page.
-            Pre-existing gap, not something introduced this session —
-            just newly visible since §151's new breakdown-report cards
-            now sit directly below it with nothing to separate them. */}
-        <div style={{ padding: '14px 16px 12px', borderBottom: `1px solid ${colors.lineSoft}` }}>
-          <h2 style={{ ...s.cardTitle, marginBottom: 0, paddingBottom: 0, borderBottom: 'none' }}>
-            {isAgentView ? 'My Activity' : 'Agent Activity'}
-          </h2>
-        </div>
-        <table style={{ ...s.table, minWidth: '560px' }}>
-          <thead>
-            <tr>
-              <th style={s.th}>Agent</th>
-              <th style={{ ...s.th, textAlign: 'right' }}>Leads</th>
-              <th style={{ ...s.th, textAlign: 'right' }}>Calls</th>
-              <th style={{ ...s.th, textAlign: 'right' }}>Appts booked</th>
-              <th style={{ ...s.th, textAlign: 'right' }}>Callbacks</th>
-              <th style={{ ...s.th, textAlign: 'right' }}>Bookings Ratio</th>
-              <th style={s.th}></th>
-            </tr>
-          </thead>
-          <tbody>
-            {agents.map(a => (
-              <tr key={a.id} style={s.tr}>
-                <td style={{ ...s.td, fontWeight: 600, color: colors.ink }}>{a.name}</td>
-                <td style={{ ...s.td, textAlign: 'right' }}>{a.leads.toLocaleString()}</td>
-                <td style={{ ...s.td, textAlign: 'right' }}>{a.calls.toLocaleString()}</td>
-                <td style={{ ...s.td, textAlign: 'right' }}>{a.appts}</td>
-                <td style={{ ...s.td, textAlign: 'right' }}>
-                  {a.callbacks > 3
-                    ? <span style={{ color: colors.warn, fontWeight: 600 }}>{a.callbacks}</span>
-                    : a.callbacks}
-                </td>
-                {/* §153 (13 Aug 2026, Mark's decision) — was a progress bar
-                    whose width literally used a.conversion's raw string as
-                    a CSS value ('83%' worked by coincidence; the new
-                    ratio format, e.g. '2.0', would be invalid CSS with no
-                    unit, and a bar filling toward 100% has no coherent
-                    meaning for a value with no natural ceiling anyway).
-                    Plain number instead, matching the same reasoning
-                    documented in reportService.js for why this changed
-                    from a '%' to a ratio at all. */}
-                <td style={{ ...s.td, textAlign: 'right', fontWeight: 600 }}>{a.conversion}</td>
-                <td style={s.td}>
-                  <button style={s.viewBtn} onClick={() => navigate(`/reports/agent/${a.id}${detailLinkQuery}`)}>
-                    View →
-                  </button>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      )}
-
-      {/* ── §151 (13 Aug 2026), redesigned §155 (13 Aug 2026) per Mark's
-          feedback: dropped the tables entirely — donut (volume share) +
-          horizontal ranked bar (conversion %) per report instead, both
-          with rich hover tooltips carrying everything the table used to
-          show (Won/Lost, conversion, avg days to close, avg policy
-          value) rather than losing that detail. Gated to showOrgCharts,
-          same condition as the Pipeline/Trend charts above. ── */}
-      {showOrgCharts && (
-      <>
-      {[
-        { title: 'Leads by Source', rows: leadsBySource, keyField: 'source', keyLabel: 'Source', countField: 'leads', countLabel: 'Leads', showPolicyValue: false },
-        { title: 'Leads by Portfolio', rows: leadsByPortfolio, keyField: 'portfolio', keyLabel: 'Portfolio', countField: 'leads', countLabel: 'Leads', showPolicyValue: false },
-        { title: 'Appointments by Portfolio', rows: apptsByPortfolio, keyField: 'portfolio', keyLabel: 'Portfolio', countField: 'booked', countLabel: 'Booked', showPolicyValue: true },
-        { title: 'Appointments by Meeting Type', rows: apptsByMeetingType, keyField: 'meetingType', keyLabel: 'Meeting Type', countField: 'booked', countLabel: 'Booked', showPolicyValue: true },
-      ].map(t => {
-        // Colour map computed once per report, keyed by category name —
-        // shared between the donut and the bar chart below so the same
-        // category reads as the same colour in both, even though the
-        // bar re-sorts by the ratio (a different order than the donut's
-        // natural row order would otherwise give it a different index ->
-        // different colour in each chart independently).
-        const colourMap = Object.fromEntries(t.rows.map((r, i) => [r[t.keyField], CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length]]));
-        const donutData = t.rows.map(r => ({ ...r, name: r[t.keyField], value: r[t.countField] }));
-        const barData = t.rows
-          .map(r => ({ name: r[t.keyField], ratio: parseFloat(r.conversion) || 0 }))
-          .sort((a, b) => b.ratio - a.ratio);
-        return (
-        <div key={t.title} style={{ ...s.tableCard, marginBottom: '16px' }}>
-          <div style={{ padding: '14px 16px 12px', borderBottom: `1px solid ${colors.lineSoft}` }}>
-            <h2 style={{ ...s.cardTitle, marginBottom: 0, paddingBottom: 0, borderBottom: 'none' }}>{t.title}</h2>
-          </div>
-          {t.rows.length === 0 ? (
-            <div style={{ padding: '16px', color: colors.ink400, fontSize: '0.875rem' }}>No data for this period.</div>
-          ) : (
-          <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '20px', padding: '16px' }}>
-            {/* Donut — volume distribution. Hover any slice for the full
-                picture: count, Won/Lost, conversion, avg days to close,
-                and (where relevant) avg policy value — everything the
-                table used to show as separate columns. */}
-            <div style={{ flexShrink: 0, width: isMobile ? '100%' : '260px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-              <ResponsiveContainer width="100%" height={220}>
-                <PieChart>
-                  <Pie
-                    data={donutData}
-                    cx="50%" cy="50%" innerRadius={55} outerRadius={90}
-                    paddingAngle={t.rows.length > 1 ? 2 : 0} dataKey="value"
-                  >
-                    {donutData.map(r => <Cell key={r.name} fill={colourMap[r.name]} />)}
-                  </Pie>
-                  <Tooltip content={(props) => <BreakdownTooltip {...props} t={t} />} />
-                </PieChart>
-              </ResponsiveContainer>
-              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px 12px', justifyContent: 'center', marginTop: '4px' }}>
-                {t.rows.map(r => (
-                  <span key={r[t.keyField]} style={{ fontSize: '0.6875rem', color: 'var(--mut)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '2px', background: colourMap[r[t.keyField]], display: 'inline-block' }} />
-                    {r[t.keyField]}
-                  </span>
-                ))}
+      {/* ══════════════════════════════════════════════════════════════════
+          SELF VIEW — Agent/Broker. Deliberately not rebuilt to the full
+          brief structure — see this file's own header note for why.
+          ══════════════════════════════════════════════════════════════ */}
+      {selfView && (
+        noSelfData ? (
+          <div style={{ ...s.card, color: colors.ink500, fontSize: '0.875rem' }}>No reporting data for your account in this period.</div>
+        ) : (
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : `repeat(${selfKpis.length}, 1fr)`, gap: '12px' }}>
+            {selfKpis.map(c => (
+              <div key={c.label} style={s.card}>
+                <div style={s.kpiLabel}>{c.label}</div>
+                <div style={{ ...s.kpiValue, marginTop: '6px' }}>{c.value}</div>
+                <div style={s.kpiSub}>{c.sub}</div>
               </div>
-            </div>
-
-            {/* Ranked bar — Conversion Ratio per category, highest first,
-                so "which category actually converts best" reads at a
-                glance without needing a table to compare rows against
-                each other. Plain ratio, not '%' — §157/§158 (14 Aug
-                2026): same mixed-basis characteristic (closedAt-scoped
-                numerator, createdAt-scoped denominator) that made §154
-                drop the '%' for Agent booking rate, extended here to
-                stay consistent rather than leaving these differently
-                formatted despite sharing the identical shape. Same
-                colour per category as the donut. */}
-            <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--mut)', marginBottom: '4px', fontWeight: 600 }}>Conversion Ratio by {t.keyLabel.toLowerCase()}</div>
-              <ResponsiveContainer width="100%" height={Math.max(120, barData.length * 40)}>
-                <BarChart data={barData} layout="vertical" margin={{ top: 4, right: 28, bottom: 4, left: 4 }}>
-                  <XAxis type="number" domain={[0, 'dataMax']} stroke="var(--mut)" fontSize={11} />
-                  <YAxis type="category" dataKey="name" width={isMobile ? 90 : 130} stroke="var(--mut)" fontSize={11} />
-                  <Tooltip formatter={(v) => [v, 'Conversion Ratio']} />
-                  <Bar dataKey="ratio" radius={[0, 4, 4, 0]}>
-                    <LabelList dataKey="ratio" position="right" fill="var(--mut)" fontSize={11} />
-                    {barData.map(d => <Cell key={d.name} fill={colourMap[d.name]} />)}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-          )}
-        </div>
-        );
-      })}
-
-      {/* §155 (13 Aug 2026), Mark's explicit request — Closed Won vs
-          Closed Lost by Portfolio. Reuses apptsByPortfolio's existing
-          closedWon/closedLost fields (no new backend query needed) — a
-          single grouped bar makes Won-vs-Lost directly comparable both
-          within and across portfolios, which two separate pie charts
-          (one for Won, one for Lost) wouldn't do nearly as well. Colours
-          reuse the same --pl-won/--pl-lost tokens the Pipeline Status
-          Breakdown chart uses, for consistency across the page. */}
-      <div style={{ ...s.tableCard, marginBottom: '16px' }}>
-        <div style={{ padding: '14px 16px 12px', borderBottom: `1px solid ${colors.lineSoft}` }}>
-          <h2 style={{ ...s.cardTitle, marginBottom: 0, paddingBottom: 0, borderBottom: 'none' }}>Closed Won vs Closed Lost by Portfolio</h2>
-        </div>
-        {apptsByPortfolio.length === 0 ? (
-          <div style={{ padding: '16px', color: colors.ink400, fontSize: '0.875rem' }}>No data for this period.</div>
-        ) : (
-        <div style={{ padding: '16px' }}>
-          <ResponsiveContainer width="100%" height={Math.max(140, apptsByPortfolio.length * 50)}>
-            <BarChart data={apptsByPortfolio.map(r => ({ name: r.portfolio, Won: r.closedWon, Lost: r.closedLost }))} layout="vertical" margin={{ top: 4, right: 24, bottom: 4, left: 4 }}>
-              <XAxis type="number" allowDecimals={false} stroke="var(--mut)" fontSize={11} />
-              <YAxis type="category" dataKey="name" width={isMobile ? 90 : 140} stroke="var(--mut)" fontSize={11} />
-              <Tooltip />
-              <Legend />
-              <Bar dataKey="Won" fill="var(--pl-won)" radius={[0, 4, 4, 0]} />
-              <Bar dataKey="Lost" fill="var(--pl-lost)" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-        )}
-      </div>
-
-      {/* §155 (13 Aug 2026), Mark's explicit request — Closed Won by
-          Product: which products actually get sold when a deal closes,
-          by Rand value (not just count — the business-relevant question
-          is what's generating revenue, count shown in the tooltip
-          alongside value). New backend query — no other report in this
-          file tracks products. */}
-      <div style={{ ...s.tableCard, marginBottom: '16px' }}>
-        <div style={{ padding: '14px 16px 12px', borderBottom: `1px solid ${colors.lineSoft}` }}>
-          <h2 style={{ ...s.cardTitle, marginBottom: 0, paddingBottom: 0, borderBottom: 'none' }}>Closed Won by Product</h2>
-        </div>
-        {closedWonByProduct.length === 0 ? (
-          <div style={{ padding: '16px', color: colors.ink400, fontSize: '0.875rem' }}>No won deals with products recorded this period.</div>
-        ) : (
-        <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '20px', padding: '16px', alignItems: 'center' }}>
-          <div style={{ flexShrink: 0, width: isMobile ? '100%' : '260px' }}>
-            <ResponsiveContainer width="100%" height={240}>
-              <PieChart>
-                <Pie
-                  data={closedWonByProduct.map(r => ({ name: r.product, value: r.totalValue, count: r.count }))}
-                  cx="50%" cy="50%" innerRadius={55} outerRadius={95}
-                  paddingAngle={closedWonByProduct.length > 1 ? 2 : 0} dataKey="value"
-                >
-                  {closedWonByProduct.map((r, i) => <Cell key={r.product} fill={CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length]} />)}
-                </Pie>
-                <Tooltip formatter={(value, name, props) => [`${fmt(value)} (${props.payload.count} sold)`, name]} />
-              </PieChart>
-            </ResponsiveContainer>
-          </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px 16px' }}>
-            {closedWonByProduct.map((r, i) => (
-              <span key={r.product} style={{ fontSize: '0.75rem', color: 'var(--mut)', display: 'flex', alignItems: 'center', gap: '6px' }}>
-                <span style={{ width: '9px', height: '9px', borderRadius: '2px', background: CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length], display: 'inline-block' }} />
-                {r.product} — <strong style={{ color: colors.ink }}>{fmt(r.totalValue)}</strong> ({r.count} sold)
-              </span>
             ))}
           </div>
-        </div>
-        )}
-      </div>
-      </>
+        )
+      )}
+
+      {/* ══════════════════════════════════════════════════════════════════
+          ORG VIEW — Admin/GlobalAdmin/Supervisor. The full §156 rebuild.
+          ══════════════════════════════════════════════════════════════ */}
+      {!selfView && !anyLoading && (
+        <>
+          {/* ── 1. Executive summary ─────────────────────────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(6, 1fr)', gap: '12px', marginBottom: '16px' }}>
+            {kpis.map(k => {
+              // Only KPIs with a matching series in `trend` get a sparkline
+              // (conversion/avgDaysToCloseWon have no per-bucket trend data).
+              const sparklineKey = { leads: 'leads', appts: 'appts', closedWon: 'won', policyValue: 'policyValue' }[k.key];
+              return (
+                <KpiCard
+                  key={k.key} label={k.label} current={k.current} format={k.format}
+                  deltaPct={k.deltaPct} direction={k.direction} lowerIsBetter={k.lowerIsBetter}
+                  sparklineData={sparklineKey ? trend : undefined} sparklineKey={sparklineKey} sparklineColour={colors.primary}
+                />
+              );
+            })}
+          </div>
+
+          {/* ── 2. Primary trend ─────────────────────────────────────────── */}
+          <Section title="Trend" subtitle="Leads, appointments, outcomes, and policy value over the period — click a series to hide/show it.">
+            <TrendChart data={trend} isMobile={isMobile} />
+          </Section>
+
+          {/* ── 3. Pipeline health ───────────────────────────────────────── */}
+          <Section title="Pipeline Health" subtitle="Where leads are getting stuck — conversion between adjacent stages.">
+            <PipelineHealth stages={pipeline} stageConversion={stageConversion} isMobile={isMobile} />
+          </Section>
+
+          {/* ── 4. Broker / Agent performance ────────────────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
+            <Section title="Broker Performance">
+              <DataTable
+                columns={brokerColumns} rows={brokerRows} defaultSortKey="policyValue" highlightKey="policyValue"
+                onRowClick={r => navigate(`/reports/broker/${r.id}${detailLinkQuery}`)}
+                emptyMessage="No broker activity this period."
+              />
+            </Section>
+            <Section title="Agent Activity">
+              <DataTable
+                columns={agentColumns} rows={agents} defaultSortKey="appts" highlightKey="appts"
+                onRowClick={r => navigate(`/reports/agent/${r.id}${detailLinkQuery}`)}
+                emptyMessage="No agent activity this period."
+              />
+            </Section>
+          </div>
+
+          {/* ── 5. Lead Source analysis ──────────────────────────────────── */}
+          <Section title="Lead Source Analysis" subtitle="Volume and outcome by where the lead came from.">
+            <DataTable columns={sourceColumns} rows={sourceTable} defaultSortKey="leads" highlightKey="leads" emptyMessage="No leads this period." />
+          </Section>
+
+          {/* ── 6. Portfolio performance ─────────────────────────────────── */}
+          <Section title="Portfolio Performance">
+            <DataTable columns={portfolioColumns} rows={portfolioTable} defaultSortKey="booked" highlightKey="booked" emptyMessage="No appointments this period." />
+          </Section>
+
+          {/* ── 7. Policy value ──────────────────────────────────────────── */}
+          <Section title="Policy Value" subtitle="Real prominence, not just another KPI card.">
+            {policyValueBreakdown && policyValueBreakdown.total > 0 ? (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '12px', marginBottom: '18px' }}>
+                  <div><div style={s.kpiLabel}>Total</div><div style={s.kpiValue}>{fmt(policyValueBreakdown.total)}</div></div>
+                  <div><div style={s.kpiLabel}>Avg per deal</div><div style={s.kpiValue}>{policyValueBreakdown.avgPerDeal === null ? '—' : fmt(policyValueBreakdown.avgPerDeal)}</div></div>
+                  <div><div style={s.kpiLabel}>Per appointment</div><div style={s.kpiValue}>{policyValueBreakdown.perAppointment === null ? '—' : fmt(policyValueBreakdown.perAppointment)}</div></div>
+                  <div><div style={s.kpiLabel}>Per lead</div><div style={s.kpiValue}>{policyValueBreakdown.perLead === null ? '—' : fmt(policyValueBreakdown.perLead)}</div></div>
+                </div>
+                {closedWonByProduct.length > 0 && (
+                  <>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500, marginBottom: '8px' }}>By product</div>
+                    <DataTable columns={productColumns} rows={closedWonByProduct} defaultSortKey="totalValue" highlightKey="totalValue" />
+                  </>
+                )}
+              </>
+            ) : (
+              <EmptyState message="No policy value recorded this period." />
+            )}
+          </Section>
+
+          {/* ── 8. Won vs Lost ───────────────────────────────────────────── */}
+          <Section title="Won vs Lost">
+            {wonVsLost && (wonVsLost.won + wonVsLost.lost) > 0 ? (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '12px' }}>
+                  <div><div style={s.kpiLabel}>Won</div><div style={{ ...s.kpiValue, color: colors.success }}>{wonVsLost.won}</div></div>
+                  <div><div style={s.kpiLabel}>Lost</div><div style={{ ...s.kpiValue, color: colors.danger }}>{wonVsLost.lost}</div></div>
+                  <div><div style={s.kpiLabel}>Win Rate</div><div style={s.kpiValue}>{wonVsLost.winRate === null ? '—' : `${wonVsLost.winRate}%`}</div></div>
+                  <div><div style={s.kpiLabel}>Avg Days (Won vs Lost)</div><div style={{ ...s.kpiValue, fontSize: '1.1rem' }}>{fmtDays(wonVsLost.avgDaysToCloseWon)} / {fmtDays(wonVsLost.avgDaysToCloseLost)}</div></div>
+                </div>
+                {!wonVsLost.hasLossReasons && (
+                  <p style={{ fontSize: '0.75rem', color: colors.ink400, marginTop: '14px', marginBottom: 0 }}>
+                    Loss reasons aren't captured anywhere in the system yet — this section shows outcome counts only. Flag if that's worth adding as its own feature.
+                  </p>
+                )}
+              </>
+            ) : (
+              <EmptyState message="No closed appointments this period." />
+            )}
+          </Section>
+
+          {/* ── 9. Appointment analysis ──────────────────────────────────── */}
+          <Section title="Appointment Analysis">
+            {appointmentAnalysis && appointmentAnalysis.booked > 0 ? (
+              <>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)', gap: '12px', marginBottom: '18px' }}>
+                  <div><div style={s.kpiLabel}>Booked</div><div style={s.kpiValue}>{appointmentAnalysis.booked}</div></div>
+                  <div><div style={s.kpiLabel}>Appts per lead</div><div style={s.kpiValue}>{fmtRatio(appointmentAnalysis.perLead)}</div></div>
+                  <div><div style={s.kpiLabel}>Booked → Won</div><div style={s.kpiValue}>{appointmentAnalysis.bookedToWonConversion === null ? '—' : `${appointmentAnalysis.bookedToWonConversion}%`}</div></div>
+                </div>
+                {appointmentAnalysis.byMeetingType.length > 0 && (
+                  <DataTable columns={meetingTypeColumns} rows={appointmentAnalysis.byMeetingType} defaultSortKey="booked" highlightKey="booked" />
+                )}
+                {!appointmentAnalysis.hasCancelledMissedTracking && (
+                  <p style={{ fontSize: '0.75rem', color: colors.ink400, marginTop: '14px', marginBottom: 0 }}>
+                    Cancelled and missed appointments aren't tracked as distinct statuses yet — this section covers booked/won only.
+                  </p>
+                )}
+              </>
+            ) : (
+              <EmptyState message="No appointments booked this period." />
+            )}
+          </Section>
+
+          {/* ── 10. Insights ─────────────────────────────────────────────── */}
+          <Section title="Insights" subtitle="Generated from this period's real data only.">
+            {insights.length > 0 ? (
+              <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '0.875rem', color: colors.ink700, lineHeight: 1.8 }}>
+                {insights.map((text, i) => <li key={i}>{text}</li>)}
+              </ul>
+            ) : (
+              <EmptyState message="Not enough data yet this period for a reliable insight." />
+            )}
+          </Section>
+        </>
       )}
     </div>
   );

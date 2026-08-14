@@ -492,4 +492,6 @@ export const reportsApi = {
   appointmentsByPortfolio:    (period, referenceDate) => request(`/reports/appointments-by-portfolio?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
   appointmentsByMeetingType:  (period, referenceDate) => request(`/reports/appointments-by-meeting-type?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
   closedWonByProduct:         (period, referenceDate) => request(`/reports/closed-won-by-product?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
+  // §156/§162 (14 Aug 2026) — Reports page rebuild.
+  dashboard:                  (period, referenceDate) => request(`/reports/dashboard?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
 };

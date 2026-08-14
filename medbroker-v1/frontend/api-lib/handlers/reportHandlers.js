@@ -11,7 +11,7 @@ import { validateToken, requireRole, authErrorResponse } from '../middleware/aut
 import {
   getReportSummary, getBrokerReport, getAgentReport, getAgentDetailReport, getBrokerDetailReport,
   getLeadsBySourceReport, getLeadsByPortfolioReport, getAppointmentsByPortfolioReport, getAppointmentsByMeetingTypeReport,
-  getClosedWonByProductReport,
+  getClosedWonByProductReport, getDashboardData,
 } from '../services/reportService.js';
 import { ReportPeriodQuerySchema } from '../models/report.js';
 import { isSupervisorOnly, isAgentOnly } from '../services/userService.js';
@@ -57,6 +57,38 @@ export async function handleReportSummary(req, res) {
       return res.status(status).json(body);
     }
     console.error('reports/summary error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * GET /api/reports/dashboard — 14 Aug 2026 (§156/§162). Backs the rebuilt
+ * Reports page. Same role list as every other report endpoint — the
+ * dashboard payload composes across leads/appointments/brokers/agents,
+ * none of which are role-exclusive to view in aggregate the way a single
+ * person's own detail page is.
+ */
+export async function handleDashboard(req, res) {
+  if (req.method !== 'GET') {
+    res.setHeader('Allow', 'GET, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ALLOWED_ROLES);
+
+    const parsed = ReportPeriodQuerySchema.safeParse(req.query);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const dashboard = await getDashboardData(parsed.data.period, parsed.data.referenceDate);
+    return res.status(200).json(dashboard);
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('reports/dashboard error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

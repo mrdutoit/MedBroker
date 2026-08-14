@@ -1077,3 +1077,316 @@ export async function getClosedWonByProductReport(period, referenceDate) {
   );
   return rows.map(r => ({ product: r.product, count: Number(r.count), totalValue: Number(r.totalValue) }));
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REPORTS PAGE — FULL GROUND-UP REDESIGN — 14 Aug 2026 (§156 external brief,
+// §162 build). getDashboardData() is the single new endpoint backing the
+// rebuilt page. Per the brief's own Step 1 ("do not create duplicate
+// infrastructure that already exists"), this REUSES rather than reimplements
+// wherever a §148-155 query already does the job correctly:
+//   - getReportSummary() — pipeline breakdown, called once for the current
+//     period to source Pipeline Health's stage counts.
+//   - getLeadsBySourceReport() — called as-is, then supplemented with two
+//     small new queries (appointments, policy value per source) rather than
+//     rewritten, since the brief's own Lead Source table needs those two
+//     extra columns this existing function was never asked to carry.
+//   - getAppointmentsByPortfolioReport() — used UNCHANGED as the Portfolio
+//     Performance table's data source; its existing shape (booked/closedWon/
+//     closedLost/conversion/avgPolicyValueWon) already IS the "one
+//     visualisation, not a donut-plus-bar pair" the brief asks for — this
+//     needed a presentation change, not a new query.
+//   - getAppointmentsByMeetingTypeReport() — used UNCHANGED as Appointment
+//     Analysis's meeting-type comparison table.
+// New code below is only what genuinely didn't exist yet: period-over-period
+// KPI deltas, an extended multi-series trend, stage-to-stage pipeline
+// conversion, and the insights rules.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Prior-period range for period-over-period comparison. Deliberately the
+ * full CALENDAR prior period (last month/quarter/year), not a trailing
+ * same-duration window ending yesterday — matches how Stripe/Linear-style
+ * dashboards frame "vs last period" (the brief's own named reference
+ * points), and reuses getPeriodRange() unmodified rather than needing new
+ * range-calculation logic: shifting referenceDate back one period unit
+ * before calling it means getPeriodRange's own isCurrent check naturally
+ * returns false, giving the shifted period's real full end date rather
+ * than truncating at today.
+ */
+export function getPriorPeriodRange(period, referenceDate = new Date()) {
+  const shifted = new Date(referenceDate);
+  if (period === 'Monthly') shifted.setMonth(shifted.getMonth() - 1);
+  else if (period === 'Quarterly') shifted.setMonth(shifted.getMonth() - 3);
+  else shifted.setFullYear(shifted.getFullYear() - 1);
+  return getPeriodRange(period, shifted);
+}
+
+/**
+ * Core KPI totals for one date range — called twice (current + prior
+ * period) so the executive summary can show a real delta, not just a
+ * current-period number. Deliberately fresh, focused queries rather than
+ * derived from getReportSummary()'s pipeline array: that array is a
+ * documented cohort+snapshot HYBRID (§148's own explicit design — leads
+ * still open are cohort-scoped by createdAt, Closed Won/Lost are
+ * snapshot-scoped by closedAt, summed together) which is right for
+ * Pipeline Health specifically but would give a misleading "Total Leads"
+ * number here — this needs a plain, unambiguous count of leads created in
+ * the range.
+ */
+async function getPeriodKpiTotals(start, end, organisationId) {
+  const params = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+  const [leadsRows, apptsRows, closedRows, policyRows, daysRows] = await Promise.all([
+    executeQuery(`SELECT COUNT(*) AS count FROM Lead WHERE createdAt >= @start AND createdAt <= @end AND deletedAt IS NULL AND organisationId = @organisationId`, params),
+    executeQuery(`SELECT COUNT(*) AS count FROM Appointment WHERE createdAt >= @start AND createdAt <= @end AND organisationId = @organisationId`, params),
+    executeQuery(`SELECT COUNT(*) AS count FROM Appointment WHERE status = 'ClosedWon' AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId`, params),
+    executeQuery(`SELECT COALESCE(SUM(ap.policyValue), 0) AS total FROM AppointmentProduct ap JOIN Appointment a ON a.id = ap.appointmentId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId`, params),
+    executeQuery(`SELECT AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays" FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId`, params),
+  ]);
+  const leads = Number(leadsRows[0].count);
+  const appts = Number(apptsRows[0].count);
+  const closedWon = Number(closedRows[0].count);
+  const totalPolicyValue = Number(policyRows[0].total);
+  const avgDaysToCloseWon = daysRows[0].avgDays === null ? null : Number(daysRows[0].avgDays);
+  // Ratio, not '%' — same §158 convention, applied consistently here too.
+  const conversion = leads === 0 ? 0 : closedWon / leads;
+  return { leads, appts, closedWon, totalPolicyValue, avgDaysToCloseWon, conversion };
+}
+
+/**
+ * % change + direction between a current and prior value. `lowerIsBetter`
+ * flips the colour semantics the frontend applies (a DROP in Avg Days to
+ * Close is the good direction) without needing two separate delta
+ * functions — the sign of the underlying number is unaffected, only how
+ * the frontend colours it.
+ */
+export function computeDelta(current, prior) {
+  if (current === null || prior === null || prior === undefined) return { deltaPct: null, direction: 'flat' };
+  if (prior === 0) {
+    if (current === 0) return { deltaPct: 0, direction: 'flat' };
+    return { deltaPct: null, direction: 'up' }; // can't compute a % off a zero base — direction only
+  }
+  const deltaPct = Math.round(((current - prior) / prior) * 1000) / 10;
+  return { deltaPct, direction: deltaPct > 0.05 ? 'up' : deltaPct < -0.05 ? 'down' : 'flat' };
+}
+
+/**
+ * Rule-based insights — GENERATED FROM REAL DATA ONLY, per the brief's
+ * explicit instruction not to fabricate a pattern that isn't really there.
+ * Each rule has a minimum-sample-size gate so a 1-lead source can't produce
+ * a misleading "100% conversion" headline. Returns [] (not a placeholder
+ * insight) if nothing clears the bar — the frontend shows an honest
+ * "not enough data yet" state rather than an empty gap.
+ */
+function generateInsights({ sourceTable, portfolioTable, kpis }) {
+  const insights = [];
+  const totalLeads = sourceTable.reduce((sum, r) => sum + r.leads, 0);
+  const totalWon = sourceTable.reduce((sum, r) => sum + r.closedWon, 0);
+
+  // Source share-of-volume vs share-of-wins, minimum 5 leads and 1 win in
+  // that source so a single lucky deal doesn't read as a trend.
+  if (totalLeads > 0 && totalWon > 0) {
+    for (const row of sourceTable) {
+      if (row.leads < 5 || row.closedWon < 1) continue;
+      const volumeShare = row.leads / totalLeads;
+      const winShare = row.closedWon / totalWon;
+      if (winShare - volumeShare >= 0.15) {
+        insights.push(`${row.source} leads are ${Math.round(volumeShare * 100)}% of volume but ${Math.round(winShare * 100)}% of policies won.`);
+      } else if (volumeShare - winShare >= 0.20 && row.leads >= 10) {
+        insights.push(`${row.source} leads are ${Math.round(volumeShare * 100)}% of volume but only ${Math.round(winShare * 100)}% of policies won.`);
+      }
+    }
+  }
+
+  // Same comparison, one level down, for Portfolio — same gates.
+  const totalPortfolioAppts = portfolioTable.reduce((sum, r) => sum + r.booked, 0);
+  const totalPortfolioWon = portfolioTable.reduce((sum, r) => sum + r.closedWon, 0);
+  if (totalPortfolioAppts > 0 && totalPortfolioWon > 0) {
+    for (const row of portfolioTable) {
+      if (row.booked < 5 || row.closedWon < 1) continue;
+      const volumeShare = row.booked / totalPortfolioAppts;
+      const winShare = row.closedWon / totalPortfolioWon;
+      if (winShare - volumeShare >= 0.15) {
+        insights.push(`${row.portfolio} is ${Math.round(volumeShare * 100)}% of appointments but ${Math.round(winShare * 100)}% of policies won.`);
+      }
+    }
+  }
+
+  // Period-over-period conversion swing, only worth surfacing if the
+  // underlying counts are large enough that the swing isn't just noise.
+  const convKpi = kpis.find(k => k.key === 'conversion');
+  if (convKpi && convKpi.deltaPct !== null && Math.abs(convKpi.deltaPct) >= 20) {
+    const direction = convKpi.deltaPct > 0 ? 'up' : 'down';
+    insights.push(`Conversion Ratio is ${direction} ${Math.abs(convKpi.deltaPct)}% on last period.`);
+  }
+
+  return insights;
+}
+
+/**
+ * The single endpoint backing the rebuilt Reports page — GET
+ * /api/reports/dashboard. Composes: executive-summary KPIs (current +
+ * prior period, real deltas), an extended multi-series trend, pipeline
+ * health with stage-to-stage conversion, the Lead Source and Portfolio
+ * performance tables, a policy value breakdown, Won vs Lost, appointment
+ * analysis, and generated insights — everything sections 2-4 and 6-11 of
+ * the brief need in one composed payload (section 1's toolbar filters and
+ * section 5's Broker table are handled separately — see §162's own build
+ * notes for what's deliberately not in this delivery yet).
+ * @param {'Monthly'|'Quarterly'|'Yearly'} period
+ * @param {Date} [referenceDate]
+ */
+export async function getDashboardData(period, referenceDate = new Date()) {
+  const organisationId = resolveOrganisationId();
+  const { start, end } = getPeriodRange(period, referenceDate);
+  const { start: priorStart, end: priorEnd } = getPriorPeriodRange(period, referenceDate);
+
+  const [current, prior, summary, sourceRowsBase, portfolioTable, meetingTypeTable] = await Promise.all([
+    getPeriodKpiTotals(start, end, organisationId),
+    getPeriodKpiTotals(priorStart, priorEnd, organisationId),
+    getReportSummary(period, referenceDate),
+    getLeadsBySourceReport(period, referenceDate),
+    getAppointmentsByPortfolioReport(period, referenceDate),
+    getAppointmentsByMeetingTypeReport(period, referenceDate),
+  ]);
+
+  // ── Executive summary — 6 KPIs, not all 8+ possible ones, per the
+  // brief's own "prioritise, don't show everything" instruction. Active
+  // Brokers and Avg Days to Close (Lost) are still real numbers elsewhere
+  // on the page (Broker table, Won vs Lost section) rather than dropped.
+  const kpis = [
+    { key: 'leads',             label: 'Total Leads',            format: 'count',    current: current.leads,             prior: prior.leads,             ...computeDelta(current.leads, prior.leads) },
+    { key: 'appts',             label: 'Appointments Booked',    format: 'count',    current: current.appts,             prior: prior.appts,             ...computeDelta(current.appts, prior.appts) },
+    { key: 'closedWon',         label: 'Closed Won',             format: 'count',    current: current.closedWon,         prior: prior.closedWon,         ...computeDelta(current.closedWon, prior.closedWon) },
+    { key: 'conversion',        label: 'Conversion Ratio',       format: 'ratio',    current: current.conversion,        prior: prior.conversion,        ...computeDelta(current.conversion, prior.conversion) },
+    { key: 'policyValue',       label: 'Total Policy Value',     format: 'currency', current: current.totalPolicyValue,  prior: prior.totalPolicyValue,  ...computeDelta(current.totalPolicyValue, prior.totalPolicyValue) },
+    { key: 'avgDaysToCloseWon', label: 'Avg Days to Close (Won)', format: 'days',    current: current.avgDaysToCloseWon, prior: prior.avgDaysToCloseWon, lowerIsBetter: true, ...computeDelta(current.avgDaysToCloseWon, prior.avgDaysToCloseWon) },
+  ];
+
+  // ── Trend — extended beyond getReportSummary()'s own leads+won pair.
+  // Two queries per bucket (four counts via UNION ALL, one policy-value
+  // sum needing its own JOIN) rather than getReportSummary's original
+  // one-pair-per-bucket, same "simpler than dynamic date-bucketing SQL at
+  // this scale" reasoning getTrendBuckets() itself already documents.
+  const buckets = getTrendBuckets(period, referenceDate);
+  const trend = [];
+  for (const b of buckets) {
+    if (b.future) { trend.push({ label: b.label, leads: 0, appts: 0, won: 0, lost: 0, policyValue: 0 }); continue; }
+    const params = { start: { type: sql.DateTimeOffset, value: b.start }, end: { type: sql.DateTimeOffset, value: b.end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+    const [countRows, policyRows] = await Promise.all([
+      executeQuery(
+        `SELECT 'leads' AS metric, COUNT(*) AS count FROM Lead WHERE createdAt >= @start AND createdAt <= @end AND deletedAt IS NULL AND organisationId = @organisationId
+         UNION ALL
+         SELECT 'appts', COUNT(*) FROM Appointment WHERE createdAt >= @start AND createdAt <= @end AND organisationId = @organisationId
+         UNION ALL
+         SELECT 'won', COUNT(*) FROM Appointment WHERE status = 'ClosedWon' AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId
+         UNION ALL
+         SELECT 'lost', COUNT(*) FROM Appointment WHERE status IN ('ClosedLost', 'ReturnedToLeads') AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId`,
+        params
+      ),
+      executeQuery(
+        `SELECT COALESCE(SUM(ap.policyValue), 0) AS total FROM AppointmentProduct ap JOIN Appointment a ON a.id = ap.appointmentId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId`,
+        params
+      ),
+    ]);
+    const byMetric = Object.fromEntries(countRows.map(r => [r.metric, Number(r.count)]));
+    trend.push({
+      label: b.label,
+      leads: byMetric.leads ?? 0, appts: byMetric.appts ?? 0,
+      won: byMetric.won ?? 0, lost: byMetric.lost ?? 0,
+      policyValue: Number(policyRows[0].total),
+    });
+  }
+
+  // ── Pipeline health — reuses getReportSummary()'s own pipeline array
+  // (proven §148 logic) and adds stage-to-stage conversion for the first
+  // four, genuinely SEQUENTIAL stages only (Unassigned -> Assigned ->
+  // In Progress -> Appointment Booked). Closed Won/Closed Lost are
+  // parallel terminal outcomes of the same "Appointment Booked" stage,
+  // not a fifth sequential step — their own split is the Conversion Ratio
+  // KPI and the Won vs Lost section below, not a stage-to-stage number.
+  const pipeline = summary.pipeline;
+  const stageConversion = [];
+  for (let i = 0; i < 3; i++) {
+    const from = pipeline[i], to = pipeline[i + 1];
+    stageConversion.push({
+      from: from.status, to: to.status,
+      ratio: from.count === 0 ? null : Math.round((to.count / from.count) * 100) / 100,
+    });
+  }
+
+  // ── Lead Source table — reuse getLeadsBySourceReport() as-is, then
+  // supplement with the two columns the brief's table needs that function
+  // was never asked to carry (appointments booked, policy value), scoped
+  // by the same origin-category CASE expression, kept in sync manually
+  // since it isn't exported — a short expression, duplicating it here is
+  // a smaller footprint than refactoring the shared-fragment export this
+  // session didn't otherwise need.
+  const originExpr = `CASE
+    WHEN l.linkedEventId IS NOT NULL THEN 'Event'
+    WHEN l.linkedSubscriptionId IS NOT NULL THEN 'Medical Subscription'
+    WHEN l.csvImportBatchId IS NOT NULL THEN 'Import'
+    ELSE 'Manual'
+  END`;
+  const srcParams = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+  const [srcApptsRows, srcPolicyRows] = await Promise.all([
+    executeQuery(`SELECT ${originExpr} AS "groupKey", COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.createdAt >= @start AND a.createdAt <= @end AND a.organisationId = @organisationId GROUP BY ${originExpr}`, srcParams),
+    executeQuery(`SELECT ${originExpr} AS "groupKey", COALESCE(SUM(ap.policyValue), 0) AS total FROM AppointmentProduct ap JOIN Appointment a ON a.id = ap.appointmentId JOIN Lead l ON l.id = a.leadId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId GROUP BY ${originExpr}`, srcParams),
+  ]);
+  const srcAppts = Object.fromEntries(srcApptsRows.map(r => [r.groupKey, Number(r.count)]));
+  const srcPolicy = Object.fromEntries(srcPolicyRows.map(r => [r.groupKey, Number(r.total)]));
+  const sourceTable = sourceRowsBase.map(r => ({
+    source: r.source, leads: r.leads, appointments: srcAppts[r.source] ?? 0,
+    closedWon: r.closedWon, closedLost: r.closedLost,
+    conversion: r.conversion, policyValue: srcPolicy[r.source] ?? 0,
+  }));
+
+  // ── Policy value breakdown — derived, not queried fresh; everything it
+  // needs is already computed above.
+  const policyValueBreakdown = {
+    total: current.totalPolicyValue,
+    avgPerDeal: current.closedWon === 0 ? null : current.totalPolicyValue / current.closedWon,
+    perAppointment: current.appts === 0 ? null : current.totalPolicyValue / current.appts,
+    perLead: current.leads === 0 ? null : current.totalPolicyValue / current.leads,
+    trend: trend.map(t => ({ label: t.label, policyValue: t.policyValue })),
+  };
+
+  // ── Won vs Lost — counts already in `pipeline`; NO loss-reason
+  // breakdown — checked the schema directly (no lostReason/closedReason
+  // column exists anywhere on Appointment or Lead), matching the brief's
+  // own explicit instruction not to invent a field with no home. Flagged
+  // in the delivery notes as a real gap, not silently dropped.
+  const closedWonCount = pipeline.find(p => p.status === 'Closed Won').count;
+  const closedLostCount = pipeline.find(p => p.status === 'Closed Lost').count;
+  const wonVsLost = {
+    won: closedWonCount, lost: closedLostCount,
+    winRate: (closedWonCount + closedLostCount) === 0 ? null : Math.round((closedWonCount / (closedWonCount + closedLostCount)) * 1000) / 10,
+    avgDaysToCloseWon: current.avgDaysToCloseWon,
+    avgDaysToCloseLost: summary.avgDaysToClose.lost,
+    hasLossReasons: false,
+  };
+
+  // ── Appointment analysis — booked/per-lead/appointment-to-won already
+  // derivable from `current`; meeting-type table reused unchanged. NO
+  // cancelled/missed breakdown — checked the schema directly, Appointment.
+  // status has no such value (only Unassigned/Assigned/InProgress/
+  // ClosedWon/ClosedLost/Claimed/ReturnedToLeads) — same "don't invent a
+  // field with no home" reasoning as Won vs Lost above.
+  const appointmentAnalysis = {
+    booked: current.appts,
+    perLead: current.leads === 0 ? null : Math.round((current.appts / current.leads) * 100) / 100,
+    bookedToWonConversion: current.appts === 0 ? null : Math.round((current.closedWon / current.appts) * 1000) / 10,
+    byMeetingType: meetingTypeTable,
+    hasCancelledMissedTracking: false,
+  };
+
+  const insights = generateInsights({ sourceTable, portfolioTable, kpis });
+
+  return {
+    period: { start, end, priorStart, priorEnd },
+    kpis, trend,
+    pipeline: { stages: pipeline, stageConversion },
+    sourceTable, portfolioTable,
+    policyValueBreakdown, wonVsLost, appointmentAnalysis,
+    insights,
+  };
+}

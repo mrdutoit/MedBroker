@@ -14,13 +14,14 @@
  *   GET /api/reports/appointments-by-portfolio     (§151)
  *   GET /api/reports/appointments-by-meeting-type  (§151)
  *   GET /api/reports/closed-won-by-product   (§155, 13 Aug 2026)
+ *   GET /api/reports/dashboard               (§156/§162, 14 Aug 2026)
  */
 
 import {
   handleReportSummary, handleReportBrokers, handleReportAgents,
   handleAgentDetail, handleBrokerDetail,
   handleLeadsBySource, handleLeadsByPortfolio, handleAppointmentsByPortfolio, handleAppointmentsByMeetingType,
-  handleClosedWonByProduct,
+  handleClosedWonByProduct, handleDashboard,
 } from '../api-lib/handlers/reportHandlers.js';
 import { applyCors, parseSlug } from '../api-lib/http/helpers.js';
 
@@ -39,6 +40,7 @@ export default async function handler(req, res) {
   if (segments.length === 1 && segments[0] === 'appointments-by-portfolio')     return handleAppointmentsByPortfolio(req, res);
   if (segments.length === 1 && segments[0] === 'appointments-by-meeting-type')  return handleAppointmentsByMeetingType(req, res);
   if (segments.length === 1 && segments[0] === 'closed-won-by-product')        return handleClosedWonByProduct(req, res);
+  if (segments.length === 1 && segments[0] === 'dashboard')                    return handleDashboard(req, res);
 
   return res.status(404).json({ error: 'Not found' });
 }

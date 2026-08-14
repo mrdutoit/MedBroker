@@ -12611,3 +12611,200 @@ of the two goes next, not assumed here.
 
 FILES: frontend/src/pages/Reports.jsx, frontend/src/pages/
 AgentDetail.jsx, frontend/src/pages/BrokerDetail.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+162. REPORTS PAGE REBUILD (§156) — BACKEND COMPLETE AND VERIFIED, FRONTEND IN PROGRESS — 14 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's instruction: "please continue with the reports rebuild." IN
+PROGRESS — this entry documents the backend half, which is genuinely
+complete and verified; the frontend rebuild (Reports.jsx itself) has not
+been started yet. Logging now rather than waiting for full completion,
+per the standing "log before building" discipline — nothing lost if this
+gets picked up in a later session.
+
+TYPESCRIPT DECISION: went with §156's own recommendation, option (a) —
+stayed in JS, Zod/JSDoc as the typed shape, no new toolchain. Flagged
+to Mark explicitly before building rather than silently assumed; no
+objection raised.
+
+BACKEND — one new function, getDashboardData() (reportService.js),
+backing a new GET /api/reports/dashboard endpoint (handleDashboard,
+reportHandlers.js; routed in reports-router.js — no new serverless
+function, stays inside the existing reports-router.js dispatch, Vercel
+Hobby's 12-function cap unaffected). Composes sections 2-4 and 6-11 of
+the brief's structure:
+
+  REUSED, not rebuilt, per the brief's own Step 1 instruction:
+    - getReportSummary() — pipeline stage counts, called once for
+      Pipeline Health.
+    - getLeadsBySourceReport() — Lead Source table's base, supplemented
+      with two new small queries (appointments, policy value per
+      source) rather than rewritten — the brief's table needs those two
+      extra columns this function was never asked to carry before.
+    - getAppointmentsByPortfolioReport() — used UNCHANGED as Portfolio
+      Performance's data source. Its existing shape already IS "one
+      visualisation, not a donut-plus-bar pair" — needed a presentation
+      change, not a new query. No backend work needed for section 7 at
+      all.
+    - getAppointmentsByMeetingTypeReport() — used UNCHANGED for
+      Appointment Analysis's meeting-type table.
+
+  NEW:
+    - getPriorPeriodRange() — the full CALENDAR prior period (last
+      month/quarter/year), not a trailing same-duration window. Reuses
+      getPeriodRange() unmodified by shifting referenceDate back one
+      period unit first, rather than needing new range logic.
+    - getPeriodKpiTotals() — fresh, focused queries (leads/appts/
+      closedWon/policyValue/avgDaysToCloseWon), called once for current
+      period and once for prior. Deliberately NOT derived from
+      getReportSummary()'s pipeline array — that's a documented §148
+      cohort+snapshot HYBRID, correct for Pipeline Health specifically,
+      but would give a misleading "Total Leads" number for the
+      executive summary.
+    - computeDelta() — % change + direction, with a lowerIsBetter flag
+      (Avg Days to Close: a DROP is the good direction) the frontend
+      will use for colour, not two separate delta functions.
+    - Extended trend — leads/appts/won/lost/policyValue per bucket, not
+      just getReportSummary()'s original leads+won pair. Two queries
+      per bucket (a UNION ALL for the four counts, one JOIN query for
+      policy value), same "simpler than dynamic SQL bucketing at this
+      scale" reasoning getTrendBuckets()'s own header comment already
+      established for the original one-pair version.
+    - Stage-to-stage pipeline conversion — Unassigned -> Assigned ->
+      In Progress -> Appointment Booked ONLY (3 ratios, not 5) — Closed
+      Won/Closed Lost are parallel terminal outcomes of Appointment
+      Booked, not a fifth sequential stage; their split is the
+      Conversion Ratio KPI and Won vs Lost section, not a stage-to-stage
+      number. Worth being explicit this was a deliberate scope decision,
+      not an oversight, since the brief's own wording ("stage-by-stage
+      counts + conversion between adjacent stages") could be read either
+      way.
+    - generateInsights() — rule-based, gated on minimum sample size (>=5
+      in a category, >=1 win) so a lucky single deal can't produce a
+      misleading "100% conversion" headline; returns [] if nothing
+      clears the bar rather than fabricating a weak one, per the brief's
+      own explicit instruction. Two rule families built: source/
+      portfolio volume-share vs win-share divergence, and a
+      period-over-period Conversion Ratio swing (>=20% move only).
+
+  CONFIRMED GAPS, NOT SILENTLY DROPPED — checked the schema directly
+  before deciding, per the brief's own "flag to Mark, don't invent a
+  field with no home" instruction:
+    - NO lost-reason field exists anywhere (Appointment or Lead) — item
+      9's loss-reasons sub-part is NOT built. wonVsLost.hasLossReasons:
+      false is returned explicitly so the frontend can render an honest
+      "not captured yet" state rather than a silent gap.
+    - NO cancelled/missed status tracking exists (Appointment.status is
+      Unassigned/Assigned/InProgress/ClosedWon/ClosedLost/Claimed/
+      ReturnedToLeads only) — item 10's cancelled/missed breakdown is
+      NOT built, same reasoning. appointmentAnalysis.
+      hasCancelledMissedTracking: false, same pattern.
+    - FILTERS (item 1's toolbar — broker/portfolio/source/date-range)
+      are NOT built into getDashboardData() at all yet — it takes only
+      period + referenceDate, same signature as every existing report
+      function. This is a real, known gap in this delivery, flagged
+      here explicitly rather than left for Mark to discover — the
+      whole toolbar/filtering layer is still to come, likely a
+      fast-follow once the core page is live rather than blocking it.
+
+  VERIFIED: `node --check` clean on all three touched backend files.
+  ESM import smoke test on reportHandlers.js and reports-router.js —
+  both resolved every import correctly (confirmed via full stack trace,
+  same method as every prior session) before hitting the expected,
+  unrelated missing-DATABASE_URL failure. `npm run build` clean, `npx
+  vitest run` — 55/55 passing (frontend untouched so far, so this
+  mainly confirms nothing broke elsewhere). getPriorPeriodRange() and
+  computeDelta() exported specifically so their date/percentage math
+  could be tested directly — since the whole module can't be imported
+  in this sandbox (db.js's env-var check fails at load time before any
+  function is reachable, same standing constraint every session), their
+  exact logic was reproduced standalone and run against concrete cases:
+  Monthly/Quarterly/Yearly prior-period ranges all confirmed to
+  land on the correct full calendar prior period (e.g. Aug 2026 ->
+  prior = Jul 1-31 exactly); computeDelta confirmed correct on a 100%
+  increase, a 50% decrease, flat, a zero-base case, and both null-input
+  cases.
+
+NOT YET DONE: the frontend rebuild itself (Reports.jsx) — this is the
+larger remaining piece of work. Continuing in this session.
+
+FILES SO FAR: frontend/api-lib/services/reportService.js,
+frontend/api-lib/handlers/reportHandlers.js, frontend/api/reports-router.js.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FRONTEND — COMPLETE, BUILT AND VERIFIED, NOT YET DEPLOYED — same session,
+continued straight through per Mark's instruction ("go straight through").
+
+Two new files: src/components/ReportsWidgets.jsx (new — KpiCard,
+Sparkline, TrendChart, PipelineHealth, DataTable, EmptyState, Section;
+split out because these are genuinely reusable, matching this app's
+existing components/ pattern, not one-off markup) and src/pages/
+Reports.jsx (deleted and rewritten from scratch, not incrementally
+patched — 656 lines before, replaced entirely). src/services/api.js
+gained one new client call (reportsApi.dashboard).
+
+STRUCTURE, matching the brief's own priority order: executive summary (6
+KpiCards, each with a real prior-period delta, direction arrow, colour
+that respects lowerIsBetter for Avg Days to Close, and a sparkline where
+a trend series exists for it) -> Trend (multi-series toggleable line
+chart, dual Y-axis since counts and Rand values live on genuinely
+different scales, click a legend item to hide/show a series) -> Pipeline
+Health (4 sequential stages as proportional bars with a coloured
+stage-to-stage conversion connector between them — green/amber/red
+bottleneck colouring) -> Broker Performance + Agent Activity (the new
+generic DataTable — sortable by clicking any header, inline bar on one
+highlighted column, click a row to drill into that person's detail page,
+same as before) -> Lead Source Analysis and Portfolio Performance (both
+TABLES now, zero donuts) -> Policy Value (four figures — total/avg per
+deal/per appointment/per lead — plus the existing Closed Won by Product
+table folded in underneath, not dropped) -> Won vs Lost -> Appointment
+Analysis (booked/per-lead/booked-to-won conversion + the meeting-type
+table) -> Insights (a plain list, or an honest empty state).
+
+DESIGN DECISIONS made building the frontend, flagged rather than
+silently baked in:
+  - Self-view (Agent/Broker) deliberately NOT rebuilt to the full
+    11-section structure — kept close to the existing four-KPI-card
+    view. The brief's whole frame is "how is my BROKERAGE performing";
+    an individual's own Pipeline Health or Lead Source breakdown isn't a
+    meaningful question at that scope. Confirmed the dashboard API call
+    is skipped entirely for self-view (an immediately-resolved null, not
+    a wasted network request) rather than fetched and unused.
+  - No drill-through on Lead Source/Portfolio/Meeting Type/Product
+    tables — checked the existing §151 code comment directly before
+    deciding, rather than guessing: this was already Mark's own explicit
+    prior decision ("a category like 'CSVImport' or 'Discovery' isn't a
+    single navigable entity the way an Agent or Broker is"), not a new
+    restriction invented for this rebuild.
+  - Broker table's "top performer" trophy now compares against the
+    actual policyValue max across all rows, not table position — the
+    old §153-era logic used `i === 0` (first row), which only worked
+    because the table was always pre-sorted one specific way; now that
+    DataTable is independently sortable by any column, position-based
+    would have silently broken the moment someone sorted by Appointments
+    instead. Worth flagging as a real correctness improvement over the
+    prior version, not just a carry-over.
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 55/55 passing,
+`node --check` clean on all three backend files (unchanged from the
+earlier checkpoint, re-confirmed). Diffed every touched file against a
+fresh GitHub hydration, plus a full-repo diff scan beyond the
+touched-file list — confirmed exactly six files changed (five edited,
+one new), nothing else drifted, and confirmed §158/§159/§160's earlier
+uncommitted work is still sitting exactly where it was (not yet applied
+by Mark as of this entry).
+
+NOT YET DEPLOYED. Needs no new migration — every field this rebuild
+reads already exists. Mark applies via the normal github.dev workflow.
+
+STILL OUTSTANDING FROM THE BRIEF, same three items flagged in the
+backend checkpoint above, unchanged by the frontend work: toolbar
+filters (fast-follow), loss reasons (no field exists), cancelled/missed
+tracking (no field exists).
+
+FILES (frontend rebuild only — combine with the backend checkpoint's
+file list above for the complete delivery): frontend/src/components/
+ReportsWidgets.jsx (new), frontend/src/pages/Reports.jsx,
+frontend/src/services/api.js.
