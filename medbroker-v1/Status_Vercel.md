@@ -12534,3 +12534,80 @@ systemConfigService.js, frontend/api-lib/models/auth.js, frontend/
 api-lib/services/schedulerService.js, frontend/api-lib/services/
 appointmentService.js, frontend/api-lib/handlers/notificationHandlers.js,
 frontend/src/pages/Notifications.jsx, frontend/src/pages/AppAdmin.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+161. MARK PUSHED BACK HARD ON §158 — RATIO LABEL RENAME + ÷ CHARACTER REMOVED — 14 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark applied §158/§159/§160 and pushed back hard, worth recording
+honestly rather than smoothing over:
+  - Reports still shows the exact donut+bar duplication he flagged in
+    §156 — true, and expected: §158 only fixed the ratio MATH/labels on
+    the existing §155 layout, it never touched §156's actual redesign.
+    That was scoped correctly at the time (§156 was explicitly deferred
+    to its own session, confirmed still true — see below), but Claude
+    never said so clearly when handing over §158's delivery, leaving
+    Mark to discover the untouched visual problem himself rather than
+    being told upfront it would still be there. That's a real
+    communication miss, not a scoping miss.
+  - "Won ÷ leads/booked" and "Signed / appts" / "Appts / lead" read as
+    mechanical formula labels, not meaningful business terms — fair.
+    Mark's exact ask: "Bookings Ratio" for Agents, "Conversion Ratio"
+    for Brokers (and, by extension, the four breakdown reports, which
+    are the same win-rate metric sliced by category, not a separate
+    concept — Claude's call to extend it there, not asked for
+    explicitly but a direct consequence of the same reasoning).
+  - The ÷ character (U+00F7) rendered as something resembling '+' in
+    Mark's browser — checked directly, the source was correctly UTF-8
+    encoded on GitHub, so this wasn't file corruption, it was a font/
+    rendering gap. Beside the point, though: '/' was already the
+    established convention in the exact same delivery ("Signed / appts",
+    "Appts / lead") — mixing in '÷' for the breakdown reports alone was
+    an inconsistency that had no reason to exist and caused a real,
+    visible problem regardless of whose fault the specific glyph
+    rendering was.
+  - Also asked directly whether Claude had read an earlier chat with a
+    Reports brief that should be in the Status file. Checked via
+    conversation_search: yes, read at the start of this session (§156
+    itself, written in an earlier session the same day, before this
+    one started) — confirmed still fully intact in the live file, and
+    confirmed §138 (Meeting redesign) is also fully intact, zero code
+    written, still TOP PRIORITY. Neither was lost, corrupted, or
+    silently marked done. Nothing else turned up in the search that
+    wasn't already accounted for.
+
+FIXED — every ratio label renamed, '÷' removed everywhere (grep-
+confirmed zero remaining in src/ or api-lib/, not just the reports
+under complaint):
+  - Reports.jsx Agent self-view KPI + Agent table header: "Appts /
+    lead" -> "Bookings Ratio".
+  - Reports.jsx Broker self-view KPI + Broker table header: "Signed /
+    appts" -> "Conversion Ratio".
+  - Reports.jsx BreakdownTooltip + ranked-bar section label/tooltip
+    (all four §151 reports): "Won ÷ {countLabel}" -> "Conversion
+    Ratio" throughout, dropping the mechanical dynamic wording
+    entirely in favour of one consistent name for the one underlying
+    metric.
+  - AgentDetail.jsx sub-label: "X.X per lead" -> "X.X Bookings Ratio".
+  - BrokerDetail.jsx KPI label: "Signed / appts" -> "Conversion Ratio".
+  - Caught and corrected an immediate repeat of the exact mistake mid-
+    fix — first edit to Reports.jsx line 285 used 'Appts booked ÷
+    leads' as the new sub-text, re-introducing '÷' one line after
+    deciding to remove it. Caught on the next read-through before it
+    went anywhere, not after.
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 55/55 passing.
+Diffed all three touched files (Reports.jsx, AgentDetail.jsx,
+BrokerDetail.jsx) against a fresh GitHub hydration — confirmed isolated
+to the label changes described above.
+
+STILL FULLY OUTSTANDING, UNCHANGED BY THIS FIX: §156 (Reports full
+redesign — donut+bar duplication, no narrative layer, six donuts across
+four reports) and §138 (Meeting redesign, zero code written). This pass
+fixed label wording and a formatting inconsistency; it did not touch
+either large item. Mark asked to regroup on priority — his call which
+of the two goes next, not assumed here.
+
+FILES: frontend/src/pages/Reports.jsx, frontend/src/pages/
+AgentDetail.jsx, frontend/src/pages/BrokerDetail.jsx.

@@ -112,7 +112,7 @@ function BreakdownTooltip({ active, payload, t }) {
       <div style={{ fontWeight: 700, marginBottom: '6px', color: 'var(--ink)', fontSize: '0.8125rem' }}>{row.name}</div>
       <div style={rowStyle}>{t.countLabel}: <span style={strong}>{row[t.countField]}</span></div>
       <div style={rowStyle}>Won: <span style={{ ...strong, color: '#15803d' }}>{row.closedWon}</span> · Lost: <span style={{ ...strong, color: '#ef4444' }}>{row.closedLost}</span></div>
-      <div style={rowStyle}>Won ÷ {t.countLabel.toLowerCase()}: <span style={strong}>{row.conversion}</span></div>
+      <div style={rowStyle}>Conversion Ratio: <span style={strong}>{row.conversion}</span></div>
       <div style={rowStyle}>Avg days to close (Won): <span style={strong}>{fmtDays(row.avgDaysToCloseWon)}</span></div>
       <div style={rowStyle}>Avg days to close (Lost): <span style={strong}>{fmtDays(row.avgDaysToCloseLost)}</span></div>
       {row.avgPolicyValueWon != null && (
@@ -282,13 +282,13 @@ export default function Reports() {
             { label: 'My leads',            value: myAgent.leads.toLocaleString(), sub: 'Assigned to you'      },
             { label: 'Calls made',          value: myAgent.calls.toLocaleString(), sub: 'Outbound calls'       },
             { label: 'Appointments booked', value: myAgent.appts.toString(),       sub: 'From your leads'      },
-            { label: 'Appts / lead',        value: myAgent.conversion,             sub: 'Leads → appointments' },
+            { label: 'Bookings Ratio',      value: myAgent.conversion,             sub: 'Appts booked / leads' },
           ]
         : isBrokerView && myBroker
         ? [
             { label: 'My appointments', value: myBroker.appts.toString(),  sub: 'Allocated to you'  },
             { label: 'Signed',          value: myBroker.signed.toString(), sub: `${myBroker.appts === 0 ? '0.0' : (myBroker.signed / myBroker.appts).toFixed(1)} signed / appts` },
-            { label: 'Signed / appts',  value: myBroker.appts === 0 ? '0.0' : (myBroker.signed / myBroker.appts).toFixed(1), sub: 'Signed ÷ appointments' },
+            { label: 'Conversion Ratio',  value: myBroker.appts === 0 ? '0.0' : (myBroker.signed / myBroker.appts).toFixed(1), sub: 'Signed / appointments' },
             { label: 'My policy value', value: fmt(myBroker.policyValue),  sub: 'Products sold this period' },
           ]
         : [])
@@ -378,7 +378,7 @@ export default function Reports() {
               <th style={{ ...s.th, textAlign: 'right' }}>Appointments</th>
               <th style={{ ...s.th, textAlign: 'right' }}>Signed</th>
               <th style={{ ...s.th, textAlign: 'right' }}>Policy Value</th>
-              <th style={{ ...s.th, textAlign: 'right' }}>Signed / appts</th>
+              <th style={{ ...s.th, textAlign: 'right' }}>Conversion Ratio</th>
               <th style={s.th}></th>
             </tr>
           </thead>
@@ -450,7 +450,7 @@ export default function Reports() {
               <th style={{ ...s.th, textAlign: 'right' }}>Calls</th>
               <th style={{ ...s.th, textAlign: 'right' }}>Appts booked</th>
               <th style={{ ...s.th, textAlign: 'right' }}>Callbacks</th>
-              <th style={{ ...s.th, textAlign: 'right' }}>Appts / lead</th>
+              <th style={{ ...s.th, textAlign: 'right' }}>Bookings Ratio</th>
               <th style={s.th}></th>
             </tr>
           </thead>
@@ -550,7 +550,7 @@ export default function Reports() {
               </div>
             </div>
 
-            {/* Ranked bar — Won ÷ {countLabel} per category, highest first,
+            {/* Ranked bar — Conversion Ratio per category, highest first,
                 so "which category actually converts best" reads at a
                 glance without needing a table to compare rows against
                 each other. Plain ratio, not '%' — §157/§158 (14 Aug
@@ -561,12 +561,12 @@ export default function Reports() {
                 formatted despite sharing the identical shape. Same
                 colour per category as the donut. */}
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ fontSize: '0.75rem', color: 'var(--mut)', marginBottom: '4px', fontWeight: 600 }}>Won ÷ {t.countLabel.toLowerCase()} by {t.keyLabel.toLowerCase()}</div>
+              <div style={{ fontSize: '0.75rem', color: 'var(--mut)', marginBottom: '4px', fontWeight: 600 }}>Conversion Ratio by {t.keyLabel.toLowerCase()}</div>
               <ResponsiveContainer width="100%" height={Math.max(120, barData.length * 40)}>
                 <BarChart data={barData} layout="vertical" margin={{ top: 4, right: 28, bottom: 4, left: 4 }}>
                   <XAxis type="number" domain={[0, 'dataMax']} stroke="var(--mut)" fontSize={11} />
                   <YAxis type="category" dataKey="name" width={isMobile ? 90 : 130} stroke="var(--mut)" fontSize={11} />
-                  <Tooltip formatter={(v) => [v, `Won ÷ ${t.countLabel.toLowerCase()}`]} />
+                  <Tooltip formatter={(v) => [v, 'Conversion Ratio']} />
                   <Bar dataKey="ratio" radius={[0, 4, 4, 0]}>
                     <LabelList dataKey="ratio" position="right" fill="var(--mut)" fontSize={11} />
                     {barData.map(d => <Cell key={d.name} fill={colourMap[d.name]} />)}
