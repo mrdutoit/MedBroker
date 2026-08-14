@@ -64,6 +64,31 @@ is now answered:
   existing production data and deserves at least as much care.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SECOND PRIORITY FOR THE NEXT SESSION — after the Meeting redesign
+above: REPORTS PAGE — FULL GROUND-UP REDESIGN
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Full brief lives in §156, this session's last entry — Mark rejected
+§151/§155's redesign outright and supplied a detailed external design
+spec to build against instead of guessing again. Not a small
+follow-on fix — a genuine ground-up rebuild of the whole page's
+information architecture, on the scale of the Meeting redesign above,
+and deserves its own equally dedicated session, not something to
+squeeze in alongside smaller items.
+
+  Before starting: read §156 in full, not just this pointer. It
+  contains the condensed, actionable brief (page structure, an
+  Insights section that must only state things the data actually
+  supports, visual/interaction direction, empty-state requirements),
+  an honest diagnosis of why both §151 and §155 missed despite genuine
+  effort each time, an explicit flag that the brief assumes TypeScript
+  and this codebase has none (a real decision needed before writing
+  any code, not resolved in §156), and specific guidance on what
+  already-verified backend work (closedAt, the existing report
+  queries' aggregation logic) is worth reusing rather than rebuilding
+  from zero.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SESSION 21 (13 Aug 2026) — WHAT HAPPENED, IN BRIEF
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -86,11 +111,14 @@ installed Postgres instance throughout, not just read for syntax
 more items from a follow-up testing pass including a real reporting
 bug traced back to an incomplete §148 fix (§152-153); the Agent
 booking-rate metric changed from a misleading percentage to a plain
-ratio (§154); and finally a full redesign of the four new breakdown
-reports per Mark's explicit "think like a senior data scientist"
-request — tables dropped for donut + ranked-bar-with-hover charts,
-plus two new reports (Closed Won/Lost by Portfolio, Closed Won by
-Product) (§155).
+ratio (§154); and finally a redesign of the four new breakdown reports
+per Mark's "think like a senior data scientist" request — tables
+dropped for donut + ranked-bar-with-hover charts, plus two new reports
+(Closed Won/Lost by Portfolio, Closed Won by Product) (§155). Mark
+rejected that redesign outright and supplied an external design brief
+to build against instead — logged as §156, this session's final entry,
+not built (his explicit instruction was to scope it as its own future
+session, not fix it again in the moment).
 
 DEPLOYMENT STATE, going into the next session: everything through §155
 is built and verified in-sandbox; Mark said he would deploy the §141
@@ -11943,3 +11971,163 @@ Product tables pre-existing).
 FILES: frontend/api-lib/services/reportService.js, frontend/api-lib/
 handlers/reportHandlers.js, frontend/api/reports-router.js, frontend/
 src/services/api.js, frontend/src/pages/Reports.jsx.
+
+156. REPORTS PAGE — FULL GROUND-UP REDESIGN, EXTERNAL SPEC SUPPLIED,
+     SCOPED AS ITS OWN DEDICATED SESSION — 13 Aug 2026 (session 21,
+     continued)
+
+Mark rejected the §155 redesign outright — correctly. Brought a
+detailed design brief written by a competing AI tool as the actual
+spec to build against, rather than have this re-guessed a third time.
+Not building this now — explicit instruction: extract what's needed
+and log it, this becomes a future session's entire focus.
+
+WHY §151/§155 BOTH MISSED, STATED PLAINLY RATHER THAN GLOSSED OVER:
+both attempts optimised "which chart type fits which single metric"
+in isolation, never stepping back to ask whether the whole PAGE told a
+coherent story. Concretely, against the brief's own list of what NOT
+to do: six donut charts across the four §151 reports (exactly "a page
+full of donut charts"); several of those paired a volume donut with a
+conversion bar for the SAME categories ("multiple visualisations
+showing the same information"); a 100%-width bar rendering for a
+single-InPerson-appointment dataset (the exact "ridiculous chart from
+one or two data points" problem, no empty/low-data-state design at
+all); zero narrative or insight layer anywhere on the page; every
+metric got equal visual weight, nothing established what's actually
+going right or wrong. Worth being specific about this rather than a
+generic "noted, will do better" — the next session needs the accurate
+diagnosis, not just the correction.
+
+THE BRIEF ITSELF — condensed to what's actionable, full original text
+is the authoritative source if anything here is ambiguous (Mark has
+the original prompt):
+
+  CORE QUESTION the page must answer in ~10 seconds: "How is my
+  brokerage performing, where are my opportunities, and where are
+  things getting stuck?" Prioritise, don't show everything at once.
+
+  STRUCTURE (roughly, in priority order):
+    1. Toolbar: date range, comparison period, broker/portfolio/source
+       filters — feel like product UI, not a form dumped above the page.
+    2. Executive summary: 4-6 KPIs, each with current value + prior
+       period + %/pt change + direction, sparkline where useful. Colour
+       used meaningfully (green/red/neutral), not decoratively.
+    3. Primary trend chart (line/area, not donut) — Leads/Appointments/
+       Won/Lost/Policy value, toggleable series, rich hover.
+    4. Pipeline health — stage-by-stage counts + conversion between
+       adjacent stages, bottlenecks visually obvious (this is NEW —
+       nothing today shows stage-to-stage drop-off, only aggregate
+       bucket counts).
+    5. Broker performance table — sortable, trend indicator, subtle
+       inline bars, click-through to detail, filters the whole page.
+    6. Lead source analysis — TABLE (Leads/Appointments/Won/Conversion/
+       Policy Value per source), not a donut; the brief's own example
+       of a bad-vs-good chart choice is exactly this section. Optional
+       volume-vs-conversion scatter as a genuine add, not decoration.
+    7. Portfolio performance — ranked table/bar, one visualisation, not
+       a donut-plus-bar pair repeating the same information (this is
+       precisely what §151/§155 got wrong).
+    8. Policy value — given real prominence (won/avg/per-appointment/
+       per-lead/trend), not just another KPI card.
+    9. Won vs Lost — WITH loss reasons ranked, if the data supports it
+       (needs a lost-reason field to exist — check schema, may not be
+       captured anywhere today; flag to Mark if so before building this
+       specific sub-section, don't invent a field with no home).
+    10. Appointment analysis — booked/completed/cancelled/missed,
+        appointments-per-lead, appointment-to-won conversion, meeting
+        type comparison WHERE it's actually decision-useful, not by
+        default.
+    11. Insights — plain-language, GENERATED FROM REAL DATA ONLY, e.g.
+        "Referral leads are 34% of volume but 52% of policies won." If
+        there's insufficient data for a real insight, say so rather
+        than fabricate one — explicit instruction in the brief, worth
+        repeating since it's an easy place to accidentally overstate
+        pattern-matching as fact.
+
+  VISUAL/INTERACTION DIRECTION: contemporary premium-SaaS restraint
+  (Linear/Stripe/Attio-class, not their branding — their information
+  hierarchy and restraint). Dense but not cluttered — current app is
+  too SPARSE, not too busy, a genuinely different note than "simplify."
+  Large numbers, strong headings, no microscopic labels. Cards allowed
+  but purposeful — not every metric in its own floating box. Subtle
+  borders, minimal shadow, restrained semantic colour (not one colour
+  per category — the current CATEGORICAL_PALETTE rotating-colour
+  approach from §155 is exactly what this brief argues against for
+  ranking/comparison charts, though it's more defensible for a genuine
+  share-of-whole donut if one survives the redesign). Real empty/
+  low-data states designed deliberately, not a chart rendering
+  ridiculously at n=1. Responsive — mobile is NOT "stack everything,"
+  rethink hierarchy at each breakpoint, most important KPIs stay
+  accessible.
+
+  THE RULE TO APPLY BEFORE ADDING ANY CHART, worth carrying forward as
+  a standing check for this specific page: "what business question
+  does this chart answer, and would a table or a single number answer
+  it better?" If a donut is 90%+ one colour or answers "what % of a
+  tiny dataset was X," it's decoration, not analysis.
+
+DATA ARCHITECTURE GUIDANCE — MISMATCH FLAGGED, NOT SILENTLY RESOLVED:
+the brief specifies TypeScript throughout (typed reporting responses,
+shared TS types like ReportSummary/BrokerPerformance/etc., "avoid
+any"). Checked directly: this codebase has zero TypeScript anywhere —
+no .ts/.tsx files, no typescript dependency, plain JS/JSX with Zod for
+runtime validation instead of compile-time types. This is a real,
+material mismatch, not a detail to paper over. Two ways to resolve it,
+Mark's call when this session starts, not decided here:
+  (a) Keep JS, honour the ARCHITECTURAL spirit instead of the literal
+      language — Zod schemas as the "typed shape" (already this
+      project's established pattern everywhere else), JSDoc typedefs
+      for editor-level type hints, clean service/handler/route
+      separation exactly as the brief describes. No new toolchain.
+  (b) Actually introduce TypeScript as a new project-wide decision —
+      a much bigger, separate scope question (build tooling, every
+      existing .js/.jsx file's relationship to new .ts/.tsx code,
+      whether this is worth doing for one page or signals a broader
+      migration) that deserves its own explicit discussion, not a
+      side effect of a Reports redesign.
+  Recommendation, not a decision made unilaterally: (a). The
+  underlying architectural discipline the brief actually cares about
+  (clean separation, no SQL in components, no duplicate one-off
+  queries per chart, sensible endpoint boundaries) is fully achievable
+  in this codebase's existing conventions without taking on a language
+  migration neither Mark nor this session ever asked for.
+
+  Endpoint/service-boundary guidance otherwise matches this project's
+  existing conventions closely already (reports-router.js's slug
+  dispatch, one reportService.js with focused functions) — the brief's
+  suggested function names (getDashboardSummary, getLeadTrends,
+  getPipelineMetrics, etc.) are a reasonable naming scheme to adopt
+  directly, not a structural change from what's already there.
+
+DON'T REBUILD FROM ZERO — REUSE WHAT'S ALREADY VERIFIED: per the
+brief's own Step 1 ("do not create duplicate infrastructure that
+already exists"), the next session should inspect and reuse rather
+than redo:
+  - Appointment.closedAt (migration 027) — the foundational "when did
+    this actually close" field the brief's whole trend/conversion/
+    insight layer depends on. Already built, verified against real
+    Postgres, deployed (assuming Mark confirms migration 027 has run —
+    see §0's own note on this).
+  - The four §151 report queries' underlying SQL (Leads by Source/
+    Portfolio, Appointments by Portfolio/Meeting Type) and the Closed
+    Won by Product query from §155 — the AGGREGATION LOGIC (fan-out
+    guards via COUNT(DISTINCT)/LATERAL subqueries, closedAt scoping,
+    the corrected Leads-by-Source origin-category derivation) is
+    sound and real-Postgres-verified; what needs to change is the
+    PRESENTATION layer and the page's overall information architecture,
+    not necessarily every underlying query from scratch. Worth an
+    explicit build-vs-reuse assessment per query rather than assuming
+    either "reuse everything" or "rebuild everything."
+  - The --pl-won/--pl-lost/--chart2/CATEGORICAL_PALETTE theme tokens
+    (§142/§148/§152/§155) — may or may not fit the brief's more
+    restrained semantic-colour direction; re-evaluate rather than
+    assume they carry over unchanged.
+
+SEQUENCING: this is the SECOND large, dedicated-session-scope item in
+the queue, per §0's own priority ordering — the Meeting/Appointment
+attempt-history redesign (§138, backfill decision now made) is first.
+Both are genuinely large enough to deserve their own focused session
+rather than being squeezed in alongside smaller backlog items.
+
+NOT BUILT. No code written this session for this item — logging only,
+per Mark's explicit instruction.
