@@ -13094,3 +13094,97 @@ frontend/api-lib/models/appointment.js, frontend/api-lib/handlers/appointmentHan
 frontend/api/appointments-router.js, frontend/src/pages/AppointmentDetail.jsx,
 frontend/src/pages/AppointmentList.jsx, frontend/src/pages/BrokerDetail.jsx,
 frontend/src/services/api.js, frontend/src/styles/tokens.js.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+165. REAL BUG FOUND DURING MARK'S TESTING — CLAIM MODEL SHOWING ZERO AVAILABLE APPOINTMENTS FOR A CORRECTLY-CONFIGURED BROKER — 14 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's own testing turned up a real gap in the claim model, unrelated to
+anything built earlier this session: broker William Barclay-Beuthin had
+Region (Gauteng), both Portfolios, and every Product correctly
+configured in User Admin, yet Available to Claim showed zero
+appointments — including two genuinely Unassigned ones matching his
+portfolio/products exactly.
+
+DIAGNOSIS — traced directly against the actual matching query
+(listAvailableToClaim, appointmentService.js), not guessed:
+
+  WHERE a.status = 'Unassigned'
+    AND EXISTS (SELECT 1 FROM BrokerRegion br WHERE br.brokerId = @brokerId AND br.region = ag.region)
+
+Two things worth being precise about, both confirmed by reading the
+actual code/schema, not assumed:
+  1. The match is against `ag.region` — the region of the Lead's own
+     AGENT (the User who owns the lead), not anything stored on the
+     Appointment or Lead themselves. Confirmed directly against the
+     schema: neither Lead nor Appointment has a region column at all —
+     region exists ONLY on "User" (single value) and BrokerRegion (the
+     junction table). Mark asked whether a Lead not having its own
+     region set at creation was the cause — it structurally can't be;
+     Leads never carry a region in this data model. What matters is
+     whether the ASSIGNED AGENT has their own region set correctly on
+     THEIR OWN User Admin profile — the same field/page Broker's region
+     uses, just a different person's record. Both of the two invisible
+     unassigned appointments in Mark's test belonged to the same agent
+     (Stacey Brookes) — if her own region isn't set to Gauteng (or isn't
+     set at all), that alone fully explains the symptom regardless of
+     anything on William's side. Flagged for Mark to check directly —
+     this sandbox has no live DB access to confirm which specific
+     account is actually missing/mismatched data.
+  2. The claim query checks a SEPARATE junction table (BrokerRegion),
+     not the single Region value the edit form displays. userService.js
+     already has syncBrokerRegion() to keep these in sync — but it was
+     previously gated: `if (data.region !== undefined || data.role !==
+     undefined)`, only re-syncing when a save's payload happened to
+     touch one of those two fields. Confirmed the frontend (UserAdmin.jsx)
+     does always include `region` in every Edit-user save today, so this
+     gate SHOULD fire on every save currently — but an account saved (or
+     seeded) before this sync mechanism existed, and never re-saved
+     since, could still be carrying a stale or empty BrokerRegion row
+     despite User.region itself displaying correctly. This is a
+     plausible mechanism, not a confirmed one — no live DB access to
+     verify BrokerRegion's actual contents for William specifically.
+
+FIX (Mark's explicit request — "if you think it will make the system
+more robust"): removed the field-gated condition entirely.
+updateUserFull() now re-derives the CURRENT role/region from the
+database and calls syncBrokerRegion() UNCONDITIONALLY on every single
+profile save, regardless of which specific fields were in that save's
+payload — even a save that touches none of displayName/role/region/
+supervisorId/isActive at all (e.g., a Portfolio-only or Products-only
+edit) now re-syncs BrokerRegion. This is self-healing going forward: a
+broker's claim-matching state can no longer silently drift out of sync
+with what User Admin displays, regardless of the specific history of
+which fields were touched in which past save. syncBrokerRegion() itself
+was already a safe no-op for non-Broker roles or a missing region, so
+this costs nothing extra for Agent/Admin/Supervisor/GlobalAdmin saves —
+one extra SELECT + a DELETE(+INSERT) on BrokerRegion per save, on a
+low-frequency admin action, not a hot path.
+
+NOT A COMPLETE ROOT-CAUSE FIX BY ITSELF — this makes the sync
+mechanism robust going forward and self-healing on next save, but does
+NOT retroactively fix any account whose BrokerRegion is ALREADY stale
+right now without a save happening. Two concrete things Mark should
+still check/do, given no live DB access from this sandbox:
+  1. Check Stacey Brookes' own region in User Admin — the more likely
+     root cause of the SPECIFIC symptom reported.
+  2. Re-save William's profile once (Save Changes, no changes needed)
+     after this fix deploys, to force BrokerRegion to resync
+     immediately rather than waiting for some future unrelated edit.
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 48/48 passing (the
+7 Aug-era baseline of 55 dropped to 48 back in §164, when
+appointmentStatusService.test.js was rewritten — no further change to
+the count from this specific fix; checked the actual output rather than
+carrying forward a stale number). `node --check` clean. ESM import smoke
+test confirmed the file still resolves correctly (same expected,
+unrelated missing-DATABASE_URL failure past the import stage). Diffed
+against a fresh GitHub hydration, plus a full-repo scan — confirmed
+isolated to this one file.
+
+NOT YET DEPLOYED. No schema change, no migration needed for this
+specific fix — purely an application-logic change to when an existing
+sync mechanism fires.
+
+FILES: frontend/api-lib/services/userService.js.

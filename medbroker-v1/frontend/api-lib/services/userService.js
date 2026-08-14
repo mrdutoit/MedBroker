@@ -346,6 +346,9 @@ export async function createUserFull(data) {
  * Update a user via User Admin. Only the fields present in `data` are
  * changed; portfolios/products are fully re-synced if provided at all
  * (matches the edit modal always sending its full current checkbox state).
+ * BrokerRegion is re-synced from the CURRENT role/region on every call,
+ * unconditionally — see the sync call's own comment below for why this
+ * changed from a field-gated check to always-on.
  * @param {string} id
  * @param {Object} data - validated UpdateUserSchema data
  */
@@ -384,17 +387,31 @@ export async function updateUserFull(id, data) {
     const productIds = await resolveProductIds(data.products);
     await syncUserProducts(id, productIds);
   }
-  // Only re-check BrokerRegion if this update actually touched role or
-  // region — fetch the definitive post-update values rather than assuming,
-  // since a partial update (e.g. region only) needs the CURRENT role to
-  // decide whether syncing applies at all.
-  if (data.region !== undefined || data.role !== undefined) {
-    const current = await executeQueryOne(
-      `SELECT role, region FROM "User" WHERE id = @id AND organisationId = @organisationId`,
-      { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
-    );
-    if (current) await syncBrokerRegion(id, current.role, current.region);
-  }
+  // 14 Aug 2026 — was previously gated on `data.region !== undefined ||
+  // data.role !== undefined`, on the assumption that BrokerRegion only
+  // needs re-checking when a save actually touches one of those two
+  // fields. Made UNCONDITIONAL after a real bug Mark found while testing
+  // the claim model: a broker (William) had Region/Portfolio/Products all
+  // correctly configured in the UI, yet saw zero appointments in Available
+  // to Claim. The likely mechanism — not fully confirmed, since this
+  // sandbox has no live DB access to check BrokerRegion directly — is an
+  // account whose profile was never re-saved through a payload that
+  // happened to include `region` after this sync mechanism was first
+  // built, leaving a stale or empty BrokerRegion row despite User.region
+  // itself showing correctly in the edit form. Relying on "did this
+  // specific save's payload happen to include the right field" is
+  // fragile by construction — this fix makes every single profile save
+  // (regardless of which fields changed, even zero of the fieldTypes
+  // above) re-derive and re-sync BrokerRegion from the CURRENT, real
+  // role/region, so a broker's claim-matching state can never drift out
+  // of sync with what User Admin actually shows again. syncBrokerRegion()
+  // itself is already a safe no-op for non-Broker roles or a missing
+  // region, so this costs nothing extra for Agent/Admin/Supervisor saves.
+  const current = await executeQueryOne(
+    `SELECT role, region FROM "User" WHERE id = @id AND organisationId = @organisationId`,
+    { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  if (current) await syncBrokerRegion(id, current.role, current.region);
 }
 
 /**
