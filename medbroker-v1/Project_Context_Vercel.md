@@ -504,17 +504,25 @@ medbroker-v1/
     │                                   security headers configured yet
     │                                   (CSP, HSTS, etc.) — see SECURITY POSTURE.
     ├── vite.config.js
-    └── package.json                    react-router@7.18.2, xlsx@0.18.5*,
+    └── package.json                    react-router@7.18.2,
+                                        xlsx: aliased to
+                                        npm:@e965/xlsx@^0.20.3* (fixed
+                                        14 Aug 2026, §157 in
+                                        Status_Vercel.md),
                                         stripe@22.4.0 (§134, 6 Aug 2026),
                                         engines.node: "24.x"
-                                        *0.18.5 is npm's registry ceiling;
-                                        Mark bumped the actual deployed repo
-                                        to a patched 0.20.3 via a GitHub
-                                        Codespace (cdn.sheetjs.com isn't
-                                        reachable from the sandbox) — the
-                                        sandbox's own copy may still show
-                                        0.18.5 depending on when it was
-                                        last hydrated from GitHub.
+                                        *SheetJS can no longer publish to
+                                        the npm registry under the name
+                                        xlsx at all (npm account issue on
+                                        their end) — 0.18.5, with two
+                                        known CVEs, is a permanent
+                                        ceiling for that package name.
+                                        @e965/xlsx is an automated,
+                                        npm-registry-native mirror of
+                                        SheetJS's own patched releases;
+                                        the alias means no import
+                                        statement anywhere needed to
+                                        change.
 
 NOT part of this project (separate, frozen, tracked elsewhere): api/src/
 (Azure Functions), infra/ (Bicep), mobile/.

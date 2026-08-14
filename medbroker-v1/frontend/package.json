@@ -27,7 +27,7 @@
     "react-router": "^7.18.2",
     "recharts": "^3.10.1",
     "stripe": "^22.4.0",
-    "xlsx": "^0.18.5",
+    "xlsx": "npm:@e965/xlsx@^0.20.3",
     "zod": "^3.23.8"
   },
   "devDependencies": {

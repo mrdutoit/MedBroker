@@ -120,20 +120,17 @@ to build against instead — logged as §156, this session's final entry,
 not built (his explicit instruction was to scope it as its own future
 session, not fix it again in the moment).
 
-DEPLOYMENT STATE, going into the next session: everything through §155
-is built and verified in-sandbox; Mark said he would deploy the §141
-batch and has been applying deltas as they were delivered through the
-session, but there is no explicit per-item deployment confirmation
-logged for everything after that early message — worth Mark confirming
-directly what's actually live before assuming, rather than the next
-session assuming a stale state either way.
+DEPLOYMENT STATE, confirmed 14 Aug 2026 (session 22): Mark confirmed
+directly that every delivery through §156 is live in production. The
+per-item deployment uncertainty this paragraph used to describe is
+closed — see §157.
 
-MIGRATION 027 (Appointment.closedAt) specifically needs to have been
-run against Neon before any of §148 through §155's reporting work
-means anything in production — everything from the Avg Days to Close
-metric through the new donut/bar reports reads off that column. If it
-hasn't run yet, none of that reporting work will show correct data
-even though the code itself is deployed and correct.
+MIGRATIONS — ALL CONFIRMED APPLIED, 14 Aug 2026 (session 22): Mark
+confirmed directly that every migration, including 022/023 (previously
+unconfirmed, outstanding item 6) and 027 (Appointment.closedAt), has
+been run against Neon. §148 through §155's reporting work is reading
+real production data now, not just correct-but-unverified code — see
+§157.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 OTHER OUTSTANDING ITEMS — roughly by priority, each verified against
@@ -169,20 +166,18 @@ this file directly rather than assumed from memory
    correction pass, whenever documentation is next touched — the app
    itself is correct, only the document text is stale.
 
-5. xlsx dependency — DISCREPANCY FOUND, worth Mark's direct check.
-   This file's own history (§63 era) says Mark manually bumped the live
-   repo's xlsx to patched 0.20.3 via a GitHub Codespace, since neither
-   npm's registry nor SheetJS's GitHub tags carry anything past 0.18.5.
-   This session's own fresh GitHub hydration shows package.json still
-   pinned to "^0.18.5" — either the manual bump didn't survive a later
-   commit, or was only ever done in a Codespace that never got merged
-   to main. Not something to silently re-patch without knowing why it
-   reverted; ask Mark directly what he sees in the live repo before
-   touching this.
+5. xlsx dependency — FIXED 14 Aug 2026 (§157), NOT YET APPLIED TO THE
+   LIVE REPO. package.json's "xlsx" dependency changed from "^0.18.5" to
+   "npm:@e965/xlsx@^0.20.3" — an npm-registry-native, automatically
+   updated mirror of SheetJS's own patched releases — closing
+   CVE-2023-30533 and CVE-2024-22363. Built, tested, npm-audit-clean;
+   full detail in §157. Mark needs to apply the delivered package.json +
+   package-lock.json via the normal github.dev workflow before this is
+   actually live — Claude has no push access to the repo, ever.
 
-6. Migrations 022 and 023 — still unconfirmed either way whether
-   they've actually been run against Neon, carried forward unresolved
-   from before this session. Ask Mark directly rather than assume.
+6. Migrations — CONFIRMED. Mark confirmed 14 Aug 2026 that every
+   migration, including 022/023, has been run against Neon (§157).
+   Closed.
 
 7. Session-isolation footgun retest — discovered session 20 (§138's
    own "SESSION-ISOLATION FOOTGUN" entry has the full detail):
@@ -224,13 +219,18 @@ CURRENT SECURITY / DEPENDENCY STATE (as of 30 Jul 2026):
     hydration CVEs are closed. One remaining npm audit entry (RSC Mode
     CSRF Bypass) is confirmed NOT applicable — this app has no RSC usage
     anywhere. Real fix is v8, a separate future decision.
-  - xlsx: pinned to 0.18.5 in package.json (npm registry's ceiling), but
-    Mark bumped the ACTUAL deployed repo to patched 0.20.3 via a GitHub
-    Codespace, since neither npm nor SheetJS's own GitHub tags carry
-    anything newer (SheetJS moved post-0.18.5 releases to their own CDN
-    only). If this sandbox re-hydrates from GitHub, expect to see 0.20.3
-    in the real package.json even though this file's own history
-    (§63 onward) still says 0.18.5 at the point each entry was written.
+  - xlsx: FIXED 14 Aug 2026 (§157) — package.json's dependency changed
+    from "^0.18.5" to "npm:@e965/xlsx@^0.20.3", an npm-registry-native
+    mirror of SheetJS's own patched upstream releases (SheetJS itself
+    can no longer publish to the npm registry under the name xlsx at
+    all). Closes CVE-2023-30533 (prototype pollution) and CVE-2024-22363
+    (ReDoS), both present at 0.18.5. Zero code changes needed anywhere —
+    the alias resolves the existing `import * as XLSX from 'xlsx'`
+    (LeadImport.jsx, sole call site) to the fork transparently. Verified
+    via fresh npm install, clean build, 55/55 tests, and confirming xlsx
+    no longer appears in npm audit at all. NOT YET LIVE — exists in this
+    session's delivery only; Mark applies via the normal github.dev
+    workflow, same as every other delivery.
   - engines.node: pinned to "24.x" (current Active LTS, supported
     through April 2028). Was briefly, incorrectly, pinned to "20.x" —
     fixed same day it was caught, see §66.
@@ -12131,3 +12131,85 @@ rather than being squeezed in alongside smaller backlog items.
 
 NOT BUILT. No code written this session for this item — logging only,
 per Mark's explicit instruction.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+157. XLSX CVE FIX (CVE-2023-30533 + CVE-2024-22363) — BUILT AND VERIFIED, NOT YET DEPLOYED; ALL MIGRATIONS AND ALL DEPLOYMENTS CONFIRMED — 14 Aug 2026 (session 22)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Two administrative confirmations from Mark first, closing out two
+long-standing outstanding items:
+
+  ALL MIGRATIONS APPLIED. Mark confirmed directly (14 Aug 2026): every
+  migration through the current schema state, including 022 and 023
+  (unconfirmed as of §0/outstanding item 6), has been run against Neon.
+  Closes outstanding item 6.
+
+  ALL DEPLOYMENTS DONE. Mark confirmed directly (14 Aug 2026): everything
+  delivered through §156 is live in production, not just built and
+  verified in-sandbox. Closes the deployment-state uncertainty §0
+  flagged going into this session, and specifically confirms Migration
+  027 (Appointment.closedAt) is live — §148 through §155's reporting
+  work (Avg Days to Close, the new donut/bar breakdown reports) is now
+  reading real production data, not correct-but-unverified code.
+
+XLSX DEPENDENCY — CVE-2023-30533 (prototype pollution, fixed upstream at
+0.19.3) and CVE-2024-22363 (ReDoS, fixed upstream at 0.20.2) — ACTUALLY
+FIXED this session, not just flagged. Outstanding item 5 found a real
+discrepancy at the start of this session: package.json's fresh GitHub
+hydration showed "^0.18.5" still, not the patched 0.20.3 Mark believed
+he'd manually bumped to via a GitHub Codespace. Checked package-lock.json
+too, not just package.json — its own "resolved" field confirmed the
+same thing: registry.npmjs.org/xlsx-0.18.5.tgz, no trace of 0.20.3
+anywhere in the committed repo. The Codespace edit either never landed
+on main, or a later plain `npm install` silently reverted it by
+regenerating the lockfile from package.json's stale range.
+
+ROOT CAUSE OF WHY A CDN-HOSTED PATCH NEVER STUCK: SheetJS lost the
+ability to publish to the npm registry under the name `xlsx` at all —
+their own advisories cite an npm account problem — so 0.18.5 is npm's
+PERMANENT ceiling; there is no future world where `npm install xlsx`
+alone ever resolves to a patched version. The only npm-registry-native
+fix is pointing the dependency at a different package name entirely.
+
+FIX: package.json's "xlsx" dependency changed from "^0.18.5" to
+"npm:@e965/xlsx@^0.20.3" — npm's package-aliasing syntax. @e965/xlsx
+(github.com/e965/sheetjs-npm-publisher) is an automated mirror that
+republishes SheetJS's own upstream source under a different npm scope
+the moment a new version lands, patched, reachable via the ordinary npm
+registry (confirmed directly: `npm view @e965/xlsx version` -> 0.20.3,
+`npm view @e965/xlsx dist.tarball` -> registry.npmjs.org, not a
+third-party CDN). Because it's a straight republish of the same source
+tree, the API is identical — the alias means every existing `import *
+as XLSX from 'xlsx'` needed no code change at all. Grepped the whole
+codebase first to confirm blast radius: LeadImport.jsx is the ONLY call
+site, using XLSX.read() and XLSX.utils.sheet_to_json() — both present
+unchanged in the fork.
+
+VERIFIED, not just edited: rm -rf node_modules + package-lock.json, full
+fresh `npm install` (292 packages), confirmed package-lock.json's own
+node_modules/xlsx block now resolves to "@e965/xlsx"/0.20.3/
+registry.npmjs.org (not the CDN, not the old registry entry). `npm run
+build` clean, LeadImport.jsx's chunk bundles without error. `npx vitest
+run` — 55/55 passing, no regression. `npm audit` no longer lists xlsx at
+all — the two CVEs are gone from the report entirely; the five remaining
+findings (esbuild/vite/vitest dev-tooling chain) are pre-existing and
+already tracked as a deferred major-version bump (OTHER OUTSTANDING
+ITEMS item 9) — deliberately not touched here, out of scope for this fix
+and would itself be a breaking change.
+
+LeadImport.jsx's own header comment (previously describing the old
+"sandbox can't reach cdn.sheetjs.com" situation) corrected to describe
+the actual fix now in place, per the standing "correct every stale
+claim, not just the newest summary" rule.
+
+NOT YET LIVE: this fix exists in this session's delivery only. Mark
+needs to apply the changed package.json + the regenerated
+package-lock.json (both delivered) to the real repo via the normal
+github.dev drag-and-drop workflow before it's actually deployed — Claude
+has no GitHub write/push credentials from this sandbox, ever, same as it
+has no live DB access; delivery is always a package Mark applies
+himself, never a direct commit.
+
+CLOSES outstanding item 5 in full (was: DISCREPANCY FOUND, worth Mark's
+direct check — now: FIXED, pending Mark applying the delivered files).

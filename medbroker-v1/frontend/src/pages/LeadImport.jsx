@@ -33,13 +33,16 @@
  * can't (it only knows about leads already in the database when it runs,
  * not rows earlier in this same batch that haven't been created yet).
  *
- * xlsx DEPENDENCY NOTE: npm's registry only carries xlsx up to 0.18.5 —
- * SheetJS stopped publishing newer releases there and moved to their own
- * CDN (cdn.sheetjs.com), which isn't in this sandbox's allowed network
- * list. 0.18.5 has two known high-severity advisories (prototype
- * pollution, ReDoS) fixed in 0.20.2+ that this sandbox cannot install.
- * Flagged to Mark; his call whether to bump to the CDN-hosted patched
- * version from his own machine.
+ * xlsx DEPENDENCY NOTE — FIXED 14 Aug 2026: SheetJS stopped publishing
+ * past 0.18.5 to the npm registry (CVE-2023-30533 prototype pollution,
+ * CVE-2024-22363 ReDoS, both unpatched at that version). package.json's
+ * "xlsx" dependency is now aliased to npm:@e965/xlsx@^0.20.3 — an
+ * automated mirror that republishes SheetJS's own upstream releases
+ * under a different npm scope, patched, reachable via the ordinary npm
+ * registry. The alias means every `import ... from 'xlsx'` in this file
+ * needed no change — npm resolves the name "xlsx" in node_modules to
+ * @e965/xlsx's code. See package.json and Status_Vercel.md for the full
+ * fix record.
  */
 
 import { useState, useEffect, useRef } from 'react';
