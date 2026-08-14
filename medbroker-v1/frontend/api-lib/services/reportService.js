@@ -1121,33 +1121,99 @@ export function getPriorPeriodRange(period, referenceDate = new Date()) {
   return getPeriodRange(period, shifted);
 }
 
+// Named fragment, not duplicated inline — was copy-pasted in two places
+// before filters existed (Lead Source table, and now the source filter
+// itself would have been a third copy to keep in sync by hand).
+function originExprFor(alias) {
+  return `CASE
+    WHEN ${alias}.linkedEventId IS NOT NULL THEN 'Event'
+    WHEN ${alias}.linkedSubscriptionId IS NOT NULL THEN 'Medical Subscription'
+    WHEN ${alias}.csvImportBatchId IS NOT NULL THEN 'Import'
+    ELSE 'Manual'
+  END`;
+}
+
 /**
- * Core KPI totals for one date range — called twice (current + prior
- * period) so the executive summary can show a real delta, not just a
- * current-period number. Deliberately fresh, focused queries rather than
- * derived from getReportSummary()'s pipeline array: that array is a
- * documented cohort+snapshot HYBRID (§148's own explicit design — leads
- * still open are cohort-scoped by createdAt, Closed Won/Lost are
- * snapshot-scoped by closedAt, summed together) which is right for
- * Pipeline Health specifically but would give a misleading "Total Leads"
- * number here — this needs a plain, unambiguous count of leads created in
- * the range.
+ * Filter/scope clause + params for a LEAD-level query (alias `l`, default).
+ * portfolio -> LeadPortfolio; source -> the origin CASE; Supervisor scope
+ * (reportIds resolved once by the caller, not re-resolved per query) ->
+ * assignedAgentId. Deliberately NO brokerId support here — a Lead has no
+ * broker until an Appointment exists; a brokerId filter only means
+ * something at the appointment level (apptFilterSql, below).
  */
-async function getPeriodKpiTotals(start, end, organisationId) {
-  const params = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+function leadFilterSql({ portfolio, source, reportIds }, alias = 'l') {
+  const clauses = [];
+  const params = {};
+  if (portfolio) {
+    clauses.push(`EXISTS (SELECT 1 FROM LeadPortfolio flp JOIN Portfolio fpf ON fpf.id = flp.portfolioId WHERE flp.leadId = ${alias}.id AND fpf.name = @filterPortfolio)`);
+    params.filterPortfolio = { type: sql.NVarChar(200), value: portfolio };
+  }
+  if (source) {
+    clauses.push(`(${originExprFor(alias)}) = @filterSource`);
+    params.filterSource = { type: sql.NVarChar(50), value: source };
+  }
+  if (reportIds) {
+    clauses.push(`${alias}.assignedAgentId = ANY(@filterReportIds)`);
+    params.filterReportIds = { type: sql.NVarChar(sql.MAX), value: reportIds };
+  }
+  return { sqlFragment: clauses.length ? ' AND ' + clauses.join(' AND ') : '', params };
+}
+
+/**
+ * Filter/scope clause + params for an APPOINTMENT-level query (alias `a`,
+ * with Lead already joined as `leadAlias` — every call site below already
+ * joins Lead for some other reason, e.g. avgDaysToClose needs l.createdAt,
+ * so the source filter never forces a NEW join anywhere it wasn't already
+ * present). Safe to merge this function's params with leadFilterSql's own
+ * in the same query (e.g. the trend loop's UNION ALL, which has both a
+ * Lead-only branch and Appointment branches) — both derive from the same
+ * `filters` object, so a shared param name always carries an identical
+ * value from either side; nothing to collide.
+ */
+function apptFilterSql({ brokerId, portfolio, source, reportIds }, alias = 'a', leadAlias = 'l') {
+  const clauses = [];
+  const params = {};
+  if (brokerId) {
+    clauses.push(`${alias}.brokerId = @filterBrokerId`);
+    params.filterBrokerId = { type: sql.UniqueIdentifier, value: brokerId };
+  }
+  if (portfolio) {
+    clauses.push(`EXISTS (SELECT 1 FROM AppointmentPortfolio fap JOIN Portfolio fpf2 ON fpf2.id = fap.portfolioId WHERE fap.appointmentId = ${alias}.id AND fpf2.name = @filterPortfolio)`);
+    params.filterPortfolio = { type: sql.NVarChar(200), value: portfolio };
+  }
+  if (source) {
+    clauses.push(`(${originExprFor(leadAlias)}) = @filterSource`);
+    params.filterSource = { type: sql.NVarChar(50), value: source };
+  }
+  if (reportIds) {
+    clauses.push(`${alias}.agentId = ANY(@filterReportIds)`);
+    params.filterReportIds = { type: sql.NVarChar(sql.MAX), value: reportIds };
+  }
+  return { sqlFragment: clauses.length ? ' AND ' + clauses.join(' AND ') : '', params };
+}
+
+/**
+ * Core KPI totals for one date range, now filter/scope-aware — was
+ * previously (start, end, organisationId) only; filters added 14 Aug
+ * 2026 (§163) rather than left as a follow-up, since the executive
+ * summary is the first thing on the page every filter needs to affect.
+ */
+async function getPeriodKpiTotals(start, end, organisationId, filters = {}) {
+  const baseParams = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+  const leadF = leadFilterSql(filters);
+  const apptF = apptFilterSql(filters);
   const [leadsRows, apptsRows, closedRows, policyRows, daysRows] = await Promise.all([
-    executeQuery(`SELECT COUNT(*) AS count FROM Lead WHERE createdAt >= @start AND createdAt <= @end AND deletedAt IS NULL AND organisationId = @organisationId`, params),
-    executeQuery(`SELECT COUNT(*) AS count FROM Appointment WHERE createdAt >= @start AND createdAt <= @end AND organisationId = @organisationId`, params),
-    executeQuery(`SELECT COUNT(*) AS count FROM Appointment WHERE status = 'ClosedWon' AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId`, params),
-    executeQuery(`SELECT COALESCE(SUM(ap.policyValue), 0) AS total FROM AppointmentProduct ap JOIN Appointment a ON a.id = ap.appointmentId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId`, params),
-    executeQuery(`SELECT AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays" FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId`, params),
+    executeQuery(`SELECT COUNT(*) AS count FROM Lead l WHERE l.createdAt >= @start AND l.createdAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId${leadF.sqlFragment}`, { ...baseParams, ...leadF.params }),
+    executeQuery(`SELECT COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.createdAt >= @start AND a.createdAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment}`, { ...baseParams, ...apptF.params }),
+    executeQuery(`SELECT COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment}`, { ...baseParams, ...apptF.params }),
+    executeQuery(`SELECT COALESCE(SUM(ap.policyValue), 0) AS total FROM AppointmentProduct ap JOIN Appointment a ON a.id = ap.appointmentId JOIN Lead l ON l.id = a.leadId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment}`, { ...baseParams, ...apptF.params }),
+    executeQuery(`SELECT AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays" FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment}`, { ...baseParams, ...apptF.params }),
   ]);
   const leads = Number(leadsRows[0].count);
   const appts = Number(apptsRows[0].count);
   const closedWon = Number(closedRows[0].count);
   const totalPolicyValue = Number(policyRows[0].total);
   const avgDaysToCloseWon = daysRows[0].avgDays === null ? null : Number(daysRows[0].avgDays);
-  // Ratio, not '%' — same §158 convention, applied consistently here too.
   const conversion = leads === 0 ? 0 : closedWon / leads;
   return { leads, appts, closedWon, totalPolicyValue, avgDaysToCloseWon, conversion };
 }
@@ -1227,26 +1293,78 @@ function generateInsights({ sourceTable, portfolioTable, kpis }) {
  * /api/reports/dashboard. Composes: executive-summary KPIs (current +
  * prior period, real deltas), an extended multi-series trend, pipeline
  * health with stage-to-stage conversion, the Lead Source and Portfolio
- * performance tables, a policy value breakdown, Won vs Lost, appointment
- * analysis, and generated insights — everything sections 2-4 and 6-11 of
- * the brief need in one composed payload (section 1's toolbar filters and
- * section 5's Broker table are handled separately — see §162's own build
- * notes for what's deliberately not in this delivery yet).
+ * performance tables, a policy value breakdown, Won vs Lost (with loss
+ * reasons where captured), appointment analysis, and generated insights.
+ *
+ * FILTERS + SCOPE added 14 Aug 2026 (§163), same session as the initial
+ * build — Mark asked for all three previously-flagged gaps built
+ * straight through. This REVERSES the earlier reuse-over-rebuild choice
+ * for three of the previously-reused functions (getReportSummary,
+ * getLeadsBySourceReport, getAppointmentsByPortfolioReport,
+ * getAppointmentsByMeetingTypeReport all called here UNFILTERED before) —
+ * none of those functions accept a filter/scope parameter, and adding one
+ * would change behaviour for their own standalone /api/reports/* routes
+ * too, which this rebuild's frontend no longer calls but which still
+ * exist and still work unfiltered for whatever else might call them.
+ * Filtered/scoped equivalents are inlined directly below instead — some
+ * SQL is genuinely duplicated as a result (the pipeline cohort query in
+ * particular mirrors getReportSummary's own), a real, considered
+ * trade-off, not an oversight of the earlier "reuse, don't rebuild"
+ * principle.
  * @param {'Monthly'|'Quarterly'|'Yearly'} period
  * @param {Date} [referenceDate]
+ * @param {{role: string, userId: string}} [scope] - Supervisor gets
+ *   scoped to their own direct reports (leads via assignedAgentId,
+ *   appointments via agentId); Admin/GlobalAdmin/Agent/Broker are
+ *   unaffected (Agent/Broker never reach this endpoint's org-wide view —
+ *   the frontend skips the call entirely for self-view roles). Broker
+ *   Performance (fetched separately by the frontend via the existing
+ *   getBrokerReport) deliberately stays org-wide for Supervisor too,
+ *   matching that function's own long-standing, deliberate behaviour —
+ *   not a new inconsistency introduced here.
+ * @param {{brokerId?: string, portfolio?: string, source?: string}} [filters]
+ *   - the toolbar's three filters. portfolio/source are the same NAME-
+ *   based values used everywhere else in this app (not IDs) — matches
+ *   AppointmentListQuerySchema's own existing convention. brokerId is a
+ *   UUID, same convention. All three optional; omitting all three
+ *   reproduces the original unfiltered behaviour exactly.
  */
-export async function getDashboardData(period, referenceDate = new Date()) {
+export async function getDashboardData(period, referenceDate = new Date(), scope = null, filters = {}) {
   const organisationId = resolveOrganisationId();
   const { start, end } = getPeriodRange(period, referenceDate);
   const { start: priorStart, end: priorEnd } = getPriorPeriodRange(period, referenceDate);
 
-  const [current, prior, summary, sourceRowsBase, portfolioTable, meetingTypeTable] = await Promise.all([
-    getPeriodKpiTotals(start, end, organisationId),
-    getPeriodKpiTotals(priorStart, priorEnd, organisationId),
-    getReportSummary(period, referenceDate),
-    getLeadsBySourceReport(period, referenceDate),
-    getAppointmentsByPortfolioReport(period, referenceDate),
-    getAppointmentsByMeetingTypeReport(period, referenceDate),
+  // Resolved ONCE here, not per-query — every filter-aware query below
+  // takes the already-resolved array via filters.reportIds, matching how
+  // getAgentReport/getBrokerReport already receive a `scope` object
+  // rather than re-deriving anything themselves.
+  const reportIds = scope?.role === 'Supervisor' ? await getDirectReportIds(scope.userId) : null;
+  const f = { ...filters, reportIds };
+
+  const [current, prior, meetingTypeTable] = await Promise.all([
+    getPeriodKpiTotals(start, end, organisationId, f),
+    getPeriodKpiTotals(priorStart, priorEnd, organisationId, f),
+    // Meeting Type has no portfolio/source dimension of its own worth
+    // filtering by in addition to what's already page-level — reused
+    // inline query below instead of the standalone function, same
+    // reasoning as source/portfolio tables.
+    (async () => {
+      const apptF = apptFilterSql(f);
+      const params = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+      const [bookedRows, closedCountRows, avgDaysRows] = await Promise.all([
+        executeQuery(`SELECT a.meetingType AS "groupKey", COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.createdAt >= @start AND a.createdAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment} GROUP BY a.meetingType`, { ...params, ...apptF.params }),
+        executeQuery(`SELECT a.meetingType AS "groupKey", a.status, COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment} GROUP BY a.meetingType, a.status`, { ...params, ...apptF.params }),
+        executeQuery(`SELECT a.meetingType AS "groupKey", a.status, AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays" FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment} GROUP BY a.meetingType, a.status`, { ...params, ...apptF.params }),
+      ]);
+      const booked = Object.fromEntries(bookedRows.map(r => [r.groupKey, Number(r.count)]));
+      const closed = mergeClosedMetrics(closedCountRows, avgDaysRows);
+      const allKeys = new Set([...Object.keys(booked), ...Object.keys(closed)]);
+      return [...allKeys].sort().map(meetingType => {
+        const b = booked[meetingType] ?? 0;
+        const c = closed[meetingType] ?? { closedWon: 0, closedLost: 0, avgDaysWon: null, avgDaysLost: null };
+        return { meetingType, booked: b, closedWon: c.closedWon, closedLost: c.closedLost, conversion: b === 0 ? '0.0' : (c.closedWon / b).toFixed(1), avgDaysToCloseWon: c.avgDaysWon, avgDaysToCloseLost: c.avgDaysLost };
+      });
+    })(),
   ]);
 
   // ── Executive summary — 6 KPIs, not all 8+ possible ones, per the
@@ -1262,30 +1380,33 @@ export async function getDashboardData(period, referenceDate = new Date()) {
     { key: 'avgDaysToCloseWon', label: 'Avg Days to Close (Won)', format: 'days',    current: current.avgDaysToCloseWon, prior: prior.avgDaysToCloseWon, lowerIsBetter: true, ...computeDelta(current.avgDaysToCloseWon, prior.avgDaysToCloseWon) },
   ];
 
-  // ── Trend — extended beyond getReportSummary()'s own leads+won pair.
-  // Two queries per bucket (four counts via UNION ALL, one policy-value
-  // sum needing its own JOIN) rather than getReportSummary's original
-  // one-pair-per-bucket, same "simpler than dynamic date-bucketing SQL at
-  // this scale" reasoning getTrendBuckets() itself already documents.
+  // ── Trend — two queries per bucket (four counts via UNION ALL, one
+  // policy-value sum needing its own JOIN), same "simpler than dynamic
+  // date-bucketing SQL at this scale" reasoning getTrendBuckets() itself
+  // already documents. Filter/scope-aware — leadF and apptF params are
+  // safely merged into one params object for the UNION ALL query (see
+  // apptFilterSql's own doc comment on why that's safe).
   const buckets = getTrendBuckets(period, referenceDate);
   const trend = [];
   for (const b of buckets) {
     if (b.future) { trend.push({ label: b.label, leads: 0, appts: 0, won: 0, lost: 0, policyValue: 0 }); continue; }
     const params = { start: { type: sql.DateTimeOffset, value: b.start }, end: { type: sql.DateTimeOffset, value: b.end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+    const leadF = leadFilterSql(f);
+    const apptF = apptFilterSql(f);
     const [countRows, policyRows] = await Promise.all([
       executeQuery(
-        `SELECT 'leads' AS metric, COUNT(*) AS count FROM Lead WHERE createdAt >= @start AND createdAt <= @end AND deletedAt IS NULL AND organisationId = @organisationId
+        `SELECT 'leads' AS metric, COUNT(*) AS count FROM Lead l WHERE l.createdAt >= @start AND l.createdAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId${leadF.sqlFragment}
          UNION ALL
-         SELECT 'appts', COUNT(*) FROM Appointment WHERE createdAt >= @start AND createdAt <= @end AND organisationId = @organisationId
+         SELECT 'appts', COUNT(*) FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.createdAt >= @start AND a.createdAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment}
          UNION ALL
-         SELECT 'won', COUNT(*) FROM Appointment WHERE status = 'ClosedWon' AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId
+         SELECT 'won', COUNT(*) FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment}
          UNION ALL
-         SELECT 'lost', COUNT(*) FROM Appointment WHERE status IN ('ClosedLost', 'ReturnedToLeads') AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId`,
-        params
+         SELECT 'lost', COUNT(*) FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status IN ('ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment}`,
+        { ...params, ...leadF.params, ...apptF.params }
       ),
       executeQuery(
-        `SELECT COALESCE(SUM(ap.policyValue), 0) AS total FROM AppointmentProduct ap JOIN Appointment a ON a.id = ap.appointmentId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId`,
-        params
+        `SELECT COALESCE(SUM(ap.policyValue), 0) AS total FROM AppointmentProduct ap JOIN Appointment a ON a.id = ap.appointmentId JOIN Lead l ON l.id = a.leadId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment}`,
+        { ...params, ...apptF.params }
       ),
     ]);
     const byMetric = Object.fromEntries(countRows.map(r => [r.metric, Number(r.count)]));
@@ -1297,51 +1418,131 @@ export async function getDashboardData(period, referenceDate = new Date()) {
     });
   }
 
-  // ── Pipeline health — reuses getReportSummary()'s own pipeline array
-  // (proven §148 logic) and adds stage-to-stage conversion for the first
-  // four, genuinely SEQUENTIAL stages only (Unassigned -> Assigned ->
-  // In Progress -> Appointment Booked). Closed Won/Closed Lost are
-  // parallel terminal outcomes of the same "Appointment Booked" stage,
-  // not a fifth sequential step — their own split is the Conversion Ratio
-  // KPI and the Won vs Lost section below, not a stage-to-stage number.
-  const pipeline = summary.pipeline;
+  // ── Pipeline health — inlined, filter/scope-aware version of
+  // getReportSummary()'s own §148 cohort+snapshot query (that function
+  // itself stays unfiltered, unchanged, for its own standalone route).
+  // The no-appointment 'Closed' path (a lead closed via call outcome,
+  // never got an appointment) is SKIPPED ENTIRELY when brokerId is set —
+  // by definition, a lead that never reached an appointment never
+  // touched any broker, so it can't correctly match a broker filter;
+  // including it unfiltered there would have been a real, silent
+  // correctness bug, not just an inconsistency.
+  const leadF2 = leadFilterSql(f);
+  const apptF2 = apptFilterSql(f);
+  const baseParams2 = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+  const noApptClosedBranch = f.brokerId ? '' : `
+     UNION ALL
+     SELECT 'ClosedLost' AS bucket, COUNT(*) AS count FROM Lead l
+     WHERE l.pipelineStatus = 'Closed' AND l.updatedAt >= @start AND l.updatedAt <= @end
+       AND l.deletedAt IS NULL AND l.organisationId = @organisationId${leadF2.sqlFragment}`;
+  const [cohortRows, closedRowsPipeline] = await Promise.all([
+    executeQuery(
+      `SELECT
+         CASE
+           WHEN l.pipelineStatus = 'Unassigned' THEN 'Unassigned'
+           WHEN l.pipelineStatus = 'Assigned'   THEN 'Assigned'
+           WHEN l.pipelineStatus = 'InProgress' THEN 'InProgress'
+           WHEN l.pipelineStatus = 'AppointmentScheduled' AND ap.status NOT IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads')
+             THEN 'AppointmentBooked'
+           ELSE NULL
+         END AS bucket,
+         COUNT(*) AS count
+       FROM Lead l
+       LEFT JOIN LATERAL (
+         SELECT status FROM Appointment WHERE leadId = l.id ORDER BY createdAt DESC LIMIT 1
+       ) ap ON true
+       WHERE l.createdAt >= @start AND l.createdAt <= @end
+         AND l.deletedAt IS NULL AND l.organisationId = @organisationId${leadF2.sqlFragment}
+       GROUP BY bucket`,
+      { ...baseParams2, ...leadF2.params }
+    ),
+    executeQuery(
+      `SELECT 'ClosedWon' AS bucket, COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId
+       WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF2.sqlFragment}
+       UNION ALL
+       SELECT 'ClosedLost' AS bucket, COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId
+       WHERE a.status IN ('ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF2.sqlFragment}${noApptClosedBranch}`,
+      { ...baseParams2, ...apptF2.params, ...leadF2.params }
+    ),
+  ]);
+  const pipelineCounts = Object.fromEntries(cohortRows.filter(r => r.bucket).map(r => [r.bucket, Number(r.count)]));
+  for (const row of closedRowsPipeline) {
+    pipelineCounts[row.bucket] = (pipelineCounts[row.bucket] ?? 0) + Number(row.count);
+  }
+  const pipeline = [
+    { status: 'Unassigned',          count: pipelineCounts.Unassigned ?? 0 },
+    { status: 'Assigned',            count: pipelineCounts.Assigned ?? 0 },
+    { status: 'In Progress',         count: pipelineCounts.InProgress ?? 0 },
+    { status: 'Appointment Booked',  count: pipelineCounts.AppointmentBooked ?? 0 },
+    { status: 'Closed Won',          count: pipelineCounts.ClosedWon ?? 0 },
+    { status: 'Closed Lost',         count: pipelineCounts.ClosedLost ?? 0 },
+  ];
   const stageConversion = [];
   for (let i = 0; i < 3; i++) {
     const from = pipeline[i], to = pipeline[i + 1];
-    stageConversion.push({
-      from: from.status, to: to.status,
-      ratio: from.count === 0 ? null : Math.round((to.count / from.count) * 100) / 100,
-    });
+    stageConversion.push({ from: from.status, to: to.status, ratio: from.count === 0 ? null : Math.round((to.count / from.count) * 100) / 100 });
   }
 
-  // ── Lead Source table — reuse getLeadsBySourceReport() as-is, then
-  // supplement with the two columns the brief's table needs that function
-  // was never asked to carry (appointments booked, policy value), scoped
-  // by the same origin-category CASE expression, kept in sync manually
-  // since it isn't exported — a short expression, duplicating it here is
-  // a smaller footprint than refactoring the shared-fragment export this
-  // session didn't otherwise need.
-  const originExpr = `CASE
-    WHEN l.linkedEventId IS NOT NULL THEN 'Event'
-    WHEN l.linkedSubscriptionId IS NOT NULL THEN 'Medical Subscription'
-    WHEN l.csvImportBatchId IS NOT NULL THEN 'Import'
-    ELSE 'Manual'
-  END`;
+  // ── Lead Source table — inlined, filter/scope-aware (getLeadsBySourceReport
+  // itself stays unfiltered for its own standalone route). Same shape as
+  // that function's own output, plus the two extra columns (appointments,
+  // policy value) the brief's table needs.
+  const leadF3 = leadFilterSql(f);
+  const apptF3 = apptFilterSql(f);
   const srcParams = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
-  const [srcApptsRows, srcPolicyRows] = await Promise.all([
-    executeQuery(`SELECT ${originExpr} AS "groupKey", COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.createdAt >= @start AND a.createdAt <= @end AND a.organisationId = @organisationId GROUP BY ${originExpr}`, srcParams),
-    executeQuery(`SELECT ${originExpr} AS "groupKey", COALESCE(SUM(ap.policyValue), 0) AS total FROM AppointmentProduct ap JOIN Appointment a ON a.id = ap.appointmentId JOIN Lead l ON l.id = a.leadId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId GROUP BY ${originExpr}`, srcParams),
+  const originExprL = originExprFor('l');
+  const [srcLeadsRows, srcClosedCountRows, srcNoApptClosedRows, srcAvgDaysRows, srcApptsRows, srcPolicyRows] = await Promise.all([
+    executeQuery(`SELECT ${originExprL} AS "groupKey", COUNT(*) AS count FROM Lead l WHERE l.createdAt >= @start AND l.createdAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId${leadF3.sqlFragment} GROUP BY ${originExprL}`, { ...srcParams, ...leadF3.params }),
+    executeQuery(`SELECT ${originExprL} AS "groupKey", a.status, COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF3.sqlFragment} GROUP BY ${originExprL}, a.status`, { ...srcParams, ...apptF3.params }),
+    f.brokerId ? Promise.resolve([]) : executeQuery(`SELECT ${originExprL} AS "groupKey", COUNT(*) AS count FROM Lead l WHERE l.pipelineStatus = 'Closed' AND l.updatedAt >= @start AND l.updatedAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId${leadF3.sqlFragment} GROUP BY ${originExprL}`, { ...srcParams, ...leadF3.params }),
+    executeQuery(`SELECT ${originExprL} AS "groupKey", a.status, AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays" FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF3.sqlFragment} GROUP BY ${originExprL}, a.status`, { ...srcParams, ...apptF3.params }),
+    executeQuery(`SELECT ${originExprL} AS "groupKey", COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.createdAt >= @start AND a.createdAt <= @end AND a.organisationId = @organisationId${apptF3.sqlFragment} GROUP BY ${originExprL}`, { ...srcParams, ...apptF3.params }),
+    executeQuery(`SELECT ${originExprL} AS "groupKey", COALESCE(SUM(ap.policyValue), 0) AS total FROM AppointmentProduct ap JOIN Appointment a ON a.id = ap.appointmentId JOIN Lead l ON l.id = a.leadId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF3.sqlFragment} GROUP BY ${originExprL}`, { ...srcParams, ...apptF3.params }),
   ]);
+  const srcLeadsByGroup = Object.fromEntries(srcLeadsRows.map(r => [r.groupKey, Number(r.count)]));
+  const srcClosed = mergeClosedMetrics([...srcClosedCountRows, ...srcNoApptClosedRows.map(r => ({ groupKey: r.groupKey, status: 'ClosedLost', count: r.count }))], srcAvgDaysRows);
   const srcAppts = Object.fromEntries(srcApptsRows.map(r => [r.groupKey, Number(r.count)]));
   const srcPolicy = Object.fromEntries(srcPolicyRows.map(r => [r.groupKey, Number(r.total)]));
-  const sourceTable = sourceRowsBase.map(r => ({
-    source: r.source, leads: r.leads, appointments: srcAppts[r.source] ?? 0,
-    closedWon: r.closedWon, closedLost: r.closedLost,
-    conversion: r.conversion, policyValue: srcPolicy[r.source] ?? 0,
-  }));
+  const srcAllKeys = new Set([...Object.keys(srcLeadsByGroup), ...Object.keys(srcClosed), ...Object.keys(srcAppts)]);
+  const sourceTable = [...srcAllKeys].sort().map(source => {
+    const leads = srcLeadsByGroup[source] ?? 0;
+    const c = srcClosed[source] ?? { closedWon: 0, closedLost: 0, avgDaysWon: null, avgDaysLost: null };
+    return {
+      source, leads, appointments: srcAppts[source] ?? 0,
+      closedWon: c.closedWon, closedLost: c.closedLost,
+      conversion: leads === 0 ? '0.0' : (c.closedWon / leads).toFixed(1),
+      policyValue: srcPolicy[source] ?? 0,
+    };
+  });
 
-  // ── Policy value breakdown — derived, not queried fresh; everything it
-  // needs is already computed above.
+  // ── Portfolio Performance table — inlined, filter/scope-aware version
+  // of getAppointmentsByPortfolioReport(). COUNT(DISTINCT ...) throughout,
+  // same fan-out guard that function's own header comment documents (a
+  // multi-portfolio appointment must not multiply its counts).
+  const apptF4 = apptFilterSql(f);
+  const portParams = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+  const [portBookedRows, portClosedCountRows, portAvgDaysRows, portAvgPolicyRows] = await Promise.all([
+    executeQuery(`SELECT p.name AS "groupKey", COUNT(DISTINCT a.id) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId JOIN AppointmentPortfolio ap2 ON ap2.appointmentId = a.id JOIN Portfolio p ON p.id = ap2.portfolioId WHERE a.createdAt >= @start AND a.createdAt <= @end AND a.organisationId = @organisationId${apptF4.sqlFragment} GROUP BY p.name`, { ...portParams, ...apptF4.params }),
+    executeQuery(`SELECT p.name AS "groupKey", a.status, COUNT(DISTINCT a.id) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId JOIN AppointmentPortfolio ap2 ON ap2.appointmentId = a.id JOIN Portfolio p ON p.id = ap2.portfolioId WHERE a.status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF4.sqlFragment} GROUP BY p.name, a.status`, { ...portParams, ...apptF4.params }),
+    executeQuery(`SELECT p.name AS "groupKey", a.status, AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays" FROM Appointment a JOIN Lead l ON l.id = a.leadId JOIN AppointmentPortfolio ap2 ON ap2.appointmentId = a.id JOIN Portfolio p ON p.id = ap2.portfolioId WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF4.sqlFragment} GROUP BY p.name, a.status`, { ...portParams, ...apptF4.params }),
+    executeQuery(`SELECT p.name AS "groupKey", AVG(prodTotals.total) AS "avgValue" FROM Portfolio p JOIN AppointmentPortfolio ap2 ON ap2.portfolioId = p.id JOIN Appointment a ON a.id = ap2.appointmentId JOIN Lead l ON l.id = a.leadId JOIN LATERAL (SELECT COALESCE(SUM(ap3.policyValue), 0) AS total FROM AppointmentProduct ap3 WHERE ap3.appointmentId = a.id) prodTotals ON true WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF4.sqlFragment} GROUP BY p.name`, { ...portParams, ...apptF4.params }),
+  ]);
+  const portBooked = Object.fromEntries(portBookedRows.map(r => [r.groupKey, Number(r.count)]));
+  const portClosed = mergeClosedMetrics(portClosedCountRows, portAvgDaysRows);
+  const portAvgPolicy = Object.fromEntries(portAvgPolicyRows.map(r => [r.groupKey, r.avgValue === null ? null : Number(r.avgValue)]));
+  const portAllKeys = new Set([...Object.keys(portBooked), ...Object.keys(portClosed)]);
+  const portfolioTable = [...portAllKeys].sort().map(portfolioName => {
+    const booked = portBooked[portfolioName] ?? 0;
+    const c = portClosed[portfolioName] ?? { closedWon: 0, closedLost: 0, avgDaysWon: null, avgDaysLost: null };
+    return {
+      portfolio: portfolioName, booked, closedWon: c.closedWon, closedLost: c.closedLost,
+      conversion: booked === 0 ? '0.0' : (c.closedWon / booked).toFixed(1),
+      avgDaysToCloseWon: c.avgDaysWon, avgDaysToCloseLost: c.avgDaysLost,
+      avgPolicyValueWon: portAvgPolicy[portfolioName] ?? null,
+    };
+  });
+
+  // ── Policy value breakdown — derived, not queried fresh.
   const policyValueBreakdown = {
     total: current.totalPolicyValue,
     avgPerDeal: current.closedWon === 0 ? null : current.totalPolicyValue / current.closedWon,
@@ -1350,27 +1551,56 @@ export async function getDashboardData(period, referenceDate = new Date()) {
     trend: trend.map(t => ({ label: t.label, policyValue: t.policyValue })),
   };
 
-  // ── Won vs Lost — counts already in `pipeline`; NO loss-reason
-  // breakdown — checked the schema directly (no lostReason/closedReason
-  // column exists anywhere on Appointment or Lead), matching the brief's
-  // own explicit instruction not to invent a field with no home. Flagged
-  // in the delivery notes as a real gap, not silently dropped.
+  // ── Won vs Lost — counts from `pipeline`. Loss reasons — 14 Aug 2026
+  // (§163, migration 030, Appointment.lostReason) — built now that Mark
+  // has explicitly asked for it; the field genuinely didn't exist before
+  // this. hasLossReasons is TRUE only when at least one closed-lost
+  // appointment this period actually has a reason captured — a schema
+  // that exists but is 0% populated yet (every lost appointment closed
+  // before this feature shipped) should still show the honest "not
+  // captured" state, not a technically-true-but-empty breakdown table.
   const closedWonCount = pipeline.find(p => p.status === 'Closed Won').count;
   const closedLostCount = pipeline.find(p => p.status === 'Closed Lost').count;
+  const apptF5 = apptFilterSql(f);
+  const lossReasonParams = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+  const lossReasonRows = await executeQuery(
+    `SELECT COALESCE(a.lostReason, 'Not captured') AS reason, COUNT(*) AS count
+     FROM Appointment a JOIN Lead l ON l.id = a.leadId
+     WHERE a.status = 'ClosedLost' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF5.sqlFragment}
+     GROUP BY reason ORDER BY count DESC`,
+    { ...lossReasonParams, ...apptF5.params }
+  );
+  const lossReasons = lossReasonRows.map(r => ({ reason: r.reason, count: Number(r.count) }));
+  const hasLossReasons = lossReasons.some(r => r.reason !== 'Not captured');
   const wonVsLost = {
     won: closedWonCount, lost: closedLostCount,
     winRate: (closedWonCount + closedLostCount) === 0 ? null : Math.round((closedWonCount / (closedWonCount + closedLostCount)) * 1000) / 10,
     avgDaysToCloseWon: current.avgDaysToCloseWon,
-    avgDaysToCloseLost: summary.avgDaysToClose.lost,
-    hasLossReasons: false,
+    avgDaysToCloseLost: null, // computed below, alongside the rest of the lost-side detail this filtered/scoped rebuild needs fresh (getReportSummary's own avgDaysToClose.lost was org-wide/unfiltered)
+    lossReasons, hasLossReasons,
   };
+  {
+    const lostDaysRows = await executeQuery(
+      `SELECT AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays" FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status = 'ClosedLost' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF5.sqlFragment}`,
+      { ...lossReasonParams, ...apptF5.params }
+    );
+    wonVsLost.avgDaysToCloseLost = lostDaysRows[0].avgDays === null ? null : Number(lostDaysRows[0].avgDays);
+  }
 
   // ── Appointment analysis — booked/per-lead/appointment-to-won already
-  // derivable from `current`; meeting-type table reused unchanged. NO
-  // cancelled/missed breakdown — checked the schema directly, Appointment.
-  // status has no such value (only Unassigned/Assigned/InProgress/
-  // ClosedWon/ClosedLost/Claimed/ReturnedToLeads) — same "don't invent a
-  // field with no home" reasoning as Won vs Lost above.
+  // derivable from `current`; meeting-type table fetched filter/scope-
+  // aware above. NO cancelled/missed breakdown — DELIBERATELY NOT BUILT
+  // even though Mark asked for all three flagged gaps, because this one
+  // has a real architectural conflict, not just missing data: §138 (the
+  // Meeting/Appointment attempt-history redesign, still the TOP PRIORITY
+  // queued item, fully specced, zero code written) will define exactly
+  // where a "missed" or "cancelled" concept belongs — as a new
+  // Appointment.status value, as a meeting-attempt-level status (the
+  // redesign already has "Held – Not Interested" and "Rescheduled" at
+  // that level), or something else. Adding a quick ad-hoc status or
+  // column now risks either throwaway work or making §138's eventual
+  // build harder by giving it a second status model to reconcile with.
+  // Flagged here and in the delivery notes rather than built around.
   const appointmentAnalysis = {
     booked: current.appts,
     perLead: current.leads === 0 ? null : Math.round((current.appts / current.leads) * 100) / 100,
@@ -1383,6 +1613,7 @@ export async function getDashboardData(period, referenceDate = new Date()) {
 
   return {
     period: { start, end, priorStart, priorEnd },
+    appliedFilters: { brokerId: filters.brokerId ?? null, portfolio: filters.portfolio ?? null, source: filters.source ?? null, scoped: !!reportIds },
     kpis, trend,
     pipeline: { stages: pipeline, stageConversion },
     sourceTable, portfolioTable,

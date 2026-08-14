@@ -552,6 +552,16 @@ CREATE TABLE IF NOT EXISTS Appointment (
     meeting3Feedback            VARCHAR(2000)   NULL,
 
     customerSigned              BOOLEAN         NULL,
+    -- 14 Aug 2026 (§163, migration 030) — Mark's explicit request, after
+    -- §156's brief flagged this couldn't be built without the field
+    -- existing first. Nullable — only meaningful once status =
+    -- 'ClosedLost'; captured in the same outcome-save flow as
+    -- customerSigned = false, not a separate action. Fixed category set
+    -- (not free text) so the reporting breakdown means something —
+    -- Claude's own design choice, not dictated by Mark; easy to
+    -- adjust/extend if these don't match how the business actually talks
+    -- about lost deals.
+    lostReason                  VARCHAR(50)     NULL,
     isBrokerSwitch              BOOLEAN         NULL,
 
     -- §148 follow-up (13 Aug 2026, migration 027) — set exactly once, at
@@ -591,6 +601,13 @@ CREATE TABLE IF NOT EXISTS Appointment (
     CONSTRAINT FK_Appointment_ClaimedBy FOREIGN KEY (claimedByBrokerId) REFERENCES "User"(id),
     CONSTRAINT FK_Appointment_Portfolio FOREIGN KEY (portfolioId)       REFERENCES Portfolio(id),
     CONSTRAINT CK_Appointment_Status    CHECK (status IN ('Unassigned', 'Assigned', 'InProgress', 'ClosedWon', 'ClosedLost', 'Claimed', 'ReturnedToLeads')),
+    -- 14 Aug 2026 (§163, migration 030). Six categories — Claude's own
+    -- design choice (see the column's own comment above), not an
+    -- exhaustive industry taxonomy; 'Other' is the deliberate escape
+    -- hatch rather than leaving this open-ended free text.
+    CONSTRAINT CK_Appointment_LostReason CHECK (lostReason IS NULL OR lostReason IN (
+        'PriceTooHigh', 'ChoseCompetitor', 'NoLongerInterested', 'Uncontactable', 'NotEligible', 'Other'
+    )),
     CONSTRAINT CK_Appointment_MeetingType CHECK (meetingType IN ('InPerson', 'Virtual')),
     CONSTRAINT CK_Appointment_M1Status  CHECK (meeting1Status IS NULL OR meeting1Status IN ('Seen', 'Rescheduled', 'Cancelled')),
     CONSTRAINT CK_Appointment_M2Status  CHECK (meeting2Status IS NULL OR meeting2Status IN ('Seen', 'Rescheduled', 'Cancelled')),

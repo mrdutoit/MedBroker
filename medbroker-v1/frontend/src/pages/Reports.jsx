@@ -10,30 +10,36 @@
  * Status_Vercel.md §156; the honest "what §158 did and didn't fix" account
  * of the pushback that led here lives in §161.
  *
- * STRUCTURE follows the brief's own priority order: executive summary (6
- * KPIs, period-over-period deltas) -> primary trend (multi-series,
- * toggleable) -> pipeline health (stage-to-stage conversion, not just
- * bucket counts) -> Broker/Agent performance tables -> Lead Source and
- * Portfolio performance (TABLES, not donuts) -> Policy Value (real
- * prominence, not a KPI card) -> Won vs Lost -> Appointment Analysis ->
- * generated insights.
+ * STRUCTURE follows the brief's own priority order: toolbar (broker/
+ * portfolio/source filters, §163) -> executive summary (6 KPIs, period-
+ * over-period deltas) -> primary trend (multi-series, toggleable) ->
+ * pipeline health (stage-to-stage conversion, not just bucket counts) ->
+ * Broker/Agent performance tables -> Lead Source and Portfolio
+ * performance (TABLES, not donuts) -> Policy Value (real prominence, not
+ * a KPI card) -> Won vs Lost (with loss reasons, §163) -> Appointment
+ * Analysis -> generated insights.
  *
  * NOT IN THIS DELIVERY, flagged explicitly rather than left for Mark to
- * find (see §162 for the full account):
- *   - The toolbar's broker/portfolio/source filters (brief item 1) — the
- *     backend endpoint takes only period + referenceDate, same as every
- *     existing report call. A fast-follow, not built here.
- *   - Won vs Lost's loss-reason breakdown, and Appointment Analysis'
- *     cancelled/missed breakdown — no such field exists anywhere in the
- *     schema (checked directly, not assumed); inventing one wasn't this
- *     session's call to make. Both sections render an honest "not
- *     captured yet" note instead of silently omitting the sub-section.
+ * find (see §162 for the initial build, §163 for what got added on top):
+ *   - Appointment Analysis' cancelled/missed breakdown — DELIBERATELY
+ *     not built even after Mark asked for all three originally-flagged
+ *     gaps (toolbar filters and loss reasons ARE built, 14 Aug 2026,
+ *     §163). This one is different: it isn't just missing data, it's a
+ *     real architectural conflict with §138 (the Meeting/Appointment
+ *     attempt-history redesign — still the TOP PRIORITY queued item,
+ *     fully specced, zero code written), which will define exactly where
+ *     a "missed"/"cancelled" concept belongs. Building it now risked
+ *     either throwaway work or a second status model for that redesign
+ *     to reconcile with later.
  *
  * Backend: GET /api/reports/dashboard (reportService.getDashboardData) for
  * everything above; GET /api/reports/brokers, /agents, and
  * /closed-won-by-product are REUSED unchanged (§162's own reuse-over-
  * rebuild accounting) for the Broker/Agent tables and the product mix
- * under Policy Value.
+ * under Policy Value. getDashboardData() itself gained a scope + filters
+ * parameter 14 Aug 2026 (§163) — Supervisor scoping and the toolbar's
+ * three filters both thread through every internal query now, not just
+ * the top-level totals.
  *
  * Self-view (Agent/Broker) is deliberately NOT rebuilt to this same
  * structure — the brief's whole frame ("how is my BROKERAGE performing")
@@ -41,12 +47,15 @@
  * are kept, since a personal Pipeline Health or Lead Source breakdown
  * doesn't mean anything at that scope.
  *
- * SCOPE NOTE, flagged not assumed: getDashboardData() has no Supervisor-
- * specific scoping — Admin/GlobalAdmin/Supervisor all see the same
- * org-wide dashboard. Pipeline Health/Lead Source/Portfolio Performance
- * are inherently org-wide concepts that don't cleanly scope to "one
- * supervisor's direct reports" the way an individual KPI does — worth
- * Mark confirming this is the right call, not silently decided as final.
+ * SCOPE, built 14 Aug 2026 (§163): Supervisor sees only their own direct
+ * reports' leads/appointments across every section of this dashboard
+ * (Pipeline Health, Trend, Lead Source, Portfolio Performance, Won vs
+ * Lost, Appointment Analysis all scope down) — Admin/GlobalAdmin still
+ * see the full org. Broker Performance deliberately STAYS org-wide for
+ * Supervisor too, matching that table's own long-standing, separately-
+ * fetched behaviour (getBrokerReport never scoped Supervisor by broker,
+ * only by self — not a new inconsistency introduced here, an existing
+ * one this rebuild chose not to silently change).
  */
 
 import { useState }     from 'react';
@@ -62,13 +71,36 @@ import {
   fmt, fmtDays, fmtRatio,
 } from '../components/ReportsWidgets.jsx';
 
+// 14 Aug 2026 (§163) — matches AppointmentDetail.jsx's lostReason dropdown
+// labels exactly (kept as a second copy deliberately, not imported across
+// page files — these are presentation labels, not shared business logic).
+const LOST_REASON_LABELS = {
+  PriceTooHigh: 'Price too high',
+  ChoseCompetitor: 'Chose a competitor',
+  NoLongerInterested: 'No longer interested',
+  Uncontactable: 'Uncontactable',
+  NotEligible: 'Not eligible',
+  Other: 'Other',
+  'Not captured': 'Not captured',
+};
+
 export default function Reports() {
   const navigate           = useNavigate();
-  const { role }           = useRole();
+  const { role, portfolios: allPortfolios } = useRole();
   const { isMobile }       = useWindowSize();
   const [period, setPeriod] = useState('Monthly');
   const [referenceDate, setReferenceDate] = useState(undefined);
   const refParam = referenceDateToParam(referenceDate);
+
+  // 14 Aug 2026 (§163) — toolbar filters, org view only (self-view has no
+  // use for them). Cleared automatically on period change would be
+  // surprising (the whole point is comparing the same slice across
+  // periods) — deliberately NOT reset when period/referenceDate change.
+  const [filterBrokerId, setFilterBrokerId]   = useState('');
+  const [filterPortfolio, setFilterPortfolio] = useState('');
+  const [filterSource, setFilterSource]       = useState('');
+  const hasActiveFilters = !!(filterBrokerId || filterPortfolio || filterSource);
+  function clearFilters() { setFilterBrokerId(''); setFilterPortfolio(''); setFilterSource(''); }
 
   // §107 — carries the currently-selected period across to BrokerDetail/
   // AgentDetail's own View link, which otherwise silently resets to "this
@@ -82,8 +114,9 @@ export default function Reports() {
   // Dashboard + product-mix calls are org-wide data self-view users never
   // render — skipped for them rather than fetched and discarded (an
   // immediately-resolved null, not a real network call).
+  const dashboardFilters = { brokerId: filterBrokerId || undefined, portfolio: filterPortfolio || undefined, source: filterSource || undefined };
   const { data: dashboardData, loading: dashboardLoading, error: dashboardError } =
-    useFetch(() => selfView ? Promise.resolve(null) : reportsApi.dashboard(period, refParam), [period, refParam, selfView]);
+    useFetch(() => selfView ? Promise.resolve(null) : reportsApi.dashboard(period, refParam, dashboardFilters), [period, refParam, selfView, filterBrokerId, filterPortfolio, filterSource]);
   const { data: brokersData, loading: brokersLoading, error: brokersError } =
     useFetch(() => reportsApi.brokers(period, refParam), [period, refParam]);
   const { data: agentsData, loading: agentsLoading, error: agentsError } =
@@ -231,7 +264,45 @@ export default function Reports() {
           ══════════════════════════════════════════════════════════════ */}
       {!selfView && !anyLoading && (
         <>
-          {/* ── 1. Executive summary ─────────────────────────────────────── */}
+          {/* ── 1. Toolbar — 14 Aug 2026 (§163). Broker options come from
+              the already-fetched `brokers` list (no extra request);
+              Portfolio from useRole()'s existing portfolio list; Source is
+              a fixed set matching the four origin categories this app
+              actually has (originExprFor() in reportService.js). Filters
+              persist across period changes deliberately — comparing the
+              same filtered slice across periods is the more common intent
+              than resetting on every navigation. */}
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'flex-end', marginBottom: '16px', padding: '12px 14px', background: colors.surfaceSubtle, borderRadius: '8px' }}>
+            <div>
+              <label style={{ ...s.formLabel, fontSize: '0.6875rem' }}>Broker</label>
+              <select value={filterBrokerId} onChange={e => setFilterBrokerId(e.target.value)} style={{ ...s.formInput, minWidth: '160px' }}>
+                <option value="">All brokers</option>
+                {brokers.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ ...s.formLabel, fontSize: '0.6875rem' }}>Portfolio</label>
+              <select value={filterPortfolio} onChange={e => setFilterPortfolio(e.target.value)} style={{ ...s.formInput, minWidth: '160px' }}>
+                <option value="">All portfolios</option>
+                {allPortfolios.map(p => <option key={p.name} value={p.name}>{p.name}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ ...s.formLabel, fontSize: '0.6875rem' }}>Source</label>
+              <select value={filterSource} onChange={e => setFilterSource(e.target.value)} style={{ ...s.formInput, minWidth: '160px' }}>
+                <option value="">All sources</option>
+                <option value="Manual">Manual</option>
+                <option value="Import">Import</option>
+                <option value="Medical Subscription">Medical Subscription</option>
+                <option value="Event">Event</option>
+              </select>
+            </div>
+            {hasActiveFilters && (
+              <button onClick={clearFilters} style={{ ...s.secondaryBtn, height: '34px', fontSize: '0.8125rem' }}>Clear filters</button>
+            )}
+          </div>
+
+          {/* ── 2. Executive summary ─────────────────────────────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(6, 1fr)', gap: '12px', marginBottom: '16px' }}>
             {kpis.map(k => {
               // Only KPIs with a matching series in `trend` get a sparkline
@@ -247,17 +318,17 @@ export default function Reports() {
             })}
           </div>
 
-          {/* ── 2. Primary trend ─────────────────────────────────────────── */}
+          {/* ── 3. Primary trend ─────────────────────────────────────────── */}
           <Section title="Trend" subtitle="Leads, appointments, outcomes, and policy value over the period — click a series to hide/show it.">
             <TrendChart data={trend} isMobile={isMobile} />
           </Section>
 
-          {/* ── 3. Pipeline health ───────────────────────────────────────── */}
+          {/* ── 4. Pipeline health ───────────────────────────────────────── */}
           <Section title="Pipeline Health" subtitle="Where leads are getting stuck — conversion between adjacent stages.">
             <PipelineHealth stages={pipeline} stageConversion={stageConversion} isMobile={isMobile} />
           </Section>
 
-          {/* ── 4. Broker / Agent performance ────────────────────────────── */}
+          {/* ── 5. Broker / Agent performance ────────────────────────────── */}
           <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
             <Section title="Broker Performance">
               <DataTable
@@ -275,17 +346,17 @@ export default function Reports() {
             </Section>
           </div>
 
-          {/* ── 5. Lead Source analysis ──────────────────────────────────── */}
+          {/* ── 6. Lead Source analysis ──────────────────────────────────── */}
           <Section title="Lead Source Analysis" subtitle="Volume and outcome by where the lead came from.">
             <DataTable columns={sourceColumns} rows={sourceTable} defaultSortKey="leads" highlightKey="leads" emptyMessage="No leads this period." />
           </Section>
 
-          {/* ── 6. Portfolio performance ─────────────────────────────────── */}
+          {/* ── 7. Portfolio performance ─────────────────────────────────── */}
           <Section title="Portfolio Performance">
             <DataTable columns={portfolioColumns} rows={portfolioTable} defaultSortKey="booked" highlightKey="booked" emptyMessage="No appointments this period." />
           </Section>
 
-          {/* ── 7. Policy value ──────────────────────────────────────────── */}
+          {/* ── 8. Policy value ──────────────────────────────────────────── */}
           <Section title="Policy Value" subtitle="Real prominence, not just another KPI card.">
             {policyValueBreakdown && policyValueBreakdown.total > 0 ? (
               <>
@@ -307,7 +378,7 @@ export default function Reports() {
             )}
           </Section>
 
-          {/* ── 8. Won vs Lost ───────────────────────────────────────────── */}
+          {/* ── 9. Won vs Lost ───────────────────────────────────────────── */}
           <Section title="Won vs Lost">
             {wonVsLost && (wonVsLost.won + wonVsLost.lost) > 0 ? (
               <>
@@ -317,9 +388,27 @@ export default function Reports() {
                   <div><div style={s.kpiLabel}>Win Rate</div><div style={s.kpiValue}>{wonVsLost.winRate === null ? '—' : `${wonVsLost.winRate}%`}</div></div>
                   <div><div style={s.kpiLabel}>Avg Days (Won vs Lost)</div><div style={{ ...s.kpiValue, fontSize: '1.1rem' }}>{fmtDays(wonVsLost.avgDaysToCloseWon)} / {fmtDays(wonVsLost.avgDaysToCloseLost)}</div></div>
                 </div>
-                {!wonVsLost.hasLossReasons && (
+                {wonVsLost.hasLossReasons ? (
+                  <div style={{ marginTop: '18px' }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500, marginBottom: '8px' }}>Loss reasons</div>
+                    {(() => {
+                      const maxCount = Math.max(...wonVsLost.lossReasons.map(r => r.count), 1);
+                      return wonVsLost.lossReasons.map(r => (
+                        <div key={r.reason} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                          <span style={{ fontSize: '0.8125rem', width: isMobile ? '110px' : '160px', flexShrink: 0, color: r.reason === 'Not captured' ? colors.ink400 : colors.ink700 }}>
+                            {LOST_REASON_LABELS[r.reason] ?? r.reason}
+                          </span>
+                          <div style={{ flex: 1, height: '16px', background: colors.surfaceSubtle, borderRadius: '4px', overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.max(4, (r.count / maxCount) * 100)}%`, height: '100%', background: r.reason === 'Not captured' ? colors.ink400 : colors.danger, opacity: r.reason === 'Not captured' ? 0.5 : 0.85 }} />
+                          </div>
+                          <span style={{ fontSize: '0.8125rem', fontWeight: 600, width: '24px', textAlign: 'right' }}>{r.count}</span>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                ) : (
                   <p style={{ fontSize: '0.75rem', color: colors.ink400, marginTop: '14px', marginBottom: 0 }}>
-                    Loss reasons aren't captured anywhere in the system yet — this section shows outcome counts only. Flag if that's worth adding as its own feature.
+                    No loss reasons captured yet this period — the field exists now (marking an appointment Lost prompts for one), but none of this period's lost appointments have one recorded.
                   </p>
                 )}
               </>
@@ -328,7 +417,7 @@ export default function Reports() {
             )}
           </Section>
 
-          {/* ── 9. Appointment analysis ──────────────────────────────────── */}
+          {/* ── 10. Appointment analysis ──────────────────────────────────── */}
           <Section title="Appointment Analysis">
             {appointmentAnalysis && appointmentAnalysis.booked > 0 ? (
               <>
@@ -351,7 +440,7 @@ export default function Reports() {
             )}
           </Section>
 
-          {/* ── 10. Insights ─────────────────────────────────────────────── */}
+          {/* ── 11. Insights ─────────────────────────────────────────────── */}
           <Section title="Insights" subtitle="Generated from this period's real data only.">
             {insights.length > 0 ? (
               <ul style={{ margin: 0, paddingLeft: '18px', fontSize: '0.875rem', color: colors.ink700, lineHeight: 1.8 }}>

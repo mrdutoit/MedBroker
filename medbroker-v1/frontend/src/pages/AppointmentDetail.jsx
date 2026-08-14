@@ -61,7 +61,7 @@ const EMPTY_APPOINTMENT = {
   id: '', leadId: '', leadName: '', occupation: '', mobile: '', currentInsurer: '',
   portfolio: '', portfolios: [], source: '', productsInterested: [],
   status: '', firstDate: '', firstTime: '', address: '', brokerName: '', agentName: '',
-  brokerSwitch: false, customerSigned: null, productsSold: [],
+  brokerSwitch: false, customerSigned: null, lostReason: null, productsSold: [],
   meetings: [
     { number: 1, date: '', status: '', notes: '', required: true },
     { number: 2, date: '', status: '', notes: '', required: true },
@@ -535,6 +535,7 @@ export default function AppointmentDetail() {
       agentName:      apptData.agentName,
       brokerSwitch:   apptData.isBrokerSwitch ?? false,
       customerSigned: apptData.customerSigned,
+      lostReason:     apptData.lostReason ?? null,
       // apptData.productsSold is [{name, value}] from the API (§44) — map
       // to {product, value} to match this component's own field naming.
       productsSold:   (apptData.productsSold ?? []).map(p => ({ product: p.name, value: p.value })),
@@ -627,6 +628,16 @@ export default function AppointmentDetail() {
   }
 
   async function handleSaveOutcome() {
+    // 14 Aug 2026 (§163) — Mark's explicit request: a lost reason should
+    // actually get captured, not just be an optional field nobody fills
+    // in. Blocked client-side with a clear message rather than silently
+    // saving without one — the Zod schema itself stays optional (see
+    // models/appointment.js's own comment on why), so this is the one
+    // place that actually enforces it.
+    if (appt.customerSigned === false && !appt.lostReason) {
+      setOutcomeError('Please select a reason for the loss before saving.');
+      return;
+    }
     setSavingOutcome(true);
     setOutcomeError(null);
     try {
@@ -634,6 +645,7 @@ export default function AppointmentDetail() {
       // via computeAppointmentStatus() — it is never written directly by the client.
       const result = await appointmentsApi.saveOutcome(appt.id, {
         customerSigned: appt.customerSigned,
+        lostReason:     appt.customerSigned === false ? appt.lostReason : null,
         productsSold:   appt.productsSold,
         meetings:       appt.meetings,
       });
@@ -907,6 +919,29 @@ export default function AppointmentDetail() {
               <option value="No">No</option>
             </select>
           </div>
+          {/* 14 Aug 2026 (§163, migration 030) — Mark's explicit request.
+              Only shown once "No" is actually selected, not always-visible-
+              but-disabled — an empty required field for a Won appointment
+              would be a confusing thing to stare at. */}
+          {appt.customerSigned === false && (
+            <div>
+              <label style={s.formLabel}>Reason for loss</label>
+              <select
+                style={{ ...s.formInput, opacity: isLocked ? 0.6 : 1 }}
+                value={appt.lostReason ?? ''}
+                disabled={isLocked}
+                onChange={e => handleOutcomeChange('lostReason', e.target.value || null)}
+              >
+                <option value="">Please select</option>
+                <option value="PriceTooHigh">Price too high</option>
+                <option value="ChoseCompetitor">Chose a competitor</option>
+                <option value="NoLongerInterested">No longer interested</option>
+                <option value="Uncontactable">Uncontactable</option>
+                <option value="NotEligible">Not eligible</option>
+                <option value="Other">Other</option>
+              </select>
+            </div>
+          )}
           <div>
             <label style={s.formLabel}>Broker Switch?</label>
             <select

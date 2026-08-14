@@ -13,7 +13,7 @@ import {
   getLeadsBySourceReport, getLeadsByPortfolioReport, getAppointmentsByPortfolioReport, getAppointmentsByMeetingTypeReport,
   getClosedWonByProductReport, getDashboardData,
 } from '../services/reportService.js';
-import { ReportPeriodQuerySchema } from '../models/report.js';
+import { ReportPeriodQuerySchema, DashboardQuerySchema } from '../models/report.js';
 import { isSupervisorOnly, isAgentOnly } from '../services/userService.js';
 import { isUuid } from '../http/helpers.js';
 
@@ -77,10 +77,18 @@ export async function handleDashboard(req, res) {
     const claims = await validateToken(req);
     requireRole(claims, ALLOWED_ROLES);
 
-    const parsed = ReportPeriodQuerySchema.safeParse(req.query);
+    const parsed = DashboardQuerySchema.safeParse(req.query);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    const dashboard = await getDashboardData(parsed.data.period, parsed.data.referenceDate);
+    // 14 Aug 2026 (§163) — scope object matches handleReportBrokers'/
+    // handleReportAgents' own exact shape ({ role, userId }), same
+    // resolveScopeRole() helper. Only Supervisor triggers any actual
+    // scoping inside getDashboardData() — Admin/GlobalAdmin see org-wide
+    // regardless of what's passed here, same as every other report call.
+    const scope = { role: resolveScopeRole(claims.roles), userId: claims.oid };
+    const filters = { brokerId: parsed.data.brokerId, portfolio: parsed.data.portfolio, source: parsed.data.source };
+
+    const dashboard = await getDashboardData(parsed.data.period, parsed.data.referenceDate, scope, filters);
     return res.status(200).json(dashboard);
 
   } catch (err) {

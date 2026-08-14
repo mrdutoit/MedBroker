@@ -139,6 +139,13 @@ Appointment
   status: Unassigned | Assigned | InProgress | ClosedWon | ClosedLost |
           ReturnedToLeads | Claimed
   Child of Lead. Won/Lost outcome (customerSigned) lives here, not on Lead.
+  lostReason (§163, 14 Aug 2026, migration 030): nullable VARCHAR(50),
+  CHECK-constrained to six fixed categories (PriceTooHigh/ChoseCompetitor/
+  NoLongerInterested/Uncontactable/NotEligible/Other) — Claude's own
+  design choice, not an exhaustive taxonomy. Captured in the same
+  outcome-save flow as customerSigned = false (AppointmentDetail.jsx),
+  not a separate action; the frontend blocks saving until one's picked,
+  the Zod schema itself stays optional.
   claimModel flag switches between Admin/Supervisor-assigns-broker vs
   Broker-self-claims-from-a-queue (token economy attaches to claim mode
   specifically — see FEATURE FLAG SYSTEM). claimedByBrokerId/claimedAt/

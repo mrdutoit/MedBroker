@@ -53,7 +53,7 @@ const APPOINTMENT_SELECT = `
   a.meeting2Feedback AS "meeting2Feedback",
   a.meeting3Date AS "meeting3Date", a.meeting3Status AS "meeting3Status",
   a.meeting3Feedback AS "meeting3Feedback",
-  a.customerSigned AS "customerSigned", a.isBrokerSwitch AS "isBrokerSwitch",
+  a.customerSigned AS "customerSigned", a.isBrokerSwitch AS "isBrokerSwitch", a.lostReason AS "lostReason",
   a.claimTokenCost AS "claimTokenCost", a.claimedAt AS "claimedAt",
   a.createdAt AS "createdAt", a.updatedAt AS "updatedAt",
   l.id AS "leadId", l.title, l.firstName AS "firstName", l.lastName AS "lastName",
@@ -852,6 +852,17 @@ export async function saveOutcome(id, data) {
   if (data.customerSigned !== undefined) {
     setClauses.push('customerSigned = @customerSigned');
     params.customerSigned = { type: sql.Bit, value: data.customerSigned };
+  }
+
+  // 14 Aug 2026 (§163, migration 030) — same "only touch it if the
+  // client actually sent it" pattern as customerSigned immediately
+  // above. Not gated on newStatus === 'ClosedLost' specifically — the
+  // frontend only ever sends a value here when marking Lost (see
+  // AppointmentDetail.jsx), so trusting what's sent rather than
+  // re-deriving the gate server-side keeps this in one place, not two.
+  if (data.lostReason !== undefined) {
+    setClauses.push('lostReason = @lostReason');
+    params.lostReason = { type: sql.NVarChar(50), value: data.lostReason };
   }
 
   for (const meeting of data.meetings ?? []) {

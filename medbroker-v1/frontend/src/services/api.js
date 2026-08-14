@@ -492,6 +492,14 @@ export const reportsApi = {
   appointmentsByPortfolio:    (period, referenceDate) => request(`/reports/appointments-by-portfolio?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
   appointmentsByMeetingType:  (period, referenceDate) => request(`/reports/appointments-by-meeting-type?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
   closedWonByProduct:         (period, referenceDate) => request(`/reports/closed-won-by-product?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
-  // §156/§162 (14 Aug 2026) — Reports page rebuild.
-  dashboard:                  (period, referenceDate) => request(`/reports/dashboard?period=${period}${referenceDate ? `&referenceDate=${referenceDate}` : ''}`),
+  // §156/§162 (14 Aug 2026) — Reports page rebuild. filters extended
+  // 14 Aug 2026 (§163): { brokerId, portfolio, source }, all optional.
+  dashboard: (period, referenceDate, filters = {}) => {
+    const params = new URLSearchParams({ period });
+    if (referenceDate) params.set('referenceDate', referenceDate);
+    if (filters.brokerId)  params.set('brokerId', filters.brokerId);
+    if (filters.portfolio) params.set('portfolio', filters.portfolio);
+    if (filters.source)    params.set('source', filters.source);
+    return request(`/reports/dashboard?${params.toString()}`);
+  },
 };

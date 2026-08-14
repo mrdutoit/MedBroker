@@ -141,6 +141,14 @@ export const SaveOutcomeSchema = z.object({
   customerSigned: z.boolean().optional().nullable(),
   productsSold:   z.array(ProductSoldInputSchema).optional(),
   meetings:       z.array(MeetingInputSchema).optional(),
+  // 14 Aug 2026 (§163, migration 030) — mirrors the CHECK constraint on
+  // Appointment.lostReason exactly. Optional at the schema level (the
+  // outcome endpoint is reused for every save, including ones that never
+  // touch customerSigned at all) — not required-when-false at the Zod
+  // layer, since the frontend is what actually enforces "pick a reason
+  // before you can mark this Lost", matching how meetings/customerSigned
+  // are handled the same way elsewhere in this same schema.
+  lostReason: z.enum(['PriceTooHigh', 'ChoseCompetitor', 'NoLongerInterested', 'Uncontactable', 'NotEligible', 'Other']).optional().nullable(),
 });
 
 export const AppointmentListQuerySchema = z.object({

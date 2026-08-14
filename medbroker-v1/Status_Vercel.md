@@ -12808,3 +12808,127 @@ FILES (frontend rebuild only — combine with the backend checkpoint's
 file list above for the complete delivery): frontend/src/components/
 ReportsWidgets.jsx (new), frontend/src/pages/Reports.jsx,
 frontend/src/services/api.js.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+163. THREE PREVIOUSLY-FLAGGED GAPS — TWO BUILT, ONE DELIBERATELY DECLINED WITH REASONS — 14 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's instruction: "Please build the 3 things you flagged now" (toolbar
+filters, loss reasons + cancelled/missed, Supervisor scoping), then
+"Continue" twice more through natural checkpoints. Two built in full;
+the third (cancelled/missed specifically) declined with a documented
+architectural reason, not silently dropped.
+
+TOOLBAR FILTERS (broker/portfolio/source) — BUILT. This turned out to
+require the same underlying mechanism as Supervisor scoping (both are
+"add an optional WHERE-clause constraint to nearly every query"), so
+built together. Two shared filter-clause builders added to
+reportService.js — leadFilterSql() (Lead-level: portfolio via
+LeadPortfolio, source via the origin CASE, Supervisor scope via
+assignedAgentId; deliberately NO brokerId support — a Lead has no broker
+until an Appointment exists) and apptFilterSql() (Appointment-level: all
+four, brokerId via a.brokerId, scope via a.agentId). Threaded through
+KPI totals, the trend loop, pipeline health, the Lead Source table, the
+Portfolio table, and the meeting-type table — every section of the
+dashboard now actually respects the toolbar, not just the top-line KPIs.
+
+REAL EDGE CASE FOUND AND HANDLED, not glossed over: a lead that closed
+via call outcome WITHOUT ever reaching an appointment (the "no-appointment
+Closed" pipeline path) structurally cannot have a broker — when brokerId
+filter is active, that path is now excluded entirely rather than
+included unfiltered, which would have been a silent correctness bug (a
+broker filter that still counted deals that broker never touched).
+
+REVERSES THE EARLIER §162 REUSE DECISION for three functions
+(getReportSummary, getLeadsBySourceReport, getAppointmentsByPortfolioReport,
+getAppointmentsByMeetingTypeReport) — none accept a filter/scope
+parameter, and adding one would change behaviour for their own
+standalone /api/reports/* routes too. Filtered/scoped equivalents
+inlined directly in getDashboardData() instead — some SQL is genuinely
+duplicated as a result. A considered trade-off, documented in the
+function's own doc comment, not an oversight of the earlier principle.
+
+SUPERVISOR SCOPING — BUILT, same mechanism as above. getDashboardData()
+now takes a `scope` parameter; reportIds resolved once via
+getDirectReportIds() (existing helper, not new), then passed through
+every query the same way filters are. Broker Performance DELIBERATELY
+stays org-wide for Supervisor — matches getBrokerReport's own existing,
+long-standing behaviour (confirmed by reading that function directly
+before deciding, not assumed) rather than inventing a new, inconsistent
+rule for just this one table.
+
+LOSS REASONS — BUILT. Migration 030: Appointment.lostReason, VARCHAR(50),
+CHECK-constrained to six categories (PriceTooHigh/ChoseCompetitor/
+NoLongerInterested/Uncontactable/NotEligible/Other) — Claude's own design
+choice, not dictated by Mark, flagged as easy to adjust if these don't
+match how the business actually talks about lost deals. Full path, not
+just a report field:
+  - models/appointment.js: SaveOutcomeSchema gained a matching enum,
+    optional at the Zod layer (mirrors how customerSigned itself is
+    handled — the frontend is what actually enforces "required when
+    marking Lost", not the schema).
+  - appointmentService.js: saveOutcome() persists it, same "only touch
+    if the client actually sent it" pattern as customerSigned.
+  - AppointmentDetail.jsx: a "Reason for loss" dropdown appears ONLY
+    once "No" is actually selected for Customer Signed (not always-
+    visible-but-disabled), and Save Outcome is now blocked client-side
+    with a clear message until a reason is picked — Mark asked for this
+    to actually get captured, not just be theoretically possible.
+  - reportService.js: Won vs Lost's wonVsLost.lossReasons is a real
+    ranked breakdown now. hasLossReasons is TRUE only when at least one
+    closed-lost appointment THIS PERIOD actually has a reason captured —
+    a schema that exists but is 0%-populated (every lost appointment
+    closed before this feature shipped) still shows the honest "not
+    captured yet" state, not a technically-true-but-empty table.
+  - Reports.jsx: renders the actual breakdown (a ranked inline-bar list,
+    consistent with the rest of the page's visual language) when
+    hasLossReasons is true, the honest not-yet-populated note otherwise.
+
+CANCELLED/MISSED TRACKING — DELIBERATELY NOT BUILT, even though asked
+for alongside the other two. Real reason, not a soft deferral: it
+directly conflicts with §138 (Meeting/Appointment attempt-history
+redesign — still the TOP PRIORITY queued item, fully specced, zero code
+written), which will define exactly where a "missed" or "cancelled"
+concept belongs — a new Appointment.status value, a meeting-attempt-
+level status (that redesign already has "Held – Not Interested" and
+"Rescheduled" at that level, which "missed" arguably overlaps with more
+than it overlaps with anything at the Appointment level), or something
+else entirely. Building a quick ad-hoc status or column now risked
+either throwaway work once §138 actually gets built, or making §138's
+build HARDER by handing it a second status model to reconcile with.
+Flagged in Reports.jsx's own header comment and here, not silently
+dropped from the response.
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 55/55 passing,
+`node --check` clean on all six touched backend files. Manually
+re-read the entire ~300-line getDashboardData() rewrite end-to-end
+specifically checking for a variable-name typo (leadF2 vs leadF3 etc.)
+that neither node --check nor an import smoke test could catch without
+live execution — none found. Functionally tested the filter-clause
+builders directly against concrete cases (empty filters, broker-only —
+confirmed correctly ignored at Lead level, all-three-combined, and
+confirmed merged params are safe when leadF/apptF combine in one query).
+Functionally tested the new Zod validation: a valid lostReason accepted,
+an invalid one rejected, DashboardQuerySchema's three new optional
+filters all round-trip correctly and an invalid brokerId UUID is
+rejected. ESM import smoke test on reportHandlers.js and
+appointmentService.js — both resolved every new import (getDirectReportIds,
+DashboardQuerySchema, etc.) correctly before hitting the expected,
+unrelated missing-DATABASE_URL failure. Diffed all nine touched files
+plus the new migration against a fresh GitHub hydration, plus a full-
+repo scan beyond the touched-file list — confirmed isolated, nothing
+else drifted, and confirmed §158/§159/§160 are all still sitting
+unapplied exactly where they were.
+
+NOT YET DEPLOYED. Migration 030 needs to run against Neon before Won vs
+Lost's loss-reason capture means anything in production — same standing
+rule as every migration. Everything else in this entry needs no schema
+change beyond that one column.
+
+FILES: frontend/db/migrations/030_appointment_lost_reason.sql (new),
+frontend/db/schema.postgres.sql, frontend/api-lib/services/reportService.js,
+frontend/api-lib/handlers/reportHandlers.js, frontend/api-lib/models/report.js,
+frontend/api-lib/models/appointment.js, frontend/api-lib/services/appointmentService.js,
+frontend/src/services/api.js, frontend/src/pages/Reports.jsx,
+frontend/src/pages/AppointmentDetail.jsx.

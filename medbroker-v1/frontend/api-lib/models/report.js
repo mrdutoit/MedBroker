@@ -18,3 +18,15 @@ export const ReportPeriodQuerySchema = z.object({
     .transform(v => (v ? new Date(v) : undefined))
     .refine(d => d === undefined || !Number.isNaN(d.getTime()), { message: 'referenceDate is not a valid date' }),
 });
+
+// 14 Aug 2026 (§163) — GET /api/reports/dashboard only; a separate schema
+// rather than adding these three fields to ReportPeriodQuerySchema itself,
+// since every other report endpoint shares that schema and has no use for
+// them. portfolio/source are plain strings (names, not IDs — matches
+// AppointmentListQuerySchema's own existing convention for the same two
+// concepts); brokerId is a UUID, same convention as that schema's brokerId.
+export const DashboardQuerySchema = ReportPeriodQuerySchema.extend({
+  brokerId:  z.string().uuid().optional(),
+  portfolio: z.string().max(200).optional(),
+  source:    z.string().max(50).optional(),
+});
