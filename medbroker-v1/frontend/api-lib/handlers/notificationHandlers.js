@@ -11,7 +11,7 @@
 
 import { validateToken, authErrorResponse } from '../middleware/auth.js';
 import { listNotificationsForUser, getNotificationById, markNotificationRead, markAllNotificationsRead, deleteNotification, deleteAllReadNotifications, cleanupOldReadNotifications } from '../services/notificationService.js';
-import { sendAppointmentReminders, sendCallbackReminders, autoReturnStaleLeads, sendTaskDueReminders } from '../services/schedulerService.js';
+import { sendAppointmentReminders, sendCallbackReminders, autoReturnStaleLeads, sendTaskDueReminders, sendUnassignedAppointmentWarnings } from '../services/schedulerService.js';
 import { UpdateNotificationSchema } from '../models/notification.js';
 import { isUuid } from '../http/helpers.js';
 
@@ -39,15 +39,16 @@ export async function handleScheduledTick(req, res) {
   }
 
   try {
-    const [appointmentReminders, callbackReminders, leadsAutoReturned, taskDueReminders, notificationsCleanedUp] = await Promise.all([
+    const [appointmentReminders, callbackReminders, leadsAutoReturned, taskDueReminders, unassignedAppointmentWarnings, notificationsCleanedUp] = await Promise.all([
       sendAppointmentReminders(),
       sendCallbackReminders(),
       autoReturnStaleLeads(),
       sendTaskDueReminders(),
+      sendUnassignedAppointmentWarnings(),
       cleanupOldReadNotifications(),
     ]);
 
-    return res.status(200).json({ appointmentReminders, callbackReminders, leadsAutoReturned, taskDueReminders, notificationsCleanedUp });
+    return res.status(200).json({ appointmentReminders, callbackReminders, leadsAutoReturned, taskDueReminders, unassignedAppointmentWarnings, notificationsCleanedUp });
 
   } catch (err) {
     console.error('notifications/scheduled-tick error:', err);

@@ -25,6 +25,11 @@ export const UpdateSystemConfigSchema = z.object({
   // editable in the UI when claimModel = 'claim', but the schema itself
   // doesn't need to know that — same pattern as every other field here.
   defaultClaimTokenCost:          z.number().int().min(0).max(100).optional(),
+  // 14 Aug 2026 (§160) — how many days before an Appointment's own date
+  // the "still Unassigned" warning fires. 0 would mean same-day only;
+  // not disabled the way passwordRotationDays' 0 means "off" — there's
+  // no "off" state for this one, it's a scan cadence, not a toggle.
+  appointmentUnassignedWarningDays: z.number().int().min(0).max(30).optional(),
   // 0 = disabled for either. Frontend presents 30/60/90/180 + custom for
   // rotation, 3/5/10 + custom for lockout — this schema just bounds sane values.
   passwordRotationDays:           z.number().int().min(0).max(3650).optional(),

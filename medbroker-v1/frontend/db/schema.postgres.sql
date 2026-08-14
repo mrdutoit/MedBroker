@@ -55,6 +55,12 @@ CREATE TABLE IF NOT EXISTS SystemConfig (
     -- the snapshot approach is deliberate here: a broker eyeing the queue
     -- should see a stable price, not one that moves under them).
     defaultClaimTokenCost           INT             NOT NULL DEFAULT 1,
+    -- 14 Aug 2026 (§160, migration 029) — how many days before an
+    -- Appointment's own firstAppointmentDate the "still Unassigned"
+    -- warning (schedulerService.sendUnassignedAppointmentWarnings())
+    -- fires. Default 2 — enough runway to actually act on it, not just
+    -- a same-day notice.
+    appointmentUnassignedWarningDays INT            NOT NULL DEFAULT 2,
     -- v2.5 — local auth password policy. Admin-configurable (preset dropdown
     -- 30/60/90/180 + custom in the UI); 0 means "off" for either setting.
     passwordRotationDays            INT             NOT NULL DEFAULT 90,

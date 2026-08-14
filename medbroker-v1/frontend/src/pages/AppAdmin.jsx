@@ -233,6 +233,8 @@ export default function AppAdmin() {
   const [monthlyTokens,      setMonthlyTokens]      = useState(10);
   const [claimTokenCost,     setClaimTokenCost]      = useState(1); // §140c, 12 Aug 2026
   const [autoReturnMonths,   setAutoReturnMonths]    = useState(6);
+  // 14 Aug 2026 (§160) — outstanding item 2.
+  const [unassignedWarningDays, setUnassignedWarningDays] = useState(2);
   const [maxCallAttempts,    setMaxCallAttempts]     = useState(3);
   const [rotationPreset,     setRotationPreset]      = useState('90');
   const [rotationCustom,     setRotationCustom]      = useState(90);
@@ -561,6 +563,7 @@ export default function AppAdmin() {
     setMonthlyTokens(config.brokerFreeAppointmentsPerMonth ?? 10);
     setClaimTokenCost(config.defaultClaimTokenCost ?? 1);
     setAutoReturnMonths(config.leadAutoUnassignMonths ?? 6);
+    setUnassignedWarningDays(config.appointmentUnassignedWarningDays ?? 2);
     setMaxCallAttempts(config.maxCallAttempts ?? 3);
     const days = config.passwordRotationDays ?? 90;
     if ([0, 30, 60, 90, 180].includes(days)) { setRotationPreset(String(days)); }
@@ -577,6 +580,7 @@ export default function AppAdmin() {
         brokerFreeAppointmentsPerMonth: monthlyTokens,
         defaultClaimTokenCost:          claimTokenCost,
         leadAutoUnassignMonths:         autoReturnMonths,
+        appointmentUnassignedWarningDays: unassignedWarningDays,
         maxCallAttempts,
         passwordRotationDays:    rotationPreset === 'custom' ? rotationCustom : Number(rotationPreset),
         passwordLockoutAttempts: lockoutAttempts,
@@ -996,6 +1000,44 @@ export default function AppAdmin() {
               </div>
             </div>
           )}
+
+          {/* 14 Aug 2026 (§160) — outstanding item 2. Ungated by any
+              feature flag, unlike Lead Auto-Return just above — this is
+              a pure notification (like AppointmentReminder/
+              CallbackReminder/TaskDueReminder, none of which are
+              flag-gated either), not a job that mutates data the way
+              auto-return does; leads.autoUnassign.enabled specifically
+              controls that mutation, not the notification family this
+              belongs to. */}
+          <div style={s.card}>
+            <div style={s.cardTitle}>Unassigned Appointment Warning</div>
+            <div style={{ ...s.noticeInfo, marginBottom: '14px', fontSize: '0.8125rem' }}>
+              An appointment (claim model or assign model) still has no broker attached
+              this many days before its own date triggers a warning — to whoever currently
+              holds the Assign-broker task if one exists, otherwise to a Supervisor covering
+              that region. Runs as part of the same daily scheduled job as the other reminders.
+            </div>
+            <div style={s.formGroup}>
+              <label style={s.formLabel}>
+                Warn
+                <span style={{ marginLeft: '8px', fontSize: '0.75rem', color:'var(--mut)', fontWeight: 400 }}>
+                  (stored in SystemConfig.appointmentUnassignedWarningDays)
+                </span>
+              </label>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <input
+                  type="number" min={0} max={30}
+                  value={unassignedWarningDays}
+                  onChange={e => setUnassignedWarningDays(Math.max(0, Math.min(30, parseInt(e.target.value) || 0)))}
+                  style={{ ...s.formInput, width: '100px' }}
+                />
+                <span style={{ fontSize: '0.875rem', color:'var(--mut)' }}>days before the appointment, if still unassigned</span>
+              </div>
+              <div style={s.formHint}>
+                Default: 2 days. Fires once per appointment (the exact day this many days out), not repeatedly.
+              </div>
+            </div>
+          </div>
 
           <div style={s.card}>
             <div style={s.cardTitle}>Agent Call Settings</div>

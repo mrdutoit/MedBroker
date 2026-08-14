@@ -15,6 +15,7 @@ const SELECT_COLUMNS = `
   qrTokenExpiryHours AS "qrTokenExpiryHours",
   brokerFreeAppointmentsPerMonth AS "brokerFreeAppointmentsPerMonth",
   defaultClaimTokenCost AS "defaultClaimTokenCost",
+  appointmentUnassignedWarningDays AS "appointmentUnassignedWarningDays",
   passwordRotationDays AS "passwordRotationDays",
   passwordLockoutAttempts AS "passwordLockoutAttempts",
   passwordPreventReuse AS "passwordPreventReuse",
@@ -34,7 +35,8 @@ export async function getSystemConfig() {
 export async function updateSystemConfig(fields) {
   const allowed = [
     'maxCallAttempts', 'leadAutoUnassignMonths', 'qrTokenExpiryHours',
-    'brokerFreeAppointmentsPerMonth', 'defaultClaimTokenCost', 'passwordRotationDays', 'passwordLockoutAttempts',
+    'brokerFreeAppointmentsPerMonth', 'defaultClaimTokenCost', 'appointmentUnassignedWarningDays',
+    'passwordRotationDays', 'passwordLockoutAttempts',
     'passwordPreventReuse',
   ];
   const setClauses = [];

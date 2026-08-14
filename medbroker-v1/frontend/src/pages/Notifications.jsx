@@ -44,6 +44,8 @@ const TYPE_ICON = {
   RescheduleReminder:   '📋',
   TaskAssigned:         '✅',
   TaskDueReminder:      '⏳',
+  // 14 Aug 2026 (§160) — outstanding item 2.
+  AppointmentUnassignedWarning: '⚠️',
 };
 
 export default function Notifications() {

@@ -475,7 +475,11 @@ const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep
  * DATE-only column, and a DATE shouldn't shift by a day depending on the
  * server process's local timezone.
  */
-function shortDateLabel(dateValue) {
+// Exported 14 Aug 2026 (§160) — schedulerService.js's new
+// sendUnassignedAppointmentWarnings() reuses this for the same
+// "3 Aug" date-label formatting AppointmentAssigned's own notification
+// body already uses, rather than a second, possibly-inconsistent scheme.
+export function shortDateLabel(dateValue) {
   if (!dateValue) return null;
   const d = dateValue instanceof Date ? dateValue : new Date(dateValue);
   if (isNaN(d.getTime())) return null;

@@ -144,9 +144,9 @@ this file directly rather than assumed from memory
    §151 breakdown-report Conversion columns), same reasoning §154 used
    for Agent booking rate. Full detail in §158.
 
-2. Unclaimed/unassigned appointments nearing their date — STILL OPEN.
-   Asked Mark directly whether to scope this properly this pass or leave
-   it queued; no answer yet as of this entry. Not touched.
+2. Unclaimed/unassigned appointments nearing their date — FIXED 14 Aug
+   2026 (§160), NOT YET APPLIED TO THE LIVE REPO. Mark's answer: "yes,
+   please scope and build." Full detail in §160.
 
 3. Products on Lead — FIXED 14 Aug 2026 (§159), NOT YET APPLIED TO THE
    LIVE REPO. Mark's decision: "Mandatory, manual form only." Full
@@ -169,16 +169,25 @@ this file directly rather than assumed from memory
    migration, including 022/023, has been run against Neon (§157).
    Closed.
 
-7. Session-isolation footgun retest — discovered session 20 (§138's
-   own "SESSION-ISOLATION FOOTGUN" entry has the full detail):
-   sessionStorage is per-tab, the mb_session cookie is not, so multiple
-   tabs/InPrivate windows in one browser can silently share one auth
-   session. This throws real doubt on whether logCallAttempt() actually
-   needs to route Callback tasks to lead.assignedAgentId rather than
-   the caller (claims.oid) — the routing was deliberately left
-   unchanged pending a clean retest (single window, single fresh
-   login, nothing else open) that Mark has not yet done as of the end
-   of session 21.
+7. Session-isolation footgun retest — RESOLVED 14 Aug 2026. Mark
+   confirmed directly: testing with a single clean browser window (no
+   other tabs/logins open) genuinely changed the system's observed
+   behaviour, confirming the session-isolation footgun — not a code
+   defect — was the real explanation for the earlier "wrong routing"
+   observation this item was tracking. logCallAttempt() stays exactly as
+   it is: routes Callback tasks to the caller (claims.oid), NOT
+   lead.assignedAgentId. No code change made or needed. Mark also asked
+   directly whether this is a MedBroker-specific vulnerability — answered
+   in chat, not logged as a code change: it's universal cookie-jar
+   behaviour (browser-scoped, not tab-scoped, per how HTTP cookies work
+   at the protocol level), not a security hole — nobody who shouldn't
+   have access gets it, since every login in every tab was performed by
+   the same person. The specific confusing SYMPTOM (a tab's UI looking
+   stale) is a genuine, deliberate trade-off from §113's move to an
+   httpOnly cookie as the real auth boundary (AuthContext's sessionStorage
+   cache is genuinely per-tab, unlike the cookie) — chosen specifically
+   to close off XSS-based token theft, appropriate for a system handling
+   ID numbers and medical detail. Closed.
 
 8. Vercel Pro upgrade — still an open business decision, required
    before commercial launch (higher function-count ceiling, Vercel's
@@ -12396,3 +12405,132 @@ FILES: frontend/db/migrations/028_lead_product.sql (new),
 frontend/db/schema.postgres.sql, frontend/api-lib/services/userService.js,
 frontend/api-lib/services/leadService.js, frontend/api-lib/models/lead.js,
 frontend/src/pages/LeadImport.jsx, frontend/src/pages/LeadDetail.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+160. UNASSIGNED APPOINTMENT WARNING — BUILT AND VERIFIED, NOT YET DEPLOYED — 14 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Closes outstanding item 2. Mark's answer when asked whether to scope
+this properly this pass or leave it queued: "yes, please scope and
+build" — full scoping authority delegated, no further design questions
+put back to him. Design decisions below are Claude's, not Mark's, and
+flagged as such.
+
+PROBLEM (as originally logged): nothing surfaced a claim-model or
+assign-model appointment as it approached its own date with no broker
+attached yet.
+
+INVESTIGATION BEFORE DESIGNING — read the actual code rather than
+assume:
+  - Confirmed directly (listAvailableToClaim(), appointmentService.js):
+    claim model's "Available to Claim" pool IS status = 'Unassigned' —
+    the same status assign model also uses before a broker is picked.
+    One query covers both models; no need to branch on the claimModel
+    flag at all.
+  - Confirmed directly (§140's own code, createAppointment()): assign
+    model creates an "Assign broker" Task at booking time, dueAt =
+    firstAppointmentDate — so assign-model appointments already get a
+    same-day TaskDueReminder if still incomplete on the day itself.
+    Claim model deliberately creates NO Task at all (§140's own
+    reasoning: the Supervisor action it would prompt is blocked in claim
+    mode). This means the real gap was asymmetric — claim model had
+    NOTHING, ever; assign model had a same-day-only nudge with no
+    earlier warning and nothing that escalates further if it lapses.
+
+DESIGN (Claude's calls, not asked of Mark, logged here for visibility):
+  - A genuinely new, EARLIER warning — fires N days before the
+    appointment date (not just same-day), applying uniformly to both
+    models via the shared 'Unassigned' status, closing the actual gap
+    described above rather than just duplicating the existing same-day
+    TaskDueReminder.
+  - N is admin-configurable: new SystemConfig.appointmentUnassignedWarningDays
+    (default 2), mirrors leadAutoUnassignMonths's existing pattern
+    exactly (same SELECT_COLUMNS/allow-list/Zod/AppAdmin.jsx shape).
+    Chosen over a hardcoded constant because this is genuinely the same
+    category of "how proactive should an automated warning be" business
+    policy leadAutoUnassignMonths already treats as configurable, not a
+    one-off exception.
+  - Deliberately NOT gated behind a new feature flag. Of the four
+    existing daily-scan checks (schedulerService.js), only
+    autoReturnStaleLeads() is flag-gated (leads.autoUnassign.enabled) —
+    because it MUTATES data (unassigns a lead). AppointmentReminder/
+    CallbackReminder/TaskDueReminder are pure notifications and none of
+    them are flag-gated. This new check is also a pure notification, so
+    it follows that majority pattern rather than the one mutating
+    exception — a considered choice, not an oversight.
+  - Recipient routing deliberately reuses existing logic rather than
+    re-deriving it: LEFT JOINs the open Assign-broker Task (if one
+    exists — assign model) and notifies whoever CURRENTLY holds it
+    (respects a manual reassignment since the task was created, unlike
+    re-computing the region lookup fresh, which could name a different
+    person). Only when no such Task exists (claim model, where §140
+    never creates one) does it fall back to the exact same
+    findLeastLoadedSupervisorForRegion(...) ?? the agent themselves
+    chain appointmentService.createAppointment() already uses for the
+    Assign-broker Task itself — same "never orphan" pattern, not a new
+    one invented for this feature.
+
+BUILT:
+  - Migration 029 (SystemConfig.appointmentUnassignedWarningDays, INT
+    DEFAULT 2) + schema.postgres.sql updated to match.
+  - systemConfigService.js: new column added to SELECT_COLUMNS and the
+    updateSystemConfig() allow-list.
+  - models/auth.js: UpdateSystemConfigSchema gained the matching
+    optional int field (0-30 bound — 0 isn't an "off" state the way
+    passwordRotationDays' 0 is, it's a same-day-only cadence; there's no
+    "disabled" state for this check).
+  - schedulerService.js: new sendUnassignedAppointmentWarnings(), same
+    shape/idempotency style as the file's other three checks (exact-date
+    match against firstAppointmentDate, not a range, so it only ever
+    fires once per appointment). New Notification type,
+    'AppointmentUnassignedWarning'.
+  - appointmentService.js: shortDateLabel() (previously module-private)
+    exported so the new check reuses the exact same "3 Aug"-style
+    date-label formatting AppointmentAssigned's own notification body
+    already uses, rather than introducing a second, possibly-inconsistent
+    scheme. No circular import — checked directly (schedulerService.js
+    imports FROM appointmentService.js; nothing in appointmentService.js
+    imports schedulerService.js).
+  - notificationHandlers.js: wired into handleScheduledTick()'s daily
+    Promise.all batch and JSON response, alongside the four existing
+    checks.
+  - Notifications.jsx: icon added for the new type (⚠️).
+  - AppAdmin.jsx: new "Unassigned Appointment Warning" settings card,
+    same state/sync/save/UI shape as the existing "Lead Auto-Return"
+    card immediately above it, ungated by any flag (see DESIGN above).
+    CAUGHT AND FIXED OWN MISTAKE: first attempt at inserting this card
+    left two stray closing tags (a leftover </div> and )}) from
+    misreading the surrounding JSX structure — caught immediately by
+    rebuilding right after the edit rather than assuming it was correct;
+    fixed before it went anywhere near a delivery.
+
+VERIFIED: `npm run build` clean (confirmed clean specifically AFTER the
+JSX mistake above was fixed, not just before it was introduced), `npx
+vitest run` — 55/55 passing, `node --check` on all five touched backend
+files. ESM import smoke test on schedulerService.js and
+notificationHandlers.js — both failed only on the expected, unrelated
+missing-DATABASE_URL error (this sandbox has no live DB access, ever);
+confirmed via the full stack trace that the failure originates in
+config.js's env-var check, not an import-resolution error, meaning
+every named import across the full dependency chain (schedulerService.js
+-> userService.js/appointmentService.js/notificationService.js/
+taskService.js/flagService.js/systemConfigService.js -> db.js ->
+config.js) linked successfully before that expected failure point.
+Diffed all nine touched files (eight edits + migration 029) against a
+fresh GitHub hydration, plus a full-repo diff scan beyond the
+touched-file list — confirmed isolated, correctly cumulative with
+§158/§159 above, nothing else drifted, and confirmed neither §158's nor
+§159's changes have been applied to the live repo yet either (expected —
+Mark hadn't said so as of this entry).
+
+NOT YET DEPLOYED. Migration 029 needs to run against Neon before this
+feature means anything in production — same standing rule as every
+other migration in this project.
+
+FILES: frontend/db/migrations/029_appointment_unassigned_warning.sql
+(new), frontend/db/schema.postgres.sql, frontend/api-lib/services/
+systemConfigService.js, frontend/api-lib/models/auth.js, frontend/
+api-lib/services/schedulerService.js, frontend/api-lib/services/
+appointmentService.js, frontend/api-lib/handlers/notificationHandlers.js,
+frontend/src/pages/Notifications.jsx, frontend/src/pages/AppAdmin.jsx.

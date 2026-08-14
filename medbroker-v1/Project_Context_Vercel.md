@@ -169,10 +169,17 @@ TaskComment (§71)
 
 Notification
   type: LeadAssigned | AppointmentAssigned | AppointmentReminder |
-        CallbackReminder | LeadAutoReturned — all five now wired to real
-        triggers (§61 for the first two, action-driven; §68 for the
-        last three, a daily Vercel Cron scan — needs CRON_SECRET set in
-        Vercel's env vars to actually fire, see Status_Vercel.md §68)
+        CallbackReminder | LeadAutoReturned | TaskAssigned |
+        TaskDueReminder | AppointmentUnassignedWarning — eight now (this
+        line was stale before 14 Aug 2026, §160 — missed TaskAssigned/
+        TaskDueReminder, added §98, 3 Aug 2026; corrected here alongside
+        adding the newest one rather than compounding the gap). First
+        two/action-driven ones wired §61; TaskAssigned §98;
+        AppointmentReminder/CallbackReminder/LeadAutoReturned/
+        TaskDueReminder/AppointmentUnassignedWarning all run off the
+        same daily Vercel Cron scan (schedulerService.js) — needs
+        CRON_SECRET set in Vercel's env vars to actually fire, see
+        Status_Vercel.md §68.
   Always self-scoped — recipientId = the viewer, full stop, no
   cross-user visibility the way Task's admin/supervisor scoping has.
 
@@ -936,6 +943,23 @@ Mixed-basis conversion metrics — ratio, not '%', wherever the shape is
   columns 14 Aug 2026 (§158) — Mark's standing instruction going
   forward: this shape should read as a ratio, not a percentage, anywhere
   it appears; don't reintroduce a '%'-formatted version of it.
+
+Unassigned Appointment Warning — built 14 Aug 2026 (§160, migration
+  029), Claude's design (Mark delegated full scoping authority: "yes,
+  please scope and build"). Fires N days (SystemConfig.
+  appointmentUnassignedWarningDays, default 2, admin-configurable) before
+  an Appointment's own date if it's still status = 'Unassigned' — the
+  same status both claim and assign model leave a broker-less
+  appointment at, so one check covers both with no claimModel branching.
+  Deliberately NOT feature-flag-gated, unlike leads.autoUnassign.enabled
+  — this is a pure notification (matching AppointmentReminder/
+  CallbackReminder/TaskDueReminder, none of which are flag-gated
+  either), not a job that mutates data. Recipient routing pattern worth
+  reusing elsewhere if a similar need comes up: LEFT JOIN the relevant
+  open Task (if one exists) and notify whoever currently holds it
+  (respects manual reassignment since creation) rather than
+  re-deriving a routing decision from scratch; only fall back to a
+  fresh region-based lookup when no such Task exists at all.
 
 Task generation — REDESIGNED 12 Aug 2026 (session 20 design, session 21
   build — see Status_Vercel.md §138 for the full history). Core test,

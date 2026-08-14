@@ -26,6 +26,8 @@ import { createNotification } from './notificationService.js';
 import { deleteTasksForEntity } from './taskService.js';
 import { getFlagMeta } from './flagService.js';
 import { getSystemConfig } from './systemConfigService.js';
+import { findLeastLoadedSupervisorForRegion } from './userService.js';
+import { shortDateLabel } from './appointmentService.js';
 
 /**
  * "AppointmentReminder" — every Appointment happening today, still
@@ -61,6 +63,88 @@ export async function sendAppointmentReminders() {
     });
   }
   return rows.length;
+}
+
+/**
+ * "AppointmentUnassignedWarning" — 14 Aug 2026 (§160), outstanding item
+ * 2: nothing previously surfaced a claim-model or assign-model
+ * appointment as it approaches its own date with no broker attached
+ * yet. Fires exactly SystemConfig.appointmentUnassignedWarningDays
+ * before firstAppointmentDate, for any Appointment still status =
+ * 'Unassigned' at that point — the same status value both models leave
+ * a broker-less appointment at (claim mode's "Available to Claim" pool
+ * is literally status = 'Unassigned', confirmed directly against
+ * listAvailableToClaim(); assign mode starts there too, before a
+ * Supervisor/Admin picks a broker), so one query covers both, no need
+ * to branch on the claimModel flag at all.
+ *
+ * Recipient logic deliberately doesn't re-derive routing from scratch:
+ * LEFT JOINs the open Assign-broker Task (type='Appointment',
+ * entityType='Appointment') already created at booking time in assign
+ * mode (appointmentService.createAppointment) — if one exists, notifies
+ * whoever CURRENTLY holds it (its assignedToId), which correctly
+ * reflects a manual reassignment since creation rather than
+ * re-computing a possibly-different answer via the region lookup. Only
+ * when no such Task exists (claim mode, where §140 deliberately never
+ * creates one — the appointment's own visibility in the claim pool was
+ * judged the mechanism, but nothing escalates it as the date nears,
+ * which is exactly the gap this closes) does it fall back to the same
+ * findLeastLoadedSupervisorForRegion(...) ?? the agent themselves
+ * routing appointmentService.createAppointment() already uses for the
+ * Assign-broker Task itself — same "never orphan" pattern, not a new one.
+ *
+ * Naturally idempotent like every other check in this file — matches
+ * firstAppointmentDate to an EXACT date (today + N days), not a range,
+ * so it only fires once per appointment, on the one day that's true.
+ * @returns {Promise<number>} how many warnings were sent
+ */
+export async function sendUnassignedAppointmentWarnings() {
+  const organisationId = resolveOrganisationId();
+  const sysConfig = await getSystemConfig();
+  const days = sysConfig?.appointmentUnassignedWarningDays ?? 2;
+
+  const rows = await executeQuery(
+    `SELECT a.id, a.firstAppointmentDate AS "firstAppointmentDate",
+            ag.region AS "agentRegion", ag.id AS "agentId",
+            l.title, l.firstName AS "firstName", l.lastName AS "lastName",
+            t.assignedToId AS "taskAssigneeId"
+     FROM Appointment a
+     JOIN Lead l ON l.id = a.leadId
+     JOIN "User" ag ON ag.id = a.agentId
+     LEFT JOIN Task t ON t.entityType = 'Appointment' AND t.entityId = a.id
+       AND t.type = 'Appointment' AND t.isComplete = FALSE
+     WHERE a.status = 'Unassigned' AND a.organisationId = @organisationId
+       AND a.firstAppointmentDate = CURRENT_DATE + @days`,
+    {
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+      days:           { type: sql.Int, value: days },
+    }
+  );
+
+  let sent = 0;
+  for (const appt of rows) {
+    // Assign-mode: notify whoever currently holds the open Assign-broker
+    // Task. Claim-mode (or any other case with no such Task): route by
+    // region the same way that Task was originally routed, falling back
+    // to the agent themselves if no region-matched Supervisor exists.
+    const recipientId = appt.taskAssigneeId
+      ?? (await findLeastLoadedSupervisorForRegion(appt.agentRegion))
+      ?? appt.agentId;
+    if (!recipientId) continue; // never expected (agentId is NOT NULL), guards the fallback chain anyway
+
+    const leadName = [appt.title, appt.firstName, appt.lastName].filter(Boolean).join(' ');
+    const dateLabel = shortDateLabel(appt.firstAppointmentDate);
+    await createNotification({
+      recipientId,
+      type:        'AppointmentUnassignedWarning',
+      title:       `Still unassigned — ${leadName}`,
+      body:        `${leadName}'s appointment on ${dateLabel} still has no broker attached.`,
+      entityType:  'Appointment',
+      entityId:    appt.id,
+    });
+    sent++;
+  }
+  return sent;
 }
 
 /**
