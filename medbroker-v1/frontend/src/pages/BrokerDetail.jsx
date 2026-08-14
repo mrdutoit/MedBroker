@@ -10,10 +10,13 @@
  * full design writeup. Same Policy Value gap as Reports.jsx (§42) — no
  * monetary field exists anywhere in the schema, so that KPI and "Broker
  * switches" stayed (isBrokerSwitch is real) while Policy Value was dropped
- * and replaced with "Meetings Held" (real, counted across meeting1/2/3
- * Status = 'Seen'). Products Sold and the meeting summary are both fully
- * real — AppointmentProduct was already correctly wired by the outcome-
- * save flow, nothing new needed there; just a report query reading it.
+ * and replaced with "Meetings Held" (real, counted via MeetingAttempt
+ * rows with status HeldInterested/HeldNotInterested — rewritten 14 Aug
+ * 2026, §164, off the old flat meeting1/2/3Status = 'Seen' columns this
+ * comment used to describe). Products Sold and the meeting summary are
+ * both fully real — AppointmentProduct was already correctly wired by
+ * the outcome-save flow, nothing new needed there; just a report query
+ * reading it.
  *
  * The broker is identified by the :id URL param (a real User.id now).
  */
@@ -31,12 +34,21 @@ const PRODUCT_COLOURS = ['#3b82f6', '#3b82f6', '#6366f1', '#06b6d4', '#06b6d4', 
 
 function MeetingBadge({ status }) {
   if (!status) return <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>—</span>;
+  // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) — old
+  // vocabulary (Seen/Rescheduled/Cancelled) replaced by the new model's
+  // four statuses. 'Scheduled' shown too — a still-open meeting attempt
+  // (not yet resolved) is a real, distinct state the old model never
+  // surfaced here at all (a flat column was either null or one of the
+  // three outcomes; there was no "booked, hasn't happened yet" signal on
+  // this specific badge before).
   const meta = {
-    Seen:        { bg: 'color-mix(in srgb, #15803d 12%, var(--panel))', colour: '#15803d' },
-    Rescheduled: { bg: 'color-mix(in srgb, #d97706 12%, var(--panel))', colour: '#d97706' },
-    Cancelled:   { bg: 'color-mix(in srgb, #dc2626 12%, var(--panel))', colour: '#dc2626' },
+    HeldInterested:    { bg: 'color-mix(in srgb, #15803d 12%, var(--panel))', colour: '#15803d' },
+    HeldNotInterested: { bg: 'color-mix(in srgb, #dc2626 12%, var(--panel))', colour: '#dc2626' },
+    Rescheduled:       { bg: 'color-mix(in srgb, #d97706 12%, var(--panel))', colour: '#d97706' },
+    Scheduled:         { bg: 'color-mix(in srgb, var(--mut) 12%, var(--panel))', colour: 'var(--mut)' },
   }[status] ?? { bg: 'color-mix(in srgb, var(--mut) 12%, var(--panel))', colour: 'var(--mut)' };
-  return <span style={{ ...s.badge, background: meta.bg, color: meta.colour, fontSize: '0.6875rem' }}>{status}</span>;
+  const label = { HeldInterested: 'Held – Interested', HeldNotInterested: 'Held – Not Interested' }[status] ?? status;
+  return <span style={{ ...s.badge, background: meta.bg, color: meta.colour, fontSize: '0.6875rem' }}>{label}</span>;
 }
 
 function SignedBadge({ signed }) {

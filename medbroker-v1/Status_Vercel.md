@@ -30,38 +30,20 @@ self-contained and dated — this block is now a short pointer to that,
 not a second, competing summary of it.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-TOP PRIORITY FOR THE NEXT SESSION — Mark's own explicit instruction,
-13 Aug 2026: MEETING / APPOINTMENT ATTEMPT-HISTORY REDESIGN
+MEETING / APPOINTMENT ATTEMPT-HISTORY REDESIGN — BUILT, 14 Aug 2026
+(§164). Was TOP PRIORITY, zero code written, from 12 Aug 2026 through
+the start of session 23 — now fully built and verified across schema,
+backend, and frontend. Full account, including the backfill mapping
+decision, the three real gaps found in reportService.js/sarService.js/
+AppointmentList.jsx, and two real bugs caught during manual review
+(neither would have been caught by the build or test suite), lives in
+§164 — read that section for the complete picture, not repeated here.
+
+NOT YET DEPLOYED — migration 031 needs to run against Neon first, same
+as every migration. This is no longer the next session's starting
+point; check the OTHER OUTSTANDING ITEMS list below for what's still
+open instead.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Full spec lives in §138 (session 20, 12 Aug 2026) — read that section
-in full before starting, it is not repeated here. Zero code written as
-of the end of session 21. The one open question the spec was missing
-is now answered:
-
-  BACKFILL DECISION (Mark, 13 Aug 2026): YES — existing, already-
-  in-flight appointments get backfilled into the new attempt-row model,
-  not just new appointments going forward. This was the one item §138
-  explicitly flagged as unresolved; it's the only thing that changed
-  about the spec since it was written. Everything else in §138 stands
-  as originally specced: the new append-only attempt-row model
-  (Scheduled / Held – Interested / Held – Not Interested / Rescheduled),
-  the separate "is a follow-up meeting required?" question, the full
-  four-branch outcome-form routing table, and dropping the "Mark
-  Meeting Held" button in favour of the Status dropdown itself being
-  the save action.
-
-  Before starting: this needs its own migration (new attempt-row
-  table) plus a backfill script for existing appointments' current
-  flat meeting1Date/meeting1Status/etc. values — thinking through the
-  backfill mapping (what attempt-row(s) does an existing appointment's
-  flat-column state translate to, especially one already mid-Rescheduled
-  or with meeting2/meeting3 data populated) is real design work in its
-  own right, not just "run an INSERT," and hasn't been thought through
-  yet. Do that thinking before writing the migration, the same way
-  every migration this session was verified against real Postgres
-  before being considered done — this one in particular touches
-  existing production data and deserves at least as much care.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 SECOND PRIORITY FOR THE NEXT SESSION — after the Meeting redesign
@@ -12932,3 +12914,183 @@ frontend/api-lib/handlers/reportHandlers.js, frontend/api-lib/models/report.js,
 frontend/api-lib/models/appointment.js, frontend/api-lib/services/appointmentService.js,
 frontend/src/services/api.js, frontend/src/pages/Reports.jsx,
 frontend/src/pages/AppointmentDetail.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+164. MEETING / APPOINTMENT ATTEMPT-HISTORY REDESIGN — FULLY BUILT AND VERIFIED, NOT YET DEPLOYED — 14 Aug 2026 (session 23, continued across multiple checkpoints)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§138's spec (session 20, 12 Aug 2026) built in full — the TOP PRIORITY
+item that had sat at zero code since it was written, across "Continue"
+through four separate checkpoints this session. Confirmed before
+starting: §163 (filters/Supervisor scoping/loss reasons) IS live on
+GitHub main (migration 030 present, getDashboardData's new 4-arg
+signature present) — Mark applied it partway through this session's
+earlier work, between the initial "not yet applied" check and now.
+§157/§161 also confirmed live. §159 (Products on Lead, migration 028)
+and §160 (Unassigned Appointment Warning, migration 029) are STILL not
+applied — checked directly, not assumed.
+
+DESIGN DECISIONS — Claude's own, flagged clearly since the spec left
+real judgment calls open:
+  - Old status 'Cancelled' has no equivalent in the new four-value enum
+    (Scheduled/HeldInterested/HeldNotInterested/Rescheduled) — reading
+    the spec's own routing table, Cancelled and Rescheduled lead to the
+    identical next action (new row, same meeting number, no outcome
+    form), so the new model deliberately doesn't distinguish them.
+    Collapsed at backfill time.
+  - Old 'Seen' never distinguished interested/not at the per-meeting
+    level. Backfill infers it from the appointment's own customerSigned
+    outcome, applied only to whichever meeting number is the LAST one
+    with any data — an earlier meeting with data existing at all implies
+    interest was shown (a follow-up was booked off the back of it).
+    Documented as inference, not fact, in the migration's own header.
+  - Old flat columns (meeting{1,2,3}Date/Status/Feedback) NOT dropped —
+    left in place, unused by application code from this point on, until
+    the backfill is confirmed correct in production. A follow-up cleanup
+    migration removes them later.
+
+SCHEMA — migration 031: MeetingAttempt table, matching CallAttempt's
+established append-only pattern exactly (organisationId, recordedById,
+createdAt as the natural ordering). VERIFIED AGAINST REAL POSTGRES, not
+just eyeballed — installed Postgres in this sandbox specifically for
+this (the highest-risk piece of the whole redesign, touching historical
+data), built a 9-scenario test harness (never-touched, manually-dated,
+single/two/three-meeting Won and Lost closes, mid-reschedule, cancelled,
+still-open-with-no-outcome) and ran the actual migration SQL against it.
+Every scenario backfilled exactly as hand-computed. Torn down after.
+
+BACKEND — reportService.getDashboardData() untouched by this entry
+(that's §163); this entry's backend work is entirely in
+appointmentService.js/appointmentStatusService.js/models/appointment.js/
+appointmentHandlers.js/appointments-router.js:
+  - saveMeetingAttemptOutcome() — new, IS the spec's four-branch routing
+    table translated directly: Held-Not-Interested -> outcome due, No;
+    Held-Interested on the last configured meeting -> outcome due, Yes,
+    follow-up not even asked (nowhere to advance to); Held-Interested,
+    follow-up = No -> same; Held-Interested, follow-up = Yes -> new row,
+    meetingNumber + 1; Rescheduled -> new row, same meeting number.
+    "Last configured meeting" resolved server-side from
+    appointments.thirdMeeting.enabled, never trusted from the client.
+    Tested directly against all five branches plus a "no dead ends"
+    check (every scenario produces exactly one consequence, never both,
+    never neither) — all confirmed correct, including the subtle case
+    (last-meeting follow-up silently ignored server-side even if the
+    client sends true).
+  - InProgress transition MOVED here from computeAppointmentStatus() —
+    that function only decides ClosedWon/ClosedLost now.
+    appointmentStatusService.test.js rewritten accordingly (55 tests
+    file-wide -> 48; the 17 old InProgress-via-meetings tests removed,
+    10 new ones added against the simplified function — a real rewrite,
+    not a coverage loss, since those old tests would have kept "passing"
+    on a technicality while asserting on behaviour the function no
+    longer produces).
+  - createAppointment() creates meeting 1's first attempt row atomically,
+    date pre-filled from firstAppointmentDate, matching the spec exactly.
+  - SaveOutcomeSchema lost its `meetings` field entirely; new
+    SaveMeetingAttemptSchema added. MeetingInputSchema/MeetingStatus (now
+    dead) removed rather than left behind.
+  - New route: POST /api/appointments/:id/meeting-attempts/:attemptId.
+
+THREE REAL GAPS FOUND DURING A DELIBERATE SWEEP, NOT LEFT FOR MARK TO
+FIND — checked every remaining reference to the old model across the
+whole codebase before considering the backend done:
+  - getBrokerDetailReport() (reportService.js) — Broker Detail's
+    "Meetings Held" KPI, meeting summary, and recent-appointments table
+    all queried the old flat columns directly. Left alone, every
+    appointment created after this ships would report zero meetings
+    held on that page, forever. Rewritten against MeetingAttempt; the
+    meeting summary now shows the Held-Interested/Held-Not-Interested
+    split the old model couldn't — a real improvement, not just a port.
+  - sarService.js — the POPIA subject-access-request export read meeting
+    feedback off the flat columns. Compliance-relevant: an export
+    generated after this shipped would have silently omitted a
+    subject's real meeting history. Fixed — full MeetingAttempt history
+    now included per appointment in the export.
+  - AppointmentList.jsx — the list page's m1/m2 meeting-status column
+    would have gone permanently blank (reading a.meeting1Status, which
+    the shared SELECT no longer populated once the flat columns stopped
+    being read). Fixed at the source — APPOINTMENT_SELECT now resolves
+    the latest MeetingAttempt row per meeting number under the SAME
+    output field names, so this page needed zero changes beyond the
+    MeetingBadge status-vocabulary update (also applied to
+    BrokerDetail.jsx's own separate MeetingBadge, and the shared
+    MEETING_STATUS_META/MEETING_STATUS_LABELS tokens in tokens.js).
+
+FRONTEND — AppointmentDetail.jsx's entire Meeting section rebuilt:
+  - MeetingAttemptHistoryRow (read-only, matches LeadDetail.jsx's own
+    Call History row pattern exactly — left-border colour, badge, date,
+    notes) and MeetingAttemptForm (the one editable row per appointment)
+    replace MeetingSection/AddMeetingPrompt entirely.
+  - State collapsed from seven variables (heldMeetingNums,
+    unlockedMeetingNums, secondMeetingCreated, thirdMeetingCreated,
+    savingMeetingNum, savedMeetingNum, markingHeld) to two
+    (savingAttempt, justSavedAttempt) — there's only ever one editable
+    row across the whole appointment at a time, by construction, so
+    per-meeting-number tracking is gone entirely.
+  - handleSaveMeetingAttempt replaces three old handlers, reacting to
+    the server's routing decision rather than re-deriving it.
+  - Outcome section visibility changed from "meeting 1 has any data" to
+    outcomeDue, derived from meetingAttempts — matches the spec's
+    routing table exactly (no more showing Outcome while a reschedule or
+    pending follow-up is still in play).
+  - effectiveCustomerSigned handles the pre-fill correctly in both the
+    just-saved case AND a fresh page load where the meeting data implies
+    an outcome that was never explicitly confirmed via the Outcome
+    section's own Save button.
+  - Same .slice(0, 10) date-parsing fix applied to meetingAttempts[].date
+    that §137 already found once for the old flat columns — same
+    node-postgres DATE-column behaviour, would have silently reappeared
+    here otherwise.
+
+TWO REAL BUGS FOUND DURING A DELIBERATE MANUAL TRACE OF THE NEW
+COMPONENTS — neither would have been caught by node --check, the build,
+or the test suite, all of which passed throughout with both bugs still
+present:
+  - MeetingAttemptForm had no `key` prop. A Rescheduled save creates a
+    new row for the SAME meeting number — same outer position in the
+    render tree, same implicit React key — so without an explicit
+    key={activeAttempt.id}, React would have reused the old component
+    instance and its useState draft would never have re-initialised from
+    the new attempt's data; the form would have silently shown the
+    PREVIOUS (now-Rescheduled) attempt's stale date/notes instead of a
+    fresh blank form for the new one. Fixed.
+  - The "✓ Saved" confirmation was scoped to MeetingAttemptForm itself,
+    but every successful save in this model transitions the UI AWAY from
+    that exact form (either a new row's fresh form mounts in its place,
+    or the Outcome section appears instead) — the checkmark would either
+    never be seen, or worse, briefly appear underneath a brand-new,
+    not-yet-saved form for a completely different attempt, implying it
+    had already been saved when it hadn't. Moved to a page-level banner,
+    independent of any one form's mount lifecycle.
+
+VERIFIED: `npm run build` clean throughout (checked after nearly every
+edit, not just at the end), `npx vitest run` — 48/48 passing. `node
+--check` clean on all seven touched backend files. ESM import smoke
+tests on the handler/router confirmed every new import resolved
+correctly. Migration SQL verified against real Postgres (see SCHEMA
+above). Routing logic verified against all five branches plus a
+no-dead-ends check. A full, repeated sweep for every old-model reference
+across the ENTIRE codebase (not just the files touched) — every match
+remaining is an explanatory comment, none is live code. Diffed every
+touched file against a fresh GitHub hydration, plus a full-repo scan
+beyond the touched-file list — confirmed isolated, and confirmed exactly
+which earlier deliveries (§157/§161/§163) are live vs still pending
+(§159/§160) rather than assumed.
+
+NOT YET DEPLOYED. Migration 031 needs to run against Neon before any of
+this means anything in production — same standing rule as every
+migration. Recommend Mark spot-check a handful of backfilled
+appointments against what he remembers of their real history before
+relying on the backfill for reporting, given the genuine inference
+involved in the interested/not-interested mapping.
+
+FILES: frontend/db/migrations/031_meeting_attempt.sql (new),
+frontend/db/schema.postgres.sql, frontend/api-lib/services/appointmentService.js,
+frontend/api-lib/services/appointmentStatusService.js,
+frontend/api-lib/services/appointmentStatusService.test.js,
+frontend/api-lib/services/reportService.js, frontend/api-lib/services/sarService.js,
+frontend/api-lib/models/appointment.js, frontend/api-lib/handlers/appointmentHandlers.js,
+frontend/api/appointments-router.js, frontend/src/pages/AppointmentDetail.jsx,
+frontend/src/pages/AppointmentList.jsx, frontend/src/pages/BrokerDetail.jsx,
+frontend/src/services/api.js, frontend/src/styles/tokens.js.

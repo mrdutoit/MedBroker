@@ -152,6 +152,32 @@ Appointment
   claimTokenCost are all real now (§117) — set by claimAppointment()
   (appointmentService.js) when a broker claims from the pool.
 
+MeetingAttempt (§138 spec, session 20; §164 build, 14 Aug 2026, migration
+  031) — replaces the old flat meeting{1,2,3}Date/Status/Feedback columns
+  on Appointment (still present on the table, deliberately NOT dropped —
+  unused by application code, kept until the backfill is confirmed
+  correct in production, a follow-up cleanup migration removes them
+  later). Append-only, one row per ATTEMPT of a meeting number, matching
+  CallAttempt's own established pattern exactly (organisationId,
+  recordedById, createdAt as the natural ordering) — a reschedule creates
+  a NEW row rather than editing the old one, so history is never
+  silently overwritten the way it was before.
+  meetingNumber: 1, 2, or 3 (3 only reachable when
+  appointments.thirdMeeting.enabled is on).
+  status: Scheduled (default, not yet decided) | HeldInterested |
+  HeldNotInterested | Rescheduled. No 'Cancelled' — collapsed into
+  Rescheduled (Claude's reading of the spec: both lead to the identical
+  next action, a new row, same meeting number, no outcome form).
+  followUpRequired: nullable boolean, asked ONLY when status is saved as
+  HeldInterested AND this isn't the last configured meeting number —
+  resolved server-side (saveMeetingAttemptOutcome, appointmentService.js),
+  never trusted from the client.
+  Full four-branch routing table (this IS the redesign's actual logic,
+  not just its schema) lives in saveMeetingAttemptOutcome()'s own header
+  comment — see that function directly, or Status_Vercel.md §164 for the
+  build account including two real bugs found during manual frontend
+  review (neither caught by the build or test suite).
+
 Task
   type: Callback | Appointment | Reschedule | Reminder | Outcome | Manual
   entityType/entityId: nullable, polymorphic (Lead OR Appointment OR

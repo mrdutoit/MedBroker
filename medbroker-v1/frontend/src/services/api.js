@@ -306,11 +306,24 @@ export const appointmentsApi = {
   //   archives the Appointment, writes AuditLog entry with action='AppointmentReturnedToLeads'.
   returnToLeads: (id) =>
     request(`/appointments/${id}/return`, { method: 'PUT' }),
-  // saveOutcome — records the meeting outcome. The server computes the resulting
-  //   Appointment.status via computeAppointmentStatus() — never sent from the client.
-  //   Body: { customerSigned, productsSold, meetings }.
+  // saveOutcome — records the Won/Lost decision. The server computes the
+  //   resulting Appointment.status via computeAppointmentStatus() — never
+  //   sent from the client.
+  //   Body: { customerSigned, productsSold, lostReason }. `meetings`
+  //   REMOVED 14 Aug 2026 (§138 spec, session 20; §164 build, session 23)
+  //   — meeting saves are their own endpoint now (saveMeetingAttempt,
+  //   right below).
   saveOutcome: (id, data) =>
     request(`/appointments/${id}/outcome`, { method: 'POST', body: JSON.stringify(data) }),
+  // saveMeetingAttempt — 14 Aug 2026 (§138 spec, session 20; §164 build,
+  //   session 23). Saves the outcome of one MeetingAttempt row currently
+  //   at 'Scheduled'. Server applies the four-branch routing (see
+  //   saveMeetingAttemptOutcome's own header comment, appointmentService.js)
+  //   and returns { attempt, newAttempt, appointmentStatus, outcomeDue,
+  //   prefillCustomerSigned } — never a status the client decided itself.
+  //   Body: { date, status, notes, followUpRequired }.
+  saveMeetingAttempt: (appointmentId, attemptId, data) =>
+    request(`/appointments/${appointmentId}/meeting-attempts/${attemptId}`, { method: 'POST', body: JSON.stringify(data) }),
   // auditLog — change history for AppointmentDetail.jsx's Change Log panel.
   auditLog: (id) => request(`/appointments/${id}/audit`),
 

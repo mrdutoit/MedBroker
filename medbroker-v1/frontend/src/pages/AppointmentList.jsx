@@ -29,7 +29,7 @@ import { useFlags } from '../context/FlagContext.jsx';
 import { appointmentsApi, usersApi, ApiError } from '../services/api.js';
 import { useFetch } from '../hooks/useFetch.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
-import { s, APPT_STATUS_META, MEETING_STATUS_META, PORTFOLIO_META } from '../styles/tokens.js';
+import { s, APPT_STATUS_META, MEETING_STATUS_META, MEETING_STATUS_LABELS, PORTFOLIO_META } from '../styles/tokens.js';
 
 const PORTFOLIOS = ['Discovery', 'M&M'];
 
@@ -37,7 +37,7 @@ const PORTFOLIOS = ['Discovery', 'M&M'];
 function MeetingBadge({ status }) {
   if (!status) return <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>—</span>;
   const meta = MEETING_STATUS_META[status] ?? { colour: 'var(--mut)', bg: 'var(--panel2)' };
-  return <span style={{ ...s.badge, background: meta.bg, color: meta.colour, fontSize: '0.688rem' }}>{status}</span>;
+  return <span style={{ ...s.badge, background: meta.bg, color: meta.colour, fontSize: '0.688rem' }}>{MEETING_STATUS_LABELS[status] ?? status}</span>;
 }
 function SignedBadge({ signed }) {
   if (!signed) return <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>—</span>;

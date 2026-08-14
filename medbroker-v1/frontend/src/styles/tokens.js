@@ -90,11 +90,23 @@ export const APPT_STATUS_META = {
   ReturnedToLeads: { colour: '#6b7280', bg: '#f3f4f6', border: '#e5e7eb', label: 'Returned'    },
 };
 
+// 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) — old
+// vocabulary (Pending/Seen/Rescheduled/Cancelled) replaced by the new
+// MeetingAttempt model's four statuses. 'Pending' -> 'Scheduled' is the
+// closest continuity (a meeting attempt that hasn't been resolved yet);
+// 'Seen' splits into HeldInterested/HeldNotInterested now that the new
+// model actually captures that distinction; 'Cancelled' has no
+// equivalent (collapsed into 'Rescheduled' — see migration 031's header).
 export const MEETING_STATUS_META = {
-  Pending:     { colour: '#6b7280', bg: '#f3f4f6' },
-  Seen:        { colour: '#15803d', bg: '#f0fdf4' },
-  Rescheduled: { colour: '#d97706', bg: '#fffbeb' },
-  Cancelled:   { colour: '#dc2626', bg: '#fef2f2' },
+  Scheduled:         { colour: '#6b7280', bg: '#f3f4f6' },
+  HeldInterested:    { colour: '#15803d', bg: '#f0fdf4' },
+  HeldNotInterested: { colour: '#dc2626', bg: '#fef2f2' },
+  Rescheduled:       { colour: '#d97706', bg: '#fffbeb' },
+};
+
+export const MEETING_STATUS_LABELS = {
+  Scheduled: 'Scheduled', HeldInterested: 'Held – Interested',
+  HeldNotInterested: 'Held – Not Interested', Rescheduled: 'Rescheduled',
 };
 
 export const PORTFOLIO_META = {

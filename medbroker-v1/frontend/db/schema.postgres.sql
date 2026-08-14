@@ -671,6 +671,50 @@ CREATE TABLE IF NOT EXISTS AppointmentProduct (
     CONSTRAINT UQ_AppointmentProduct         UNIQUE (appointmentId, productId)
 );
 
+-- 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) — the
+-- Meeting/Appointment attempt-history redesign. Replaces
+-- meeting{1,2,3}Date/Status/Feedback (still present on Appointment,
+-- unused by application code from this point on — NOT dropped in this
+-- migration; a follow-up cleanup migration removes them once the
+-- backfilled data is confirmed correct in production, deliberately
+-- reversible-until-confirmed rather than irreversible-by-default) with
+-- an append-only row per ATTEMPT of a meeting number, matching
+-- CallAttempt's own established pattern exactly (organisationId,
+-- recordedById, createdAt as the natural ordering — no separate
+-- sequence column needed) rather than the flat-column pattern it
+-- replaces, where a reschedule silently overwrote history in place.
+--
+-- status: 'Scheduled' (default, nothing decided yet) | 'HeldInterested' |
+-- 'HeldNotInterested' | 'Rescheduled'. The old model's third status,
+-- 'Cancelled', has no equivalent here — Claude's own reading of the
+-- spec, not explicit in it: Cancelled and Rescheduled lead to the exact
+-- same next action (a new row, same meeting number, no outcome form), so
+-- the new model deliberately doesn't distinguish them. followUpRequired
+-- is asked ONLY when status is saved as HeldInterested (a separate
+-- question from Rescheduled — see this table's own service-layer logic
+-- for the full four-branch routing) — NULL otherwise, not a bare
+-- default false, since "not asked" and "asked, answered No" are
+-- genuinely different states worth being able to tell apart later.
+CREATE TABLE IF NOT EXISTS MeetingAttempt (
+    id                UUID            NOT NULL DEFAULT gen_random_uuid(),
+    organisationId    UUID            NOT NULL DEFAULT 'D0000000-0000-0000-0000-000000000001',
+    appointmentId     UUID            NOT NULL,
+    meetingNumber     INT             NOT NULL,
+    date              DATE            NULL,
+    status            VARCHAR(50)     NOT NULL DEFAULT 'Scheduled',
+    followUpRequired  BOOLEAN         NULL,
+    notes             VARCHAR(2000)   NULL,
+    recordedById      UUID            NULL,
+    createdAt         TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
+    CONSTRAINT PK_MeetingAttempt              PRIMARY KEY (id),
+    CONSTRAINT FK_MeetingAttempt_Org          FOREIGN KEY (organisationId) REFERENCES Organisation(id),
+    CONSTRAINT FK_MeetingAttempt_Appointment  FOREIGN KEY (appointmentId)  REFERENCES Appointment(id),
+    CONSTRAINT FK_MeetingAttempt_RecordedBy   FOREIGN KEY (recordedById)   REFERENCES "User"(id),
+    CONSTRAINT CK_MeetingAttempt_Number       CHECK (meetingNumber IN (1, 2, 3)),
+    CONSTRAINT CK_MeetingAttempt_Status       CHECK (status IN ('Scheduled', 'HeldInterested', 'HeldNotInterested', 'Rescheduled'))
+);
+CREATE INDEX IF NOT EXISTS IX_MeetingAttempt_Appointment ON MeetingAttempt(appointmentId);
+
 -- =============================================================================
 -- SECTION 11 — EVENT ATTENDEES
 -- =============================================================================

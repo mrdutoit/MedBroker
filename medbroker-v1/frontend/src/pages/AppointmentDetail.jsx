@@ -40,12 +40,13 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
+import { format } from 'date-fns';
 import { useRole } from '../context/RoleContext';
 import { useFlags }                           from '../context/FlagContext';
 import { useWindowSize }                      from '../hooks/useWindowSize';
 import { useFetch }                           from '../hooks/useFetch.js';
 import { appointmentsApi, usersApi }          from '../services/api';
-import { s, APPT_STATUS_META }                from '../styles/tokens.js';
+import { s, APPT_STATUS_META, MEETING_STATUS_META, MEETING_STATUS_LABELS } from '../styles/tokens.js';
 import { formatDate, formatTime }             from '../utils/dateFormat.js';
 import AuditLogList                           from '../components/AuditLogList.jsx';
 
@@ -62,20 +63,29 @@ const EMPTY_APPOINTMENT = {
   portfolio: '', portfolios: [], source: '', productsInterested: [],
   status: '', firstDate: '', firstTime: '', address: '', brokerName: '', agentName: '',
   brokerSwitch: false, customerSigned: null, lostReason: null, productsSold: [],
-  meetings: [
-    { number: 1, date: '', status: '', notes: '', required: true },
-    { number: 2, date: '', status: '', notes: '', required: true },
-    { number: 3, date: '', status: '', notes: '', required: false },
-  ],
+  // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) —
+  // replaces the fixed three-slot meetings array; a real appointment
+  // always has at least the meeting-1 row by the time this component
+  // ever renders it (created atomically at booking, appointmentService.
+  // createAppointment()) — empty here only because this is the
+  // never-actually-shown loading-state placeholder.
+  meetingAttempts: [],
 };
 
-
-const MEETING_STATUSES = ['Seen', 'Rescheduled', 'Cancelled'];
-
-// A meeting already "exists" if any of its fields already carry data — handles
-// loading an appointment that already has a Second/Third meeting filled in,
-// so it renders immediately rather than behind the Add-meeting button again.
-const meetingHasData = (meeting) => !!(meeting.date || meeting.status || meeting.notes);
+// 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) —
+// MEETING_STATUSES (the old three-value Seen/Rescheduled/Cancelled
+// dropdown options) and meetingHasData() (which only ever needed to ask
+// "does this flat-column slot have anything in it") both removed —
+// meetingAttempts.length > 0 already answers "does meeting N exist" for
+// the new model, no helper needed. The three SAVEABLE statuses now live
+// directly on the save form component below (MEETING_ATTEMPT_STATUSES) —
+// 'Scheduled' is deliberately excluded from that list, since it's a
+// row's own creation default, never something chosen to save it AS.
+const MEETING_ATTEMPT_STATUSES = [
+  { value: 'HeldInterested',    label: 'Held – Interested' },
+  { value: 'HeldNotInterested', label: 'Held – Not Interested' },
+  { value: 'Rescheduled',       label: 'Rescheduled' },
+];
 
 // ─── Status chip ───────────────────────────────────────────────────────────────
 function StatusChip({ status }) {
@@ -101,142 +111,109 @@ function FieldRow({ label, children }) {
   );
 }
 
-// ─── Meeting section ───────────────────────────────────────────────────────────
-// Rendered only once a meeting has actually been created — see AddMeetingPrompt
-// below and the secondMeetingCreated/thirdMeetingCreated state in the main
-// component.
-function MeetingSection({ meeting, onChange, onSave, saving, onMarkHeld, marking, justSaved, held, onUnlock, isMobile, disabled }) {
-  const isOptional = meeting.number === 3;
-  const titles = ['', 'First Meeting', 'Second Meeting', 'Third Meeting'];
-  // `held` is the true, persisted lock state — set by the parent from
-  // heldMeetingNums, which only changes on a successful save, never from
-  // the draft dropdown selection (23 Jul 2026 fix, Mark's request: picking
-  // "Seen" from Status must not itself lock anything — only Save Changes
-  // persisting that choice should. See handleSaveMeeting/
-  // handleMarkMeetingHeld's heldMeetingNums updates in the main component).
-  const locked = disabled || held;
-  const canMarkHeld = !locked && !!meeting.date;
-  const busy = saving || marking;
-
+// ─── Meeting attempt history row ────────────────────────────────────────────
+// Read-only. Matches LeadDetail.jsx's own Call History row pattern
+// exactly (left-border colour by outcome, badge, date, notes below) —
+// the spec's own explicit "matching the Lead call-log pattern" applied
+// to how a decided attempt actually renders, not just how it's stored.
+function MeetingAttemptHistoryRow({ attempt, index }) {
+  const meta = MEETING_STATUS_META[attempt.status] ?? { colour: 'var(--mut)', bg: 'var(--panel2)' };
   return (
-    <div style={{ ...s.card, borderStyle: isOptional ? 'dashed' : 'solid', marginBottom: '12px', opacity: disabled ? 0.6 : 1 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', ...s.cardTitle }}>
-        <span>{titles[meeting.number]}</span>
-        {held && (
-          <span style={{ ...s.badge, background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d', fontWeight: 600 }}>
-            ✓ Held
-          </span>
-        )}
+    <div
+      style={{
+        borderLeft: `3px solid ${meta.colour}`, padding: '8px 0 8px 10px',
+        background: index % 2 === 1 ? 'var(--panel2)' : 'transparent',
+      }}
+    >
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+        <span style={{ ...s.badge, background: meta.bg, color: meta.colour, fontSize: '0.6875rem' }}>
+          {MEETING_STATUS_LABELS[attempt.status] ?? attempt.status}
+        </span>
+        <span style={{ fontSize: '0.75rem', color: 'var(--mut)' }}>
+          {attempt.date ? format(new Date(`${attempt.date}T00:00:00`), 'd MMM yyyy') : 'No date set'}
+        </span>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
-        <div>
-          <label style={s.formLabel}>Date</label>
-          <input
-            type="date"
-            style={{ ...s.formInput, opacity: locked ? 0.6 : 1 }}
-            value={meeting.date}
-            disabled={locked}
-            onChange={e => onChange(meeting.number, 'date', e.target.value)}
-          />
-          {!locked && meeting.status && meeting.status !== 'Seen' && (
-            <p style={{ ...s.formHint, marginTop: '4px' }}>
-              {meeting.status === 'Rescheduled'
-                ? 'Client rescheduled — enter the new date above, still against this meeting.'
-                : 'Client cancelled — enter a new date above if one is set, still against this meeting.'}
-            </p>
-          )}
-          {!locked && meeting.status === 'Seen' && (
-            <p style={{ ...s.formHint, marginTop: '4px' }}>
-              Add any notes below, then Save Changes to lock this meeting in as held.
-            </p>
-          )}
-        </div>
-        <div>
-          <label style={s.formLabel}>Status</label>
-          <select
-            style={{ ...s.formInput, opacity: locked ? 0.6 : 1 }}
-            value={meeting.status}
-            disabled={locked}
-            onChange={e => onChange(meeting.number, 'status', e.target.value)}
-          >
-            <option value="">Please select</option>
-            {MEETING_STATUSES.map(st => <option key={st}>{st}</option>)}
-          </select>
-        </div>
-      </div>
-      <div>
-        <label style={s.formLabel}>Meeting Feedback</label>
-        <textarea
-          style={{ ...s.formInput, height: '60px', resize: 'vertical', opacity: locked ? 0.6 : 1 }}
-          placeholder="Notes from the meeting…"
-          value={meeting.notes}
-          disabled={locked}
-          onChange={e => onChange(meeting.number, 'notes', e.target.value)}
-        />
-      </div>
-      {!locked && (
-        <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-          <button
-            type="button"
-            style={{ ...s.secondaryBtn, opacity: busy ? 0.5 : 1 }}
-            disabled={busy}
-            onClick={() => onSave(meeting.number)}
-          >
-            {saving ? 'Saving…' : 'Save Changes'}
-          </button>
-          <button
-            type="button"
-            style={{ ...s.secondaryBtn, opacity: (!canMarkHeld || busy) ? 0.5 : 1 }}
-            disabled={!canMarkHeld || busy}
-            onClick={() => onMarkHeld(meeting.number)}
-          >
-            {marking ? 'Saving…' : '✓ Mark Meeting Held'}
-          </button>
-          {justSaved && (
-            <span style={{ fontSize: '0.8125rem', color: '#15803d' }}>✓ Saved</span>
-          )}
-          {!meeting.date && (
-            <span style={{ fontSize: '0.75rem', color: 'var(--mut)' }}>
-              Set a date before marking this meeting held.
-            </span>
-          )}
-        </div>
-      )}
-      {/* Unlock — added 23 Jul 2026, Mark's request: once saved as held, a
-          user should still be able to re-open it for editing rather than
-          it being permanently frozen. Purely a local override (no server
-          call) — the fields become editable again, and the next successful
-          save re-applies the real lock rule based on whatever gets saved. */}
-      {held && !disabled && (
-        <div style={{ marginTop: '12px' }}>
-          <button
-            type="button"
-            style={s.secondaryBtn}
-            onClick={() => onUnlock(meeting.number)}
-          >
-            🔓 Unlock to Edit
-          </button>
-        </div>
-      )}
+      {attempt.notes && <p style={{ fontSize: '0.8125rem', color: 'var(--mut)', marginTop: '4px' }}>{attempt.notes}</p>}
     </div>
   );
 }
 
-// ─── Add-meeting prompt ─────────────────────────────────────────────────────────
-// Second and Third meetings don't exist until explicitly created here. The
-// button stays disabled until the prior meeting's status has been recorded.
-function AddMeetingPrompt({ label, unlocked, unlockHint, onClick }) {
+// ─── Meeting attempt edit form ──────────────────────────────────────────────
+// The ONE row (across the whole appointment) that's still 'Scheduled' —
+// not yet decided. No lock/unlock, no "Mark Held" as a separate action
+// from Save — replaces MeetingSection entirely. Saving this IS the
+// transition away from 'Scheduled'; the server's own routing decision
+// (saveMeetingAttemptOutcome, appointmentService.js) then either reveals
+// the Outcome section or creates the next row automatically — nothing
+// here manually decides what happens next, it just submits the decision.
+function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, saving, disabled }) {
+  const titles = { 1: 'First Meeting', 2: 'Second Meeting', 3: 'Third Meeting' };
+  const [date, setDate]   = useState(attempt.date ?? '');
+  const [status, setStatus] = useState('');
+  const [notes, setNotes] = useState(attempt.notes ?? '');
+  const [followUpRequired, setFollowUpRequired] = useState(null);
+
+  // Follow-up is only ever asked for Held-Interested on a NON-last
+  // meeting — matches saveMeetingAttemptOutcome()'s own server-side gate
+  // exactly (appointmentService.js); asking it anywhere else would be a
+  // dead end the spec explicitly rules out (nowhere left to advance to).
+  const followUpApplicable = status === 'HeldInterested' && !isLastMeeting;
+  const canSave = !!date && !!status && (!followUpApplicable || followUpRequired !== null);
+
+  function handleSave() {
+    onSave(attempt.id, { date, status, notes: notes || null, followUpRequired: followUpApplicable ? followUpRequired : null });
+  }
+
   return (
-    <div style={{ ...s.card, borderStyle: 'dashed', marginBottom: '12px', textAlign: 'center', padding: '20px' }}>
-      <button
-        style={{ ...s.secondaryBtn, opacity: unlocked ? 1 : 0.5, cursor: unlocked ? 'pointer' : 'not-allowed' }}
-        disabled={!unlocked}
-        onClick={onClick}
-      >
-        + {label}
-      </button>
-      {!unlocked && (
-        <div style={{ ...s.formHint, marginTop: '8px' }}>{unlockHint}</div>
+    <div style={{ ...s.card, marginBottom: '12px', opacity: disabled ? 0.6 : 1 }}>
+      <div style={{ ...s.cardTitle }}>{titles[meetingNumber] ?? `Meeting ${meetingNumber}`}</div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
+        <div>
+          <label style={s.formLabel}>Date</label>
+          <input
+            type="date" style={s.formInput} value={date ?? ''} disabled={disabled}
+            onChange={e => setDate(e.target.value)}
+          />
+        </div>
+        <div>
+          <label style={s.formLabel}>Status</label>
+          <select style={s.formInput} value={status} disabled={disabled} onChange={e => setStatus(e.target.value)}>
+            <option value="">Please select</option>
+            {MEETING_ATTEMPT_STATUSES.map(st => <option key={st.value} value={st.value}>{st.label}</option>)}
+          </select>
+        </div>
+      </div>
+      {followUpApplicable && (
+        <div style={{ marginBottom: '12px' }}>
+          <label style={s.formLabel}>Follow-up required?</label>
+          <select
+            style={s.formInput} disabled={disabled}
+            value={followUpRequired === null ? '' : followUpRequired ? 'Yes' : 'No'}
+            onChange={e => setFollowUpRequired(e.target.value === '' ? null : e.target.value === 'Yes')}
+          >
+            <option value="">Please select</option>
+            <option value="Yes">Yes — book a Meeting {meetingNumber + 1}</option>
+            <option value="No">No — this is the outcome</option>
+          </select>
+        </div>
+      )}
+      <div>
+        <label style={s.formLabel}>Notes</label>
+        <textarea
+          style={{ ...s.formInput, height: '60px', resize: 'vertical' }}
+          placeholder="Notes from the meeting…" value={notes} disabled={disabled}
+          onChange={e => setNotes(e.target.value)}
+        />
+      </div>
+      {!disabled && (
+        <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            type="button" style={{ ...s.primaryBtn, opacity: (!canSave || saving) ? 0.5 : 1 }}
+            disabled={!canSave || saving} onClick={handleSave}
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
       )}
     </div>
   );
@@ -467,12 +444,15 @@ export default function AppointmentDetail() {
   const { isMobile }    = useWindowSize();
 
   const canManage           = ['GlobalAdmin', 'Admin', 'Supervisor'].includes(role);
+  // Mirrors saveMeetingAttemptOutcome()'s own server-side check exactly
+  // (appointmentService.js) — used here only to decide whether the
+  // follow-up question renders at all for the CURRENT active attempt,
+  // never trusted for anything the server itself decides authoritatively.
   const thirdMeetingEnabled = !!flag('appointments.thirdMeeting.enabled');
 
-  // Real data — GET /api/appointments/:id. Transformed into the same
-  // { meetings: [{number,date,status,notes,required}, ...] } shape the
-  // rest of this file already expects, so nothing below needs touching —
-  // only this mapping and the sync effect are new.
+  // Real data — GET /api/appointments/:id. meetingAttempts (§164) comes
+  // back as its own array now, not flattened flat columns — nothing to
+  // transform here beyond what getAppointmentById() already shapes it as.
   const { data: apptData, loading: apptLoading, refetch: refetchAppt } = useFetch(() => appointmentsApi.get(id), [id]);
   const { data: brokersData } = useFetch(() => usersApi.list({ role: 'Broker' }), []);
   const realBrokers = brokersData?.users ?? [];
@@ -494,21 +474,24 @@ export default function AppointmentDetail() {
   const [outcomeSaved,      setOutcomeSaved]      = useState(false);
   const [savingOutcome,     setSavingOutcome]     = useState(false);
   const [outcomeError,      setOutcomeError]      = useState(null);
-  const [markingHeld,       setMarkingHeld]       = useState(null); // meeting number currently being marked Held, or null
-  const [savingMeetingNum,  setSavingMeetingNum]  = useState(null); // meeting number currently being saved, or null
-  const [savedMeetingNum,   setSavedMeetingNum]   = useState(null); // meeting number just saved (transient ✓), or null
-  // heldMeetingNums — the TRUE, persisted lock state (23 Jul 2026 fix, Mark's
-  // request). Only ever set from apptData (on fetch) or from a successful
-  // save's own response — never from the draft appt.meetings, so merely
-  // selecting "Seen" in the Status dropdown can't lock anything by itself.
-  const [heldMeetingNums,    setHeldMeetingNums]    = useState(() => new Set());
-  // unlockedMeetingNums — a meeting the user has explicitly re-opened for
-  // editing despite being held. Purely local; cleared whenever that meeting
-  // is next saved (the save itself re-applies the real lock rule) or when
-  // fresh data arrives from the server.
-  const [unlockedMeetingNums, setUnlockedMeetingNums] = useState(() => new Set());
-  const [secondMeetingCreated, setSecondMeetingCreated] = useState(() => meetingHasData(appt.meetings[1]));
-  const [thirdMeetingCreated,  setThirdMeetingCreated]  = useState(() => meetingHasData(appt.meetings[2]));
+  // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) — the
+  // whole markingHeld/savingMeetingNum/savedMeetingNum/heldMeetingNums/
+  // unlockedMeetingNums/secondMeetingCreated/thirdMeetingCreated block
+  // this replaced existed to manage manual lock/unlock and manual
+  // "add the next meeting" state on top of three fixed flat-column
+  // slots. None of that has an equivalent need in the new model: a
+  // meeting's history is just whatever's actually in meetingAttempts
+  // (nothing to separately "unlock" — an append-only row is never
+  // edited again once decided, so there's no lock/unlock toggle to
+  // manage), and the next meeting number's row is created automatically
+  // by the server's own routing decision (saveMeetingAttemptOutcome),
+  // not a manual "Add Meeting" button. There is only ever at most ONE
+  // attempt row genuinely awaiting a decision (status 'Scheduled') at a
+  // time — computed directly from meetingAttempts below, not tracked as
+  // separate state that could drift out of sync with it.
+  const [savingAttempt,     setSavingAttempt]     = useState(false);
+  const [justSavedAttempt,  setJustSavedAttempt]  = useState(false);
+
 
   useEffect(() => {
     if (!apptData) return;
@@ -539,34 +522,20 @@ export default function AppointmentDetail() {
       // apptData.productsSold is [{name, value}] from the API (§44) — map
       // to {product, value} to match this component's own field naming.
       productsSold:   (apptData.productsSold ?? []).map(p => ({ product: p.name, value: p.value })),
-      meetings: [1, 2, 3].map((n) => ({
-        number:   n,
-        // .slice(0, 10) — apptData[`meeting${n}Date`] comes back as a full
-        // ISO timestamp ("2026-07-24T00:00:00.000Z"), not a plain
-        // 'YYYY-MM-DD' string: node-postgres parses DATE columns into JS
-        // Date objects (no custom type parser registered in db.js — same
-        // root cause as the Lead Audit Log's false Date of Birth diffs,
-        // just a different symptom here). <input type="date"> requires the
-        // value to be exactly 'YYYY-MM-DD' — anything else is silently
-        // treated as invalid and rendered as an empty field, no error, no
-        // console warning. That's what Mark saw: the meeting was genuinely
-        // saved (Status and Feedback round-tripped fine, both plain
-        // strings with no format requirement), but the Date field looked
-        // empty on every reload. Confirmed against the actual API response
-        // shape before writing this fix, not assumed.
-        date:     (apptData[`meeting${n}Date`] ?? '').slice(0, 10),
-        status:   apptData[`meeting${n}Status`] ?? '',
-        notes:    apptData[`meeting${n}Feedback`] ?? '',
-        required: n < 3,
+      // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) —
+      // meetingAttempts replaces the old meetings: [1,2,3].map(...) flat-
+      // column transform entirely. Same .slice(0, 10) date fix still
+      // applies here — MeetingAttempt.date is the same Postgres DATE
+      // column type as the old meeting{N}Date columns were, so it comes
+      // back from node-postgres as a full ISO timestamp the same way;
+      // <input type="date"> needs exactly 'YYYY-MM-DD' or it silently
+      // renders empty, same root cause §137 already found and fixed once
+      // — applying the same fix here rather than rediscovering it.
+      meetingAttempts: (apptData.meetingAttempts ?? []).map(a => ({
+        ...a,
+        date: a.date ? a.date.slice(0, 10) : null,
       })),
     });
-    // heldMeetingNums reflects the server's own record of what's genuinely
-    // been saved as Seen — this, not the draft above, is what drives
-    // locking. Any pending "Unlock to Edit" override is reset too: fresh
-    // data from the server is the new source of truth, so a stale local
-    // override shouldn't linger past a refetch.
-    setHeldMeetingNums(new Set([1, 2, 3].filter(n => apptData[`meeting${n}Status`] === 'Seen')));
-    setUnlockedMeetingNums(new Set());
   }, [apptData]);
 
   // Derived
@@ -582,8 +551,45 @@ export default function AppointmentDetail() {
   const isLocked     = isClosed || appt.status === 'ReturnedToLeads';
   const canReturn   = canManage && !isLocked && appt.customerSigned !== true;
   const canReassign = canManage && !isLocked;
-  const firstMeetingComplete  = heldMeetingNums.has(1);
-  const secondMeetingComplete = heldMeetingNums.has(2);
+
+  // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) —
+  // replaces firstMeetingComplete/secondMeetingComplete (which existed
+  // only to gate the old manual "Add Meeting" buttons — no equivalent
+  // needed, the next row's existence in meetingAttempts IS the gate now).
+  // Grouped by meetingNumber, each group's rows already ordered oldest
+  // first (getAppointmentById's own ORDER BY) — the LAST row in a group
+  // is either the current active one (status 'Scheduled') or, for a
+  // fully-resolved meeting number, simply the most recent history entry.
+  const attemptsByMeetingNumber = appt.meetingAttempts.reduce((acc, a) => {
+    (acc[a.meetingNumber] ??= []).push(a);
+    return acc;
+  }, {});
+  const meetingNumbers = Object.keys(attemptsByMeetingNumber).map(Number).sort((a, b) => a - b);
+  // At most one across the WHOLE appointment, by construction — the
+  // server only ever creates a new 'Scheduled' row as the direct
+  // consequence of the previous one resolving (saveMeetingAttemptOutcome),
+  // so there's never a second one sitting open at the same time.
+  const activeAttempt = appt.meetingAttempts.find(a => a.status === 'Scheduled') ?? null;
+  const isLastMeeting = activeAttempt ? activeAttempt.meetingNumber >= (thirdMeetingEnabled ? 3 : 2) : false;
+
+  // Outcome due — derived from meetingAttempts, not tracked as separate
+  // state that could drift out of sync with it. True the moment ANY
+  // attempt resolved to Held-Not-Interested, or Held-Interested with no
+  // further meeting to advance to (followUpRequired anything other than
+  // true — covers both an explicit "No" and the server's own null for
+  // "wasn't even asked, this was the last configured meeting"). Matches
+  // saveMeetingAttemptOutcome()'s own routing table exactly, computed
+  // client-side purely for display — the server already decided this for
+  // real at save time; this is just working out the same answer again
+  // from the data it left behind, for a page that's just been loaded
+  // fresh rather than just received a save response.
+  const outcomeTrigger = appt.meetingAttempts.find(a =>
+    a.status === 'HeldNotInterested' || (a.status === 'HeldInterested' && a.followUpRequired !== true)
+  );
+  const outcomeDue = !!outcomeTrigger;
+  const effectiveCustomerSigned = appt.customerSigned !== null
+    ? appt.customerSigned
+    : (outcomeTrigger ? outcomeTrigger.status === 'HeldInterested' : null);
 
   // Changed 23 Jul 2026 (§45) — was scoped to appt.portfolio (the primary
   // only). An appointment can now cover more than one portfolio, so
@@ -592,14 +598,11 @@ export default function AppointmentDetail() {
   // appear as a checkbox to record it against.
   const productsForPortfolio = appt.portfolios.flatMap(name => productsByPortfolio[name] ?? []);
 
-  function handleMeetingChange(meetingNumber, field, value) {
-    setAppt(prev => ({
-      ...prev,
-      meetings: prev.meetings.map(m =>
-        m.number === meetingNumber ? { ...m, [field]: value } : m
-      ),
-    }));
-  }
+  // handleMeetingChange REMOVED 14 Aug 2026 (§138 spec, session 20; §164
+  // build, session 23) — MeetingAttemptForm now owns its own draft state
+  // locally (date/status/notes/followUpRequired), submitted whole on
+  // Save rather than synced field-by-field into the parent's appt
+  // state the way the old flat meetings array required.
 
   function handleOutcomeChange(field, value) {
     setAppt(prev => ({ ...prev, [field]: value }));
@@ -634,7 +637,16 @@ export default function AppointmentDetail() {
     // saving without one — the Zod schema itself stays optional (see
     // models/appointment.js's own comment on why), so this is the one
     // place that actually enforces it.
-    if (appt.customerSigned === false && !appt.lostReason) {
+    //
+    // effectiveCustomerSigned, not raw appt.customerSigned — 14 Aug 2026
+    // (§138 spec, session 20; §164 build, session 23): if a meeting
+    // attempt already resolved the outcome (Held-Not-Interested, or
+    // Held-Interested with nothing left to advance to) but the person
+    // saves this section without touching the Customer Signed dropdown
+    // themselves, the pre-filled value is still the real, correct answer
+    // — falling back to raw appt.customerSigned here would silently send
+    // null and fail to actually close the appointment.
+    if (effectiveCustomerSigned === false && !appt.lostReason) {
       setOutcomeError('Please select a reason for the loss before saving.');
       return;
     }
@@ -644,10 +656,13 @@ export default function AppointmentDetail() {
       // The server computes the resulting status (ClosedWon/ClosedLost/InProgress)
       // via computeAppointmentStatus() — it is never written directly by the client.
       const result = await appointmentsApi.saveOutcome(appt.id, {
-        customerSigned: appt.customerSigned,
-        lostReason:     appt.customerSigned === false ? appt.lostReason : null,
+        customerSigned: effectiveCustomerSigned,
+        lostReason:     effectiveCustomerSigned === false ? appt.lostReason : null,
         productsSold:   appt.productsSold,
-        meetings:       appt.meetings,
+        // meetings REMOVED 14 Aug 2026 (§138 spec, session 20; §164
+        // build, session 23) — meeting saves go through
+        // handleSaveMeetingAttempt/appointmentsApi.saveMeetingAttempt
+        // now, not bundled into this call.
       });
       // Production returns the updated record; preview returns null (mock mode).
       if (result?.status) setAppt(prev => ({ ...prev, status: result.status }));
@@ -661,93 +676,51 @@ export default function AppointmentDetail() {
     }
   }
 
-  // Save Changes — generic per-meeting save, added 23 Jul 2026 to fix a real
-  // gap: Mark Meeting Held was the ONLY save action on a meeting, and it
-  // forces status to 'Seen'. A broker who selects Rescheduled or Cancelled
-  // and enters a new date (or just adds notes) had no way to persist that —
-  // the general Save Outcome button lives on a different card, gated behind
-  // the first meeting having data, and isn't an obvious place to look for
-  // "save my reschedule". This saves exactly the current draft state of one
-  // meeting, whatever it is, without forcing a status.
-  async function handleSaveMeeting(meetingNumber) {
-    const meeting = appt.meetings.find(m => m.number === meetingNumber);
-    if (!meeting) return;
-    setSavingMeetingNum(meetingNumber);
-    setSavedMeetingNum(null);
+  // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) — the
+  // ONE save action for a meeting attempt, replacing handleSaveMeeting/
+  // handleMarkMeetingHeld/handleUnlockMeeting entirely. There's no
+  // separate "mark held" action distinct from saving anymore (the spec's
+  // whole point: the Status dropdown IS the save action now, not a
+  // second confirmation step), and no unlock (nothing to unlock — an
+  // append-only row is never re-opened once decided).
+  //
+  // Reacts to the server's own routing decision rather than re-deriving
+  // it: appointmentStatus is applied directly (InProgress if this was
+  // meeting 1's first held outcome); newAttempt (if present) is appended
+  // so the next Scheduled row renders immediately, no refetch needed;
+  // outcomeDue/prefillCustomerSigned pre-fill the Outcome section's
+  // Customer Signed field the moment it's actually due, matching what
+  // the spec calls "pre-set Yes/No" — the person still has to actually
+  // save the Outcome section themselves (productsSold, lostReason if
+  // Lost), this just saves them the one click of re-selecting what the
+  // meeting attempt already told the system.
+  async function handleSaveMeetingAttempt(attemptId, data) {
+    setSavingAttempt(true);
+    setJustSavedAttempt(false);
     setOutcomeError(null);
     try {
-      const savedStatus = meeting.status || '';
-      const result = await appointmentsApi.saveOutcome(appt.id, {
-        meetings: [{ number: meetingNumber, date: meeting.date, status: savedStatus, notes: meeting.notes }],
-      });
-      setAppt(prev => ({ ...prev, status: result?.status ?? prev.status }));
-      // The actual lock decision — only a genuine save can add or remove a
-      // meeting from heldMeetingNums, never the draft dropdown selection.
-      setHeldMeetingNums(prev => {
-        const next = new Set(prev);
-        if (savedStatus === 'Seen') next.add(meetingNumber); else next.delete(meetingNumber);
-        return next;
-      });
-      setUnlockedMeetingNums(prev => {
-        if (!prev.has(meetingNumber)) return prev;
-        const next = new Set(prev);
-        next.delete(meetingNumber);
-        return next;
+      const result = await appointmentsApi.saveMeetingAttempt(appt.id, attemptId, data);
+      setAppt(prev => {
+        const updatedAttempts = prev.meetingAttempts.map(a => a.id === attemptId ? { ...a, ...result.attempt } : a);
+        if (result.newAttempt) updatedAttempts.push(result.newAttempt);
+        return {
+          ...prev,
+          status: result.appointmentStatus ?? prev.status,
+          meetingAttempts: updatedAttempts,
+          // Pre-fill only — doesn't persist customerSigned server-side by
+          // itself. Only overwrite a not-yet-decided value; never
+          // clobber an outcome that (for whatever reason) was already set.
+          customerSigned: prev.customerSigned === null && result.outcomeDue ? result.prefillCustomerSigned : prev.customerSigned,
+        };
       });
       refetchAudit();
-      setSavedMeetingNum(meetingNumber);
-      setTimeout(() => setSavedMeetingNum(null), 3000);
+      setJustSavedAttempt(true);
+      setTimeout(() => setJustSavedAttempt(false), 3000);
     } catch (err) {
       setOutcomeError(err?.message ?? 'Could not save this meeting. Please try again.');
     } finally {
-      setSavingMeetingNum(null);
+      setSavingAttempt(false);
     }
-  }
-
-  // Mark Meeting Held — the dedicated action Mark asked for, distinct from
-  // just picking "Seen" in the status dropdown: it immediately persists and
-  // locks THIS meeting (date/status/notes become read-only) and, once
-  // saved, unlocks the next meeting's Add-meeting prompt. Scoped to send
-  // only this meeting's fields — customerSigned/productsSold/other meetings
-  // are omitted from the payload so they can't be accidentally overwritten
-  // by whatever's currently in the rest of the draft form.
-  async function handleMarkMeetingHeld(meetingNumber) {
-    const meeting = appt.meetings.find(m => m.number === meetingNumber);
-    if (!meeting?.date) return;
-    setMarkingHeld(meetingNumber);
-    setOutcomeError(null);
-    try {
-      const result = await appointmentsApi.saveOutcome(appt.id, {
-        meetings: [{ number: meetingNumber, date: meeting.date, status: 'Seen', notes: meeting.notes }],
-      });
-      setAppt(prev => ({
-        ...prev,
-        status: result?.status ?? prev.status,
-        meetings: prev.meetings.map(m => m.number === meetingNumber ? { ...m, status: 'Seen' } : m),
-      }));
-      setHeldMeetingNums(prev => new Set(prev).add(meetingNumber));
-      setUnlockedMeetingNums(prev => {
-        if (!prev.has(meetingNumber)) return prev;
-        const next = new Set(prev);
-        next.delete(meetingNumber);
-        return next;
-      });
-      refetchAudit();
-    } catch (err) {
-      setOutcomeError(err?.message ?? 'Could not mark this meeting held. Please try again.');
-    } finally {
-      setMarkingHeld(null);
-    }
-  }
-
-  // Unlock to Edit — added 23 Jul 2026, Mark's request: a held meeting
-  // shouldn't be permanently frozen. Purely local (no API call) — just
-  // lets the fields become editable again. The next successful save on
-  // that meeting re-applies the real lock (held again if saved as Seen,
-  // unlocked if saved as anything else) via handleSaveMeeting/
-  // handleMarkMeetingHeld above, not this function.
-  function handleUnlockMeeting(meetingNumber) {
-    setUnlockedMeetingNums(prev => new Set(prev).add(meetingNumber));
   }
 
   // Still loading: show a simple loading state rather than the neutral
@@ -838,54 +811,65 @@ export default function AppointmentDetail() {
       </div>
 
       {/* ── Meeting tracking ────────────────────────────────────────────────── */}
-      <MeetingSection
-        meeting={appt.meetings[0]} onChange={handleMeetingChange}
-        onSave={handleSaveMeeting} saving={savingMeetingNum === 1} justSaved={savedMeetingNum === 1}
-        onMarkHeld={handleMarkMeetingHeld} marking={markingHeld === 1}
-        held={heldMeetingNums.has(1) && !unlockedMeetingNums.has(1)} onUnlock={handleUnlockMeeting}
-        isMobile={isMobile} disabled={isLocked}
-      />
-
-      {secondMeetingCreated ? (
-        <MeetingSection
-          meeting={appt.meetings[1]} onChange={handleMeetingChange}
-          onSave={handleSaveMeeting} saving={savingMeetingNum === 2} justSaved={savedMeetingNum === 2}
-          onMarkHeld={handleMarkMeetingHeld} marking={markingHeld === 2}
-          held={heldMeetingNums.has(2) && !unlockedMeetingNums.has(2)} onUnlock={handleUnlockMeeting}
-          isMobile={isMobile} disabled={isLocked}
-        />
-      ) : (
-        <AddMeetingPrompt
-          label="Add Second Meeting"
-          unlocked={firstMeetingComplete && !isLocked}
-          unlockHint="Mark the First Meeting Held before adding a Second Meeting."
-          onClick={() => setSecondMeetingCreated(true)}
-        />
+      {/* Confirmation banner, not scoped to any one form instance — a
+          successful meeting-attempt save always transitions the UI away
+          from the form that was just submitted (either a new row's own
+          fresh form mounts in its place, or the Outcome section appears
+          instead), so a checkmark living inside the form itself would
+          either never be seen or, worse, briefly appear on a brand new,
+          not-yet-saved form. This sits above the whole section instead,
+          independent of whichever form comes next. */}
+      {justSavedAttempt && (
+        <div style={{ ...s.noticeInfo, marginBottom: '12px', color: '#15803d', background: 'color-mix(in srgb, #15803d 10%, var(--panel))' }}>
+          ✓ Meeting saved
+        </div>
       )}
-
-      {thirdMeetingEnabled && secondMeetingCreated && (
-        thirdMeetingCreated ? (
-          <MeetingSection
-            meeting={appt.meetings[2]} onChange={handleMeetingChange}
-            onSave={handleSaveMeeting} saving={savingMeetingNum === 3} justSaved={savedMeetingNum === 3}
-            onMarkHeld={handleMarkMeetingHeld} marking={markingHeld === 3}
-            held={heldMeetingNums.has(3) && !unlockedMeetingNums.has(3)} onUnlock={handleUnlockMeeting}
-            isMobile={isMobile} disabled={isLocked}
-          />
-        ) : (
-          <AddMeetingPrompt
-            label="Add Third Meeting"
-            unlocked={secondMeetingComplete && !isLocked}
-            unlockHint="Mark the Second Meeting Held before adding a Third Meeting."
-            onClick={() => setThirdMeetingCreated(true)}
-          />
-        )
-      )}
+      {/* 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) —
+          replaces the old fixed three-slot MeetingSection/AddMeetingPrompt
+          rendering entirely. One card per meeting number that actually
+          has data (meeting 1 always does — created atomically with the
+          appointment); within a meeting number, every resolved attempt
+          renders as read-only history (MeetingAttemptHistoryRow, oldest
+          first), and if that meeting number's current row is still
+          'Scheduled' (awaiting a decision), the editable form
+          (MeetingAttemptForm) renders in its place instead of a history
+          row for it. There's never more than one editable form on the
+          page at once — see activeAttempt's own comment above for why. */}
+      {meetingNumbers.map(n => {
+        const attempts = attemptsByMeetingNumber[n];
+        const isActive = activeAttempt && activeAttempt.meetingNumber === n;
+        const historyAttempts = isActive ? attempts.slice(0, -1) : attempts;
+        return (
+          <div key={n}>
+            {historyAttempts.length > 0 && (
+              <div style={{ ...s.card, marginBottom: '12px' }}>
+                <div style={s.cardTitle}>{{ 1: 'First Meeting', 2: 'Second Meeting', 3: 'Third Meeting' }[n] ?? `Meeting ${n}`}</div>
+                <div style={{ display: 'flex', flexDirection: 'column' }}>
+                  {historyAttempts.map((a, i) => <MeetingAttemptHistoryRow key={a.id} attempt={a} index={i} />)}
+                </div>
+              </div>
+            )}
+            {isActive && (
+              <MeetingAttemptForm
+                key={activeAttempt.id}
+                attempt={activeAttempt} meetingNumber={n} isLastMeeting={isLastMeeting}
+                onSave={handleSaveMeetingAttempt} saving={savingAttempt}
+                disabled={isLocked}
+              />
+            )}
+          </div>
+        );
+      })}
 
       {/* ── Appointment outcome ─────────────────────────────────────────────── */}
-      {/* Only shown once the First Meeting actually has details — no meeting,
-          nothing to report an outcome on yet (Mark's request). */}
-      {meetingHasData(appt.meetings[0]) && (
+      {/* 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) —
+          was gated on meetingHasData(appt.meetings[0]) (any data at all
+          on meeting 1); now gated on outcomeDue specifically — matches
+          the spec's own routing table exactly: this section has no
+          reason to appear while a Rescheduled or follow-up-pending
+          meeting is still in play, only once a meeting attempt has
+          actually resolved to an outcome. */}
+      {outcomeDue && (
       <div style={{ ...s.card, opacity: isLocked ? 0.75 : 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', ...s.cardTitle }}>
           <span>Appointment Outcome</span>
@@ -910,7 +894,7 @@ export default function AppointmentDetail() {
             <label style={s.formLabel}>Customer Signed?</label>
             <select
               style={{ ...s.formInput, opacity: isLocked ? 0.6 : 1 }}
-              value={appt.customerSigned === null ? '' : appt.customerSigned ? 'Yes' : 'No'}
+              value={effectiveCustomerSigned === null ? '' : effectiveCustomerSigned ? 'Yes' : 'No'}
               disabled={isLocked}
               onChange={e => handleOutcomeChange('customerSigned', e.target.value === '' ? null : e.target.value === 'Yes')}
             >
@@ -918,12 +902,24 @@ export default function AppointmentDetail() {
               <option value="Yes">Yes</option>
               <option value="No">No</option>
             </select>
+            {/* 14 Aug 2026 (§138 spec, session 20; §164 build, session 23)
+                — pre-filled from what the meeting attempt(s) already
+                established (see effectiveCustomerSigned's own comment
+                above), not yet explicitly confirmed by re-selecting it
+                here. Purely informational — Save Outcome below still
+                sends the effective value either way, this just tells the
+                person why the dropdown already shows an answer they
+                didn't pick themselves. */}
+            {appt.customerSigned === null && effectiveCustomerSigned !== null && (
+              <p style={{ ...s.formHint, marginTop: '4px' }}>Pre-filled from the meeting outcome above — change it if that's wrong.</p>
+            )}
           </div>
           {/* 14 Aug 2026 (§163, migration 030) — Mark's explicit request.
-              Only shown once "No" is actually selected, not always-visible-
-              but-disabled — an empty required field for a Won appointment
-              would be a confusing thing to stare at. */}
-          {appt.customerSigned === false && (
+              Only shown once "No" is actually selected (or pre-filled as
+              No from a Held-Not-Interested meeting attempt), not always-
+              visible-but-disabled — an empty required field for a Won
+              appointment would be a confusing thing to stare at. */}
+          {effectiveCustomerSigned === false && (
             <div>
               <label style={s.formLabel}>Reason for loss</label>
               <select

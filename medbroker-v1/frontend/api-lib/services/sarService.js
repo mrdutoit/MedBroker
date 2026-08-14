@@ -414,7 +414,7 @@ export async function compileSubjectData(leadId) {
   lead.idNumber = lead.idNumberEncrypted ? await decrypt(lead.idNumberEncrypted) : null;
   delete lead.idNumberEncrypted;
 
-  const [callAttempts, appointments, tasks, auditTrailRaw] = await Promise.all([
+  const [callAttempts, appointments, appointmentMeetingRows, tasks, auditTrailRaw] = await Promise.all([
     executeQuery(
       `SELECT ca.id, ca.outcome, ca.callTime AS "callTime", ca.notes,
               ca.followUpDateTime AS "followUpDateTime", au.displayName AS "loggedBy"
@@ -423,15 +423,36 @@ export async function compileSubjectData(leadId) {
        ORDER BY ca.callTime ASC`,
       { ...leadParam, ...orgParam }
     ),
+    // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) — the
+    // old flat meeting{1,2,3}Status/Feedback columns dropped from this
+    // SELECT; meeting history is now MeetingAttempt, a genuine one-to-
+    // many relationship the old flat shape could never represent
+    // correctly for a SAR export anyway (a rescheduled meeting's earlier
+    // attempts were already gone by the time an export ran — this export
+    // could only ever show whatever the flat columns currently held, not
+    // the subject's real full history). Fetched as its own query below
+    // and attached per-appointment, same "separate query, not a column
+    // on this row" pattern getAppointmentById() itself now uses.
     executeQuery(
       `SELECT id, status, firstAppointmentDate AS "date", firstAppointmentTime AS "time",
               productsInterestedIn AS "productsInterestedIn", customerSigned AS "customerSigned",
-              meeting1Status AS "meeting1Status", meeting1Feedback AS "meeting1Feedback",
-              meeting2Status AS "meeting2Status", meeting2Feedback AS "meeting2Feedback",
-              meeting3Status AS "meeting3Status", meeting3Feedback AS "meeting3Feedback",
               createdAt AS "createdAt"
        FROM Appointment WHERE leadId = @leadId AND organisationId = @organisationId
        ORDER BY createdAt ASC`,
+      { ...leadParam, ...orgParam }
+    ),
+    // Every MeetingAttempt across every one of this lead's appointments,
+    // in one query rather than N — grouped back onto each appointment in
+    // JS below. This IS real personal data POPIA's access-request right
+    // covers (what was discussed, whether the subject expressed
+    // interest, whether they cancelled) — omitting it here would be a
+    // real compliance gap, not just an incomplete export.
+    executeQuery(
+      `SELECT ma.appointmentId AS "appointmentId", ma.meetingNumber AS "meetingNumber",
+              ma.date, ma.status, ma.notes, ma.createdAt AS "createdAt"
+       FROM MeetingAttempt ma JOIN Appointment a ON a.id = ma.appointmentId
+       WHERE a.leadId = @leadId AND a.organisationId = @organisationId
+       ORDER BY ma.meetingNumber ASC, ma.createdAt ASC`,
       { ...leadParam, ...orgParam }
     ),
     executeQuery(
@@ -450,6 +471,15 @@ export async function compileSubjectData(leadId) {
     // without the duplicate write.
     listAuditLogForLead(leadId),
   ]);
+
+  // Attach each appointment's own meeting history — a plain array per
+  // appointment, oldest attempt first within each meeting number, same
+  // shape getAppointmentById()'s meetingAttempts already uses elsewhere
+  // in the app, so a reader of this export sees the identical structure
+  // staff themselves see on Appointment Detail.
+  for (const appt of appointments) {
+    appt.meetingAttempts = appointmentMeetingRows.filter(m => m.appointmentId === appt.id);
+  }
 
   // listAuditLogForLead returns DESC (right for a UI history list) with
   // more fields than this export ever exposed — reversed to ASC for a

@@ -9,6 +9,7 @@ import { validateToken, requireRole, authErrorResponse } from '../middleware/aut
 import {
   listAppointments, createAppointment, getAppointmentById, assignBroker,
   reassignAppointment, returnToLeads, saveOutcome, claimAppointment, listAvailableToClaim,
+  saveMeetingAttemptOutcome,
 } from '../services/appointmentService.js';
 import { findMatchingBrokers } from '../services/brokerMatchingService.js';
 import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById, getActiveUserById } from '../services/userService.js';
@@ -23,6 +24,7 @@ import { TOKEN_PACKS } from '../services/tokenPacks.js';
 import {
   CreateAppointmentSchema, AppointmentListQuerySchema, AssignBrokerSchema,
   ReassignAppointmentSchema, SaveOutcomeSchema, BrokerMatchingQuerySchema, TokenTopUpSchema,
+  SaveMeetingAttemptSchema,
 } from '../models/appointment.js';
 import { TokenCheckoutSchema } from '../models/integration.js';
 import { isUuid } from '../http/helpers.js';
@@ -396,7 +398,9 @@ export async function handleAppointmentOutcome(req, res, id) {
       changeDetail: {
         customerSigned: parsed.data.customerSigned ?? null,
         newStatus: result.status,
-        meetings: parsed.data.meetings ?? null,
+        // meetings dropped 14 Aug 2026 (§164) — SaveOutcomeSchema no
+        // longer carries that field at all; meeting saves are audited
+        // separately, in handleSaveMeetingAttempt below.
       },
       ipAddress: clientIp(req),
     });
@@ -409,6 +413,55 @@ export async function handleAppointmentOutcome(req, res, id) {
       return res.status(status).json(body);
     }
     console.error('appointments/[id]/outcome error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * POST /api/appointments/:id/meeting-attempts/:attemptId — 14 Aug 2026
+ * (§138 spec, session 20; §164 build, session 23). Saves the outcome of
+ * one MeetingAttempt row still sitting at 'Scheduled' — see
+ * saveMeetingAttemptOutcome()'s own header comment (appointmentService.js)
+ * for the full four-branch routing this triggers.
+ */
+export async function handleSaveMeetingAttempt(req, res, id, attemptId) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Agent', 'Supervisor', 'Admin', 'GlobalAdmin', 'Broker']);
+
+    if (!isUuid(id) || !isUuid(attemptId)) return res.status(400).json({ error: 'Invalid ID format' });
+
+    const parsed = SaveMeetingAttemptSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    const result = await saveMeetingAttemptOutcome(id, attemptId, parsed.data, claims.oid);
+
+    await writeAuditLog({
+      entityType: 'Appointment',
+      entityId: id,
+      action: 'MeetingAttemptSaved',
+      performedById: claims.oid,
+      changeDetail: {
+        attemptId, meetingNumber: result.attempt.meetingNumber, status: result.attempt.status,
+        followUpRequired: result.attempt.followUpRequired,
+        newAttemptCreated: !!result.newAttempt, outcomeDue: result.outcomeDue,
+      },
+      ipAddress: clientIp(req),
+    });
+
+    return res.status(200).json(result);
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('appointments/[id]/meeting-attempts/[attemptId] error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

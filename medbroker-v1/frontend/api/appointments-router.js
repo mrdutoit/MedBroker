@@ -48,6 +48,7 @@ import {
   handleAppointmentAudit, handleBrokerMatching, handleAppointmentClaim,
   handleAvailableToClaim, handleTokenLedgerMe, handleTokenLedgerByBroker, handleTokenTopUp,
   handleTokenCheckout, handleTokenWebhook, handleTokenWebhookPaystack,
+  handleSaveMeetingAttempt,
 } from '../api-lib/handlers/appointmentHandlers.js';
 import { applyCors, parseSlug, readRawBody } from '../api-lib/http/helpers.js';
 
@@ -122,6 +123,19 @@ export default async function handler(req, res) {
 
   if (segments.length === 1) {
     return handleAppointmentById(req, res, segments[0]);
+  }
+
+  // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) — needs
+  // its own branch, not a SUB_ROUTES entry: that map only handles the
+  // 2-segment :id/:subroute shape, this route has three
+  // (:id/meeting-attempts/:attemptId). No actual ordering dependency
+  // with the SUB_ROUTES check below — segments.length is 3 here vs 2
+  // there, already mutually exclusive — placed before it anyway to keep
+  // routes that share a path prefix ("meeting-attempts" isn't a
+  // SUB_ROUTES key today, but grouping related dispatch logic together
+  // reads clearer than scattering it).
+  if (segments.length === 3 && segments[1] === 'meeting-attempts') {
+    return handleSaveMeetingAttempt(req, res, segments[0], segments[2]);
   }
 
   if (segments.length === 2 && SUB_ROUTES[segments[1]]) {

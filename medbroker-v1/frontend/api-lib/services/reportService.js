@@ -467,9 +467,15 @@ export async function getBrokerDetailReport(brokerId, period, scope, referenceDa
     `SELECT
        COUNT(a.id) AS "appts",
        COUNT(a.id) FILTER (WHERE a.isBrokerSwitch = true) AS "switches",
-       COUNT(a.id) FILTER (WHERE a.meeting1Status = 'Seen') +
-       COUNT(a.id) FILTER (WHERE a.meeting2Status = 'Seen') +
-       COUNT(a.id) FILTER (WHERE a.meeting3Status = 'Seen') AS "meetingsHeld"
+       -- 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) —
+       -- rewritten off the old flat meeting{1,2,3}Status columns onto
+       -- MeetingAttempt. 'Held' now covers BOTH HeldInterested and
+       -- HeldNotInterested (matches the old 'Seen' semantics exactly —
+       -- that value never distinguished interested/not either; the new
+       -- model just captures more, it doesn't narrow what counts here).
+       (SELECT COUNT(*) FROM MeetingAttempt ma JOIN Appointment a2 ON a2.id = ma.appointmentId
+        WHERE a2.brokerId = @brokerId AND a2.createdAt >= @start AND a2.createdAt <= @end
+          AND ma.status IN ('HeldInterested', 'HeldNotInterested')) AS "meetingsHeld"
      FROM Appointment a
      WHERE a.brokerId = @brokerId AND a.createdAt >= @start AND a.createdAt <= @end`,
     { brokerId: { type: sql.UniqueIdentifier, value: brokerId }, start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end } }
@@ -535,33 +541,59 @@ export async function getBrokerDetailReport(brokerId, period, scope, referenceDa
   // than the mock's exact "signed after 2nd meeting" framing (which
   // implied a stricter causal link this data doesn't actually establish),
   // but every number in it is real.
+  //
+  // REWRITTEN 14 Aug 2026 (§138 spec, session 20; §164 build, session
+  // 23) off the old flat meeting{1,2}Status columns onto MeetingAttempt.
+  // Two real changes, not just a mechanical port:
+  //   - 'Cancelled' is gone — collapsed into 'Rescheduled' in the new
+  //     model (see migration 031's own header for the reasoning); this
+  //     summary now has one fewer row per meeting number than before.
+  //   - The old 'Seen' value never distinguished interested from not —
+  //     the new model does, so this summary now shows that split
+  //     explicitly (a genuine improvement in what's reportable, not a
+  //     like-for-like port).
+  // "Total" per meeting number is COUNT(*) of ALL attempt rows for that
+  // number (every reschedule creates a new row) — deliberately NOT the
+  // same as "how many appointments have reached this meeting number",
+  // since an appointment rescheduled twice before being held contributes
+  // 3 rows to that meeting number's total, not 1. Worth knowing when
+  // reading this: it's counting attempts, not appointments, matching
+  // what "Total" already meant under the old model too (meeting1Date IS
+  // NOT NULL counted a row per appointment there only because the old
+  // model could never have more than one row per meeting number at all
+  // — this isn't a behaviour change for meeting number 1 specifically
+  // unless it was actually rescheduled more than once, it's just now
+  // capable of reflecting that history instead of silently overwriting it).
   const meetingRows = await executeQuery(
-    `SELECT
-       COUNT(*) FILTER (WHERE meeting1Status = 'Seen') AS "m1Seen",
-       COUNT(*) FILTER (WHERE meeting1Status = 'Rescheduled') AS "m1Resched",
-       COUNT(*) FILTER (WHERE meeting1Status = 'Cancelled') AS "m1Cancelled",
-       COUNT(*) FILTER (WHERE meeting1Date IS NOT NULL) AS "m1Total",
-       COUNT(*) FILTER (WHERE meeting2Status = 'Seen') AS "m2Seen",
-       COUNT(*) FILTER (WHERE meeting2Status = 'Rescheduled') AS "m2Resched",
-       COUNT(*) FILTER (WHERE meeting2Status = 'Cancelled') AS "m2Cancelled",
-       COUNT(*) FILTER (WHERE meeting2Date IS NOT NULL) AS "m2Total"
-     FROM Appointment
-     WHERE brokerId = @brokerId AND createdAt >= @start AND createdAt <= @end`,
+    `SELECT ma.meetingNumber AS "meetingNumber", ma.status, COUNT(*) AS count
+     FROM MeetingAttempt ma JOIN Appointment a ON a.id = ma.appointmentId
+     WHERE a.brokerId = @brokerId AND a.createdAt >= @start AND a.createdAt <= @end AND ma.meetingNumber IN (1, 2)
+     GROUP BY ma.meetingNumber, ma.status`,
     { brokerId: { type: sql.UniqueIdentifier, value: brokerId }, start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end } }
   );
-  const m = meetingRows[0] ?? {};
+  const mCounts = { 1: {}, 2: {} };
+  for (const row of meetingRows) {
+    if (mCounts[row.meetingNumber]) mCounts[row.meetingNumber][row.status] = Number(row.count);
+  }
+  const mTotal = n => Object.values(mCounts[n]).reduce((sum, c) => sum + c, 0);
   const meetingSummary = [
-    { label: '1st meeting — Seen',        value: `${Number(m.m1Seen ?? 0)} / ${Number(m.m1Total ?? 0)}` },
-    { label: '1st meeting — Rescheduled', value: `${Number(m.m1Resched ?? 0)} / ${Number(m.m1Total ?? 0)}` },
-    { label: '1st meeting — Cancelled',   value: `${Number(m.m1Cancelled ?? 0)} / ${Number(m.m1Total ?? 0)}` },
-    { label: '2nd meeting — Seen',        value: `${Number(m.m2Seen ?? 0)} / ${Number(m.m2Total ?? 0)}` },
-    { label: '2nd meeting — Rescheduled', value: `${Number(m.m2Resched ?? 0)} / ${Number(m.m2Total ?? 0)}` },
-    { label: '2nd meeting — Cancelled',   value: `${Number(m.m2Cancelled ?? 0)} / ${Number(m.m2Total ?? 0)}` },
+    { label: '1st meeting — Held (Interested)',     value: `${mCounts[1].HeldInterested ?? 0} / ${mTotal(1)}` },
+    { label: '1st meeting — Held (Not Interested)', value: `${mCounts[1].HeldNotInterested ?? 0} / ${mTotal(1)}` },
+    { label: '1st meeting — Rescheduled',           value: `${mCounts[1].Rescheduled ?? 0} / ${mTotal(1)}` },
+    { label: '2nd meeting — Held (Interested)',     value: `${mCounts[2].HeldInterested ?? 0} / ${mTotal(2)}` },
+    { label: '2nd meeting — Held (Not Interested)', value: `${mCounts[2].HeldNotInterested ?? 0} / ${mTotal(2)}` },
+    { label: '2nd meeting — Rescheduled',           value: `${mCounts[2].Rescheduled ?? 0} / ${mTotal(2)}` },
     { label: 'Signed (of all appointments)', value: `${signed} / ${appts}${appts > 0 ? ` (${Math.round(signed / appts * 100)}%)` : ''}`, bold: true },
   ];
 
   // Recent appointments — last 5, with lead name, portfolio, meeting
   // statuses, signed decision, and products sold (joined names).
+  // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) — m1/m2
+  // now pull the MOST RECENT attempt row for that meeting number
+  // (ORDER BY createdAt DESC LIMIT 1), not a flat column — "most recent"
+  // is the meaningful equivalent of "current state" now that a meeting
+  // number can have more than one row (a reschedule creates a new one;
+  // only the latest one is still actionable/current).
   const recentRows = await executeQuery(
     `SELECT
        a.id, l.firstName AS "firstName", l.lastName AS "lastName", pf.name AS "portfolio",
@@ -570,7 +602,9 @@ export async function getBrokerDetailReport(brokerId, period, scope, referenceDa
        (SELECT COALESCE(array_agg(p4.name ORDER BY p4.name), ARRAY[]::text[])
         FROM AppointmentPortfolio ap4 JOIN Portfolio p4 ON p4.id = ap4.portfolioId
         WHERE ap4.appointmentId = a.id) AS "portfolios",
-       a.meeting1Status AS "m1", a.meeting2Status AS "m2", a.customerSigned AS "signed",
+       (SELECT ma1.status FROM MeetingAttempt ma1 WHERE ma1.appointmentId = a.id AND ma1.meetingNumber = 1 ORDER BY ma1.createdAt DESC LIMIT 1) AS "m1",
+       (SELECT ma2.status FROM MeetingAttempt ma2 WHERE ma2.appointmentId = a.id AND ma2.meetingNumber = 2 ORDER BY ma2.createdAt DESC LIMIT 1) AS "m2",
+       a.customerSigned AS "signed",
        (SELECT COALESCE(array_agg(p2.name), ARRAY[]::text[]) FROM AppointmentProduct ap2
         JOIN Product p2 ON p2.id = ap2.productId WHERE ap2.appointmentId = a.id) AS "products",
        (SELECT COALESCE(SUM(ap3.policyValue), 0) FROM AppointmentProduct ap3

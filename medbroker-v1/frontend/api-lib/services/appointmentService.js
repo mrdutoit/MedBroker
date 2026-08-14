@@ -47,12 +47,23 @@ const APPOINTMENT_SELECT = `
   a.virtualMeetingLink AS "virtualMeetingLink",
   a.productsInterestedIn AS "productsInterestedIn",
   a.currentInsurer AS "currentInsurer",
-  a.meeting1Date AS "meeting1Date", a.meeting1Status AS "meeting1Status",
-  a.meeting1Feedback AS "meeting1Feedback",
-  a.meeting2Date AS "meeting2Date", a.meeting2Status AS "meeting2Status",
-  a.meeting2Feedback AS "meeting2Feedback",
-  a.meeting3Date AS "meeting3Date", a.meeting3Status AS "meeting3Status",
-  a.meeting3Feedback AS "meeting3Feedback",
+  -- meeting{1,2,3}Date/Status/Feedback REMOVED from this SELECT 14 Aug
+  -- 2026 (§138 spec, session 20; §164 build, session 23) — replaced by
+  -- MeetingAttempt, fetched separately in getAppointmentById() below
+  -- (same pattern productsSold already used: a dedicated query, not a
+  -- column in this shared SELECT, since it's a one-to-many relationship
+  -- this single-row query was never a natural fit for). The columns
+  -- themselves still exist on Appointment — not dropped by migration
+  -- 031, deliberately, until the backfill is confirmed correct in
+  -- production — just no longer read by application code from here.
+  --
+  -- meeting1Status/meeting2Status KEPT as output field names (AppointmentList.jsx
+  -- reads them directly, unchanged) but now sourced from MeetingAttempt's
+  -- MOST RECENT row per meeting number, not a flat column — "most
+  -- recent" is the meaningful equivalent of "current state" now that a
+  -- meeting number can have more than one row.
+  (SELECT ma1.status FROM MeetingAttempt ma1 WHERE ma1.appointmentId = a.id AND ma1.meetingNumber = 1 ORDER BY ma1.createdAt DESC LIMIT 1) AS "meeting1Status",
+  (SELECT ma2.status FROM MeetingAttempt ma2 WHERE ma2.appointmentId = a.id AND ma2.meetingNumber = 2 ORDER BY ma2.createdAt DESC LIMIT 1) AS "meeting2Status",
   a.customerSigned AS "customerSigned", a.isBrokerSwitch AS "isBrokerSwitch", a.lostReason AS "lostReason",
   a.claimTokenCost AS "claimTokenCost", a.claimedAt AS "claimedAt",
   a.createdAt AS "createdAt", a.updatedAt AS "updatedAt",
@@ -141,6 +152,53 @@ async function getProductsSold(appointmentId) {
     { appointmentId: { type: sql.UniqueIdentifier, value: appointmentId } }
   );
   return rows.map((r) => ({ name: r.name, value: r.value === null ? null : Number(r.value) }));
+}
+
+// 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) — every
+// attempt row for one appointment, oldest first within each meeting
+// number (meetingNumber ASC, then createdAt ASC — matches the order
+// they were actually logged in, which is the order the frontend renders
+// each meeting's own history). Mirrors getProductsSold()'s pattern:
+// a dedicated one-to-many query, not a column on the shared SELECT.
+async function getMeetingAttempts(appointmentId) {
+  const rows = await executeQuery(
+    `SELECT id, meetingNumber AS "meetingNumber", date, status,
+            followUpRequired AS "followUpRequired", notes, recordedById AS "recordedById",
+            createdAt AS "createdAt"
+     FROM MeetingAttempt WHERE appointmentId = @appointmentId
+     ORDER BY meetingNumber ASC, createdAt ASC`,
+    { appointmentId: { type: sql.UniqueIdentifier, value: appointmentId } }
+  );
+  return rows.map(r => ({
+    id: r.id, meetingNumber: r.meetingNumber, date: r.date, status: r.status,
+    followUpRequired: r.followUpRequired, notes: r.notes, recordedById: r.recordedById,
+    createdAt: r.createdAt,
+  }));
+}
+
+// Internal — creates a fresh 'Scheduled' row (the default; not passed
+// explicitly since it's the only status a NEW row is ever created with —
+// SaveMeetingAttemptSchema itself doesn't even accept 'Scheduled' as a
+// value, since that's never something a client saves a row AS, only
+// something a row starts out as). Called from three places: createAppointment()
+// (meeting 1's first row, date = firstAppointmentDate), and
+// saveMeetingAttemptOutcome() below, twice (Rescheduled -> same meeting
+// number; Held-Interested + follow-up required -> meetingNumber + 1).
+async function createMeetingAttempt(appointmentId, organisationId, meetingNumber, date, recordedById) {
+  const id = crypto.randomUUID();
+  await executeQuery(
+    `INSERT INTO MeetingAttempt (id, organisationId, appointmentId, meetingNumber, date, status, recordedById, createdAt)
+     VALUES (@id, @organisationId, @appointmentId, @meetingNumber, @date, 'Scheduled', @recordedById, NOW())`,
+    {
+      id:             { type: sql.UniqueIdentifier, value: id },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+      appointmentId:  { type: sql.UniqueIdentifier, value: appointmentId },
+      meetingNumber:  { type: sql.Int,               value: meetingNumber },
+      date:           { type: sql.Date,              value: date ?? null },
+      recordedById:   { type: sql.UniqueIdentifier,  value: recordedById ?? null },
+    }
+  );
+  return id;
 }
 
 // Changed 23 Jul 2026 (§44) — takes [{productId, value}] instead of a bare
@@ -243,6 +301,8 @@ export async function getAppointmentById(id) {
 
   appt.productsInterestedIn = appt.productsInterestedIn ? JSON.parse(appt.productsInterestedIn) : [];
   appt.productsSold = await getProductsSold(id);
+  // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23).
+  appt.meetingAttempts = await getMeetingAttempts(id);
   return appt;
 }
 
@@ -388,6 +448,15 @@ export async function createAppointment(data) {
   // sync deliberately rather than left as a partial list that needs
   // unioning with portfolioId at read time.
   await syncAppointmentPortfolios(newId, portfolioIds);
+
+  // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) — meeting
+  // 1's first attempt row, created atomically with the Appointment
+  // itself, date pre-filled from firstAppointmentDate — exactly the
+  // spec's own wording. recordedById is null here (system-created at
+  // booking time, not a person recording an outcome — matches Task's own
+  // createdById convention: null for system-generated, populated only
+  // when a person actually acts).
+  await createMeetingAttempt(newId, organisationId, 1, data.firstAppointmentDate, null);
 
   // Side effect matching the documented design: the Lead is now "in" an
   // appointment, so it moves out of the Leads list (LeadList.jsx explicitly
@@ -814,7 +883,6 @@ export async function saveOutcome(id, data) {
   const organisationId = resolveOrganisationId();
   const current = await executeQueryOne(
     `SELECT a.status, a.brokerId AS "brokerId", a.leadId AS "leadId",
-            a.meeting1Status AS "meeting1Status", a.meeting2Status AS "meeting2Status", a.meeting3Status AS "meeting3Status",
             l.title, l.firstName AS "firstName", l.lastName AS "lastName"
      FROM Appointment a
      LEFT JOIN Lead l ON a.leadId = l.id
@@ -826,9 +894,14 @@ export async function saveOutcome(id, data) {
     throw { status: 400, message: 'This appointment is locked and can no longer be edited.' };
   }
 
+  // meeting1Status/meeting2Status/meeting3Status dropped from the SELECT
+  // above and `meetings` dropped from computeAppointmentStatus()'s call
+  // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) — this
+  // endpoint only ever decides ClosedWon/ClosedLost now; the InProgress
+  // transition happens in saveMeetingAttemptOutcome() below, at the
+  // point a meeting attempt is actually saved as held.
   const newStatus = computeAppointmentStatus(current.status, {
     customerSigned: data.customerSigned,
-    meetings: data.meetings,
   });
 
   const setClauses = ['status = @status', 'updatedAt = NOW()'];
@@ -865,14 +938,12 @@ export async function saveOutcome(id, data) {
     params.lostReason = { type: sql.NVarChar(50), value: data.lostReason };
   }
 
-  for (const meeting of data.meetings ?? []) {
-    const n = meeting.number;
-    if (![1, 2, 3].includes(n)) continue;
-    setClauses.push(`meeting${n}Date = @meeting${n}Date`, `meeting${n}Status = @meeting${n}Status`, `meeting${n}Feedback = @meeting${n}Feedback`);
-    params[`meeting${n}Date`]     = { type: sql.Date,            value: meeting.date || null };
-    params[`meeting${n}Status`]   = { type: sql.NVarChar(50),    value: meeting.status || null };
-    params[`meeting${n}Feedback`] = { type: sql.NVarChar(2000),  value: meeting.notes || null };
-  }
+  // meetings loop REMOVED 14 Aug 2026 (§138 spec, session 20; §164
+  // build, session 23) — meeting saves are their own dedicated endpoint
+  // now (saveMeetingAttemptOutcome() below, POST /api/appointments/:id/
+  // meeting-attempts/:attemptId), not bundled into this call. This
+  // endpoint's payload (SaveOutcomeSchema) no longer even has a
+  // `meetings` field to loop over.
 
   await executeQuery(`UPDATE Appointment SET ${setClauses.join(', ')} WHERE id = @id AND organisationId = @organisationId`, params);
 
@@ -886,6 +957,7 @@ export async function saveOutcome(id, data) {
   // events — not moved to Notification, genuinely nothing fires. See
   // Status_Vercel.md §138 for the full reasoning.
 
+
   if (data.productsSold !== undefined) {
     const idMap = await resolveProductIdMap(data.productsSold.map(p => p.product));
     const productsWithValues = data.productsSold
@@ -895,4 +967,136 @@ export async function saveOutcome(id, data) {
   }
 
   return { status: newStatus };
+}
+
+/**
+ * 14 Aug 2026 (§138 spec, session 20; §164 build, session 23). Saves the
+ * outcome of one MeetingAttempt row and applies the spec's own
+ * four-branch routing table — this function IS that table, translated
+ * directly, not a reinterpretation of it:
+ *
+ *   Held – Not Interested (any meeting number)          -> Outcome form
+ *     due, Customer Signed pre-set No
+ *   Held – Interested, on the LAST configured meeting    -> Outcome form
+ *     due, Customer Signed pre-set Yes (follow-up isn't even asked —
+ *     there's no later meeting number to advance to; asking would be a
+ *     dead end the spec explicitly rules out)
+ *   Held – Interested, follow-up required = No (not last) -> same,
+ *     Outcome form due, Customer Signed pre-set Yes
+ *   Held – Interested, follow-up required = Yes            -> new row
+ *     created for meetingNumber + 1, Outcome form NOT due
+ *   Rescheduled                                             -> new row,
+ *     same meeting number, Outcome form NOT due
+ *
+ * "Last configured meeting" is resolved server-side from
+ * appointments.thirdMeeting.enabled — never trusted from the client,
+ * same principle as computeAppointmentStatus() never accepting a status
+ * directly. followUpRequired is likewise only ever stored what the
+ * server itself decided is applicable — null when the question isn't
+ * relevant (Held-Not-Interested, Rescheduled, or the last meeting),
+ * not just whatever the client happened to send.
+ *
+ * InProgress — moved here from computeAppointmentStatus() (see that
+ * function's own comment for why): fires the first time meeting 1's
+ * attempt is saved as EITHER held outcome (matches the old model's
+ * "meeting1 marked Seen -> InProgress" rule exactly — Seen meant "the
+ * meeting happened" regardless of interested/not; Rescheduled meeting 1
+ * attempts never triggered it either, same here).
+ *
+ * @param {string} appointmentId
+ * @param {string} attemptId
+ * @param {{date?: string|null, status: string, notes?: string|null, followUpRequired?: boolean|null}} data - validated SaveMeetingAttemptSchema data
+ * @param {string|null} recordedById - claims.oid of whoever is saving this
+ * @returns {Promise<{attempt: Object, newAttempt: Object|null, appointmentStatus: string, outcomeDue: boolean, prefillCustomerSigned: boolean|null}>}
+ */
+export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, recordedById) {
+  const organisationId = resolveOrganisationId();
+
+  const appt = await executeQueryOne(
+    `SELECT id, status, organisationId FROM Appointment WHERE id = @appointmentId AND organisationId = @organisationId`,
+    { appointmentId: { type: sql.UniqueIdentifier, value: appointmentId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  if (!appt) throw { status: 404, message: 'Appointment not found' };
+  if (['ClosedWon', 'ClosedLost', 'ReturnedToLeads'].includes(appt.status)) {
+    throw { status: 400, message: 'This appointment is locked and can no longer be edited.' };
+  }
+
+  const attempt = await executeQueryOne(
+    `SELECT id, meetingNumber AS "meetingNumber", status FROM MeetingAttempt
+     WHERE id = @attemptId AND appointmentId = @appointmentId AND organisationId = @organisationId`,
+    { attemptId: { type: sql.UniqueIdentifier, value: attemptId }, appointmentId: { type: sql.UniqueIdentifier, value: appointmentId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  if (!attempt) throw { status: 404, message: 'Meeting attempt not found' };
+  // Append-only past this point — once a row has left 'Scheduled' it's
+  // final, matching the spec's own "not the flat-column pattern" — a
+  // second save here would be exactly the in-place overwrite this whole
+  // redesign exists to stop.
+  if (attempt.status !== 'Scheduled') {
+    throw { status: 400, message: 'This meeting attempt has already been recorded and cannot be changed — reschedules and follow-ups create a new row instead.' };
+  }
+
+  const thirdMeetingMeta = await getFlagMeta('appointments.thirdMeeting.enabled');
+  const thirdMeetingEnabled = thirdMeetingMeta?.value === '1';
+  const lastConfiguredMeetingNumber = thirdMeetingEnabled ? 3 : 2;
+  const isLastMeeting = attempt.meetingNumber >= lastConfiguredMeetingNumber;
+
+  // Server decides whether followUpRequired is even applicable — never
+  // trusts whatever the client sent for it once that's decided.
+  const followUpApplicable = data.status === 'HeldInterested' && !isLastMeeting;
+  const followUpRequired = followUpApplicable ? !!data.followUpRequired : null;
+
+  await executeQuery(
+    `UPDATE MeetingAttempt SET date = @date, status = @status, notes = @notes, followUpRequired = @followUpRequired, recordedById = @recordedById
+     WHERE id = @attemptId`,
+    {
+      attemptId:        { type: sql.UniqueIdentifier, value: attemptId },
+      date:             { type: sql.Date,              value: data.date || null },
+      status:           { type: sql.NVarChar(50),      value: data.status },
+      notes:            { type: sql.NVarChar(2000),    value: data.notes || null },
+      followUpRequired: { type: sql.Bit,               value: followUpRequired },
+      recordedById:     { type: sql.UniqueIdentifier,  value: recordedById ?? null },
+    }
+  );
+
+  // InProgress — see this function's own header comment for the full
+  // reasoning on why this moved here from computeAppointmentStatus().
+  let appointmentStatus = appt.status;
+  if (attempt.meetingNumber === 1 && (data.status === 'HeldInterested' || data.status === 'HeldNotInterested') && ['Unassigned', 'Assigned'].includes(appt.status)) {
+    appointmentStatus = 'InProgress';
+    await executeQuery(`UPDATE Appointment SET status = @status, updatedAt = NOW() WHERE id = @appointmentId AND organisationId = @organisationId`, {
+      appointmentId: { type: sql.UniqueIdentifier, value: appointmentId },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+      status: { type: sql.NVarChar(50), value: appointmentStatus },
+    });
+  }
+
+  let newAttempt = null;
+  let outcomeDue = false;
+  let prefillCustomerSigned = null;
+
+  if (data.status === 'Rescheduled') {
+    const newId = await createMeetingAttempt(appointmentId, organisationId, attempt.meetingNumber, null, recordedById);
+    newAttempt = { id: newId, meetingNumber: attempt.meetingNumber, date: null, status: 'Scheduled', followUpRequired: null, notes: null };
+  } else if (data.status === 'HeldNotInterested') {
+    outcomeDue = true;
+    prefillCustomerSigned = false;
+  } else if (data.status === 'HeldInterested') {
+    if (followUpRequired) {
+      const nextMeetingNumber = attempt.meetingNumber + 1;
+      const newId = await createMeetingAttempt(appointmentId, organisationId, nextMeetingNumber, null, recordedById);
+      newAttempt = { id: newId, meetingNumber: nextMeetingNumber, date: null, status: 'Scheduled', followUpRequired: null, notes: null };
+    } else {
+      // Either the last configured meeting, or follow-up explicitly No.
+      outcomeDue = true;
+      prefillCustomerSigned = true;
+    }
+  }
+
+  return {
+    attempt: { id: attemptId, meetingNumber: attempt.meetingNumber, date: data.date || null, status: data.status, followUpRequired, notes: data.notes || null },
+    newAttempt,
+    appointmentStatus,
+    outcomeDue,
+    prefillCustomerSigned,
+  };
 }

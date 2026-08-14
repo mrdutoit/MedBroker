@@ -22,7 +22,12 @@ export const AppointmentStatus = z.enum([
   'Unassigned', 'Assigned', 'InProgress', 'ClosedWon', 'ClosedLost', 'Claimed',
 ]);
 
-const MeetingStatus = z.enum(['Seen', 'Rescheduled', 'Cancelled']);
+// MeetingStatus removed 14 Aug 2026 (§164) — was only used by the
+// now-removed MeetingInputSchema. The new model's four statuses
+// (Scheduled/HeldInterested/HeldNotInterested/Rescheduled) are validated
+// directly in SaveMeetingAttemptSchema instead, not via a shared enum —
+// 'Scheduled' is never a value this schema accepts (it's the row's own
+// creation default, not something a client saves it AS).
 
 /**
  * Booking a new appointment from Lead Detail. agentId is deliberately NOT
@@ -115,12 +120,9 @@ export const AssignBrokerSchema = z.object({
   agentId:  z.string().uuid().optional(), // present in the API contract but agentId is not changed by this action — see appointmentService.js
 });
 
-const MeetingInputSchema = z.object({
-  number:   z.number().int().min(1).max(3),
-  date:     z.string().date().optional().or(z.literal('')),
-  status:   MeetingStatus.optional().or(z.literal('')),
-  notes:    z.string().max(2000).optional(),
-});
+// MeetingInputSchema removed 14 Aug 2026 (§164) — the old flat
+// meeting{1,2,3}Date/Status/Feedback save shape, replaced entirely by
+// SaveMeetingAttemptSchema (below the outcome schema in this file).
 
 /**
  * Saving the appointment outcome. The resulting status (ClosedWon/
@@ -140,7 +142,10 @@ const ProductSoldInputSchema = z.object({
 export const SaveOutcomeSchema = z.object({
   customerSigned: z.boolean().optional().nullable(),
   productsSold:   z.array(ProductSoldInputSchema).optional(),
-  meetings:       z.array(MeetingInputSchema).optional(),
+  // meetings REMOVED 14 Aug 2026 (§138 spec, §164 build) — meeting saves
+  // now go through their own dedicated endpoint (SaveMeetingAttemptSchema
+  // below), not bundled into the outcome save. This endpoint now only
+  // ever decides ClosedWon/ClosedLost.
   // 14 Aug 2026 (§163, migration 030) — mirrors the CHECK constraint on
   // Appointment.lostReason exactly. Optional at the schema level (the
   // outcome endpoint is reused for every save, including ones that never
@@ -149,6 +154,31 @@ export const SaveOutcomeSchema = z.object({
   // before you can mark this Lost", matching how meetings/customerSigned
   // are handled the same way elsewhere in this same schema.
   lostReason: z.enum(['PriceTooHigh', 'ChoseCompetitor', 'NoLongerInterested', 'Uncontactable', 'NotEligible', 'Other']).optional().nullable(),
+});
+
+// 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) — the
+// Meeting/Appointment attempt-history redesign. Saves the OUTCOME of one
+// attempt row that's currently sitting at status 'Scheduled' — this is
+// the endpoint that replaces the old flat meeting{N}Date/Status/Feedback
+// columns and the "Mark Meeting Held" button both. status here is never
+// 'Scheduled' — that's the row's own creation default, not something
+// this endpoint sets; saving through here IS the transition away from
+// it, to one of the three real outcomes.
+//
+// followUpRequired is asked ONLY when status = 'HeldInterested' AND this
+// isn't the last configured meeting number (2 or 3, depending on
+// appointments.thirdMeeting.enabled) — the service layer itself decides
+// whether it's actually relevant server-side (never trusts a client-sent
+// value for the "is this the last meeting" case, same "authoritative
+// server-side" principle as computeAppointmentStatus() already
+// following elsewhere in this file) — kept optional here rather than
+// conditionally required by Zod, since that condition depends on data
+// (the flag value, the meeting number) Zod's own schema shape can't see.
+export const SaveMeetingAttemptSchema = z.object({
+  date:             z.string().optional().nullable(),
+  status:           z.enum(['HeldInterested', 'HeldNotInterested', 'Rescheduled']),
+  notes:            z.string().max(2000).optional().nullable(),
+  followUpRequired: z.boolean().optional().nullable(),
 });
 
 export const AppointmentListQuerySchema = z.object({
