@@ -85,7 +85,26 @@ const MEETING_ATTEMPT_STATUSES = [
   { value: 'HeldInterested',    label: 'Held – Interested' },
   { value: 'HeldNotInterested', label: 'Held – Not Interested' },
   { value: 'Rescheduled',       label: 'Rescheduled' },
+  // 15 Aug 2026 (§172) — added back, one day after being collapsed into
+  // Rescheduled (§164) — Mark's real-world case: a client cancelling or
+  // not showing, with no reschedule happening at that moment, is
+  // genuinely different from one being actively rebooked, and worth
+  // reporting on separately.
+  { value: 'Cancelled',         label: 'Cancelled' },
+  { value: 'Missed',            label: 'Missed / No-show' },
 ];
+
+// 15 Aug 2026 (§172, migration 034) — mirrors AppointmentDetail's own
+// lostReason dropdown exactly (same six-ish-category pattern, same
+// "only shown once the triggering status is actually selected" UX).
+const CANCEL_REASONS = [
+  { value: 'NoLongerInterested', label: 'No longer interested' },
+  { value: 'FoundAlternative',   label: 'Found an alternative broker/solution' },
+  { value: 'SchedulingConflict', label: 'Scheduling conflict, wants to rebook' },
+  { value: 'Uncontactable',      label: 'Uncontactable' },
+  { value: 'Other',              label: 'Other' },
+];
+const CANCEL_REASON_LABELS = Object.fromEntries(CANCEL_REASONS.map(r => [r.value, r.label]));
 
 // ─── Status chip ───────────────────────────────────────────────────────────────
 function StatusChip({ status }) {
@@ -133,6 +152,15 @@ function MeetingAttemptHistoryRow({ attempt, index }) {
           {attempt.date ? format(new Date(`${attempt.date}T00:00:00`), 'd MMM yyyy') : 'No date set'}
         </span>
       </div>
+      {/* 15 Aug 2026 (§172) — the structured reason, shown distinctly from
+          free-text notes below it, matching how the two are captured as
+          genuinely different kinds of information (a fixed category vs
+          situational context). */}
+      {attempt.cancelReason && (
+        <p style={{ fontSize: '0.8125rem', color: 'var(--ink)', marginTop: '4px', fontWeight: 500 }}>
+          {CANCEL_REASON_LABELS[attempt.cancelReason] ?? attempt.cancelReason}
+        </p>
+      )}
       {attempt.notes && <p style={{ fontSize: '0.8125rem', color: 'var(--mut)', marginTop: '4px' }}>{attempt.notes}</p>}
     </div>
   );
@@ -152,16 +180,29 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
   const [status, setStatus] = useState('');
   const [notes, setNotes] = useState(attempt.notes ?? '');
   const [followUpRequired, setFollowUpRequired] = useState(null);
+  const [cancelReason, setCancelReason] = useState(null);
 
   // Follow-up is only ever asked for Held-Interested on a NON-last
   // meeting — matches saveMeetingAttemptOutcome()'s own server-side gate
   // exactly (appointmentService.js); asking it anywhere else would be a
   // dead end the spec explicitly rules out (nowhere left to advance to).
   const followUpApplicable = status === 'HeldInterested' && !isLastMeeting;
-  const canSave = !!date && !!status && (!followUpApplicable || followUpRequired !== null);
+  // 15 Aug 2026 (§172) — only Cancelled has a reason to categorise;
+  // Missed is by definition uncommunicated. Required before saving,
+  // same enforcement pattern as Appointment.lostReason (§163) — the
+  // Zod schema itself stays optional, this is the layer that actually
+  // makes sure it gets captured rather than left theoretically possible.
+  const cancelReasonApplicable = status === 'Cancelled';
+  const canSave = !!date && !!status
+    && (!followUpApplicable || followUpRequired !== null)
+    && (!cancelReasonApplicable || !!cancelReason);
 
   function handleSave() {
-    onSave(attempt.id, { date, status, notes: notes || null, followUpRequired: followUpApplicable ? followUpRequired : null });
+    onSave(attempt.id, {
+      date, status, notes: notes || null,
+      followUpRequired: followUpApplicable ? followUpRequired : null,
+      cancelReason: cancelReasonApplicable ? cancelReason : null,
+    });
   }
 
   return (
@@ -219,6 +260,19 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
             <option value="">Please select</option>
             <option value="Yes">Yes — book a Meeting {meetingNumber + 1}</option>
             <option value="No">No — this is the outcome</option>
+          </select>
+        </div>
+      )}
+      {cancelReasonApplicable && (
+        <div style={{ marginBottom: '12px' }}>
+          <label style={s.formLabel}>Reason for cancellation</label>
+          <select
+            style={s.formInput} disabled={disabled}
+            value={cancelReason ?? ''}
+            onChange={e => setCancelReason(e.target.value || null)}
+          >
+            <option value="">Please select</option>
+            {CANCEL_REASONS.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}
           </select>
         </div>
       )}

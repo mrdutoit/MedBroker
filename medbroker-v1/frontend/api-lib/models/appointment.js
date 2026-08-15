@@ -176,9 +176,21 @@ export const SaveOutcomeSchema = z.object({
 // (the flag value, the meeting number) Zod's own schema shape can't see.
 export const SaveMeetingAttemptSchema = z.object({
   date:             z.string().optional().nullable(),
-  status:           z.enum(['HeldInterested', 'HeldNotInterested', 'Rescheduled']),
+  // 15 Aug 2026 (§172) — Cancelled/Missed added, reversing part of the
+  // 14 Aug decision to collapse them into Rescheduled. Mechanically the
+  // three route identically (saveMeetingAttemptOutcome, appointmentService.js
+  // — new row, same meeting number, no outcome form); only the recorded
+  // status differs, which is exactly the point.
+  status:           z.enum(['HeldInterested', 'HeldNotInterested', 'Rescheduled', 'Cancelled', 'Missed']),
   notes:            z.string().max(2000).optional().nullable(),
   followUpRequired: z.boolean().optional().nullable(),
+  // 15 Aug 2026 (§172, migration 034) — only meaningful when status =
+  // 'Cancelled'. Missed has nothing to categorise (no communication
+  // happened by definition), so `notes` stays the only place to record
+  // context for a no-show. Optional at the schema level, same pattern
+  // as Appointment.lostReason (§163) — the frontend is what actually
+  // enforces "pick a reason before you can save this as Cancelled".
+  cancelReason:     z.enum(['NoLongerInterested', 'FoundAlternative', 'SchedulingConflict', 'Uncontactable', 'Other']).optional().nullable(),
 });
 
 export const AppointmentListQuerySchema = z.object({

@@ -84,6 +84,21 @@ const LOST_REASON_LABELS = {
   'Not captured': 'Not captured',
 };
 
+// 15 Aug 2026 (§172) — matches AppointmentDetail.jsx's cancelReason
+// dropdown labels exactly, same second-copy-not-shared-import reasoning
+// as LOST_REASON_LABELS immediately above. Note: 'NoLongerInterested'
+// is a real, separate category value here from lostReason's own
+// identically-named one above — same label text, different field
+// (Appointment.lostReason vs MeetingAttempt.cancelReason), not a typo.
+const CANCEL_REASON_LABELS = {
+  NoLongerInterested: 'No longer interested',
+  FoundAlternative: 'Found an alternative broker/solution',
+  SchedulingConflict: 'Scheduling conflict, wants to rebook',
+  Uncontactable: 'Uncontactable',
+  Other: 'Other',
+  'Not captured': 'Not captured',
+};
+
 export default function Reports() {
   const navigate           = useNavigate();
   const { role, portfolios: allPortfolios } = useRole();
@@ -453,19 +468,45 @@ export default function Reports() {
           <Section title="Appointment Analysis">
             {appointmentAnalysis && appointmentAnalysis.booked > 0 ? (
               <>
-                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(3, 1fr)', gap: '12px', marginBottom: '18px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: '12px', marginBottom: '18px' }}>
                   <div><div style={s.kpiLabel}>Booked</div><div style={s.kpiValue}>{appointmentAnalysis.booked}</div></div>
                   <div><div style={s.kpiLabel}>Appts per lead</div><div style={s.kpiValue}>{fmtRatio(appointmentAnalysis.perLead)}</div></div>
                   <div><div style={s.kpiLabel}>Booked → Won</div><div style={s.kpiValue}>{appointmentAnalysis.bookedToWonConversion === null ? '—' : `${appointmentAnalysis.bookedToWonConversion}%`}</div></div>
+                  {/* 15 Aug 2026 (§172) — real numbers now (migration
+                      034/MeetingAttempt.status), not a "not tracked yet"
+                      placeholder. Counts attempts LOGGED this period
+                      (matches the backend's own scoping — see
+                      reportService.js), not appointments whose first
+                      meeting was originally booked in it. */}
+                  <div><div style={s.kpiLabel}>Cancelled</div><div style={{ ...s.kpiValue, color: '#b45309' }}>{appointmentAnalysis.cancelled}</div></div>
+                  <div><div style={s.kpiLabel}>Missed / No-show</div><div style={{ ...s.kpiValue, color: '#7c2d12' }}>{appointmentAnalysis.missed}</div></div>
                 </div>
                 {appointmentAnalysis.byMeetingType.length > 0 && (
                   <DataTable columns={meetingTypeColumns} rows={appointmentAnalysis.byMeetingType} defaultSortKey="booked" highlightKey="booked" />
                 )}
-                {!appointmentAnalysis.hasCancelledMissedTracking && (
+                {appointmentAnalysis.cancelReasons.length > 0 ? (
+                  <div style={{ marginTop: '18px' }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500, marginBottom: '8px' }}>Cancellation reasons</div>
+                    {(() => {
+                      const maxCount = Math.max(...appointmentAnalysis.cancelReasons.map(r => r.count), 1);
+                      return appointmentAnalysis.cancelReasons.map(r => (
+                        <div key={r.reason} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
+                          <span style={{ fontSize: '0.8125rem', width: isMobile ? '110px' : '160px', flexShrink: 0, color: r.reason === 'Not captured' ? colors.ink400 : colors.ink700 }}>
+                            {CANCEL_REASON_LABELS[r.reason] ?? r.reason}
+                          </span>
+                          <div style={{ flex: 1, height: '16px', background: colors.surfaceSubtle, borderRadius: '4px', overflow: 'hidden' }}>
+                            <div style={{ width: `${Math.max(4, (r.count / maxCount) * 100)}%`, height: '100%', background: r.reason === 'Not captured' ? colors.ink400 : '#b45309', opacity: r.reason === 'Not captured' ? 0.5 : 0.85 }} />
+                          </div>
+                          <span style={{ fontSize: '0.8125rem', fontWeight: 600, width: '24px', textAlign: 'right' }}>{r.count}</span>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                ) : appointmentAnalysis.cancelled > 0 ? (
                   <p style={{ fontSize: '0.75rem', color: colors.ink400, marginTop: '14px', marginBottom: 0 }}>
-                    Cancelled and missed appointments aren't tracked as distinct statuses yet — this section covers booked/won only.
+                    No cancellation reasons captured yet this period — the field exists now, but none of this period's cancelled meetings have one recorded.
                   </p>
-                )}
+                ) : null}
               </>
             ) : (
               <EmptyState message="No appointments booked this period." />

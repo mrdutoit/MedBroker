@@ -92,21 +92,28 @@ export const APPT_STATUS_META = {
 
 // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) — old
 // vocabulary (Pending/Seen/Rescheduled/Cancelled) replaced by the new
-// MeetingAttempt model's four statuses. 'Pending' -> 'Scheduled' is the
+// MeetingAttempt model's statuses. 'Pending' -> 'Scheduled' is the
 // closest continuity (a meeting attempt that hasn't been resolved yet);
 // 'Seen' splits into HeldInterested/HeldNotInterested now that the new
-// model actually captures that distinction; 'Cancelled' has no
-// equivalent (collapsed into 'Rescheduled' — see migration 031's header).
+// model actually captures that distinction.
+// Cancelled/Missed added back 15 Aug 2026 (§172) — briefly collapsed
+// into Rescheduled the day before (§164/migration 031), reversed once
+// Mark's real-world case showed that distinction was worth keeping:
+// a client cancelling or not showing, with no reschedule happening at
+// that moment, is genuinely different from one being actively rebooked.
 export const MEETING_STATUS_META = {
   Scheduled:         { colour: '#6b7280', bg: '#f3f4f6' },
   HeldInterested:    { colour: '#15803d', bg: '#f0fdf4' },
   HeldNotInterested: { colour: '#dc2626', bg: '#fef2f2' },
   Rescheduled:       { colour: '#d97706', bg: '#fffbeb' },
+  Cancelled:         { colour: '#b45309', bg: '#fef3c7' },
+  Missed:            { colour: '#7c2d12', bg: '#fee2e2' },
 };
 
 export const MEETING_STATUS_LABELS = {
   Scheduled: 'Scheduled', HeldInterested: 'Held – Interested',
   HeldNotInterested: 'Held – Not Interested', Rescheduled: 'Rescheduled',
+  Cancelled: 'Cancelled', Missed: 'Missed / No-show',
 };
 
 export const PORTFOLIO_META = {

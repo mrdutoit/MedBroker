@@ -711,16 +711,32 @@ CREATE TABLE IF NOT EXISTS AppointmentProduct (
 -- replaces, where a reschedule silently overwrote history in place.
 --
 -- status: 'Scheduled' (default, nothing decided yet) | 'HeldInterested' |
--- 'HeldNotInterested' | 'Rescheduled'. The old model's third status,
--- 'Cancelled', has no equivalent here — Claude's own reading of the
--- spec, not explicit in it: Cancelled and Rescheduled lead to the exact
--- same next action (a new row, same meeting number, no outcome form), so
--- the new model deliberately doesn't distinguish them. followUpRequired
--- is asked ONLY when status is saved as HeldInterested (a separate
--- question from Rescheduled — see this table's own service-layer logic
--- for the full four-branch routing) — NULL otherwise, not a bare
--- default false, since "not asked" and "asked, answered No" are
--- genuinely different states worth being able to tell apart later.
+-- 'HeldNotInterested' | 'Rescheduled' | 'Cancelled' | 'Missed'.
+-- Cancelled/Missed added 15 Aug 2026 (§172) — REVERSES the 14 Aug
+-- decision (this same comment, one day earlier) to collapse the old
+-- model's 'Cancelled' into 'Rescheduled'. Mark's real-world case: a
+-- client cancelling (or simply not showing) with NO notice and NO
+-- reschedule happening at that moment is genuinely different from one
+-- being actively rebooked — collapsing them lost exactly the
+-- distinction worth reporting on. Cancelled and Missed both route
+-- IDENTICALLY to Rescheduled at the mechanics level (a new row, same
+-- meeting number, no outcome form — "it's still the first meeting if a
+-- subsequent one gets set up", Mark's own framing) — the three are
+-- mechanically the same branch, only the recorded STATUS differs, which
+-- is exactly what makes them separately reportable now.
+-- cancelReason: nullable, only meaningful when status = 'Cancelled' —
+-- Missed has nothing to categorise (by definition no communication
+-- happened), so free-text `notes` above stays the only place to record
+-- context for a no-show. Structured, not free text, same reasoning as
+-- Appointment.lostReason: a fixed category set is what makes "why are
+-- people cancelling on us" actually reportable later, not just readable
+-- one row at a time.
+-- followUpRequired is asked ONLY when status is saved as HeldInterested
+-- (a separate question from Rescheduled/Cancelled/Missed — see this
+-- table's own service-layer logic for the full routing) — NULL
+-- otherwise, not a bare default false, since "not asked" and "asked,
+-- answered No" are genuinely different states worth being able to tell
+-- apart later.
 CREATE TABLE IF NOT EXISTS MeetingAttempt (
     id                UUID            NOT NULL DEFAULT gen_random_uuid(),
     organisationId    UUID            NOT NULL DEFAULT 'D0000000-0000-0000-0000-000000000001',
@@ -729,6 +745,12 @@ CREATE TABLE IF NOT EXISTS MeetingAttempt (
     date              DATE            NULL,
     status            VARCHAR(50)     NOT NULL DEFAULT 'Scheduled',
     followUpRequired  BOOLEAN         NULL,
+    -- 15 Aug 2026 (§172, migration 034). Six categories — Claude's own
+    -- design choice, not an exhaustive taxonomy, matching how
+    -- Appointment.lostReason's own category set was framed — easy to
+    -- adjust if these don't match how the business actually talks about
+    -- cancellations.
+    cancelReason      VARCHAR(50)     NULL,
     notes             VARCHAR(2000)   NULL,
     recordedById      UUID            NULL,
     createdAt         TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
@@ -737,7 +759,10 @@ CREATE TABLE IF NOT EXISTS MeetingAttempt (
     CONSTRAINT FK_MeetingAttempt_Appointment  FOREIGN KEY (appointmentId)  REFERENCES Appointment(id),
     CONSTRAINT FK_MeetingAttempt_RecordedBy   FOREIGN KEY (recordedById)   REFERENCES "User"(id),
     CONSTRAINT CK_MeetingAttempt_Number       CHECK (meetingNumber IN (1, 2, 3)),
-    CONSTRAINT CK_MeetingAttempt_Status       CHECK (status IN ('Scheduled', 'HeldInterested', 'HeldNotInterested', 'Rescheduled'))
+    CONSTRAINT CK_MeetingAttempt_Status       CHECK (status IN ('Scheduled', 'HeldInterested', 'HeldNotInterested', 'Rescheduled', 'Cancelled', 'Missed')),
+    CONSTRAINT CK_MeetingAttempt_CancelReason CHECK (cancelReason IS NULL OR cancelReason IN (
+        'NoLongerInterested', 'FoundAlternative', 'SchedulingConflict', 'Uncontactable', 'Other'
+    ))
 );
 CREATE INDEX IF NOT EXISTS IX_MeetingAttempt_Appointment ON MeetingAttempt(appointmentId);
 

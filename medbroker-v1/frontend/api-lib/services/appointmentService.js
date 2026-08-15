@@ -164,7 +164,7 @@ async function getProductsSold(appointmentId) {
 async function getMeetingAttempts(appointmentId) {
   const rows = await executeQuery(
     `SELECT id, meetingNumber AS "meetingNumber", date, status,
-            followUpRequired AS "followUpRequired", notes, recordedById AS "recordedById",
+            followUpRequired AS "followUpRequired", cancelReason AS "cancelReason", notes, recordedById AS "recordedById",
             createdAt AS "createdAt"
      FROM MeetingAttempt WHERE appointmentId = @appointmentId
      ORDER BY meetingNumber ASC, createdAt ASC`,
@@ -172,7 +172,7 @@ async function getMeetingAttempts(appointmentId) {
   );
   return rows.map(r => ({
     id: r.id, meetingNumber: r.meetingNumber, date: r.date, status: r.status,
-    followUpRequired: r.followUpRequired, notes: r.notes, recordedById: r.recordedById,
+    followUpRequired: r.followUpRequired, cancelReason: r.cancelReason, notes: r.notes, recordedById: r.recordedById,
     createdAt: r.createdAt,
   }));
 }
@@ -1168,9 +1168,15 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
   // trusts whatever the client sent for it once that's decided.
   const followUpApplicable = data.status === 'HeldInterested' && !isLastMeeting;
   const followUpRequired = followUpApplicable ? !!data.followUpRequired : null;
+  // 15 Aug 2026 (§172) — same "server decides applicability" principle
+  // as followUpRequired immediately above. Only Cancelled has anything
+  // to categorise — Missed is by definition uncommunicated, nothing to
+  // pick a reason FOR.
+  const cancelReasonApplicable = data.status === 'Cancelled';
+  const cancelReason = cancelReasonApplicable ? (data.cancelReason ?? null) : null;
 
   await executeQuery(
-    `UPDATE MeetingAttempt SET date = @date, status = @status, notes = @notes, followUpRequired = @followUpRequired, recordedById = @recordedById
+    `UPDATE MeetingAttempt SET date = @date, status = @status, notes = @notes, followUpRequired = @followUpRequired, cancelReason = @cancelReason, recordedById = @recordedById
      WHERE id = @attemptId`,
     {
       attemptId:        { type: sql.UniqueIdentifier, value: attemptId },
@@ -1178,6 +1184,7 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
       status:           { type: sql.NVarChar(50),      value: data.status },
       notes:            { type: sql.NVarChar(2000),    value: data.notes || null },
       followUpRequired: { type: sql.Bit,               value: followUpRequired },
+      cancelReason:     { type: sql.NVarChar(50),       value: cancelReason },
       recordedById:     { type: sql.UniqueIdentifier,  value: recordedById ?? null },
     }
   );
@@ -1198,7 +1205,14 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
   let outcomeDue = false;
   let prefillCustomerSigned = null;
 
-  if (data.status === 'Rescheduled') {
+  // 15 Aug 2026 (§172) — Cancelled and Missed both route IDENTICALLY to
+  // Rescheduled: a new row, same meeting number, no outcome form.
+  // Mark's own framing: "it will still be the first meeting if a
+  // subsequent meeting is set up" — none of the three represents the
+  // meeting actually happening, so none of them advance to the next
+  // meeting number or trigger an outcome; they only differ in what gets
+  // RECORDED, which is the entire point of separating them.
+  if (data.status === 'Rescheduled' || data.status === 'Cancelled' || data.status === 'Missed') {
     const newId = await createMeetingAttempt(appointmentId, organisationId, attempt.meetingNumber, null, recordedById);
     newAttempt = { id: newId, meetingNumber: attempt.meetingNumber, date: null, status: 'Scheduled', followUpRequired: null, notes: null };
   } else if (data.status === 'HeldNotInterested') {
@@ -1217,7 +1231,7 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
   }
 
   return {
-    attempt: { id: attemptId, meetingNumber: attempt.meetingNumber, date: data.date || null, status: data.status, followUpRequired, notes: data.notes || null },
+    attempt: { id: attemptId, meetingNumber: attempt.meetingNumber, date: data.date || null, status: data.status, followUpRequired, cancelReason, notes: data.notes || null },
     newAttempt,
     appointmentStatus,
     outcomeDue,

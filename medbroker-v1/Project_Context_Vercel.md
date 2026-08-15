@@ -200,18 +200,34 @@ MeetingAttempt (§138 spec, session 20; §164 build, 14 Aug 2026, migration
   meetingNumber: 1, 2, or 3 (3 only reachable when
   appointments.thirdMeeting.enabled is on).
   status: Scheduled (default, not yet decided) | HeldInterested |
-  HeldNotInterested | Rescheduled. No 'Cancelled' — collapsed into
-  Rescheduled (Claude's reading of the spec: both lead to the identical
-  next action, a new row, same meeting number, no outcome form).
+  HeldNotInterested | Rescheduled | Cancelled | Missed. Cancelled/Missed
+  added back 15 Aug 2026 (§172, migration 034) — REVERSES the 14 Aug
+  decision (this same entry, one day earlier) to collapse them into
+  Rescheduled. Mark's real-world case: a client cancelling or not
+  showing, with no reschedule happening at that moment, is genuinely
+  different from one being actively rebooked, worth reporting on
+  separately — even though all three route IDENTICALLY at the mechanics
+  level (a new row, same meeting number, no outcome form; "it's still
+  the first meeting if a subsequent one gets set up," Mark's own
+  framing). Migration 034 also RECOVERED the original Cancelled/
+  Rescheduled distinction for data migration 031 had already collapsed —
+  possible because the old flat meeting{1,2,3}Status columns were never
+  dropped, so the source values were still there to recover from, not
+  guessed at.
+  cancelReason: nullable, only meaningful when status = 'Cancelled' —
+  Missed has nothing to categorise (no communication happened by
+  definition), so free-text `notes` is the only place to record context
+  for a no-show. Structured, not free text, same reasoning as
+  Appointment.lostReason.
   followUpRequired: nullable boolean, asked ONLY when status is saved as
   HeldInterested AND this isn't the last configured meeting number —
   resolved server-side (saveMeetingAttemptOutcome, appointmentService.js),
   never trusted from the client.
-  Full four-branch routing table (this IS the redesign's actual logic,
-  not just its schema) lives in saveMeetingAttemptOutcome()'s own header
-  comment — see that function directly, or Status_Vercel.md §164 for the
-  build account including two real bugs found during manual frontend
-  review (neither caught by the build or test suite).
+  Full routing table (this IS the redesign's actual logic, not just its
+  schema) lives in saveMeetingAttemptOutcome()'s own header comment — see
+  that function directly, or Status_Vercel.md §164/§172 for the build
+  account, including two real bugs found during §164's own manual
+  frontend review (neither caught by the build or test suite).
 
 Task
   type: Callback | Appointment | Reschedule | Reminder | Outcome | Manual

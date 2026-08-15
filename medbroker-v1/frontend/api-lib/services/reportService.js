@@ -544,14 +544,16 @@ export async function getBrokerDetailReport(brokerId, period, scope, referenceDa
   //
   // REWRITTEN 14 Aug 2026 (§138 spec, session 20; §164 build, session
   // 23) off the old flat meeting{1,2}Status columns onto MeetingAttempt.
-  // Two real changes, not just a mechanical port:
-  //   - 'Cancelled' is gone — collapsed into 'Rescheduled' in the new
-  //     model (see migration 031's own header for the reasoning); this
-  //     summary now has one fewer row per meeting number than before.
+  // Two real changes at the time, not just a mechanical port:
   //   - The old 'Seen' value never distinguished interested from not —
-  //     the new model does, so this summary now shows that split
-  //     explicitly (a genuine improvement in what's reportable, not a
-  //     like-for-like port).
+  //     the new model does, so this summary shows that split explicitly
+  //     (a genuine improvement in what's reportable, not a like-for-
+  //     like port).
+  //   - 'Cancelled' briefly had no equivalent (collapsed into
+  //     'Rescheduled' by migration 031's own original design) — REVERSED
+  //     15 Aug 2026 (§172, migration 034): Cancelled and Missed are both
+  //     real, separately reportable statuses again, and both now have
+  //     their own row below, same as Held/Rescheduled always did.
   // "Total" per meeting number is COUNT(*) of ALL attempt rows for that
   // number (every reschedule creates a new row) — deliberately NOT the
   // same as "how many appointments have reached this meeting number",
@@ -580,9 +582,13 @@ export async function getBrokerDetailReport(brokerId, period, scope, referenceDa
     { label: '1st meeting — Held (Interested)',     value: `${mCounts[1].HeldInterested ?? 0} / ${mTotal(1)}` },
     { label: '1st meeting — Held (Not Interested)', value: `${mCounts[1].HeldNotInterested ?? 0} / ${mTotal(1)}` },
     { label: '1st meeting — Rescheduled',           value: `${mCounts[1].Rescheduled ?? 0} / ${mTotal(1)}` },
+    { label: '1st meeting — Cancelled',             value: `${mCounts[1].Cancelled ?? 0} / ${mTotal(1)}` },
+    { label: '1st meeting — Missed / No-show',      value: `${mCounts[1].Missed ?? 0} / ${mTotal(1)}` },
     { label: '2nd meeting — Held (Interested)',     value: `${mCounts[2].HeldInterested ?? 0} / ${mTotal(2)}` },
     { label: '2nd meeting — Held (Not Interested)', value: `${mCounts[2].HeldNotInterested ?? 0} / ${mTotal(2)}` },
     { label: '2nd meeting — Rescheduled',           value: `${mCounts[2].Rescheduled ?? 0} / ${mTotal(2)}` },
+    { label: '2nd meeting — Cancelled',             value: `${mCounts[2].Cancelled ?? 0} / ${mTotal(2)}` },
+    { label: '2nd meeting — Missed / No-show',      value: `${mCounts[2].Missed ?? 0} / ${mTotal(2)}` },
     { label: 'Signed (of all appointments)', value: `${signed} / ${appts}${appts > 0 ? ` (${Math.round(signed / appts * 100)}%)` : ''}`, bold: true },
   ];
 
@@ -1623,24 +1629,50 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
 
   // ── Appointment analysis — booked/per-lead/appointment-to-won already
   // derivable from `current`; meeting-type table fetched filter/scope-
-  // aware above. NO cancelled/missed breakdown — DELIBERATELY NOT BUILT
-  // even though Mark asked for all three flagged gaps, because this one
-  // has a real architectural conflict, not just missing data: §138 (the
-  // Meeting/Appointment attempt-history redesign, still the TOP PRIORITY
-  // queued item, fully specced, zero code written) will define exactly
-  // where a "missed" or "cancelled" concept belongs — as a new
-  // Appointment.status value, as a meeting-attempt-level status (the
-  // redesign already has "Held – Not Interested" and "Rescheduled" at
-  // that level), or something else. Adding a quick ad-hoc status or
-  // column now risks either throwaway work or making §138's eventual
-  // build harder by giving it a second status model to reconcile with.
-  // Flagged here and in the delivery notes rather than built around.
+  // aware above. Cancelled/Missed breakdown — BUILT 15 Aug 2026 (§172,
+  // migration 034). Was explicitly flagged as a gap the day before
+  // (§164), deliberately not built then because the concept had no home
+  // yet (§138's Meeting redesign hadn't decided where "cancelled"/
+  // "missed" belonged); it now has one, MeetingAttempt.status, so this
+  // is built rather than left flagged. Scoped by the ATTEMPT's own
+  // createdAt (when the cancellation/no-show was actually logged), not
+  // any Appointment-level date — matches the period selector's own
+  // intent, "what happened in this period", same reasoning as every
+  // other activity-scoped query in this function.
+  const apptF6 = apptFilterSql(f);
+  const cancelMissedParams = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
+  const [cancelMissedCountRows, cancelReasonRows] = await Promise.all([
+    executeQuery(
+      `SELECT ma.status, COUNT(*) AS count FROM MeetingAttempt ma
+       JOIN Appointment a ON a.id = ma.appointmentId JOIN Lead l ON l.id = a.leadId
+       WHERE ma.status IN ('Cancelled', 'Missed') AND ma.createdAt >= @start AND ma.createdAt <= @end AND a.organisationId = @organisationId${apptF6.sqlFragment}
+       GROUP BY ma.status`,
+      { ...cancelMissedParams, ...apptF6.params }
+    ),
+    // Mirrors lossReasons (Won vs Lost, above) exactly — same
+    // "COALESCE to 'Not captured' rather than dropping rows with a null
+    // reason" pattern, so a Cancelled attempt someone forgot to give a
+    // reason for still counts toward the total, honestly labelled.
+    executeQuery(
+      `SELECT COALESCE(ma.cancelReason, 'Not captured') AS reason, COUNT(*) AS count FROM MeetingAttempt ma
+       JOIN Appointment a ON a.id = ma.appointmentId JOIN Lead l ON l.id = a.leadId
+       WHERE ma.status = 'Cancelled' AND ma.createdAt >= @start AND ma.createdAt <= @end AND a.organisationId = @organisationId${apptF6.sqlFragment}
+       GROUP BY reason ORDER BY count DESC`,
+      { ...cancelMissedParams, ...apptF6.params }
+    ),
+  ]);
+  const cancelMissedCounts = Object.fromEntries(cancelMissedCountRows.map(r => [r.status, Number(r.count)]));
+  const cancelReasons = cancelReasonRows.map(r => ({ reason: r.reason, count: Number(r.count) }));
+
   const appointmentAnalysis = {
     booked: current.appts,
     perLead: current.leads === 0 ? null : Math.round((current.appts / current.leads) * 100) / 100,
     bookedToWonConversion: current.appts === 0 ? null : Math.round((current.closedWon / current.appts) * 1000) / 10,
     byMeetingType: meetingTypeTable,
-    hasCancelledMissedTracking: false,
+    cancelled: cancelMissedCounts.Cancelled ?? 0,
+    missed: cancelMissedCounts.Missed ?? 0,
+    cancelReasons,
+    hasCancelledMissedTracking: true,
   };
 
   const insights = generateInsights({ sourceTable, portfolioTable, kpis });

@@ -13632,3 +13632,123 @@ fix, not a schema change (no ALTER TABLE, purely a Task UPDATE).
 
 FILES: frontend/db/migrations/033_cleanup_stale_assign_broker_tasks.sql
 (new), frontend/src/pages/AppointmentList.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+172. CANCELLED/MISSED BUILT AS SEPARATE, REPORTABLE OUTCOMES — REVERSES PART OF §164'S OWN DESIGN, WITH A GENUINE DATA RECOVERY — 15 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's follow-up after asking to explore this: wants Cancelled and
+Missed/No-show managed as genuinely separate outcomes, with two
+mechanics questions — does a subsequent meeting still count as "the
+first meeting" (yes, same as Rescheduled already works), and can a
+cancellation reason be captured (yes, built).
+
+REVERSES PART OF §164 (14 Aug 2026, one day earlier): that build
+collapsed the old model's 'Cancelled' into the new model's
+'Rescheduled', reasoning they led to the identical next action. Mark's
+real-world case broke that reasoning: a client cancelling or not
+showing, with no notice AND no reschedule happening at that moment, is
+genuinely different from one being actively rebooked — the MECHANICS
+are still identical (that part of §164's reasoning was correct), but
+collapsing the STATUS lost exactly the distinction worth reporting on.
+
+SCHEMA — migration 034: MeetingAttempt.status gains 'Cancelled' and
+'Missed' (CK_MeetingAttempt_Status recreated, Postgres has no ALTER
+CONSTRAINT), plus a new structured cancelReason column (six categories,
+Claude's own design choice, matching Appointment.lostReason's own
+framing exactly) with its own CHECK constraint. VERIFIED AGAINST REAL
+POSTGRES — a 4-scenario harness (genuine cancellation, genuine
+reschedule, a meeting-2 cancellation, an already-resolved row) confirmed
+the constraints work and the data correction below touches exactly the
+right rows.
+
+A GENUINE DATA RECOVERY, not just a schema addition: migration 031's
+own backfill (§164) mapped the old flat columns' 'Cancelled' value into
+'Rescheduled', because 'Cancelled' didn't exist as a distinct outcome
+yet at the time. The old flat columns (Appointment.meeting{1,2,3}Status)
+were deliberately never dropped — migration 031's own header explained
+why: kept until the backfill was confirmed correct in production. That
+means the original 'Cancelled' value was still sitting right there, so
+migration 034 corrects every row 031 collapsed, restoring exactly what
+was lost rather than leaving it silently wrong now that the distinction
+exists again. Confirmed via the same Postgres harness: matches
+meetingNumber to the correct flat column explicitly (1/2/3), touches
+only rows still at 'Rescheduled' with a genuinely 'Cancelled' source
+value, leaves an actual reschedule (source value truly 'Rescheduled')
+completely alone.
+
+MECHANICS — Cancelled and Missed both route IDENTICALLY to Rescheduled
+in saveMeetingAttemptOutcome() (appointmentService.js): a new row, same
+meeting number, no outcome form. Mark's own framing, confirmed correct:
+"it will still be the first meeting if a subsequent meeting is set up."
+Tested the extended routing logic against all six real save values
+together, confirming the "no dead ends" property (every scenario
+produces exactly one consequence) still holds with the two new statuses
+added, and confirmed the server correctly ignores a cancelReason sent
+by mistake on a Missed save.
+
+CANCEL REASON — structured, not free text (Mark's example, "client
+decided they were not interested and emailed to cancel," maps to a
+category; the "emailed to cancel" part is context, which free-text
+notes already handles). Only asked when status = Cancelled — Missed has
+nothing to categorise, by definition no communication happened.
+Required before saving, same enforcement pattern as
+Appointment.lostReason (§163) — the Zod schema itself stays optional,
+the frontend is what actually blocks the save.
+
+REPORTS PAGE — closed the loop rather than leave the two inconsistent:
+Appointment Analysis's own "not tracked yet" placeholder (explicitly
+flagged as a gap in §164, then again when this was proposed) is now
+real Cancelled/Missed counts plus a cancellation-reasons breakdown,
+matching the existing Won vs Lost reasons section's exact visual
+pattern. Scoped by the attempt's own createdAt (when the cancellation
+was actually logged), matching every other activity-scoped query in
+this function.
+
+THREE REAL GAPS FOUND DURING A DELIBERATE SWEEP for anything still
+describing the old collapsed model, not left for Mark to find:
+  - getBrokerDetailReport()'s own meeting summary (§165) counted
+    Cancelled/Missed attempts correctly in its totals but never broke
+    them out as their own rows — silently inflating a total without
+    showing why. Two new rows added per meeting number, matching the
+    existing Held/Rescheduled rows' own pattern exactly.
+  - BrokerDetail.jsx's own separate MeetingBadge implementation (not the
+    shared tokens.js one) had no Cancelled/Missed entry at all — would
+    have silently fallen through to a generic, unlabelled grey badge for
+    two real statuses. Fixed.
+  - A stale comment in reportService.js still claimed Cancelled was
+    "gone" — corrected to describe the actual current history (briefly
+    collapsed, then reversed) rather than left asserting something no
+    longer true.
+  AppointmentList.jsx's own MeetingBadge needed no separate fix — it
+  already reads the shared MEETING_STATUS_META/LABELS tokens (tokens.js),
+  which were updated directly, so it picked up the change automatically.
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 48/48 passing.
+`node --check` clean on all three touched backend files. Migration 034
+verified against real Postgres, all four scenarios and both new CHECK
+constraints (valid Missed accepted, invalid status rejected, valid
+cancelReason accepted, invalid cancelReason rejected) confirmed
+directly. Routing logic tested against all six real save values. A full
+sweep for any remaining reference to the old collapsed-model reasoning,
+repeated after the two fixes above until genuinely clean. Diffed
+against fresh GitHub — confirmed isolated to exactly the eight intended
+files plus the new migration.
+
+NOT YET DEPLOYED. Migration 034 needs to run against Neon before any of
+this means anything in production — same standing rule as every
+migration. This one includes a real data correction (recovering the
+Cancelled distinction for already-backfilled rows), not just a schema
+change, so it's worth Mark spot-checking a handful of corrected rows
+against what he remembers, same recommendation as migration 031's own
+backfill.
+
+FILES: frontend/db/migrations/034_meeting_attempt_cancel_missed.sql
+(new), frontend/db/schema.postgres.sql,
+frontend/api-lib/models/appointment.js,
+frontend/api-lib/services/appointmentService.js,
+frontend/api-lib/services/reportService.js,
+frontend/src/pages/AppointmentDetail.jsx,
+frontend/src/pages/BrokerDetail.jsx, frontend/src/pages/Reports.jsx,
+frontend/src/styles/tokens.js.

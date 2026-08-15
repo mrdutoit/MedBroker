@@ -36,18 +36,25 @@ function MeetingBadge({ status }) {
   if (!status) return <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>—</span>;
   // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) — old
   // vocabulary (Seen/Rescheduled/Cancelled) replaced by the new model's
-  // four statuses. 'Scheduled' shown too — a still-open meeting attempt
+  // statuses. 'Scheduled' shown too — a still-open meeting attempt
   // (not yet resolved) is a real, distinct state the old model never
   // surfaced here at all (a flat column was either null or one of the
   // three outcomes; there was no "booked, hasn't happened yet" signal on
   // this specific badge before).
+  // Cancelled/Missed added back 15 Aug 2026 (§172) — this badge would
+  // otherwise have silently fallen through to the generic grey/
+  // unlabelled style for two real statuses instead of showing them
+  // clearly, the exact "not carried into every place that reads this
+  // status" gap this file's own §165 fix was built to catch elsewhere.
   const meta = {
     HeldInterested:    { bg: 'color-mix(in srgb, #15803d 12%, var(--panel))', colour: '#15803d' },
     HeldNotInterested: { bg: 'color-mix(in srgb, #dc2626 12%, var(--panel))', colour: '#dc2626' },
     Rescheduled:       { bg: 'color-mix(in srgb, #d97706 12%, var(--panel))', colour: '#d97706' },
     Scheduled:         { bg: 'color-mix(in srgb, var(--mut) 12%, var(--panel))', colour: 'var(--mut)' },
+    Cancelled:         { bg: 'color-mix(in srgb, #b45309 12%, var(--panel))', colour: '#b45309' },
+    Missed:            { bg: 'color-mix(in srgb, #7c2d12 12%, var(--panel))', colour: '#7c2d12' },
   }[status] ?? { bg: 'color-mix(in srgb, var(--mut) 12%, var(--panel))', colour: 'var(--mut)' };
-  const label = { HeldInterested: 'Held – Interested', HeldNotInterested: 'Held – Not Interested' }[status] ?? status;
+  const label = { HeldInterested: 'Held – Interested', HeldNotInterested: 'Held – Not Interested', Missed: 'Missed / No-show' }[status] ?? status;
   return <span style={{ ...s.badge, background: meta.bg, color: meta.colour, fontSize: '0.6875rem' }}>{label}</span>;
 }
 
