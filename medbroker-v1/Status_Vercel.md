@@ -13327,3 +13327,42 @@ frontend/db/schema.postgres.sql, frontend/api-lib/models/lead.js,
 frontend/api-lib/services/leadService.js, frontend/api-lib/services/appointmentService.js,
 frontend/api-lib/services/userService.js, frontend/src/pages/AppointmentDetail.jsx,
 frontend/src/pages/LeadDetail.jsx, frontend/src/pages/LeadImport.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+167. §166 FOLLOW-UP — ASSIGN LEAD DROPDOWN NOW PREVENTS A REGION MISMATCH, NOT JUST REJECTS IT AFTER SUBMIT — 14 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Confirmed §166 is live (migration 032 present on GitHub main, 028-031
+already applied and cleaned up per Mark's own practice). Mark tested
+with real data — Stacey Brookes (Western Cape) and Steve Madden
+(Gauteng) against a Gauteng lead — and asked whether the dropdown was
+supposed to still let him pick a mismatched agent. It was: the backend
+enforcement built in §166 was always submit-time only (assignLead()
+rejects on Save), never a dropdown filter. Re-verified the actual logic
+against Mark's exact real data before touching anything — Stacey
+correctly rejected, Steve correctly allowed, confirming the backend
+itself was never the problem.
+
+FIX: the Assign/Reassign Lead dropdown (ReassignLeadModal, LeadList.jsx
+— the only place this UI exists; LeadDetail.jsx has no separate assign
+flow, confirmed directly) now shows each agent's region next to their
+name and DISABLES (native <option disabled>, not filtered out of the
+list entirely — seeing that a mismatched agent exists but can't be
+picked here is more informative than them silently not appearing at
+all) any agent whose region doesn't match the lead's, when both are
+actually set. A hint below the dropdown explains why, or explains that
+there's no restriction at all when the lead itself has no region yet.
+This is UI-layer prevention ON TOP OF the existing server-side check,
+not a replacement for it — a direct API call still hits the same real
+rejection in assignLead() (leadService.js).
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 48/48 passing.
+Confirmed lead.region flows through correctly to this modal — same
+listLeads() row data already extended with region earlier in §166, no
+new wiring needed. Diffed against a fresh GitHub hydration — confirmed
+isolated to this one file.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/src/pages/LeadList.jsx.

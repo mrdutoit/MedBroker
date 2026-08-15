@@ -93,8 +93,37 @@ function ReassignLeadModal({ lead, agents, onClose, onSaved, isAssign = false })
           <label style={s.formLabel}>Assign to agent *</label>
           <select style={s.formInput} value={agent} onChange={e => setAgent(e.target.value)}>
             <option value="">— Select agent —</option>
-            {agents.map(a => <option key={a.id} value={a.id}>{a.displayName}</option>)}
+            {/* 14 Aug 2026 (§166 follow-up) — Mark's explicit request,
+                after finding the dropdown let him pick a region-
+                mismatched agent and only found out it was wrong after
+                submitting: a mismatched agent is now shown but DISABLED
+                (native <option disabled>, not filtered out entirely —
+                seeing that Stacey exists but isn't selectable here is
+                more informative than her silently not being in the list
+                at all, with no explanation why). Only compares when BOTH
+                lead.region and a.region are actually set — matches
+                assignLead()'s own lenient gate exactly (leadService.js);
+                this is UI-layer prevention on TOP of that server-side
+                rejection, not a replacement for it — a direct API call
+                still hits the same real check. */}
+            {agents.map(a => {
+              const mismatch = !!(lead.region && a.region && a.region !== lead.region);
+              return (
+                <option key={a.id} value={a.id} disabled={mismatch}>
+                  {a.displayName}{a.region ? ` — ${a.region}` : ' — no region set'}{mismatch ? ' (different region)' : ''}
+                </option>
+              );
+            })}
           </select>
+          {lead.region ? (
+            <p style={{ ...s.formHint, marginTop: '4px' }}>
+              This lead is in {lead.region} — agents in a different region are shown but can't be selected.
+            </p>
+          ) : (
+            <p style={{ ...s.formHint, marginTop: '4px' }}>
+              This lead has no region set, so assignment isn't region-restricted here.
+            </p>
+          )}
         </div>
         <div style={s.modalFooter}>
           <button style={s.ghostBtn} onClick={onClose}>Cancel</button>
