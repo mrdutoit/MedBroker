@@ -60,7 +60,7 @@ import AuditLogList                           from '../components/AuditLogList.j
 // safe, complete shape to start from.
 const EMPTY_APPOINTMENT = {
   id: '', leadId: '', leadName: '', occupation: '', mobile: '', currentInsurer: '',
-  portfolio: '', portfolios: [], source: '', productsInterested: [],
+  portfolio: '', portfolios: [], source: '', productsInterested: [], region: '',
   status: '', firstDate: '', firstTime: '', address: '', brokerName: '', agentName: '',
   brokerSwitch: false, customerSigned: null, lostReason: null, productsSold: [],
   // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) —
@@ -171,7 +171,19 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
         <div>
           <label style={s.formLabel}>Date</label>
           <input
-            type="date" style={s.formInput} value={date ?? ''}
+            type="date"
+            style={{
+              ...s.formInput,
+              // 14 Aug 2026 (§166 follow-up) — Mark's explicit follow-up:
+              // the field WAS already disabled (functionally read-only),
+              // but this design system's own s.formInput doesn't visibly
+              // change on native :disabled, so it looked identical to an
+              // editable field — no visual signal it couldn't be
+              // touched. Explicit override here, not relying on the
+              // browser's own default disabled appearance.
+              ...(meetingNumber === 1 ? { background: 'var(--panel2)', color: 'var(--mut)', cursor: 'not-allowed' } : {}),
+            }}
+            value={date ?? ''}
             // 14 Aug 2026 — Mark's explicit request: the First Meeting's
             // date is what the Agent captured at booking time
             // (firstAppointmentDate, carried into this row's own date at
@@ -515,6 +527,12 @@ export default function AppointmentDetail() {
       occupation:     apptData.occupation,
       mobile:         apptData.leadMobile,
       currentInsurer: apptData.currentInsurer,
+      // 14 Aug 2026 (§166 follow-up) — Mark's explicit request: shown
+      // nowhere on this page before. apptData.region is Appointment's
+      // own carried-over copy of Lead.region at booking time
+      // (createAppointment(), appointmentService.js), not re-fetched
+      // from the Lead here.
+      region:         apptData.region ?? '',
       portfolio:      apptData.portfolio,
       portfolios:     apptData.portfolios ?? (apptData.portfolio ? [apptData.portfolio] : []),
       source:         apptData.sourceLabel ?? '—',
@@ -789,6 +807,7 @@ export default function AppointmentDetail() {
         <div style={s.card}>
           <div style={s.cardTitle}>Lead Details</div>
           <FieldRow label="Name">{appt.leadName}</FieldRow>
+          <FieldRow label="Region">{appt.region || '—'}</FieldRow>
           <FieldRow label="Occupation">{appt.occupation}</FieldRow>
           <FieldRow label="Mobile">{appt.mobile}</FieldRow>
           <FieldRow label="Current insurer">{appt.currentInsurer}</FieldRow>

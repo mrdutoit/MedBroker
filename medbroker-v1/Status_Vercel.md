@@ -13366,3 +13366,81 @@ isolated to this one file.
 NOT YET DEPLOYED.
 
 FILES: frontend/src/pages/LeadList.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+168. STALE ASSIGN-BROKER TASK — REAL ROOT CAUSE FOUND, NOT MODEL-SWITCHING SPECIFIC; REGION ADDED TO APPOINTMENT DETAIL; FIRST MEETING DATE VISIBLY GREYED OUT — 14 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+STALE TASK — Mark's hypothesis was that switching between Assign and
+Claim model left orphaned "Assign broker" tasks behind, and proposed a
+migration script to run on model switch. Investigated directly before
+building anything: traced every place deleteTasksForEntity() gets
+called for an Appointment entity — it's ONLY ever called inside
+returnToLeads(). Neither assignBroker() (the Admin-driven flow) NOR
+claimAppointment() (the broker self-claim flow) ever cleaned up the
+task once a broker actually got attached — in EITHER model, regardless
+of whether the org ever switched between them. Mark's specific example
+(Dr Lila Jones, claimed by William, task still open) is an instance of
+this general gap, not a model-switching-specific one.
+
+FIX: both assignBroker() and claimAppointment() now call
+deleteTasksForEntity({ entityType: 'Appointment', entityId: id })
+immediately after a broker is successfully attached — same call,
+almost the same reasoning returnToLeads() already documented for its
+own cleanup. In claimAppointment() specifically, placed AFTER the
+!claimed guard (a lost race — someone else claimed it first — means
+THIS call didn't change anything, so nothing to clean up on this pass;
+whichever claim succeeded already ran its own cleanup). No
+model-switching script needed — this closes the gap permanently and
+identically regardless of which model is active or ever was.
+
+NOT RETROACTIVE — this fix prevents the bug going forward; it does not
+clean up already-orphaned tasks that exist right now (Mark's own Dr
+Lila Jones example won't disappear on its own once this deploys). No
+live DB access to run a cleanup pass from here — recommend manually
+completing/dismissing any currently-stale Assign-broker tasks via the
+Tasks UI, or asking directly if a one-time cleanup script is wanted
+(given the fix is a two-line addition to two functions, and the
+underlying data anomaly should be small enough to fix by hand — a
+dedicated script felt like more machinery than a demo-scale problem
+warranted, but flagged rather than assumed).
+
+REGION ON APPOINTMENT DETAIL — Mark's request: was captured (§166) and
+carried onto Appointment.region, but never actually shown anywhere on
+this page. Added as a new field under Lead Details, right after Name.
+
+FIRST MEETING DATE — VISIBLY GREYED OUT. Was already functionally
+disabled (§166 follow-up, meeting 1's date field), but this design
+system's own s.formInput token doesn't visibly change on native
+:disabled — it looked identical to an editable field. Explicit style
+override added (muted background/text colour, not-allowed cursor) so
+the read-only state is actually visible, not just functional.
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 48/48 passing,
+`node --check` clean. Diffed against fresh GitHub — confirmed isolated
+to the two intended files.
+
+NOT YET DEPLOYED.
+
+STILL OPEN, NOT BUILT — a genuinely large design question, not a quick
+fix: Mark asked that when an Admin/Supervisor personally records a
+still-unclaimed claim-model appointment's first meeting outcome, they
+should be attached as the Broker — but flagged, correctly, that doing
+so via Appointment.brokerId directly would pollute broker-specific
+report metrics (Broker Performance table, Signed/appts ratio, etc.)
+with non-broker accounts. Proposed back to Mark, not yet built or
+confirmed: set brokerId as normal (keeps the data model simple, no
+multi-role User system needed) but add a lightweight boolean marker
+(e.g. Appointment.brokerIsStaffCovered) that report queries explicitly
+EXCLUDE from broker-specific views while still counting the deal
+everywhere else (org-wide totals, policy value) that should include
+every real sale regardless of who conducted it. Not built pending
+Mark's confirmation — this touches the trigger logic in
+saveMeetingAttemptOutcome(), a new column, and several already-built
+report queries (getBrokerReport, getBrokerDetailReport,
+getDashboardData's KPIs), enough surface area to want the design
+agreed before starting, not assumed.
+
+FILES: frontend/api-lib/services/appointmentService.js,
+frontend/src/pages/AppointmentDetail.jsx.

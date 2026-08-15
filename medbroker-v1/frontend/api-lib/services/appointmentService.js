@@ -589,6 +589,21 @@ export async function assignBroker(id, brokerId) {
     }
   );
 
+  // TASK CLEANUP — 14 Aug 2026. Real bug Mark found: an "Assign broker"
+  // task stayed open forever after the appointment already had a broker
+  // (found via a claimAppointment() case, but confirmed this same gap
+  // exists here too — neither path ever cleaned this up, regardless of
+  // claim/assign model). Nothing about this is model-switching specific;
+  // it would happen every single time an Assign-broker task's own
+  // appointment got a broker attached, in either model, always has. The
+  // task's whole purpose (get a broker onto this appointment) is now
+  // moot the moment this UPDATE succeeds — same "nothing left to
+  // confirm/reschedule/record" reasoning returnToLeads() already applies
+  // to its own task cleanup, just triggered by a different terminal
+  // event. Deleted, not completed — matches deleteTasksForEntity's
+  // existing semantics elsewhere in this file, not a new pattern.
+  await deleteTasksForEntity({ entityType: 'Appointment', entityId: id });
+
   if (appt) {
     const leadName = [appt.title, appt.firstName, appt.lastName].filter(Boolean).join(' ');
     const dateLabel = shortDateLabel(appt.firstAppointmentDate);
@@ -662,6 +677,16 @@ export async function claimAppointment(id, brokerId) {
     if (cost > 0) await refundTokens(brokerId, id, cost);
     throw { status: 409, message: 'This appointment is no longer available to claim' };
   }
+
+  // TASK CLEANUP — 14 Aug 2026, same fix and same reasoning as
+  // assignBroker()'s own identical addition just above in this file —
+  // this is the case Mark actually found (a claimed appointment with a
+  // still-open Assign-broker task). Placed AFTER the !claimed guard
+  // deliberately — a lost race (someone else claimed it first) means
+  // THIS broker's claim attempt didn't actually change anything, so
+  // there's nothing here to clean up on this call; whichever claim did
+  // succeed already ran this same cleanup on its own pass through.
+  await deleteTasksForEntity({ entityType: 'Appointment', entityId: id });
 
   const leadName = [appt.title, appt.firstName, appt.lastName].filter(Boolean).join(' ');
   const dateLabel = shortDateLabel(appt.firstAppointmentDate);
