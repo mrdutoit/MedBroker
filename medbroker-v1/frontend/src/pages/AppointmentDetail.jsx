@@ -182,6 +182,15 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
   const [followUpRequired, setFollowUpRequired] = useState(null);
   const [cancelReason, setCancelReason] = useState(null);
 
+  // 15 Aug 2026 — the real signal for "should this date be locked", not
+  // just meetingNumber === 1 on its own (see the input's own comment
+  // below for the bug this replaced). True only for the ORIGINAL
+  // meeting-1 row created directly by createAppointment() at booking —
+  // every subsequent meeting-1 row (born from Cancelled/Rescheduled/
+  // Missed) starts with attempt.date === null the moment it's created,
+  // so this correctly evaluates false for those, leaving them editable.
+  const isOriginalMeeting1Date = meetingNumber === 1 && !!attempt.date;
+
   // Follow-up is only ever asked for Held-Interested on a NON-last
   // meeting — matches saveMeetingAttemptOutcome()'s own server-side gate
   // exactly (appointmentService.js); asking it anywhere else would be a
@@ -222,7 +231,7 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
               // editable field — no visual signal it couldn't be
               // touched. Explicit override here, not relying on the
               // browser's own default disabled appearance.
-              ...(meetingNumber === 1 ? { background: 'var(--panel2)', color: 'var(--mut)', cursor: 'not-allowed' } : {}),
+              ...(isOriginalMeeting1Date ? { background: 'var(--panel2)', color: 'var(--mut)', cursor: 'not-allowed' } : {}),
             }}
             value={date ?? ''}
             // 14 Aug 2026 — Mark's explicit request: the First Meeting's
@@ -231,13 +240,32 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
             // creation — createAppointment(), appointmentService.js).
             // Leaving it editable here let it silently drift out of sync
             // with the Appointment's own firstAppointmentDate, with
-            // nothing showing which one was "real" afterward. Meeting
-            // 2/3 stay editable — those rows start with date=null (no
-            // captured value to protect) and genuinely need entering.
-            disabled={disabled || meetingNumber === 1}
+            // nothing showing which one was "real" afterward.
+            //
+            // 15 Aug 2026 — REAL BUG Mark found and fixed here: the
+            // original version locked this field for EVERY meetingNumber
+            // === 1 row unconditionally. That's wrong once a meeting 1
+            // row can be Cancelled/Rescheduled/Missed — each of those
+            // creates a NEW row for meeting 1 (still meeting 1, same
+            // meeting number, per Mark's own explicit request), and that
+            // new row starts with date=null (createMeetingAttempt() is
+            // always called with date: null for this exact case,
+            // appointmentService.js) — there's genuinely no captured
+            // value to protect there. Locking it anyway left the field
+            // both blank AND uneditable, with no way to ever set a date
+            // for that new attempt at all.
+            //
+            // isOriginalMeeting1Date (below) is the real signal — true
+            // only when meetingNumber is 1 AND attempt.date already has
+            // a value, which is only ever the row created directly by
+            // createAppointment() at booking time. Every other
+            // meeting-1 row (born from Cancelled/Rescheduled/Missed) has
+            // date=null the moment it's created, so this correctly
+            // falls through to editable, matching meeting 2/3's own rows.
+            disabled={disabled || isOriginalMeeting1Date}
             onChange={e => setDate(e.target.value)}
           />
-          {meetingNumber === 1 && !disabled && (
+          {isOriginalMeeting1Date && !disabled && (
             <p style={{ ...s.formHint, marginTop: '4px' }}>Set when this appointment was booked — not editable here.</p>
           )}
         </div>

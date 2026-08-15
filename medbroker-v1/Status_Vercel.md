@@ -13844,3 +13844,41 @@ change, no schema or backend touched.
 
 FILES: frontend/src/components/ReportsWidgets.jsx,
 frontend/src/pages/Reports.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+174. REAL BUG — MEETING 1's DATE FIELD LOCKED ITSELF PERMANENTLY BLANK AFTER A CANCELLED/RESCHEDULED/MISSED ATTEMPT — 15 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark found this while testing §172/§174's own predecessor fix (§166
+follow-up, the read-only First Meeting date). Root cause traced
+directly: that fix locked the date field for EVERY meetingNumber === 1
+row unconditionally, on the assumption meeting 1 only ever has ONE row
+(the one created at booking, date pre-filled from firstAppointmentDate).
+That assumption broke the moment Cancelled/Rescheduled/Missed routing
+(§172, and Rescheduled before it) started creating a SECOND — or
+third, etc. — row for meeting 1, since all three route identically: a
+new row, SAME meeting number, date starting at null
+(createMeetingAttempt() is always called with date: null for exactly
+this case). The lock applied anyway, leaving the field both blank AND
+uneditable — no way to ever set a date for that new attempt at all.
+
+FIX: the lock condition is now isOriginalMeeting1Date = meetingNumber
+=== 1 && !!attempt.date — true only for the row actually created by
+createAppointment() at booking time (the only code path that ever sets
+a meeting-1 row's date directly); every other meeting-1 row starts
+with date === null the instant it's created, so this now correctly
+falls through to editable, exactly matching how meeting 2/3's own rows
+already behaved. canSave's existing `!!date` check already requires a
+real date be entered before saving — needed no change, just needed the
+field to actually be touchable so that requirement could be satisfied.
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 48/48 passing.
+Tested the fixed condition directly against all four relevant
+combinations (original booking row, a fresh post-cancellation row,
+meeting 2 either way) — each evaluates correctly. Diffed against fresh
+GitHub — confirmed isolated to the one file.
+
+NOT YET DEPLOYED. No migration required — frontend-only.
+
+FILES: frontend/src/pages/AppointmentDetail.jsx.
