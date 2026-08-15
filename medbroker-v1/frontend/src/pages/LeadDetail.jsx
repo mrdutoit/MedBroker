@@ -298,6 +298,9 @@ export default function LeadDetail() {
       portfolios: baseLead.portfolios ?? [],
       // 14 Aug 2026 (§157/§158) — mirrors portfolios immediately above.
       products: baseLead.products ?? [],
+      // 14 Aug 2026 (§166) — single value, not an array (a Lead has
+      // exactly one region, unlike Portfolio/Products which can be several).
+      region: baseLead.region ?? '',
     });
     setEditError('');
     setEditing(true);
@@ -596,6 +599,25 @@ export default function LeadDetail() {
                   </div>
                 : '—'}
             </Field>
+          )}
+          {/* 14 Aug 2026 (§166) — a single value, not a checkbox set like
+              Portfolio/Products above — a plain <select>, same pattern as
+              the identical Region field already used in UserAdmin.jsx and
+              this same file's own Book Appointment modal. */}
+          {editing ? (
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom:'1px solid var(--line)', fontSize: '0.875rem', gap: '12px' }}>
+              <span style={{ color:'var(--mut)', flexShrink: 0 }}>Region</span>
+              <select
+                style={{ ...s.formInput, width: 'auto', minWidth: '160px' }}
+                value={editForm.region}
+                onChange={e => setField('region', e.target.value)}
+              >
+                <option value="">Not set</option>
+                {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+          ) : (
+            <Field label="Region">{baseLead.region ?? '—'}</Field>
           )}
           {/* 14 Aug 2026 (§157/§158, Mark's decision: "Mandatory, manual
               form only" at creation) — editable here too, though, same
@@ -900,7 +922,12 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
   // themselves aren't limited to one portfolio (§41's whole premise), so
   // an appointment shouldn't be either. Pre-fills from every portfolio
   // already tagged on the Lead (still fully editable here).
-  const [region,       setRegion]       = useState('');
+  // 14 Aug 2026 (§166) — was useState(''); now pre-fills from the Lead's
+  // own captured region, same as portfolios/products immediately below
+  // already do — still fully editable here (a client's actual meeting
+  // location can genuinely differ from their registered region on rare
+  // occasions), not locked once set.
+  const [region,       setRegion]       = useState(lead.region ?? '');
   const [portfolios,   setPortfolios]   = useState(lead.portfolios ?? []);
   // 14 Aug 2026 (§157/§158) — was useState([]); now pre-fills from the
   // Lead's own captured products, same as portfolios immediately above

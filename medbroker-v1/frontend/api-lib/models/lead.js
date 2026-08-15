@@ -122,6 +122,16 @@ const CreateLeadShape = z.object({
   // Referral/WebForm-sourced leads stay exempt, matching pre-existing
   // behaviour for those sources.
   portfolios:           z.array(z.string()).optional(),
+  // 14 Aug 2026 (§166) — Mark's explicit request: "a Lead and an
+  // Appointment both need to relate to a region, and a Lead should not
+  // be assignable to someone that is out of that region." Same
+  // optional-at-the-shape-level, mandatory-via-superRefine split as
+  // portfolios/products immediately around it. Value list mirrors
+  // src/constants/leadOptions.js's REGIONS exactly — that file is
+  // frontend-only (not importable across the client/server boundary),
+  // so this is a second copy, not a shared import; keep both in sync by
+  // hand if the list ever changes.
+  region: z.enum(['Gauteng', 'Western Cape', 'KwaZulu-Natal', 'Eastern Cape', 'Limpopo', 'Mpumalanga', 'North West', 'Northern Cape', 'Free State']).optional(),
   // 14 Aug 2026 (§157/§158, Mark's decision: "Mandatory, manual form
   // only") — mirrors portfolios immediately above exactly: optional at
   // the bare-shape level so CSV/subscription bulk import (which shares
@@ -155,6 +165,13 @@ export const CreateLeadSchema = CreateLeadShape.superRefine((data, ctx) => {
   // above, exactly, same ManualEntry-only gate.
   if (data.leadSource === 'ManualEntry' && (!data.products || data.products.length === 0)) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['products'], message: 'Select at least one product' });
+  }
+  // 14 Aug 2026 (§166) — same ManualEntry-only gate again. Region isn't
+  // an array (a Lead has exactly one, unlike Portfolio/Products which
+  // can be several) — z.enum already rejects anything outside the valid
+  // list, so this only needs to check presence.
+  if (data.leadSource === 'ManualEntry' && !data.region) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['region'], message: 'Select a region' });
   }
 });
 

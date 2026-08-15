@@ -13188,3 +13188,142 @@ specific fix — purely an application-logic change to when an existing
 sync mechanism fires.
 
 FILES: frontend/api-lib/services/userService.js.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+166. THREE MORE THINGS FROM MARK'S TESTING — FIRST MEETING DATE MADE READ-ONLY, LEAD-NEVER-CLOSES BUG FIXED, REGION PROMOTED TO A FIRST-CLASS LEAD/APPOINTMENT FIELD — 14 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+FIRST MEETING DATE — READ-ONLY. Mark's request: the First Meeting's
+date field in the new MeetingAttemptForm (§164) was editable, letting
+it silently drift out of sync with the Appointment's own
+firstAppointmentDate (which it's supposed to mirror — created together,
+atomically, at booking). Fixed: meetingNumber === 1's date input is now
+disabled, with a short explanatory hint. Meeting 2/3 stay editable —
+those rows start with date=null (no captured value to protect) and
+genuinely need entering by whoever logs the outcome.
+
+LEAD-NEVER-CLOSES BUG — FOUND AND FIXED. Mark's screenshot: a lead with
+two ClosedWon appointments still showing status "Assigned" and still
+appearing in the Leads list. Traced directly, not guessed: NOTHING
+anywhere in this codebase ever transitioned Lead.pipelineStatus once its
+Appointment actually closed. A Lead correctly reaches 'AppointmentScheduled'
+at booking time, but from there nothing ever moves it further — every
+lead whose deal is genuinely finished (won OR lost) stays permanently
+labelled "AppointmentScheduled" (already excluded from LeadList.jsx's
+Active view, at least) or, for older/seeded data that never went
+through that transition correctly, whatever earlier status it happened
+to be stuck at — the specific case Mark found. This fix only closes the
+FORWARD gap; it can't retroactively correct a lead whose status was
+already wrong before this ran (no live DB access to do that from here,
+and the appointment is already locked once closed — there's no clean
+UI path to retroactively fix Mark's specific example lead without a
+direct data correction).
+
+FIX: saveOutcome() (appointmentService.js) now sets Lead.pipelineStatus
+= 'Closed' the moment an appointment closes ClosedWon or ClosedLost —
+GUARDED, not unconditional: a Lead can carry more than one Appointment
+over time (a Lost attempt followed by a Reopen and a second booking,
+per this file's own header comment), so before flipping the Lead to
+'Closed' this checks whether any OTHER Appointment for the same Lead is
+still genuinely open; if one is, the Lead is left alone. 'Closed' was
+chosen deliberately, not invented — it's the same terminal
+pipelineStatus value the no-appointment call-outcome-close path already
+uses and the reporting queries already treat specially, not a new
+concept.
+
+REGION — PROMOTED TO A FIRST-CLASS LEAD/APPOINTMENT FIELD. Mark's
+explicit request, found while testing §165's BrokerRegion fix: "a Lead
+and an Appointment both need to relate to a region, and a Lead should
+not be assignable to someone that is out of that region." Real
+architectural finding underneath this, not just a missing form field:
+there was ALREADY a "client region" concept in this app (the Book
+Appointment modal's own broker-matching search, brokerMatchingService.js)
+— but it was only ever captured EPHEMERALLY, a local dropdown state
+that got used once to query matching brokers and then discarded, never
+persisted anywhere. That's the deeper reason claim-model matching has
+been unreliable (§165) — it was using the AGENT's own region as a
+stand-in for the CLIENT's region the whole time, which was never
+actually guaranteed to be the same thing.
+
+SCHEMA — migration 032: Lead.region and Appointment.region, both
+nullable VARCHAR(50). No backfill — inferring an existing lead's true
+region from its current agent's own region would be a guess dressed up
+as data, same reasoning applied to every other "don't invent a field
+with no home" decision this session. Verified against real Postgres
+(installed in this sandbox again specifically for this) — a minimal
+harness confirmed the actual ALTER TABLE statements apply cleanly and
+produce the expected column definitions.
+
+VALIDATION — mandatory on the manual Create Lead form only
+(leadSource === 'ManualEntry'), same split as Portfolio/Products.
+Value list is the same nine SA provinces already used by
+UserAdmin.jsx/LeadDetail.jsx's own REGIONS constant — duplicated into
+models/lead.js as a second copy (not a shared import; that constant is
+frontend-only, not importable across the client/server boundary),
+flagged to keep both in sync by hand if the list changes. Tested
+directly: ManualEntry without a region correctly rejected, with a valid
+region correctly passed, CSVImport correctly exempt, an invalid region
+value correctly rejected.
+
+BACKEND WIRING:
+  - leadService.js: createLead() INSERT, UPDATE_LEAD_COLUMNS (editable
+    after creation too, same as every other field there), both the list
+    and detail SELECT queries.
+  - assignLead() — the actual enforcement Mark asked for. Fetches the
+    Lead's region and the target Agent's own region (userService.js's
+    getActiveUserById extended to return it — purely additive, safe for
+    every existing caller); REJECTS the assignment with a clear,
+    specific error message when both are set and genuinely differ.
+    Deliberately LENIENT, not strict, when either side is unset — a hard
+    "both must be set" rule would have blocked assigning every lead and
+    agent that predates this feature, which is worse than the gap this
+    closes. Tested directly against all five combinations (match,
+    mismatch, lead-unset, agent-unset, neither-set) — every one behaves
+    as designed.
+  - appointmentService.js: createAppointment() now carries Lead.region
+    onto the new Appointment's own region column at booking time (fetched
+    in the same query that already pulls the lead's other fields, no new
+    round trip); APPOINTMENT_SELECT includes it.
+  - listAvailableToClaim() — THE actual root-cause fix for §165's
+    original bug report: matches against COALESCE(a.region, ag.region)
+    now, not ag.region alone. Tries the Appointment's own carried-over
+    region first (the real fix), falls back to the Agent's own region
+    ONLY when the Appointment has none — an appointment booked before
+    this migration, which never had a Lead.region to carry forward.
+    Without that fallback, every pre-existing Unassigned appointment
+    would have silently vanished from every broker's claim pool the
+    moment this shipped.
+
+FRONTEND:
+  - LeadImport.jsx (manual Create Lead form): Region dropdown added,
+    same REGIONS list, same validation pattern as Portfolio/Products.
+  - LeadDetail.jsx: Region added as an editable Field row (a plain
+    single-select, not a checkbox set like Portfolio/Products — a Lead
+    has exactly one); Book Appointment modal's own region dropdown now
+    PRE-FILLS from lead.region instead of starting blank, while staying
+    fully editable (a client's actual meeting location can genuinely
+    differ from their registered region on rare occasions).
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 48/48 passing.
+`node --check` clean on all four touched backend files. ESM import
+smoke tests confirmed every new/changed import resolved correctly (same
+expected, unrelated missing-DATABASE_URL failure past the import
+stage). Migration 032 run against real Postgres, not just eyeballed.
+Region-enforcement logic tested directly against all five combinations.
+Diffed every touched file against a fresh GitHub hydration, plus a
+full-repo scan — confirmed isolated to exactly the intended nine files
+(eight edited, one new migration), nothing else drifted.
+
+NOT YET DEPLOYED. Migration 032 needs to run against Neon before Lead/
+Appointment.region mean anything in production — same standing rule as
+every migration. Once live, recommend Mark backfill region manually
+(via LeadDetail.jsx's new editable field) for any existing leads he
+wants the assignment-enforcement and claim-matching improvements to
+actually apply to — this fix doesn't retroactively populate anything.
+
+FILES: frontend/db/migrations/032_lead_appointment_region.sql (new),
+frontend/db/schema.postgres.sql, frontend/api-lib/models/lead.js,
+frontend/api-lib/services/leadService.js, frontend/api-lib/services/appointmentService.js,
+frontend/api-lib/services/userService.js, frontend/src/pages/AppointmentDetail.jsx,
+frontend/src/pages/LeadDetail.jsx, frontend/src/pages/LeadImport.jsx.

@@ -50,7 +50,7 @@ import { useNavigate } from 'react-router';
 import * as XLSX from 'xlsx';
 import { leadsApi, ApiError } from '../services/api.js';
 import { s } from '../styles/tokens.js';
-import { TITLES, JOB_TITLES } from '../constants/leadOptions.js';
+import { TITLES, JOB_TITLES, REGIONS } from '../constants/leadOptions.js';
 import { useRole } from '../context/RoleContext.jsx';
 
 const REQUIRED_COLUMNS = ['title', 'firstName', 'lastName', 'dateOfBirth', 'occupation', 'mobileNumber', 'email'];
@@ -65,6 +65,9 @@ const BLANK_FORM = {
   // 14 Aug 2026 (§157/§158, Mark's decision: "Mandatory, manual form
   // only") — mirrors portfolios immediately above.
   products: [],
+  // 14 Aug 2026 (§166) — same mandatory-on-manual-entry rule, single
+  // value not an array.
+  region: '',
 };
 
 // Strips empty-string fields before sending. Left-blank optional fields
@@ -259,6 +262,8 @@ export default function LeadImport() {
     // 14 Aug 2026 (§157/§158, Mark's decision: "Mandatory, manual form
     // only") — mirrors the portfolios check immediately above, exactly.
     if (form.products.length === 0) errors.products = 'Select at least one product';
+    // 14 Aug 2026 (§166) — mirrors the products check immediately above.
+    if (!form.region) errors.region = 'Select a region';
     if (Object.keys(errors).length) { setFormErrors(errors); return; }
     setFormSubmitting(true);
     try {
@@ -685,6 +690,26 @@ export default function LeadImport() {
             {formErrors.products && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.products}</div>}
           </div>
           )}
+
+          {/* 14 Aug 2026 (§166, Mark's explicit request) — "a Lead and an
+              Appointment both need to relate to a region, and a Lead
+              should not be assignable to someone that is out of that
+              region." This is where that region actually gets captured —
+              carries through to the Appointment at booking time, and is
+              what assignLead() (leadService.js) now checks the target
+              Agent's own region against. */}
+          <div style={s.formGroup}>
+            <label style={s.formLabel}>Region *</label>
+            <select
+              style={s.formInput} value={form.region}
+              onChange={e => setForm(f => ({ ...f, region: e.target.value }))}
+            >
+              <option value="">Please select</option>
+              {REGIONS.map(r => <option key={r} value={r}>{r}</option>)}
+            </select>
+            <p style={s.formHint}>Where the client is — determines which agents/brokers this lead can be assigned to.</p>
+            {formErrors.region && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.region}</div>}
+          </div>
 
           <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
             <button type="submit" disabled={formSubmitting} style={s.primaryBtn}>

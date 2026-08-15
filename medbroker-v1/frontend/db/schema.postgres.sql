@@ -368,6 +368,24 @@ CREATE TABLE IF NOT EXISTS Lead (
     linkedSubscriptionId    UUID            NULL,
     csvImportBatchId        UUID            NULL,
     manualSourceName        VARCHAR(300)    NULL,
+    -- 14 Aug 2026 (§166, migration 032) — Mark's explicit request, found
+    -- while testing the BrokerRegion fix (§165): "a Lead and an
+    -- Appointment both need to relate to a region, and a Lead should not
+    -- be assignable to someone that is out of that region." Nullable —
+    -- no backfill for existing leads (deliberately; inferring a lead's
+    -- true region from its current agent's own region would be a guess
+    -- dressed up as data, same "don't invent a field with no home"
+    -- reasoning applied elsewhere this session) — mandatory going
+    -- forward only, on the manual Create Lead form specifically
+    -- (leadSource === 'ManualEntry'), same split Portfolio/Products
+    -- already use. Carried onto Appointment.region at booking time
+    -- (createAppointment(), appointmentService.js) — this is also the
+    -- value assignLead() now enforces against the target Agent's own
+    -- region, and what claim-model broker matching (listAvailableToClaim)
+    -- reads instead of the Appointment's Agent's own region, which is
+    -- what it incorrectly used as a proxy for "where the client is"
+    -- before this.
+    region                  VARCHAR(50)     NULL,
     -- DEPRECATED 23 Jul 2026 — superseded by LeadPortfolio (many-to-many,
     -- see below). A lead can be tagged with more than one portfolio (a
     -- broker isn't limited to one either — mirrors the existing
@@ -535,6 +553,14 @@ CREATE TABLE IF NOT EXISTS Appointment (
 
     productsInterestedIn        TEXT            NULL,
     currentInsurer              VARCHAR(200)    NULL,
+    -- 14 Aug 2026 (§166, migration 032) — carried from Lead.region at
+    -- booking time (createAppointment(), appointmentService.js), not
+    -- independently editable — a copy for query convenience (claim-model
+    -- broker matching reads this directly, no join back to Lead needed),
+    -- same reasoning Appointment.portfolioId already carries the Lead's
+    -- primary portfolio forward. See Lead.region's own comment for the
+    -- full account of why this exists.
+    region                       VARCHAR(50)     NULL,
 
     meeting1Date                DATE            NULL,
     meeting1Status               VARCHAR(50)     NULL,

@@ -116,7 +116,18 @@ by hand; Claude has no live DB access from the sandbox, ever).
 
 Lead
   pipelineStatus: Unassigned | Assigned | InProgress | AppointmentScheduled
-                  | ClosedLost
+                  | Closed
+  Corrected 14 Aug 2026 (§166) — this line previously said "ClosedLost",
+  which was never a real value (checked the actual CK_Lead_Status
+  constraint directly: the fifth value has always been 'Closed'). Set in
+  two places: leadService.js's call-outcome-close path (a lead closed
+  via a direct call outcome, never reached an appointment), and — new,
+  §166 — appointmentService.saveOutcome(), the moment an Appointment
+  closes ClosedWon or ClosedLost, GUARDED against another still-open
+  Appointment for the same Lead. Before §166 this second path didn't
+  exist at all — a lead whose deal was genuinely finished stayed
+  permanently stuck at whatever status it last held, the specific bug
+  Mark found while testing.
   One Lead can have MANY Appointment rows over its lifetime (one-to-many
   since a 23 Jul 2026 schema change) — a failed attempt, a Reopen, and a
   second attempt all leave separate rows, preserved as history.
@@ -134,6 +145,22 @@ Lead
   dependent-selection shape Book Appointment already used for its own
   product picker) — there is no Lead-level product list independent of
   portfolio.
+  region (migration 032, 14 Aug 2026, §166): nullable VARCHAR(50), one
+  of the nine SA provinces (REGIONS, leadOptions.js). Mandatory on
+  manual Create Lead only, same split as Portfolio/Products. No
+  backfill for existing leads — same "don't invent a field with no
+  home" reasoning throughout this session. Carried onto Appointment.region
+  at booking time; what assignLead() (leadService.js) checks the target
+  Agent's own region against, rejecting a cross-region assignment when
+  both are set and genuinely differ (lenient, not strict, when either
+  side is unset); what claim-model broker matching
+  (listAvailableToClaim, appointmentService.js) reads first now, falling
+  back to the Appointment's own Agent's region only for pre-migration
+  appointments that never had a Lead.region to carry forward. Full
+  account of the architectural finding underneath this (region was
+  ALREADY captured, but only ephemerally, in Book Appointment's own
+  broker-search dropdown, never persisted) lives in Status_Vercel.md
+  §166.
 
 Appointment
   status: Unassigned | Assigned | InProgress | ClosedWon | ClosedLost |
@@ -151,6 +178,14 @@ Appointment
   specifically — see FEATURE FLAG SYSTEM). claimedByBrokerId/claimedAt/
   claimTokenCost are all real now (§117) — set by claimAppointment()
   (appointmentService.js) when a broker claims from the pool.
+  region (migration 032, 14 Aug 2026, §166): nullable VARCHAR(50),
+  carried straight from Lead.region at booking time (createAppointment(),
+  appointmentService.js) — not independently editable, a copy for query
+  convenience. This is what claim-model broker matching
+  (listAvailableToClaim) reads first now, COALESCE-falling-back to the
+  Appointment's own Agent's region only when this is null (a pre-
+  migration appointment that never had a Lead.region to carry forward).
+  See Lead's own region entry above for the fuller account.
 
 MeetingAttempt (§138 spec, session 20; §164 build, 14 Aug 2026, migration
   031) — replaces the old flat meeting{1,2,3}Date/Status/Feedback columns

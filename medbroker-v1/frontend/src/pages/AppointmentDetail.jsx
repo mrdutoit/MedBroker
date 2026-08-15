@@ -171,9 +171,22 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
         <div>
           <label style={s.formLabel}>Date</label>
           <input
-            type="date" style={s.formInput} value={date ?? ''} disabled={disabled}
+            type="date" style={s.formInput} value={date ?? ''}
+            // 14 Aug 2026 — Mark's explicit request: the First Meeting's
+            // date is what the Agent captured at booking time
+            // (firstAppointmentDate, carried into this row's own date at
+            // creation — createAppointment(), appointmentService.js).
+            // Leaving it editable here let it silently drift out of sync
+            // with the Appointment's own firstAppointmentDate, with
+            // nothing showing which one was "real" afterward. Meeting
+            // 2/3 stay editable — those rows start with date=null (no
+            // captured value to protect) and genuinely need entering.
+            disabled={disabled || meetingNumber === 1}
             onChange={e => setDate(e.target.value)}
           />
+          {meetingNumber === 1 && !disabled && (
+            <p style={{ ...s.formHint, marginTop: '4px' }}>Set when this appointment was booked — not editable here.</p>
+          )}
         </div>
         <div>
           <label style={s.formLabel}>Status</label>

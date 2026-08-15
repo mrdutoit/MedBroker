@@ -172,7 +172,7 @@ export async function listLeads({ status, excludeStatuses, agentId, brokerId, ev
        ${SOURCE_LABEL_SELECT} AS "sourceLabel",
        l.linkedEventId AS "linkedEventId", l.pipelineStatus AS "pipelineStatus",
        l.assignedAgentId AS "assignedAgentId",
-       l.createdAt AS "createdAt", l.updatedAt AS "updatedAt",
+       l.region, l.createdAt AS "createdAt", l.updatedAt AS "updatedAt",
        a.displayName AS "agentName"
      FROM Lead l
      ${SOURCE_JOINS}
@@ -209,7 +209,7 @@ export async function getLeadById(id) {
        ${SOURCE_LABEL_SELECT} AS "sourceLabel",
        l.linkedEventId AS "linkedEventId", l.pipelineStatus AS "pipelineStatus",
        l.assignedAgentId AS "assignedAgentId", a.displayName AS "agentName",
-       l.createdAt AS "createdAt", l.updatedAt AS "updatedAt",
+       l.region, l.createdAt AS "createdAt", l.updatedAt AS "updatedAt",
        ap.id AS "appointmentId", ap.status AS "appointmentStatus",
        -- Changed 23 Jul 2026 from a single LEFT JOIN Portfolio to this
        -- (Mark's request, see §41 — a lead can now be tagged with more
@@ -354,14 +354,14 @@ export async function createLead(data, createdById) {
        degreeAttained, occupation, hospitalOrPractice, existingCover, policies,
        medicalAid, medicalAidProvider, linkedEventId, linkedSubscriptionId,
        csvImportBatchId, manualSourceName, pipelineStatus,
-       createdById, createdAt, updatedAt
+       region, createdById, createdAt, updatedAt
      ) VALUES (
        @id, @organisationId, @title, @firstName, @lastName, @dateOfBirth, @idNumberEncrypted, @idNumberHash, @email,
        @mobileNumber, @whatsappNumber, @universityAttended, @yearOfAttendance,
        @degreeAttained, @occupation, @hospitalOrPractice, @existingCover, @policies,
        @medicalAid, @medicalAidProvider, @linkedEventId, @linkedSubscriptionId,
        @csvImportBatchId, @manualSourceName, 'Unassigned',
-       @createdById, NOW(), NOW()
+       @region, @createdById, NOW(), NOW()
      )`,
     {
       id:                   { type: sql.UniqueIdentifier,   value: newId },
@@ -388,6 +388,7 @@ export async function createLead(data, createdById) {
       linkedSubscriptionId: { type: sql.UniqueIdentifier,   value: data.linkedSubscriptionId ?? null },
       csvImportBatchId:     { type: sql.UniqueIdentifier,   value: data.csvImportBatchId ?? null },
       manualSourceName:     { type: sql.NVarChar(300),      value: data.manualSourceName ?? null },
+      region:               { type: sql.NVarChar(50),       value: data.region ?? null },
       createdById:          { type: sql.UniqueIdentifier,   value: createdById },
     }
   );
@@ -432,6 +433,10 @@ const UPDATE_LEAD_COLUMNS = {
   policies:            { col: 'policies',            type: sql.NVarChar(500) },
   medicalAid:          { col: 'medicalAid',          type: sql.Bit },
   medicalAidProvider:  { col: 'medicalAidProvider',  type: sql.NVarChar(200) },
+  // 14 Aug 2026 (§166) — editable after creation, same as every other
+  // field in this list; mandatory-on-ManualEntry only applies to the
+  // Zod layer at CREATE time (models/lead.js), not to later edits.
+  region:              { col: 'region',              type: sql.NVarChar(50) },
 };
 
 /**
@@ -507,10 +512,25 @@ export async function assignLead(leadId, agentId) {
 
   // Fetched before the UPDATE below — the old value is needed to move any
   // of this agent's open tasks for this lead over to the new one (§58).
+  // region added 14 Aug 2026 (§166) — Mark's explicit request: "a Lead
+  // should not be assignable to someone that is out of that region."
   const before = await executeQueryOne(
-    `SELECT assignedAgentId AS "assignedAgentId" FROM Lead WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
+    `SELECT assignedAgentId AS "assignedAgentId", region FROM Lead WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
     { leadId: { type: sql.UniqueIdentifier, value: leadId }, organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } }
   );
+  if (!before) throw { status: 404, message: 'Lead not found' };
+
+  // Lenient by design, not strict: only rejects when BOTH sides actually
+  // have a region set and they genuinely differ. Neither Lead.region nor
+  // User.region is retroactively backfilled for existing data (§166's own
+  // migration comment) — a hard "both must be set" rule would have
+  // blocked assigning every lead and agent that predates this feature,
+  // which is worse than the gap this closes. Revisit once region is
+  // reliably populated across the board, if stricter enforcement is
+  // wanted then.
+  if (before.region && target.region && before.region !== target.region) {
+    throw { status: 400, message: `This lead is in ${before.region}; ${target.displayName} is registered in ${target.region}. Assign to an agent in the same region, or update the lead's region if that's wrong.` };
+  }
 
   await executeQuery(
     `UPDATE Lead

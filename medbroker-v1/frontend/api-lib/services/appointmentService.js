@@ -47,6 +47,7 @@ const APPOINTMENT_SELECT = `
   a.virtualMeetingLink AS "virtualMeetingLink",
   a.productsInterestedIn AS "productsInterestedIn",
   a.currentInsurer AS "currentInsurer",
+  a.region AS "region",
   -- meeting{1,2,3}Date/Status/Feedback REMOVED from this SELECT 14 Aug
   -- 2026 (§138 spec, session 20; §164 build, session 23) — replaced by
   -- MeetingAttempt, fetched separately in getAppointmentById() below
@@ -381,7 +382,7 @@ export async function createAppointment(data) {
 
   const lead = await executeQueryOne(
     `SELECT l.assignedAgentId AS "assignedAgentId", l.title, l.firstName AS "firstName", l.lastName AS "lastName",
-            ag.supervisorId AS "agentSupervisorId", ag.region AS "agentRegion"
+            l.region, ag.supervisorId AS "agentSupervisorId", ag.region AS "agentRegion"
      FROM Lead l
      LEFT JOIN "User" ag ON l.assignedAgentId = ag.id
      WHERE l.id = @leadId AND l.deletedAt IS NULL AND l.organisationId = @organisationId`,
@@ -415,11 +416,11 @@ export async function createAppointment(data) {
     `INSERT INTO Appointment (
        id, organisationId, leadId, status, agentId, brokerId, portfolioId,
        firstAppointmentDate, firstAppointmentTime, meetingType, firstAppointmentAddress, virtualMeetingLink,
-       productsInterestedIn, currentInsurer, claimTokenCost, createdAt, updatedAt
+       productsInterestedIn, currentInsurer, region, claimTokenCost, createdAt, updatedAt
      ) VALUES (
        @id, @organisationId, @leadId, @status, @agentId, @brokerId, @portfolioId,
        @firstAppointmentDate, @firstAppointmentTime, @meetingType, @firstAppointmentAddress, @virtualMeetingLink,
-       @productsInterestedIn, @currentInsurer, @claimTokenCost, NOW(), NOW()
+       @productsInterestedIn, @currentInsurer, @region, @claimTokenCost, NOW(), NOW()
      )`,
     {
       id:                      { type: sql.UniqueIdentifier, value: newId },
@@ -436,6 +437,11 @@ export async function createAppointment(data) {
       virtualMeetingLink:      { type: sql.NVarChar(500),     value: data.virtualMeetingLink ?? null },
       productsInterestedIn:    { type: sql.NVarChar(sql.MAX), value: data.productsInterestedIn ? JSON.stringify(data.productsInterestedIn) : null },
       currentInsurer:          { type: sql.NVarChar(200),     value: data.currentInsurer ?? null },
+      // 14 Aug 2026 (§166) — carried straight from the Lead fetched
+      // above, not re-derived or caller-supplied. Appointment.region is
+      // a copy for query convenience (claim-model matching reads this
+      // directly), Lead.region stays the one real, editable source.
+      region:                  { type: sql.NVarChar(50),      value: lead.region ?? null },
       // §117 — only meaningful for an Unassigned appointment (data.brokerId
       // omitted), but stored regardless of status; a directly-booked
       // appointment (status Assigned) never reads this field since it
@@ -705,7 +711,18 @@ export async function listAvailableToClaim(brokerId) {
     `SELECT ${APPOINTMENT_SELECT} ${APPOINTMENT_JOINS}
      WHERE a.status = 'Unassigned' AND a.organisationId = @organisationId
        AND EXISTS (
-         SELECT 1 FROM BrokerRegion br WHERE br.brokerId = @brokerId AND br.region = ag.region
+         -- 14 Aug 2026 (§166) — matches against the Appointment's own
+         -- carried-over region (from Lead.region at booking time) now,
+         -- not the Agent's own region. That was always a PROXY for
+         -- "where the client is" — correct only when the agent and
+         -- client happened to share a region, which was never actually
+         -- guaranteed. COALESCE falls back to ag.region ONLY when
+         -- a.region is null — an appointment booked before this
+         -- migration, which never had a Lead.region to carry forward at
+         -- all; without the fallback, every pre-existing Unassigned
+         -- appointment would silently vanish from every broker's claim
+         -- pool the moment this shipped.
+         SELECT 1 FROM BrokerRegion br WHERE br.brokerId = @brokerId AND br.region = COALESCE(a.region, ag.region)
        )
      ORDER BY a.firstAppointmentDate ASC, a.firstAppointmentTime ASC`,
     {
@@ -946,6 +963,45 @@ export async function saveOutcome(id, data) {
   // `meetings` field to loop over.
 
   await executeQuery(`UPDATE Appointment SET ${setClauses.join(', ')} WHERE id = @id AND organisationId = @organisationId`, params);
+
+  // 14 Aug 2026 — real gap Mark found while testing: nothing anywhere in
+  // this codebase ever transitioned Lead.pipelineStatus once its
+  // Appointment actually closed. A Lead correctly moves to
+  // 'AppointmentScheduled' at booking time (createAppointment(), above),
+  // but from that point on nothing ever moves it further — meaning
+  // every lead whose deal has genuinely finished (won OR lost) stays
+  // permanently labelled "AppointmentScheduled" (or, for older/seeded
+  // data that never went through that transition correctly in the first
+  // place, whatever earlier status it happened to be stuck at — the
+  // specific case Mark found, a lead with two ClosedWon appointments
+  // still showing "Assigned"). This fix only closes the FORWARD gap —
+  // it can't retroactively correct a Lead whose status was already
+  // wrong before this ran; that needs a direct data correction, not
+  // something achievable through the app's own UI once the appointment
+  // is already locked.
+  //
+  // Guarded, not unconditional: a Lead can carry more than one
+  // Appointment over time (a Lost attempt followed by a Reopen and a
+  // second booking, per this file's own header comment) — if some OTHER
+  // Appointment for the same Lead is still genuinely open (not yet
+  // ClosedWon/ClosedLost/ReturnedToLeads), the Lead is NOT actually
+  // "done" and pipelineStatus is left alone. Only flips to 'Closed' once
+  // this save is the one that leaves NO open Appointment behind for that
+  // Lead — checked fresh, after this save's own UPDATE above, not
+  // assumed from data fetched earlier in this function.
+  if (['ClosedWon', 'ClosedLost'].includes(newStatus) && current.leadId) {
+    const stillOpen = await executeQueryOne(
+      `SELECT 1 FROM Appointment WHERE leadId = @leadId AND organisationId = @organisationId
+         AND status NOT IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND id != @id LIMIT 1`,
+      { leadId: { type: sql.UniqueIdentifier, value: current.leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId }, id: { type: sql.UniqueIdentifier, value: id } }
+    );
+    if (!stillOpen) {
+      await executeQuery(
+        `UPDATE Lead SET pipelineStatus = 'Closed', updatedAt = NOW() WHERE id = @leadId AND organisationId = @organisationId`,
+        { leadId: { type: sql.UniqueIdentifier, value: current.leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+      );
+    }
+  }
 
   // TASK GENERATION REMOVED HERE (§138, 12 Aug 2026) — this used to create
   // Reschedule and Outcome tasks on a meeting-status transition. Mark's own

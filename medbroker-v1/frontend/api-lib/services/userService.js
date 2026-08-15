@@ -425,7 +425,7 @@ export async function getActiveUserById(id) {
   return executeQueryOne(
     `SELECT id, displayName AS "displayName", email, role,
             supervisorId AS "supervisorId", isActive AS "isActive",
-            sessionsRevokedAt AS "sessionsRevokedAt"
+            sessionsRevokedAt AS "sessionsRevokedAt", region
      FROM "User"
      WHERE id = @id AND isActive = TRUE AND deletedAt IS NULL AND organisationId = @organisationId`,
     {
