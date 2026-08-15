@@ -366,6 +366,15 @@ export default function AppointmentList() {
     firstDate:   a.firstAppointmentDate
                    ? `${new Date(a.firstAppointmentDate).toDateString() === today ? 'Today' : new Date(a.firstAppointmentDate).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })} · ${(a.firstAppointmentTime ?? '').slice(0, 5)}`
                    : '—',
+    // 14 Aug 2026 — Mark's request: sortable columns. firstDate above is
+    // already a pretty display string ("Today · 09:00" / "15 Aug 2026 ·
+    // 09:00") — sorting THAT alphabetically would be wrong (e.g. "1 Jan
+    // 2027" sorts before "15 Aug 2026" as text even though it's later
+    // chronologically; "Today" sorts nowhere sensible at all). Kept as
+    // its own separate field specifically so the sort comparator has a
+    // real, comparable value while the <td> keeps showing the friendly
+    // string unchanged.
+    firstDateRaw: a.firstAppointmentDate ?? null,
     isToday:     a.firstAppointmentDate ? new Date(a.firstAppointmentDate).toDateString() === today : false,
     m1:          a.meeting1Status || null,
     m2:          a.meeting2Status || null,
@@ -466,34 +475,76 @@ export default function AppointmentList() {
     Broker:      claimModel === 'claim' ? 'My appointments and available to claim' : 'Appointments assigned to you',
   };
 
+    // 14 Aug 2026 — Mark's request: "I cannot sort the list of
+    // Appointments from oldest to newest (or in any other way either)."
+    // Matches Reports.jsx's own DataTable click-header/toggle-direction/
+    // ↑↓-indicator convention, kept separate from that component rather
+    // than reused — this table's cells are hand-written JSX (portfolio
+    // pills, status badges, a broker-claim action link), not the
+    // generic columns+render shape DataTable expects, so lifting this
+    // into that shared component would have meant a larger rewrite of
+    // working table markup for a single-page feature. Portfolio and
+    // 1st/2nd mtg stay non-sortable — multi-value and categorical
+    // respectively, no meaningful single ranking to click into.
+    const SORT_VALUE = {
+      leadName:   r => r.leadName ?? '',
+      source:     r => r.source ?? '',
+      status:     r => r.status ?? '',
+      firstDate:  r => r.firstDateRaw ?? '',
+      agentName:  r => r.agentName ?? '',
+      signed:     r => r.signed ?? '',
+      brokerName: r => r.brokerName ?? '',
+    };
     function AppointmentsTable({ rows, showBroker = true }) {
+      const [sortKey, setSortKey] = useState(null);
+      const [sortDir, setSortDir] = useState('asc');
+
+      function toggleSort(key) {
+        if (key === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+        else { setSortKey(key); setSortDir('asc'); }
+      }
+      function thProps(key) {
+        const sortable = !!SORT_VALUE[key];
+        return {
+          onClick: sortable ? () => toggleSort(key) : undefined,
+          style: { ...s.th, cursor: sortable ? 'pointer' : 'default', userSelect: 'none' },
+        };
+      }
+      const sortedRows = sortKey
+        ? [...rows].sort((a, b) => {
+            const av = SORT_VALUE[sortKey](a), bv = SORT_VALUE[sortKey](b);
+            const cmp = av < bv ? -1 : av > bv ? 1 : 0;
+            return sortDir === 'asc' ? cmp : -cmp;
+          })
+        : rows;
+
       return (
         <div style={{ ...s.tableCard, overflowX: 'auto' }}>
           <table style={{ ...s.table, minWidth: '860px' }}>
           <thead>
             <tr>
-              <th style={s.th}>Lead</th>
+              <th {...thProps('leadName')}>Lead{sortKey === 'leadName' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</th>
               <th style={s.th}>Portfolio</th>
-              <th style={s.th}>Source</th>
-              <th style={s.th}>Status</th>
-              <th style={s.th}>First appt</th>
-              <th style={s.th}>Agent</th>
+              <th {...thProps('source')}>Source{sortKey === 'source' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</th>
+              <th {...thProps('status')}>Status{sortKey === 'status' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</th>
+              <th {...thProps('firstDate')}>First appt{sortKey === 'firstDate' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</th>
+              <th {...thProps('agentName')}>Agent{sortKey === 'agentName' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</th>
               <th style={s.th}>1st mtg</th>
               <th style={s.th}>2nd mtg</th>
-              <th style={s.th}>Signed?</th>
-              {showBroker && !isBroker && <th style={s.th}>Broker</th>}
+              <th {...thProps('signed')}>Signed?{sortKey === 'signed' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</th>
+              {showBroker && !isBroker && <th {...thProps('brokerName')}>Broker{sortKey === 'brokerName' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</th>}
               <th style={s.th}></th>
             </tr>
           </thead>
           <tbody>
-            {rows.length === 0 && (
+            {sortedRows.length === 0 && (
               <tr>
                 <td colSpan={12} style={{ textAlign: 'center', padding: '40px', color:'var(--mut)' }}>
                   No appointments match your current filters.
                 </td>
               </tr>
             )}
-            {rows.map(a => {
+            {sortedRows.map(a => {
               const sm = APPT_STATUS_META[a.status] ?? APPT_STATUS_META.Unassigned;
               const isUnassigned = a.status === 'Unassigned';
               return (

@@ -13549,3 +13549,86 @@ GitHub — confirmed isolated to the one file.
 NOT YET DEPLOYED.
 
 FILES: frontend/src/pages/Reports.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+171. TWO OF MARK'S FOUR ITEMS BUILT (STALE-TASK CLEANUP SCRIPT, SORTABLE APPOINTMENTS LIST); CANCELLED/MISSED RE-OPENED FOR DESIGN DISCUSSION, NOT BUILT — 14 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+CLEANUP SCRIPT — migration 033, one-time data cleanup (not a schema
+change, numbered the same way regardless — matches Mark's own
+established practice of numbering every Neon-applied SQL change
+sequentially). Marks already-orphaned "Assign broker" tasks COMPLETE,
+does NOT delete them — Mark's explicit request: "won't break the data
+that is there now and will still allow me to have those records as
+dummy data." Matches exactly type='Appointment' AND entityType=
+'Appointment' — confirmed by grepping every createTask() call site in
+the codebase that this combination is the ONLY thing that ever creates
+this kind of task, so no title-text matching was needed to isolate them
+safely. Only touches a task whose own Appointment already has a broker;
+a task for a genuinely still-unassigned appointment is left completely
+alone.
+
+VERIFIED AGAINST REAL POSTGRES, not just eyeballed, given this writes
+to real data — a 4-scenario harness (genuinely orphaned, still
+genuinely open, already complete, an unrelated Callback task) confirmed
+the script touches exactly and only the one row it should, and running
+it a second time is a true no-op (idempotent).
+
+SORTABLE APPOINTMENTS LIST — the main Appointments page's table had no
+sorting at all before this (a fixed ORDER BY firstAppointmentDate ASC
+server-side, no user control). Added client-side sort (matching how
+this page's filtering was already entirely client-side — the whole
+dataset is already loaded, so no backend round-trip needed) — click a
+header to sort by it, click again to reverse, ↑/↓ indicator, same
+visual convention as Reports.jsx's own DataTable component, kept as a
+separate implementation rather than reused since this table's cells are
+hand-written JSX (portfolio pills, status badges, a claim action link),
+not that component's generic columns+render shape.
+
+REAL BUG FOUND AND FIXED ALONG THE WAY: the "First appt" column's
+underlying value was already a pretty display STRING ("Today · 09:00"
+/ "15 Aug 2026 · 09:00"), not a raw date — sorting that alphabetically
+would have been actively wrong (a January 2027 appointment would have
+sorted BEFORE an August 2026 one, since "1 Jan 2027" precedes "15 Aug
+2026" as text even though it's chronologically later; "Today" wouldn't
+sort anywhere sensible at all). Added a separate raw sortable value
+(firstDateRaw) specifically so the comparator uses the real date while
+the cell keeps showing the friendly string unchanged. Tested both ways
+directly — the raw-value sort produces the correct chronological order,
+and a side-by-side test confirms sorting the display string instead
+really would have produced the wrong order, not a hypothetical concern.
+
+Portfolio and 1st/2nd meeting columns stay non-sortable — multi-value
+and categorical respectively, no single meaningful ranking to click
+into (same reasoning DataTable already applies to its own non-sortable
+identity columns elsewhere in this app).
+
+CANCELLED/MISSED TRACKING — genuinely re-opened, not built yet. Mark's
+own framing: "I don't know what you meant... so if necessary we need to
+explore this topic more" — his real-world scenario (a client cancels or
+doesn't show, with no notice AND no reschedule happening at that
+moment) exposes a real gap in §164's own design decision: the new
+model's four statuses (Scheduled/HeldInterested/HeldNotInterested/
+Rescheduled) collapsed the old 'Cancelled' into 'Rescheduled' on the
+assumption that a cancellation always implies queuing up a new attempt
+immediately — Mark's scenario shows that assumption doesn't always
+hold. Discussed back with Mark directly in chat (see conversation, not
+repeated here) rather than built blind — this touches the
+MeetingAttempt status enum, the save-outcome routing logic, and the
+Reports page's Appointment Analysis section all at once, real
+architectural surface for something Mark himself flagged as needing
+more thought first.
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 48/48 passing.
+Sort logic and cleanup script both tested directly against concrete
+data (not just built and assumed correct). Diffed against fresh
+GitHub — confirmed isolated to the two intended changes (the new
+migration file, AppointmentList.jsx).
+
+NOT YET DEPLOYED. Migration 033 needs to run against Neon — same
+standing rule as every migration, though this one is a one-time data
+fix, not a schema change (no ALTER TABLE, purely a Task UPDATE).
+
+FILES: frontend/db/migrations/033_cleanup_stale_assign_broker_tasks.sql
+(new), frontend/src/pages/AppointmentList.jsx.
