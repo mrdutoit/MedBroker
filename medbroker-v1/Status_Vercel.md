@@ -13510,3 +13510,42 @@ NOT YET DEPLOYED.
 FILES: frontend/api-lib/services/appointmentService.js,
 frontend/api-lib/handlers/appointmentHandlers.js,
 frontend/src/pages/AppointmentDetail.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+170. REPORTS — RANKED "#" COLUMN (GOLD/SILVER/BRONZE) REPLACES THE INLINE TROPHY ON BROKER PERFORMANCE AND AGENT ACTIVITY — 14 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's request, flagged by him as cosmetic and skippable if costly —
+wasn't: the Broker Performance table's inline 🏆 (prefixed onto the top
+row's own name cell) visually skewed that one row, since only it
+carried the extra glyph. Replaced with a dedicated "#" column on both
+Broker Performance and Agent Activity — gold/silver/bronze medals for
+the top 3, a plain number below that.
+
+Rank is computed from a FIXED metric per table — policyValue for
+Broker (matches the old topPerformer logic's own metric, kept
+consistent rather than silently changed), appts (Appointments Booked)
+for Agent, Mark's own explicit instruction, a genuinely new ranking
+that didn't exist before this (the Agent table had no top-performer
+concept at all previously). Computed once, independent of whatever
+column the table is currently sorted by — DataTable sorts a local copy
+internally, never the row objects themselves, so a rank value attached
+before rows are passed in travels correctly with each row regardless of
+how the visible order changes afterward. Zero of the ranking metric
+gets no rank at all (a gold medal for zero sales/zero appointments
+would be misleading, not celebratory) — same `> 0` guard the old
+topPerformer logic already had. Ties broken by original array order
+only, no more precise tie-break rule attempted — this is cosmetic
+ranking, not a scored leaderboard.
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 48/48 passing.
+Tested the ranking helper directly against concrete data including a
+genuine tie and a zero-value row — ties correctly resolved by array
+order, zero correctly excluded from ranking. Swept for any remaining
+topPerformer reference — none, fully replaced. Diffed against fresh
+GitHub — confirmed isolated to the one file.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/src/pages/Reports.jsx.

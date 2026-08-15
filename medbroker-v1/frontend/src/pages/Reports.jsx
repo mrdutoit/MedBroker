@@ -163,26 +163,58 @@ export default function Reports() {
   const appointmentAnalysis = dash.appointmentAnalysis ?? null;
   const insights       = dash.insights ?? [];
 
+  // 14 Aug 2026 — Mark's request: the old inline 🏆 in the Broker name
+  // column ("skews the text" — only the top row got the extra glyph,
+  // making that one cell visually wider/misaligned against every other
+  // row). Replaced with a dedicated "#" column, gold/silver/bronze for
+  // the top 3. Rank is computed from a FIXED metric (policyValue for
+  // Broker, appts for Agent — Mark's own instruction), independent of
+  // whatever column the table is currently sorted by — DataTable sorts
+  // a local copy internally (`[...rows].sort(...)`), never the row
+  // objects themselves, so a rank attached here travels correctly with
+  // each row no matter how the visible order changes. Rows at 0 (no
+  // sales / no appointments) get no rank at all — a gold medal for zero
+  // of anything would be misleading, not celebratory; matches the old
+  // topPerformer logic's own `> 0` guard. Ties broken by original array
+  // order only — this is cosmetic ranking (Mark's own words, "probably
+  // more aesthetics than anything"), not a scored leaderboard that
+  // needs exact tie-break rules.
+  function withRank(rows, metricKey) {
+    const ranked = [...rows]
+      .filter(r => (Number(r[metricKey]) || 0) > 0)
+      .sort((a, b) => (Number(b[metricKey]) || 0) - (Number(a[metricKey]) || 0));
+    const rankById = new Map(ranked.map((r, i) => [r.id, i + 1]));
+    return rows.map(r => ({ ...r, rank: rankById.get(r.id) ?? null }));
+  }
+  function RankCell({ rank }) {
+    if (!rank) return <span style={{ color: 'var(--mut)' }}>—</span>;
+    const medal = { 1: '🥇', 2: '🥈', 3: '🥉' }[rank];
+    return medal ? <span title={`#${rank}`}>{medal}</span> : <span>{rank}</span>;
+  }
+  const rankColumn = { key: 'rank', label: '#', align: 'center', sortable: false, render: r => <RankCell rank={r.rank} /> };
+
   const brokerColumns = [
-    { key: 'name',         label: 'Broker', sortable: false, render: r => (
-        <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          {r.topPerformer && <span title="Top performer">🏆</span>}{r.name}
-        </span>
-      ) },
+    rankColumn,
+    { key: 'name',         label: 'Broker', sortable: false },
     { key: 'appts',        label: 'Appointments', align: 'right' },
     { key: 'signed',       label: 'Signed',       align: 'right' },
     { key: 'policyValue',  label: 'Policy Value', align: 'right', render: r => fmt(r.policyValue) },
     { key: 'conversion',   label: 'Conversion Ratio', align: 'right', render: r => (r.appts === 0 ? '0.0' : (r.signed / r.appts).toFixed(1)) },
   ];
-  const brokerRows = brokers.map(b => ({ ...b, id: b.id, conversion: b.appts === 0 ? 0 : b.signed / b.appts, topPerformer: b.policyValue > 0 && b.policyValue === Math.max(...brokers.map(x => x.policyValue)) }));
+  const brokerRows = withRank(
+    brokers.map(b => ({ ...b, id: b.id, conversion: b.appts === 0 ? 0 : b.signed / b.appts })),
+    'policyValue'
+  );
 
   const agentColumns = [
+    rankColumn,
     { key: 'name',    label: 'Agent', sortable: false },
     { key: 'leads',   label: 'Leads',   align: 'right' },
     { key: 'calls',   label: 'Calls',   align: 'right' },
     { key: 'appts',   label: 'Appts Booked', align: 'right' },
     { key: 'conversion', label: 'Bookings Ratio', align: 'right' },
   ];
+  const agentRows = withRank(agents, 'appts');
 
   const sourceColumns = [
     { key: 'source',      label: 'Source', sortable: false },
@@ -339,7 +371,7 @@ export default function Reports() {
             </Section>
             <Section title="Agent Activity">
               <DataTable
-                columns={agentColumns} rows={agents} defaultSortKey="appts" highlightKey="appts"
+                columns={agentColumns} rows={agentRows} defaultSortKey="appts" highlightKey="appts"
                 onRowClick={r => navigate(`/reports/agent/${r.id}${detailLinkQuery}`)}
                 emptyMessage="No agent activity this period."
               />
