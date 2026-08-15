@@ -446,7 +446,13 @@ export default function Reports() {
                             {LOST_REASON_LABELS[r.reason] ?? r.reason}
                           </span>
                           <div style={{ flex: 1, height: '16px', background: colors.surfaceSubtle, borderRadius: '4px', overflow: 'hidden' }}>
-                            <div style={{ width: `${Math.max(4, (r.count / maxCount) * 100)}%`, height: '100%', background: r.reason === 'Not captured' ? colors.ink400 : colors.danger, opacity: r.reason === 'Not captured' ? 0.5 : 0.85 }} />
+                            {/* 15 Aug 2026 — capped at 85%, not 100%,
+                                matching the identical fix applied to
+                                Appointment Analysis's cancel-reasons bar
+                                just below in this file — a lone
+                                category filling the entire row read as
+                                heavier than one data point warrants. */}
+                            <div style={{ width: `${Math.min(85, Math.max(4, (r.count / maxCount) * 85))}%`, height: '100%', background: r.reason === 'Not captured' ? colors.ink400 : colors.danger, opacity: r.reason === 'Not captured' ? 0.5 : 0.85 }} />
                           </div>
                           <span style={{ fontSize: '0.8125rem', fontWeight: 600, width: '24px', textAlign: 'right' }}>{r.count}</span>
                         </div>
@@ -468,18 +474,28 @@ export default function Reports() {
           <Section title="Appointment Analysis">
             {appointmentAnalysis && appointmentAnalysis.booked > 0 ? (
               <>
+                {/* 15 Aug 2026 — Mark's request: this row was five bare
+                    numbers with no visual weight at all, unlike every
+                    other KPI on this page. Switched to the same KpiCard
+                    used in Executive Summary — no period-over-period
+                    delta for these five specifically (that needs a
+                    prior-period query this section doesn't compute
+                    today, a real follow-up if wanted, not silently
+                    faked here) — KpiCard's own existing "No prior-period
+                    data" fallback covers that honestly rather than
+                    showing a delta that isn't real. */}
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: '12px', marginBottom: '18px' }}>
-                  <div><div style={s.kpiLabel}>Booked</div><div style={s.kpiValue}>{appointmentAnalysis.booked}</div></div>
-                  <div><div style={s.kpiLabel}>Appts per lead</div><div style={s.kpiValue}>{fmtRatio(appointmentAnalysis.perLead)}</div></div>
-                  <div><div style={s.kpiLabel}>Booked → Won</div><div style={s.kpiValue}>{appointmentAnalysis.bookedToWonConversion === null ? '—' : `${appointmentAnalysis.bookedToWonConversion}%`}</div></div>
+                  <KpiCard label="Booked" current={appointmentAnalysis.booked} />
+                  <KpiCard label="Appts per lead" current={appointmentAnalysis.perLead} format="ratio" />
+                  <KpiCard label="Booked → Won" current={appointmentAnalysis.bookedToWonConversion} format="percent" />
                   {/* 15 Aug 2026 (§172) — real numbers now (migration
                       034/MeetingAttempt.status), not a "not tracked yet"
                       placeholder. Counts attempts LOGGED this period
                       (matches the backend's own scoping — see
                       reportService.js), not appointments whose first
                       meeting was originally booked in it. */}
-                  <div><div style={s.kpiLabel}>Cancelled</div><div style={{ ...s.kpiValue, color: '#b45309' }}>{appointmentAnalysis.cancelled}</div></div>
-                  <div><div style={s.kpiLabel}>Missed / No-show</div><div style={{ ...s.kpiValue, color: '#7c2d12' }}>{appointmentAnalysis.missed}</div></div>
+                  <KpiCard label="Cancelled" current={appointmentAnalysis.cancelled} />
+                  <KpiCard label="Missed / No-show" current={appointmentAnalysis.missed} />
                 </div>
                 {appointmentAnalysis.byMeetingType.length > 0 && (
                   <DataTable columns={meetingTypeColumns} rows={appointmentAnalysis.byMeetingType} defaultSortKey="booked" highlightKey="booked" />
@@ -495,7 +511,16 @@ export default function Reports() {
                             {CANCEL_REASON_LABELS[r.reason] ?? r.reason}
                           </span>
                           <div style={{ flex: 1, height: '16px', background: colors.surfaceSubtle, borderRadius: '4px', overflow: 'hidden' }}>
-                            <div style={{ width: `${Math.max(4, (r.count / maxCount) * 100)}%`, height: '100%', background: r.reason === 'Not captured' ? colors.ink400 : '#b45309', opacity: r.reason === 'Not captured' ? 0.5 : 0.85 }} />
+                            {/* 15 Aug 2026 — capped at 85%, not 100%: a
+                                lone category (the common case with a
+                                small dataset) previously filled the
+                                ENTIRE row, reading as heavier/more
+                                "final" than one data point actually
+                                warrants. Same cap applied to Won vs
+                                Lost's own loss-reasons bar below, for
+                                consistency between the two visually
+                                near-identical sections. */}
+                            <div style={{ width: `${Math.min(85, Math.max(4, (r.count / maxCount) * 85))}%`, height: '100%', background: r.reason === 'Not captured' ? colors.ink400 : '#b45309', opacity: r.reason === 'Not captured' ? 0.5 : 0.85 }} />
                           </div>
                           <span style={{ fontSize: '0.8125rem', fontWeight: 600, width: '24px', textAlign: 'right' }}>{r.count}</span>
                         </div>

@@ -63,6 +63,7 @@ export function KpiCard({ label, current, format, deltaPct, direction, lowerIsBe
   const formatted =
     format === 'currency' ? fmt(current ?? 0) :
     format === 'ratio'    ? fmtRatio(current) :
+    format === 'percent'  ? fmtPct(current) :
     format === 'days'     ? fmtDays(current) :
     (current ?? 0).toLocaleString();
   const hasDelta = deltaPct !== null && deltaPct !== undefined;
@@ -179,6 +180,32 @@ function stageColour(ratio) {
   return colors.danger;
 }
 
+/**
+ * REDESIGNED 15 Aug 2026 — real bug Mark found, not a subjective
+ * preference: the previous layout put each stage in its own side-by-side
+ * column, each with an independently-rendered fill bar. The WIDTH
+ * PERCENTAGE was already correctly scaled against one shared max across
+ * every stage — the bug was structural, not arithmetic: four separate
+ * boxes of equal size, one nearly empty and one fully filled, reads as
+ * "this box is full, these are basically blank" to a human eye,
+ * regardless of what the underlying numbers actually were. Any dataset
+ * where most early-funnel stages sit at zero (not even an unusual case —
+ * a healthy, fast-moving pipeline looks exactly like this) triggered it,
+ * which is exactly the "chart rendering ridiculously at n=1"-class
+ * failure this component's own header comment already said to avoid.
+ *
+ * Fixed by switching to a vertical stack where every bar shares the same
+ * left edge and the same width scale — now a human can directly compare
+ * bar LENGTHS against each other, which is what a side-by-side layout of
+ * independently-boxed bars can never really offer no matter how the
+ * percentages are computed. Closed Won/Closed Lost get their own
+ * "Outcomes" group below a divider, on the SAME shared scale (so their
+ * size is still meaningfully comparable to the funnel above) but
+ * visually separated and coloured success/danger — honest about them
+ * being parallel terminal outcomes of the last stage, not a fifth
+ * sequential step, which reportService.js's own getDashboardData()
+ * comment already establishes as the real shape of this data.
+ */
 export function PipelineHealth({ stages, stageConversion, isMobile }) {
   if (!stages || stages.every(s2 => s2.count === 0)) {
     return <EmptyState message="No leads in the pipeline this period." />;
@@ -187,45 +214,50 @@ export function PipelineHealth({ stages, stageConversion, isMobile }) {
   const sequential = stages.slice(0, 4); // Unassigned/Assigned/In Progress/Appointment Booked — see reportService.js's own comment on why Closed Won/Lost aren't a 5th sequential stage
   const terminal = stages.slice(4);
 
+  function FunnelBar({ stage, colour }) {
+    const pct = Math.max(4, (stage.count / maxCount) * 100);
+    return (
+      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <div style={{ width: isMobile ? '92px' : '140px', flexShrink: 0, fontSize: '0.8125rem', color: colors.ink500 }}>{stage.status}</div>
+        <div style={{ flex: 1, background: colors.surfaceSubtle, borderRadius: radius.sm, height: '30px', display: 'flex', alignItems: 'center', overflow: 'hidden' }}>
+          <div style={{
+            width: `${pct}%`, height: '100%', background: colour ?? colors.primarySoft,
+            borderRadius: radius.sm, display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
+            paddingRight: '10px', transition: 'width 0.3s', minWidth: '32px',
+          }}>
+            <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: colour ? '#fff' : colors.primary }}>{stage.count}</span>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div>
-      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'flex-end', gap: isMobile ? '10px' : '4px' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
         {sequential.map((stage, i) => (
-          <div key={stage.status} style={{ display: 'flex', alignItems: isMobile ? 'stretch' : 'flex-end', flex: isMobile ? 'none' : 1, gap: '4px' }}>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: '0.75rem', color: colors.ink500, marginBottom: '4px' }}>{stage.status}</div>
-              <div style={{ background: colors.surfaceSubtle, borderRadius: radius.sm, height: '36px', display: 'flex', alignItems: 'center', overflow: 'hidden' }}>
-                <div style={{
-                  width: `${Math.max(6, (stage.count / maxCount) * 100)}%`, height: '100%',
-                  background: colors.primarySoft, borderRadius: radius.sm,
-                  display: 'flex', alignItems: 'center', justifyContent: 'flex-end', paddingRight: '8px',
-                  transition: 'width 0.3s',
-                }}>
-                  <span style={{ fontSize: '0.875rem', fontWeight: 700, color: colors.primary }}>{stage.count}</span>
-                </div>
-              </div>
-            </div>
+          <div key={stage.status}>
+            <FunnelBar stage={stage} />
             {i < sequential.length - 1 && stageConversion[i] && (
-              <div style={{
-                display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end',
-                paddingBottom: '6px', minWidth: isMobile ? 'auto' : '38px',
-              }}>
-                <span style={{ fontSize: '0.6875rem', fontWeight: 700, color: stageColour(stageConversion[i].ratio) }}>
-                  {stageConversion[i].ratio === null ? '—' : `${Math.round(stageConversion[i].ratio * 100)}%`}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 0 3px', marginLeft: isMobile ? '92px' : '140px' }}>
+                <span style={{ fontSize: '0.8rem', color: colors.ink400 }}>↓</span>
+                <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: stageColour(stageConversion[i].ratio) }}>
+                  {stageConversion[i].ratio === null ? 'No prior stage data' : `${Math.round(stageConversion[i].ratio * 100)}% converted`}
                 </span>
-                <span style={{ fontSize: '0.9rem', color: colors.ink400 }}>{isMobile ? '↓' : '→'}</span>
               </div>
             )}
           </div>
         ))}
       </div>
-      <div style={{ display: 'flex', gap: '16px', marginTop: '16px', paddingTop: '14px', borderTop: `1px solid ${colors.lineSoft}` }}>
-        {terminal.map(stage => (
-          <div key={stage.status} style={{ flex: 1 }}>
-            <div style={{ fontSize: '0.75rem', color: colors.ink500 }}>{stage.status}</div>
-            <div style={{ fontSize: '1.25rem', fontWeight: 700, color: stage.status === 'Closed Won' ? colors.success : colors.danger }}>{stage.count}</div>
-          </div>
-        ))}
+      <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: `1px solid ${colors.lineSoft}` }}>
+        <div style={{ fontSize: '0.6875rem', fontWeight: 600, color: colors.ink400, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '8px' }}>
+          Outcomes
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+          {terminal.map(stage => (
+            <FunnelBar key={stage.status} stage={stage} colour={stage.status === 'Closed Won' ? colors.success : colors.danger} />
+          ))}
+        </div>
       </div>
     </div>
   );
@@ -284,10 +316,24 @@ export function DataTable({ columns, rows, defaultSortKey, defaultSortDir = 'des
                 const numeric = typeof raw === 'string' ? parseFloat(raw) || 0 : raw ?? 0;
                 return (
                   <td key={col.key} style={{ ...s.td, textAlign: col.align ?? 'left' }}>
-                    {col.key === highlightKey ? (
+                    {col.key === highlightKey && rows.length > 1 ? (
+                      // 15 Aug 2026 — the bar is only meaningful when
+                      // there's something to compare it against; a
+                      // single-row table (rows.length === 1, checked
+                      // here rather than on `sorted`, since that's
+                      // already been through the same-length sort above)
+                      // rendered it at 100% width every time regardless
+                      // of the actual value, conveying nothing but
+                      // visual weight. Matches this file's own header
+                      // comment: "not a chart rendering ridiculously at
+                      // n=1." Width also capped at 85%, not 100%, for
+                      // n>1 tables — same reasoning as the reason-list
+                      // bars in Reports.jsx: the single largest value
+                      // filling the ENTIRE track read as more dominant
+                      // than the underlying data actually supports.
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', justifyContent: col.align === 'right' ? 'flex-end' : 'flex-start' }}>
                         <div style={{ width: '46px', height: '5px', background: colors.surfaceSubtle, borderRadius: radius.pill, overflow: 'hidden', flexShrink: 0 }}>
-                          <div style={{ width: `${Math.max(4, (numeric / highlightMax) * 100)}%`, height: '100%', background: colors.primary, borderRadius: radius.pill }} />
+                          <div style={{ width: `${Math.min(85, Math.max(4, (numeric / highlightMax) * 85))}%`, height: '100%', background: colors.primary, borderRadius: radius.pill }} />
                         </div>
                         <span style={{ fontWeight: 600 }}>{col.render ? col.render(row) : raw}</span>
                       </div>

@@ -13752,3 +13752,95 @@ frontend/api-lib/services/reportService.js,
 frontend/src/pages/AppointmentDetail.jsx,
 frontend/src/pages/BrokerDetail.jsx, frontend/src/pages/Reports.jsx,
 frontend/src/styles/tokens.js.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+173. REPORTS PAGE VISUAL FIXES — PIPELINE HEALTH RE-DONE AS A REAL FUNNEL, APPOINTMENT ANALYSIS KPIs UPGRADED, A REAL "n=1" BUG FOUND ACROSS THE WHOLE PAGE'S SHARED TABLE COMPONENT — 15 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark flagged two sections "not displaying as well as they should" via
+screenshots — Pipeline Health showing three invisible slivers next to
+one huge bar, Appointment Analysis's five KPIs as bare unstyled numbers.
+Diagnosed properly before touching anything, not just patched the
+specific complaint.
+
+PIPELINE HEALTH — real structural bug, not a subjective preference.
+The width PERCENTAGE was already correctly scaled against one shared
+max across every stage (confirmed by reading the code directly) — the
+bug was the LAYOUT: four stages side-by-side in separate equal-sized
+boxes, each with its own independently-rendered fill bar. A human eye
+reads "how full is THIS box" per column, not "how does this value
+compare to the others" — so one box at 100% next to three boxes at 4%
+looks broken regardless of what the underlying numbers actually are.
+Confirmed this is exactly the "chart rendering ridiculously at n=1"-
+class failure ReportsWidgets.jsx's own header comment already said to
+avoid — any dataset where most early-funnel stages sit at zero (not an
+edge case; a healthy, fast-moving pipeline looks exactly like this)
+triggers it.
+
+REDESIGNED as a vertical funnel: every stage stacked top-to-bottom,
+sharing one left edge and one width scale, so bar LENGTHS are directly
+comparable the way box-fill-percentages across separate boxes never
+really were. Closed Won/Closed Lost moved into their own "Outcomes"
+group below a divider — same shared scale (so their size still means
+something relative to the funnel above), coloured success/danger, but
+visually honest about being parallel terminal outcomes of the last
+stage rather than a fifth sequential step (matches getDashboardData()'s
+own existing comment on why they were never modelled as sequential).
+Verified the underlying math directly against Mark's exact reported
+data (0/0/0/3 booked/2 won/1 lost) — confirmed all six bars now render
+on one meaningfully comparable scale (100%/4%/4%/4%/66.7%/33.3%), not
+just eyeballed.
+
+APPOINTMENT ANALYSIS — the five KPIs (Booked, Appts per lead, Booked →
+Won, Cancelled, Missed) were bare numbers with zero visual weight,
+inconsistent with every other KPI on this page. Switched to the
+existing KpiCard component (Executive Summary's own), not a new
+one-off style — no period-over-period delta for these five specifically
+(that needs a prior-period query this section doesn't compute today, a
+real follow-up if wanted, not silently faked) — KpiCard's own existing
+"No prior-period data" fallback covers that honestly.
+
+REAL BUG CAUGHT WHILE WIRING THIS UP, before it shipped: Booked → Won
+is backend-formatted as a percentage-SCALED number (40.0 meaning 40%,
+not the raw ratio 0.4) — passing it through KpiCard's existing "ratio"
+format would have silently displayed "40.0" with no % sign, misleading.
+Traced this to a real, separate gap: fmtPct() already existed in this
+file as a utility but was never actually wired into KpiCard's own
+format switch — added a 'percent' format case and used it correctly.
+
+A REAL n=1 BUG FOUND IN THE SHARED DataTable COMPONENT — used across
+every ranked table on this page (Broker, Agent, Lead Source, Portfolio,
+Meeting Type, Product), not just the one section Mark screenshotted.
+Its own highlightKey bar rendered at 100% width for ANY single-row
+table regardless of the actual value (the meeting-type table showing
+just "InPerson" in Mark's own screenshot is exactly this case) — with
+only one row, there's nothing to compare against, so the bar conveyed
+visual weight but zero real information. Fixed at the source: the bar
+decoration is skipped entirely when rows.length === 1 (matches this
+same file's own stated principle, "not a chart rendering ridiculously
+at n=1"), and capped at 85% rather than 100% for genuine multi-row
+comparisons — fixing this once in the shared component fixes it
+everywhere it's used, not just the section that happened to get
+screenshotted.
+
+CONSISTENCY — same 85%-cap treatment applied to Won vs Lost's own
+loss-reasons bar too, not just Appointment Analysis's cancellation-
+reasons bar — the two sections are visually near-identical and were
+left inconsistent otherwise.
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 48/48 passing.
+Confirmed the DataTable fix compiles correctly with `rows` accessible
+in the right scope (a prop, not shadowed by the internal `sorted`
+variable). Tested every width calculation directly against concrete
+numbers, including Mark's own exact reported data for the funnel, and a
+side-by-side old-formula-vs-new-formula comparison for the reason-list
+cap, confirming the fix produces a real, visible difference and not a
+no-op. Diffed against fresh GitHub — confirmed isolated to exactly the
+two intended files.
+
+NOT YET DEPLOYED. No migration required — purely a frontend/component
+change, no schema or backend touched.
+
+FILES: frontend/src/components/ReportsWidgets.jsx,
+frontend/src/pages/Reports.jsx.
