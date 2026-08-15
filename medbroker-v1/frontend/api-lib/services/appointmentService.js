@@ -1090,16 +1090,59 @@ export async function saveOutcome(id, data) {
  * @param {string|null} recordedById - claims.oid of whoever is saving this
  * @returns {Promise<{attempt: Object, newAttempt: Object|null, appointmentStatus: string, outcomeDue: boolean, prefillCustomerSigned: boolean|null}>}
  */
-export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, recordedById) {
+export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, recordedById, isStaffCaller = false) {
   const organisationId = resolveOrganisationId();
 
   const appt = await executeQueryOne(
-    `SELECT id, status, organisationId FROM Appointment WHERE id = @appointmentId AND organisationId = @organisationId`,
+    `SELECT id, status, organisationId, brokerId AS "brokerId" FROM Appointment WHERE id = @appointmentId AND organisationId = @organisationId`,
     { appointmentId: { type: sql.UniqueIdentifier, value: appointmentId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
   if (!appt) throw { status: 404, message: 'Appointment not found' };
   if (['ClosedWon', 'ClosedLost', 'ReturnedToLeads'].includes(appt.status)) {
     throw { status: 400, message: 'This appointment is locked and can no longer be edited.' };
+  }
+
+  // 14 Aug 2026 — Mark's explicit request, and explicit call on the
+  // stats question he raised himself: "if they did the work, they
+  // should appear in the lists" — no filtering, no separate marker
+  // column, just a normal assignment. If nobody's claimed/been assigned
+  // this appointment yet and an Admin/Supervisor/GlobalAdmin is the one
+  // recording an outcome on it, they ARE now the broker of record, same
+  // as if an Admin had assigned them via assignBroker() — this uses
+  // that exact same status transition (-> 'Assigned', not 'Claimed';
+  // no token cost, matching assignBroker()'s own behaviour, not
+  // claimAppointment()'s — this isn't a self-serve pool claim). Not
+  // gated on the claimModel flag specifically — the real condition is
+  // "nobody's attached yet", which is the thing that actually matters,
+  // regardless of which model produced it. Excludes Agent and Broker
+  // callers deliberately: a Broker recording a meeting here should go
+  // through the real Claim flow (correct token accounting), not get a
+  // free pass around it; an Agent was never a candidate to become "the
+  // broker" at all.
+  let staffBrokerAssigned = false;
+  if (!appt.brokerId && isStaffCaller) {
+    await executeQuery(
+      `UPDATE Appointment SET brokerId = @recordedById, status = CASE WHEN status = 'Unassigned' THEN 'Assigned' ELSE status END, updatedAt = NOW()
+       WHERE id = @appointmentId AND organisationId = @organisationId`,
+      {
+        appointmentId: { type: sql.UniqueIdentifier, value: appointmentId },
+        organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+        recordedById:  { type: sql.UniqueIdentifier, value: recordedById },
+      }
+    );
+    // Same fix as §168 (assignBroker()/claimAppointment()) — a broker
+    // just got attached, so any "Assign broker" task for this
+    // appointment has nothing left to do.
+    await deleteTasksForEntity({ entityType: 'Appointment', entityId: appointmentId });
+    // Keep the in-memory copy consistent with what's now actually in
+    // the database — the InProgress check just below reads appt.status,
+    // and while 'Unassigned' and 'Assigned' are both already in its own
+    // allow-list (so this wouldn't change that check's outcome either
+    // way), staying accurate here is one less thing to reason about if
+    // that condition ever changes later.
+    appt.brokerId = recordedById;
+    if (appt.status === 'Unassigned') appt.status = 'Assigned';
+    staffBrokerAssigned = true;
   }
 
   const attempt = await executeQueryOne(
@@ -1179,5 +1222,11 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
     appointmentStatus,
     outcomeDue,
     prefillCustomerSigned,
+    // 14 Aug 2026 — null unless THIS call is the one that just attached
+    // a broker (the staff-covered case above) — lets the frontend
+    // update its own appt.brokerId/status without a full refetch, and
+    // show a clear confirmation of what just happened rather than a
+    // silent field change.
+    brokerAssignedId: staffBrokerAssigned ? recordedById : null,
   };
 }

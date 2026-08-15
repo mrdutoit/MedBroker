@@ -464,7 +464,7 @@ function ReturnToLeadsModal({ appointment, onClose, onReturned }) {
 export default function AppointmentDetail() {
   const { id }          = useParams();
   const navigate        = useNavigate();
-  const { role, productsByPortfolio } = useRole();
+  const { role, productsByPortfolio, displayName } = useRole();
   const { flag }        = useFlags();
   const { isMobile }    = useWindowSize();
 
@@ -516,6 +516,13 @@ export default function AppointmentDetail() {
   // separate state that could drift out of sync with it.
   const [savingAttempt,     setSavingAttempt]     = useState(false);
   const [justSavedAttempt,  setJustSavedAttempt]  = useState(false);
+  // 14 Aug 2026 — true only immediately after a save that just attached
+  // the current user as broker (see handleSaveMeetingAttempt below).
+  // Transient, same 3-second window as justSavedAttempt — this is a
+  // one-time confirmation of what happened, not a persistent status
+  // indicator (appt.brokerName itself is that, shown normally elsewhere
+  // on this page already).
+  const [staffBrokerAssigned, setStaffBrokerAssigned] = useState(false);
 
 
   useEffect(() => {
@@ -742,11 +749,21 @@ export default function AppointmentDetail() {
           // itself. Only overwrite a not-yet-decided value; never
           // clobber an outcome that (for whatever reason) was already set.
           customerSigned: prev.customerSigned === null && result.outcomeDue ? result.prefillCustomerSigned : prev.customerSigned,
+          // 14 Aug 2026 — result.brokerAssignedId is only ever non-null
+          // when THIS save is the one that just attached the current
+          // user as broker (Mark's explicit request: "if they did the
+          // work, they should appear" — no filtering, a normal
+          // assignment). brokerName is display-only here; the assigned
+          // broker IS whoever is logged in right now, so this is a
+          // known value, not a guess — no refetch needed just to learn
+          // our own name.
+          brokerName: result.brokerAssignedId ? displayName : prev.brokerName,
         };
       });
       refetchAudit();
       setJustSavedAttempt(true);
-      setTimeout(() => setJustSavedAttempt(false), 3000);
+      setStaffBrokerAssigned(!!result.brokerAssignedId);
+      setTimeout(() => { setJustSavedAttempt(false); setStaffBrokerAssigned(false); }, 3000);
     } catch (err) {
       setOutcomeError(err?.message ?? 'Could not save this meeting. Please try again.');
     } finally {
@@ -853,7 +870,9 @@ export default function AppointmentDetail() {
           independent of whichever form comes next. */}
       {justSavedAttempt && (
         <div style={{ ...s.noticeInfo, marginBottom: '12px', color: '#15803d', background: 'color-mix(in srgb, #15803d 10%, var(--panel))' }}>
-          ✓ Meeting saved
+          {staffBrokerAssigned
+            ? `✓ Meeting saved. You've been assigned as the broker for this appointment, since nobody had claimed it yet.`
+            : '✓ Meeting saved'}
         </div>
       )}
       {/* 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) —

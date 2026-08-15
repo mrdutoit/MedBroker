@@ -13444,3 +13444,69 @@ agreed before starting, not assumed.
 
 FILES: frontend/api-lib/services/appointmentService.js,
 frontend/src/pages/AppointmentDetail.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+169. §168's OPEN DESIGN QUESTION RESOLVED AND BUILT — ADMIN/SUPERVISOR NOW BECOMES BROKER OF RECORD WHEN THEY ACTION AN UNCLAIMED APPOINTMENT'S MEETING, NO FILTERING — 14 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's answer to §168's open question, verbatim call: "the user appearing
+in the reports for acting as the Broker or the Agent is fine. If they
+did the work, they should appear in the lists." Rejects the
+brokerIsStaffCovered filtering approach §168 had proposed — no new
+column, no report-query changes, just a real, normal assignment.
+
+BUILT: saveMeetingAttemptOutcome() (appointmentService.js) now takes a
+new isStaffCaller parameter. If an appointment has NO broker attached
+yet (brokerId IS NULL) and the person recording a meeting outcome on it
+is Admin/GlobalAdmin/Supervisor, they're attached as broker right there
+— same status transition assignBroker() itself uses ('Assigned', not
+'Claimed' — this deliberately does NOT go through the token-costing
+self-serve Claim flow, matching assignBroker()'s own no-token
+behaviour, not claimAppointment()'s). Same task cleanup as §168 runs
+here too (any stale Assign-broker task is deleted the moment a broker —
+staff or otherwise — actually gets attached). NOT gated on the
+claimModel flag specifically — the real condition is "nobody's
+attached yet", which is what actually matters regardless of which
+model produced that state.
+
+DELIBERATELY EXCLUDES Agent and Broker callers — an Agent was never a
+candidate to become "the broker"; a Broker recording a meeting on a
+still-unclaimed appointment should go through the real Claim flow
+(correct token accounting), not get a free pass around it via this
+path.
+
+Role check lives in the handler (handleSaveMeetingAttempt,
+appointmentHandlers.js) — claims.roles checked directly against
+['Admin', 'GlobalAdmin', 'Supervisor'], passed down as a plain boolean
+rather than threading the full claims object into the service layer.
+Audit log (MeetingAttemptSaved) now records brokerAssignedId when this
+fires, so there's a clear trail explaining why brokerId suddenly has a
+value, not a silent field change someone has to reverse-engineer later.
+
+FRONTEND: the response's brokerAssignedId (null unless this exact save
+is the one that triggered it) updates appt.brokerName locally — the
+assigned broker IS whoever is logged in right now, a known value, no
+refetch needed just to learn our own name. The existing "✓ Meeting
+saved" confirmation banner now explains what happened
+("You've been assigned as the broker for this appointment, since
+nobody had claimed it yet") rather than a silent status change.
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 48/48 passing.
+`node --check` clean on both backend files. ESM import smoke test
+confirmed correct resolution. Tested the role check and the auto-attach
+condition directly against every relevant combination (Admin/GlobalAdmin/
+Supervisor all correctly true, Agent/Broker correctly false; no-broker
++staff correctly triggers, already-has-broker correctly doesn't,
+no-broker+Agent correctly doesn't, no-broker+Broker-role correctly
+doesn't). Traced the full function by hand once more end to end after
+a mid-edit correction (an earlier version of the brokerAssignedId
+return logic had the condition backwards — caught and fixed before this
+was considered done, not shipped and found later). Diffed against fresh
+GitHub — confirmed isolated to exactly the three intended files.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/api-lib/services/appointmentService.js,
+frontend/api-lib/handlers/appointmentHandlers.js,
+frontend/src/pages/AppointmentDetail.jsx.

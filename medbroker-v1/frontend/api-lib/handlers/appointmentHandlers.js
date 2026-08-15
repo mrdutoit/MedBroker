@@ -439,7 +439,17 @@ export async function handleSaveMeetingAttempt(req, res, id, attemptId) {
     const parsed = SaveMeetingAttemptSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
-    const result = await saveMeetingAttemptOutcome(id, attemptId, parsed.data, claims.oid);
+    // 14 Aug 2026 — Mark's explicit request: if nobody's been
+    // assigned/claimed this appointment yet and Admin/Supervisor/
+    // GlobalAdmin is the one recording the outcome, they become the
+    // broker of record — no filtering, no separate marker, a normal
+    // assignment (see saveMeetingAttemptOutcome()'s own comment,
+    // appointmentService.js, for the full reasoning). Deliberately
+    // excludes Agent and Broker — a Broker recording a meeting here
+    // should go through the real Claim flow instead.
+    const isStaffCaller = claims.roles.some(r => ['Admin', 'GlobalAdmin', 'Supervisor'].includes(r));
+
+    const result = await saveMeetingAttemptOutcome(id, attemptId, parsed.data, claims.oid, isStaffCaller);
 
     await writeAuditLog({
       entityType: 'Appointment',
@@ -450,6 +460,10 @@ export async function handleSaveMeetingAttempt(req, res, id, attemptId) {
         attemptId, meetingNumber: result.attempt.meetingNumber, status: result.attempt.status,
         followUpRequired: result.attempt.followUpRequired,
         newAttemptCreated: !!result.newAttempt, outcomeDue: result.outcomeDue,
+        // 14 Aug 2026 — a clear trail for why brokerId suddenly has a
+        // value on this appointment, rather than a silent field change
+        // someone has to reverse-engineer from the Change Log later.
+        brokerAssignedId: result.brokerAssignedId ?? null,
       },
       ipAddress: clientIp(req),
     });
