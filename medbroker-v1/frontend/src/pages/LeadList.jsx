@@ -163,9 +163,21 @@ export default function LeadList() {
   const [page,           setPage]           = useState(1);
   const [reassignTarget, setReassignTarget] = useState(null);
   const [isAssignMode,   setIsAssignMode]   = useState(false);
+  // 16 Aug 2026 — Mark's request: sort on the Leads list. Real query
+  // params (LeadListQuerySchema/listLeads(), models+services/lead*.js),
+  // not a client-side re-order — this list is server-paginated, so
+  // sorting only what's on the current page would silently ignore
+  // every other page's rows. sortKey null = no sort requested at all,
+  // preserving the existing ORDER BY l.createdAt DESC default exactly.
+  const [sortKey,        setSortKey]        = useState(null);
+  const [sortDir,        setSortDir]        = useState('asc');
+  function toggleSort(key) {
+    if (key === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  }
   const pageSize = 25;
 
-  useEffect(() => { setPage(1); }, [activeStatus, search, agentFilter, occFilter, sourceFilter]);
+  useEffect(() => { setPage(1); }, [activeStatus, search, agentFilter, occFilter, sourceFilter, sortKey, sortDir]);
 
   // 'Active' groups Unassigned/Assigned/InProgress by exclusion (Converted
   // and Closed leave the working queue); 'All' applies no status filter at
@@ -185,12 +197,19 @@ export default function LeadList() {
     ...(isAdmin && agentFilter ? { agentId: agentFilter } : {}),
     ...(occFilter    ? { occupation: occFilter }          : {}),
     ...(sourceFilter ? { source: sourceFilter }           : {}),
+    ...(sortKey      ? { sortKey, sortDir }               : {}),
     page, pageSize,
   };
 
+  // sourceFilter and sortKey/sortDir added to this dependency array 16
+  // Aug 2026 — sourceFilter's absence was a real, separate bug found
+  // while touching this block: changing the Source filter correctly
+  // reset the page number (see the useEffect above, which already had
+  // it) but never actually triggered a refetch, silently leaving stale
+  // results on screen filtered as if nothing had changed.
   const { data: apiData, loading: leadsLoading, error, refetch } = useFetch(
     () => leadsApi.list(apiParams),
-    [activeStatus, search, agentFilter, occFilter, page]
+    [activeStatus, search, agentFilter, occFilter, sourceFilter, page, sortKey, sortDir]
   );
 
   // apiData is null only briefly, while the fetch is in flight. Previously
@@ -229,7 +248,7 @@ export default function LeadList() {
   const autoUnassignMonths = sysConfigData?.leadAutoUnassignMonths ?? 6;
 
   const totalPages = data ? Math.ceil(data.total / pageSize) : 0;
-  const hasFilter  = activeStatus !== 'Active' || search || agentFilter || occFilter || sourceFilter;
+  const hasFilter  = activeStatus !== 'Active' || search || agentFilter || occFilter || sourceFilter || !!sortKey;
 
   const subtitle = isAgent      ? 'Showing leads assigned to you'
                  : isSupervisor ? 'Leads for your direct reports'
@@ -246,6 +265,19 @@ export default function LeadList() {
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button onClick={refetch} style={s.secondaryBtn}>Refresh</button>
+          {/* 16 Aug 2026 — Add Lead, extracted out from being buried as
+              tab 3 of the Import page (see LeadNew.jsx's own header).
+              Gated on role only (Admin/Supervisor/GlobalAdmin), matching
+              handleCreateLead's own requireRole() (leadHandlers.js) —
+              deliberately NOT also gated on showImport's CSV/Subscription
+              feature flags the way it accidentally was before purely by
+              living inside that page; a single manual add has nothing to
+              do with whether bulk import is switched on. */}
+          {(isAdmin || isSupervisor) && (
+            <button onClick={() => navigate('/leads/new')} style={s.secondaryBtn}>
+              Add Lead
+            </button>
+          )}
           {showImport && (
             <button onClick={() => navigate('/leads/import')} style={s.primaryBtn}>
               Import Leads
@@ -318,10 +350,10 @@ export default function LeadList() {
         )}
         {hasFilter && (
           <button
-            onClick={() => { setActiveStatus('Active'); setSearch(''); setAgentFilter(''); setOccFilter(''); setSourceFilter(''); }}
+            onClick={() => { setActiveStatus('Active'); setSearch(''); setAgentFilter(''); setOccFilter(''); setSourceFilter(''); setSortKey(null); setSortDir('asc'); }}
             style={s.ghostBtn}
           >
-            ✕ Clear filters
+            ✕ Clear Sort & Filters
           </button>
         )}
       </div>
@@ -345,12 +377,35 @@ export default function LeadList() {
             <table style={{ ...s.table, minWidth: '700px' }}>
               <thead>
                 <tr>
-                  <th style={s.th}>Name</th>
-                  <th style={s.th}>Job Title</th>
+                  {/* 16 Aug 2026 — sortable headers, same click-toggle-
+                      direction/↑↓-indicator convention as
+                      AppointmentList.jsx's own table. sortKey here is a
+                      real server-side param (see the apiParams/useFetch
+                      block above) since this list is paginated — a
+                      client-side sort would only reorder the current
+                      page. Source/Status intentionally left non-
+                      sortable here even though they're real columns:
+                      Source has too many distinct free-text values to
+                      make an alphabetical sort meaningful day-to-day,
+                      and Status is already fully navigable via the
+                      chips above it — sorting by status would just
+                      re-group exactly what a chip already isolates. */}
+                  <th style={{ ...s.th, cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('name')}>
+                    Name{sortKey === 'name' && (sortDir === 'asc' ? ' ↑' : ' ↓')}
+                  </th>
+                  <th style={{ ...s.th, cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('occupation')}>
+                    Job Title{sortKey === 'occupation' && (sortDir === 'asc' ? ' ↑' : ' ↓')}
+                  </th>
                   <th style={s.th}>Source</th>
                   <th style={s.th}>Status</th>
-                  {!isAgent && <th style={s.th}>Agent</th>}
-                  <th style={s.th}>Added</th>
+                  {!isAgent && (
+                    <th style={{ ...s.th, cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('agentName')}>
+                      Agent{sortKey === 'agentName' && (sortDir === 'asc' ? ' ↑' : ' ↓')}
+                    </th>
+                  )}
+                  <th style={{ ...s.th, cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('createdAt')}>
+                    Added{sortKey === 'createdAt' && (sortDir === 'asc' ? ' ↑' : ' ↓')}
+                  </th>
                   <th style={s.th}></th>
                 </tr>
               </thead>

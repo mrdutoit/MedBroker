@@ -227,6 +227,17 @@ export const LeadListQuerySchema = z.object({
   search:          z.string().max(100).optional(),
   page:            z.coerce.number().int().min(1).default(1),
   pageSize:        z.coerce.number().int().min(1).max(100).default(25),
+  // 16 Aug 2026 — Mark's request: sort on the Leads list. Leads is
+  // genuinely server-paginated (unlike AppointmentList.jsx's fetch-
+  // everything approach), so sort has to be a real query param, not a
+  // client-side re-order of whatever page happens to be loaded — that
+  // would only reorder the current 25 rows, not the full result set,
+  // and would read as broken the moment someone sorts and the "wrong"
+  // rows are on top. Enum here is the actual SQL-injection defence —
+  // listLeads() (leadService.js) maps this against a fixed whitelist of
+  // real column expressions, never interpolates the value itself.
+  sortKey:         z.enum(['name', 'occupation', 'source', 'status', 'agentName', 'createdAt']).optional(),
+  sortDir:         z.enum(['asc', 'desc']).default('asc'),
 });
 
 // §80 — Medical Subscription management (App Admin's own tab).

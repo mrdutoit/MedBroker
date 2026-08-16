@@ -40,6 +40,7 @@ import AppointmentList from './pages/AppointmentList.jsx';
 const LeadDetail        = lazy(() => import('./pages/LeadDetail.jsx'));
 const AppointmentDetail = lazy(() => import('./pages/AppointmentDetail.jsx'));
 const LeadImport        = lazy(() => import('./pages/LeadImport.jsx'));
+const LeadNew            = lazy(() => import('./pages/LeadNew.jsx'));
 const EventList         = lazy(() => import('./pages/EventList.jsx'));
 const EventDetail       = lazy(() => import('./pages/EventDetail.jsx'));
 const Reports           = lazy(() => import('./pages/Reports.jsx'));
@@ -370,6 +371,10 @@ function AppLayoutWrapper() {
         {/* Leads — hidden from Broker */}
         <Route path="/leads"        element={isBroker ? <Navigate to="/appointments" replace /> : <LeadList />} />
         <Route path="/leads/import" element={isBroker ? <Navigate to="/appointments" replace /> : <LeadImport />} />
+        {/* 16 Aug 2026 — Manual Entry's own route, extracted out of
+            LeadImport.jsx (see LeadNew.jsx's own header). Same
+            role-gating as the other two Lead routes just above. */}
+        <Route path="/leads/new"    element={isBroker ? <Navigate to="/appointments" replace /> : <LeadNew />} />
         <Route path="/leads/:id"    element={isBroker ? <Navigate to="/appointments" replace /> : <LeadDetail />} />
 
         {/* Appointments — hidden from Agent */}

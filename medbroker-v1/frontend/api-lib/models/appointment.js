@@ -218,7 +218,23 @@ export const AppointmentListQuerySchema = z.object({
   source:     z.string().max(300).optional(),
   search:     z.string().max(100).optional(),
   page:       z.coerce.number().int().min(1).default(1),
-  pageSize:   z.coerce.number().int().min(1).max(100).default(25),
+  // 16 Aug 2026 — REAL BUG Mark found (indirectly — the sort/filter work
+  // he'd actually asked for turned this up first): cap was 100, default
+  // 25, and AppointmentList.jsx calls appointmentsApi.list({}) with NO
+  // pageSize at all — so the frontend was silently working with only the
+  // first 25 appointments org-wide (ORDER BY firstAppointmentDate ASC),
+  // with no pagination UI to reach anything past that. Every filter,
+  // sort, and KPI count on that page operates on sourceData/
+  // realAppointments as if it already held everything — that assumption
+  // was simply wrong past 25 rows. Raised to 2000: high enough that a
+  // single brokerage won't realistically hit it for years, low enough to
+  // still bound a worst-case query. Not real pagination — AppointmentList
+  // was built end-to-end on "fetch it all, work client-side" (unlike
+  // LeadList.jsx, which genuinely paginates), and rebuilding that
+  // architecture wasn't warranted just to fix a default that was set too
+  // low. If appointment volume ever approaches this cap, that's the
+  // signal to revisit — worth flagging then, not solving preemptively now.
+  pageSize:   z.coerce.number().int().min(1).max(2000).default(25),
 });
 
 export const BrokerMatchingQuerySchema = z.object({

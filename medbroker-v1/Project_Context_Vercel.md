@@ -1101,6 +1101,47 @@ Donut + share-list pattern (DonutBreakdown, ReportsWidgets.jsx) — built
   references anywhere in frontend/src as of 16 Aug 2026 — worth knowing
   before assuming they're still load-bearing somewhere.
 
+List sort — two genuinely different implementations on this codebase,
+  by design, not inconsistency. AppointmentList.jsx sorts CLIENT-SIDE:
+  the whole page is built on fetching every matching appointment in one
+  request and filtering/sorting/counting KPIs against that in-memory
+  array — no pagination UI at all. LeadList.jsx sorts SERVER-SIDE
+  (LeadListQuerySchema.sortKey/sortDir, models/lead.js; listLeads(),
+  leadService.js, mapping the validated enum through a fixed
+  SORT_COLUMN whitelist of real column expressions, never interpolating
+  the value itself) — Leads is genuinely paginated (25/page), so a
+  client-side sort would only ever reorder whatever page happened to be
+  loaded, silently ignoring every other page's rows. Building a new
+  sortable list: check whether it already fetches everything (client-
+  side sort is fine, simpler) or paginates (needs the real,
+  server-side, whitelisted-column version — the Leads implementation is
+  the template).
+
+Appointments pageSize — REAL BUG, found 16 Aug 2026 (§177) while
+  building the sort work above, not something Mark asked about
+  directly: AppointmentList.jsx called appointmentsApi.list({}) with no
+  pageSize, silently defaulting to AppointmentListQuerySchema's own 25
+  (cap was 100) while the entire page treats the result as if it were
+  complete. Cap raised to 2000, frontend now requests it explicitly —
+  not real pagination, a deliberate choice to keep this page's existing
+  fetch-everything architecture rather than rebuild it just to fix a
+  default that was set too low. A visible warning banner
+  (apptData.total > apptData.appointments.length) now covers the case
+  where even 2000 isn't enough, so a future silent truncation is no
+  longer possible the way this one was — if that banner ever actually
+  fires, that's the signal real pagination has become genuinely
+  warranted, not a signal to raise the cap again.
+
+Manual Entry — its own page as of 16 Aug 2026 (§177), LeadNew.jsx,
+  route /leads/new, gated on role only (Admin/Supervisor/GlobalAdmin,
+  matching handleCreateLead's own requireRole() — leadHandlers.js).
+  Previously tab 3 of LeadImport.jsx; moved out because it was
+  accidentally also gated on that page's CSV/Subscription import
+  feature flags purely by living inside it, despite having nothing to
+  do with either. If any future feature needs "can this user create a
+  lead" as a gate, requireRole()'s own list is the source of truth —
+  don't infer it from which page/button happens to lead there.
+
 Task generation — REDESIGNED 12 Aug 2026 (session 20 design, session 21
   build — see Status_Vercel.md §138 for the full history). Core test,
   Mark's own framing: a Task needs BOTH a concrete action owed AND a

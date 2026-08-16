@@ -70,6 +70,12 @@ const APPOINTMENT_SELECT = `
   a.createdAt AS "createdAt", a.updatedAt AS "updatedAt",
   l.id AS "leadId", l.title, l.firstName AS "firstName", l.lastName AS "lastName",
   l.email AS "leadEmail", l.mobileNumber AS "leadMobile", l.occupation,
+  -- 16 Aug 2026 — Mark's request: the appointment's own firstAppointmentDate
+  -- (the meeting date) was the only date shown anywhere on the Appointments
+  -- list, and it "doesn't really tell me when the Lead was created" — his
+  -- own words. Lead is already joined above for every other l.* column
+  -- here; this is just one more from the same row, no new join needed.
+  l.createdAt AS "leadCreatedAt",
   COALESCE(ev.name, ms.name, l.manualSourceName) AS "sourceLabel",
   ag.displayName AS "agentName",
   -- §117 — the claim pool's own listing already filters on this (agent's

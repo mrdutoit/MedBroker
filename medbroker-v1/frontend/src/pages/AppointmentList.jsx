@@ -273,6 +273,19 @@ export default function AppointmentList() {
   const [sourceFilter,   setSourceFilter]   = useState('');
   const [portfolioFilter,setPortfolioFilter]= useState('');
   const [brokerFilter,   setBrokerFilter]   = useState('');
+  // 16 Aug 2026 — lifted up from inside AppointmentsTable (where it used
+  // to live as its own local state) so the Clear button in FiltersBar can
+  // reset it too — a sibling component can't reach another component's
+  // local state. Both AppointmentsTable render sites (claim-model "mine"
+  // tab, and the assign-model/other-roles path) are mutually exclusive —
+  // never both mounted at once — so one shared piece of state at this
+  // level is safe, not a case of two tables silently fighting over it.
+  const [sortKey,        setSortKey]        = useState(null);
+  const [sortDir,        setSortDir]        = useState('asc');
+  function toggleSort(key) {
+    if (key === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
+    else { setSortKey(key); setSortDir('asc'); }
+  }
   const [assignTarget,   setAssignTarget]   = useState(null);
   const [isAssignMode,   setIsAssignMode]   = useState(false);
   const [showBuyTokens,  setShowBuyTokens]  = useState(false);
@@ -289,8 +302,17 @@ export default function AppointmentList() {
   // extra needed client-side for that, and this already correctly
   // includes a broker's own Claimed appointments too (claiming sets
   // brokerId server-side, same column this list already filters on).
+  // pageSize explicit as of 16 Aug 2026 — REAL BUG: this used to call
+  // appointmentsApi.list({}) with no pageSize at all, which silently
+  // defaulted to 25 server-side (AppointmentListQuerySchema,
+  // models/appointment.js) while every filter/sort/KPI count below
+  // operates on the result as if it already held every appointment.
+  // Past 25 total, anything further was invisible with no indication
+  // — no pagination UI on this page to reach it. pageSize: 2000 matches
+  // the schema's own raised cap; see that schema's comment for why 2000
+  // and not genuine pagination.
   const { data: apptData, loading: apptLoading, refetch: refetchAppts } = useFetch(
-    () => appointmentsApi.list({}), []
+    () => appointmentsApi.list({ pageSize: 2000 }), []
   );
   const { data: brokersData } = useFetch(() => usersApi.list({ role: 'Broker' }), []);
   const realBrokers = brokersData?.users ?? [];
@@ -376,6 +398,15 @@ export default function AppointmentList() {
     // string unchanged.
     firstDateRaw: a.firstAppointmentDate ?? null,
     isToday:     a.firstAppointmentDate ? new Date(a.firstAppointmentDate).toDateString() === today : false,
+    // 16 Aug 2026 — Mark's request: "date of first meeting doesn't really
+    // tell me when the Lead was created." Same firstDate/firstDateRaw
+    // split above, same reason — leadCreatedAt is the friendly display
+    // string, leadCreatedAtRaw is what the sort comparator actually
+    // compares. Backend addition: leadCreatedAt now joined through from
+    // Lead.createdAt in APPOINTMENT_SELECT (appointmentService.js) —
+    // wasn't fetched by this query at all before.
+    leadCreatedAt:    a.leadCreatedAt ? new Date(a.leadCreatedAt).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' }) : '—',
+    leadCreatedAtRaw: a.leadCreatedAt ?? null,
     m1:          a.meeting1Status || null,
     m2:          a.meeting2Status || null,
     signed:      a.customerSigned === true ? 'Yes' : a.customerSigned === false ? 'No' : null,
@@ -447,7 +478,14 @@ export default function AppointmentList() {
   // separate claimedAppointments list to merge in any more.
   const claimedCount = myAppts.filter(a => a.status === 'Claimed').length;
   const availCount  = availableAppointments.length;
-  const hasFilter  = statusFilter !== 'Active' || search || sourceFilter || portfolioFilter || brokerFilter;
+  const hasFilter  = statusFilter !== 'Active' || search || sourceFilter || portfolioFilter || brokerFilter || !!sortKey;
+  // 16 Aug 2026 — the other half of the pageSize fix above: if the org
+  // ever genuinely has more appointments than the 2000 cap requests,
+  // this makes that fact visible instead of silently truncating again
+  // the way the old default-25 behaviour did. Should never fire in
+  // practice for a single brokerage; if it ever does, that's the actual
+  // signal real pagination is now warranted.
+  const truncated = apptData ? apptData.total > (apptData.appointments?.length ?? 0) : false;
 
   // §117 — the actual claim action. Debit-then-claim ordering, race
   // handling, and the refund-on-lost-race path all live server-side
@@ -483,26 +521,35 @@ export default function AppointmentList() {
     // pills, status badges, a broker-claim action link), not the
     // generic columns+render shape DataTable expects, so lifting this
     // into that shared component would have meant a larger rewrite of
-    // working table markup for a single-page feature. Portfolio and
-    // 1st/2nd mtg stay non-sortable — multi-value and categorical
-    // respectively, no meaningful single ranking to click into.
+    // working table markup for a single-page feature. 1st/2nd mtg stay
+    // non-sortable — categorical, no meaningful single ranking to click
+    // into.
+    // Portfolio added 16 Aug 2026 — genuinely multi-value (an appointment
+    // can carry more than one), so there's no single true sort position.
+    // Sorts by the FIRST portfolio alphabetically — a stable, useful
+    // ordering rather than pretending a multi-value field has one
+    // correct answer; ['Discovery'] sorts before ['M&M'], and
+    // ['Discovery','M&M'] sorts the same as ['Discovery'] alone.
     const SORT_VALUE = {
       leadName:   r => r.leadName ?? '',
+      portfolio:  r => (r.portfolios && r.portfolios.length > 0 ? [...r.portfolios].sort()[0] : ''),
       source:     r => r.source ?? '',
       status:     r => r.status ?? '',
       firstDate:  r => r.firstDateRaw ?? '',
+      // 16 Aug 2026 — see the parent-level createdAtRaw comment in the
+      // realAppointments mapping above: sorts on the underlying Lead's
+      // own createdAt, distinct from firstDate (the meeting date), same
+      // reasoning as that field's own comment on why firstDateRaw exists
+      // as a separate sort value from the pretty display string.
+      createdAt:  r => r.leadCreatedAtRaw ?? '',
       agentName:  r => r.agentName ?? '',
       signed:     r => r.signed ?? '',
       brokerName: r => r.brokerName ?? '',
     };
+    // 16 Aug 2026 — sortKey/sortDir/toggleSort lifted to the parent
+    // (AppointmentList) so FiltersBar's Clear button can reset sort too;
+    // this component no longer owns that state itself.
     function AppointmentsTable({ rows, showBroker = true }) {
-      const [sortKey, setSortKey] = useState(null);
-      const [sortDir, setSortDir] = useState('asc');
-
-      function toggleSort(key) {
-        if (key === sortKey) setSortDir(d => d === 'asc' ? 'desc' : 'asc');
-        else { setSortKey(key); setSortDir('asc'); }
-      }
       function thProps(key) {
         const sortable = !!SORT_VALUE[key];
         return {
@@ -524,10 +571,16 @@ export default function AppointmentList() {
           <thead>
             <tr>
               <th {...thProps('leadName')}>Lead{sortKey === 'leadName' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</th>
-              <th style={s.th}>Portfolio</th>
+              <th {...thProps('portfolio')}>Portfolio{sortKey === 'portfolio' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</th>
               <th {...thProps('source')}>Source{sortKey === 'source' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</th>
               <th {...thProps('status')}>Status{sortKey === 'status' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</th>
               <th {...thProps('firstDate')}>First appt{sortKey === 'firstDate' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</th>
+              {/* 16 Aug 2026 — Mark's request: nothing on this page showed
+                  when the LEAD was created, only the first meeting's own
+                  date, which "doesn't really tell me when the Lead was
+                  created" — his own words. leadCreatedAt/leadCreatedAtRaw
+                  added to the realAppointments mapping above. */}
+              <th {...thProps('createdAt')}>Created{sortKey === 'createdAt' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</th>
               <th {...thProps('agentName')}>Agent{sortKey === 'agentName' && (sortDir === 'asc' ? ' ↑' : ' ↓')}</th>
               <th style={s.th}>1st mtg</th>
               <th style={s.th}>2nd mtg</th>
@@ -539,7 +592,7 @@ export default function AppointmentList() {
           <tbody>
             {sortedRows.length === 0 && (
               <tr>
-                <td colSpan={12} style={{ textAlign: 'center', padding: '40px', color:'var(--mut)' }}>
+                <td colSpan={13} style={{ textAlign: 'center', padding: '40px', color:'var(--mut)' }}>
                   No appointments match your current filters.
                 </td>
               </tr>
@@ -568,6 +621,9 @@ export default function AppointmentList() {
                   </td>
                   <td style={{ ...s.td, fontSize: '0.8125rem', fontWeight: a.isToday ? 600 : 400, color: a.isToday ? '#d97706' : 'var(--ink)' }}>
                     {a.firstDate}
+                  </td>
+                  <td style={{ ...s.td, fontSize: '0.75rem', color:'var(--mut)' }}>
+                    {a.leadCreatedAt}
                   </td>
                   {/* Agent — always present, always read-only */}
                   <td style={{ ...s.td, fontSize: '0.8125rem', color:'var(--ink)' }}>
@@ -659,8 +715,8 @@ export default function AppointmentList() {
             </select>
           )}
           {hasFilter && (
-            <button onClick={() => { setStatusFilter('Active'); setSearch(''); setSourceFilter(''); setPortfolioFilter(''); setBrokerFilter(''); }} style={s.ghostBtn}>
-              ✕ Clear
+            <button onClick={() => { setStatusFilter('Active'); setSearch(''); setSourceFilter(''); setPortfolioFilter(''); setBrokerFilter(''); setSortKey(null); setSortDir('asc'); }} style={s.ghostBtn}>
+              ✕ Clear Sort & Filters
             </button>
           )}
         </div>
@@ -769,6 +825,12 @@ export default function AppointmentList() {
       )}
       {isSupervisor && (
         <div style={{ ...s.noticeWarn, marginBottom: '14px' }}>You are viewing appointments for your direct reports only.</div>
+      )}
+      {truncated && (
+        <div style={{ ...s.noticeWarn, marginBottom: '14px' }}>
+          Showing {apptData.appointments.length} of {apptData.total} appointments — this list has grown past what
+          loads in one request. Let Mark know so this page can get real pagination.
+        </div>
       )}
 
       {/* ── BROKER: CLAIM MODEL — two tabs ──────────────────────────────── */}

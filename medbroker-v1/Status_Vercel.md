@@ -21,6 +21,17 @@ original file — only this summary block at the top is newly written.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0. CURRENT STATE — READ THIS FIRST
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+SESSION 24 (16 Aug 2026) — §176's meeting-attempt date-only save and
+Broker/Agent table stacking fix CONFIRMED redelivered and live (the
+first attempt silently didn't apply — see §176 and §177 for the full
+account; nothing was ever actually broken, just not yet landed). §177
+then delivered: the Appointments pagination bug (real bug — the page
+silently only ever fetched 25 rows, no pagination UI to reach more),
+Portfolio sort + a combined Clear Sort & Filters button on both Leads
+and Appointments, a Date Created column on Appointments, real
+server-side sort on Leads, and Manual Entry moved out of the Import
+page onto its own route. Full detail in §177 below.
+
 CORRECTED 16 Aug 2026 (session 24/§176) — this block, and the OTHER
 OUTSTANDING ITEMS list below, had drifted badly out of date: items 1
 (mixed-basis ratios, §158), 3 (Products on Lead, §159), and 5 (xlsx
@@ -14121,3 +14132,154 @@ already-deployed work, not new code).
 FILES: frontend/api-lib/models/appointment.js,
 frontend/api-lib/services/appointmentService.js,
 frontend/src/pages/AppointmentDetail.jsx, frontend/src/pages/Reports.jsx.
+
+CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§177) — the first attempt
+at applying this silently didn't land (see §177 for the full account);
+redelivered identically, re-verified directly against fresh GitHub code
+on the second attempt. Confirmed live, nothing lost or broken at any
+point.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+177. §176 REDELIVERED AND CONFIRMED LIVE; APPOINTMENTS PAGINATION BUG FOUND AND FIXED; SORT/FILTER WORK ON LEADS AND APPOINTMENTS; DATE CREATED COLUMN; MANUAL ENTRY MOVED TO ITS OWN PAGE — 16 Aug 2026 (session 24, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+§176 REDELIVERY: Mark reported the §176 ZIP "didn't seem to fix
+anything" and hadn't applied the earlier, now-obsolete one either —
+understandably worried something had broken. Checked directly against
+fresh GitHub code before responding, not assumed: §176 genuinely never
+landed (isOriginalMeeting1Date still read the old !!attempt.date check,
+no date-only branch in saveMeetingAttemptOutcome(), Reports.jsx still
+had the old side-by-side grid, Status_Vercel.md still said "12 August
+2026") — but §175's donut work was fully intact and unaffected either
+way. Nothing broken, nothing lost; the repo was simply sitting exactly
+where it was before either §176 attempt. Most likely cause: something
+slipped in the github.dev drag-and-drop, same class of issue already on
+file for the migrations folder. Repackaged the identical content
+(confirmed byte-for-byte against what was built) and redelivered; Mark
+re-applied it and this session re-verified directly against fresh
+GitHub code — isDateOnlySave, the fixed isOriginalMeeting1Date, the
+optional-status schema with its .refine(), the backend date-only
+branch, and the Broker/Agent stacking fix are all confirmed present.
+Closed.
+
+REAL BUG FOUND WHILE INVESTIGATING MARK'S SORT REQUEST, NOT SOMETHING
+HE ASKED ABOUT DIRECTLY: AppointmentList.jsx calls appointmentsApi.
+list({}) with no pageSize, silently defaulting to
+AppointmentListQuerySchema's pageSize: 25 (max was 100) — while every
+filter, sort, and KPI count on that page operates on the result as if
+it already held every appointment (no pagination UI exists on this page
+at all, unlike LeadList.jsx, which genuinely paginates). Past 25 total
+appointments org-wide, anything further was invisible with no
+indication anything was missing.
+
+FIX: raised the schema's pageSize cap from 100 to 2000 and made
+AppointmentList.jsx request it explicitly (pageSize: 2000) instead of
+leaving it unspecified. NOT real pagination — deliberately not a
+rewrite of AppointmentList's entire fetch-everything-then-filter-client-
+side architecture (unlike LeadList, which was already built for real
+pagination) just to fix a default that was set too low; 2000 is high
+enough that a single brokerage won't realistically approach it for
+years. Added a visible warning banner (apptData.total >
+apptData.appointments.length) so this can never fail silently again —
+if the org ever does grow past 2000 appointments, the page will say so
+in plain language rather than quietly dropping rows the way the old
+default did.
+
+SORT ON PORTFOLIO (Appointments) — Mark's direct question: "Sort on
+Portfolio wasn't available. Is there a reason for that?" Real reason,
+not an oversight: an appointment's portfolios field is an array (can
+carry more than one), so there's no single scalar value to sort by.
+Sorts by the first portfolio alphabetically now — a stable, useful
+ordering rather than pretending a multi-value field has one true answer.
+
+CLEAR SORT & FILTERS — combined into the existing "Clear filters"
+button on both pages rather than adding a second button. Appointments'
+sortKey/sortDir were previously local state inside AppointmentsTable
+(a nested component) — lifted up to the parent AppointmentList()
+component so FiltersBar's Clear button (a sibling) can reach them; both
+AppointmentsTable render sites are mutually exclusive (claim-model
+"mine" tab vs. the assign-model/other-roles path), so one shared piece
+of state at the parent level is safe.
+
+DATE CREATED (Appointments) — Mark's exact words: "date of first
+meeting doesn't really tell me when the Lead was created." Confirmed:
+the appointments query never selected Lead.createdAt at all (Lead was
+already joined for every other l.* column in APPOINTMENT_SELECT — this
+was one more from the same row, no new join needed). Added as
+leadCreatedAt, a new sortable column, same firstDate/firstDateRaw
+pretty-string/raw-sort-value split already used for the meeting date
+column, same reasoning.
+
+SORT ON LEADS — genuinely missing before this, confirmed. Built as a
+REAL server-side sort (LeadListQuerySchema.sortKey/sortDir, models/
+lead.js; listLeads(), leadService.js), not a client-side re-order —
+Leads is genuinely paginated server-side (25/page), so sorting only
+what's loaded would silently ignore every other page's rows and read as
+broken the moment the "wrong" rows sorted to the top. sortKey validated
+against a Zod enum AND mapped through a fixed SORT_COLUMN whitelist of
+real column expressions server-side — the enum is the actual injection
+defence, the whitelist is a second, independent guard against ever
+interpolating a raw value into the ORDER BY clause. name/agentName sort
+NULLS LAST in both directions (an unassigned lead's agentName is NULL;
+Postgres's ASC default of NULLS FIRST would otherwise cluster every
+unassigned lead at the top of an alphabetical sort someone asked for,
+for a reason that has nothing to do with the sort itself). Source and
+Status left deliberately non-sortable: Source has too many distinct
+free-text values for an alphabetical sort to be genuinely useful
+day-to-day, and Status is already fully navigable via the chips above
+the table — sorting by it would just re-group what a chip already
+isolates.
+
+REAL BUG FOUND IN PASSING, FIXED: LeadList.jsx's data-fetch useFetch
+dependency array was missing sourceFilter — the filter itself worked
+(apiParams included it, and the separate page-reset useEffect above
+DID have it in its own deps), but changing the Source filter never
+actually triggered a refetch, silently leaving stale results on screen
+filtered as if nothing had changed. Added sourceFilter (and sortKey/
+sortDir) to that dependency array while already touching this exact
+block for the sort work.
+
+MANUAL ENTRY MOVED TO ITS OWN PAGE — Mark's request: "extract Manual
+Entry out of the Lead Import page and have it as a separate button on
+the Leads page next to Import Leads." Confirmed the old structure: tab
+3 of 3 inside LeadImport.jsx, sharing that page's title and back link
+even though a single manual add has nothing to do with a CSV/Excel/JSON
+upload or a Medical Subscription batch. New file, LeadNew.jsx — pure
+relocation, not a rewrite; same fields, same validation, same submit
+behaviour, same POST /api/leads call. Confirmed every import this tab
+used (TITLES, JOB_TITLES, REGIONS, useRole/allPortfolios/
+productsByPortfolio) was used ONLY by the manual tab before moving
+anything — a clean extraction, nothing left half-used in either file.
+stripEmpty() duplicated rather than shared — a 3-line pure helper,
+LeadImport.jsx still needs its own copy for the CSV/Subscription path,
+no shared module introduced for one tiny function. New route,
+/leads/new (App.jsx), same isBroker gating pattern as the other two
+Lead routes. New "Add Lead" button on LeadList.jsx, next to Import
+Leads — gated on role only (Admin/Supervisor/GlobalAdmin, matching
+handleCreateLead's own requireRole() exactly, leadHandlers.js)
+deliberately NOT also gated on showImport's CSV/Subscription feature
+flags the way Manual Entry accidentally was before, purely from living
+inside that page — a single manual add has nothing to do with whether
+bulk import is switched on.
+
+VERIFIED: fresh npm install, node --check clean on all four edited
+backend files, ESM import smoke tests on all four (including direct
+schema.safeParse() tests confirming pageSize=2000 accepted/2001
+rejected, invalid Lead sortKey values rejected, default sortDir='asc'),
+npm run build clean (LeadNew compiled as its own lazy-loaded chunk,
+confirming the route/import wiring is genuinely connected, not just
+file-present), npx vitest run — 48/48 passing. Diffed every touched
+file against a fresh GitHub hydration taken just before packaging —
+confirmed isolated to exactly eight modified files plus the one new
+file, nothing else, and confirmed no further commits landed on main
+during this round.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/api-lib/models/appointment.js,
+frontend/api-lib/services/appointmentService.js,
+frontend/api-lib/models/lead.js, frontend/api-lib/services/leadService.js,
+frontend/src/pages/AppointmentList.jsx, frontend/src/pages/LeadList.jsx,
+frontend/src/pages/LeadImport.jsx, frontend/src/App.jsx (all modified),
+frontend/src/pages/LeadNew.jsx (new).

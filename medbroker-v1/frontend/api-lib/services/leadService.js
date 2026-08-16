@@ -97,7 +97,7 @@ const SOURCE_JOINS = `
  *   route handler for a Supervisor-without-Admin caller (A1).
  * @returns {Promise<{ leads: Array, total: number, page: number, pageSize: number }>}
  */
-export async function listLeads({ status, excludeStatuses, agentId, brokerId, eventId, source, occupation, search, page, pageSize, supervisorAgentIds }) {
+export async function listLeads({ status, excludeStatuses, agentId, brokerId, eventId, source, occupation, search, page, pageSize, sortKey, sortDir, supervisorAgentIds }) {
   const offset = (page - 1) * pageSize;
 
   let whereClause = 'WHERE l.deletedAt IS NULL AND l.organisationId = @organisationId';
@@ -154,6 +154,28 @@ export async function listLeads({ status, excludeStatuses, agentId, brokerId, ev
   }
   void brokerId; // reserved — Lead has no broker column; kept in the signature for API stability
 
+  // 16 Aug 2026 — real column expressions, keyed by the same enum
+  // LeadListQuerySchema (models/lead.js) already validates sortKey
+  // against — that Zod enum is the actual injection defence; this
+  // object never receives anything the schema hasn't already approved,
+  // but stays a fixed whitelist regardless rather than trusting that
+  // single upstream check alone. name/agentName sort NULLS LAST in both
+  // directions — an unassigned lead's agentName is NULL, and NULLS
+  // FIRST (Postgres's default for ASC) would otherwise cluster every
+  // unassigned lead at the top of an alphabetical sort someone asked
+  // for, not because they're meaningfully "first".
+  const SORT_COLUMN = {
+    name:       'l.firstName, l.lastName',
+    occupation: 'l.occupation NULLS LAST',
+    source:     `${SOURCE_LABEL_SELECT} NULLS LAST`,
+    status:     'l.pipelineStatus',
+    agentName:  'a.displayName NULLS LAST',
+    createdAt:  'l.createdAt',
+  };
+  const orderClause = sortKey
+    ? `ORDER BY ${SORT_COLUMN[sortKey]} ${sortDir === 'desc' ? 'DESC' : 'ASC'}`
+    : 'ORDER BY l.createdAt DESC'; // unchanged default — no sort requested
+
   const countResult = await executeQuery(
     `SELECT COUNT(*) AS total FROM Lead l ${SOURCE_JOINS} ${whereClause}`,
     params
@@ -178,7 +200,7 @@ export async function listLeads({ status, excludeStatuses, agentId, brokerId, ev
      ${SOURCE_JOINS}
      LEFT JOIN "User" a ON l.assignedAgentId = a.id
      ${whereClause}
-     ORDER BY l.createdAt DESC
+     ${orderClause}
      LIMIT @pageSize OFFSET @offset`,
     {
       ...params,
