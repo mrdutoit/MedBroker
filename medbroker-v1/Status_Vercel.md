@@ -104,8 +104,16 @@ separate compact-stat branch is gone), plus a bounded max-width on the
 surrounding rows so a sparse period doesn't leave a lone card floating
 in a vast empty row on a wide monitor. Kept this app's own theme system
 and colour tokens throughout, per Mark's explicit instruction — this
-was a structural rebuild, not a re-skin. Full detail in §177 through
-§187 below.
+was a structural rebuild, not a re-skin. §188 then reverted §186's
+suppression logic entirely — Mark applied §187 and immediately asked
+"where are all the other graphs?", and he was right to: §186 hid By
+Region/By Portfolio/Meeting Type whenever there was less than genuine
+variety to compare, reasoning that a single-category card was
+decorative. That reasoning was built around the THIN pre-§187 card
+design; §187's rebuild made every card substantial regardless of
+category count, which quietly removed the justification for hiding
+any of them. All three breakdowns show again whenever there's real
+data, full stop. Full detail in §177 through §188 below.
 
 CORRECTED 16 Aug 2026 (session 24/§176) — this block, and the OTHER
 OUTSTANDING ITEMS list below, had drifted badly out of date: items 1
@@ -15161,3 +15169,50 @@ not eyeballed.
 NOT YET DEPLOYED.
 
 FILES: frontend/src/components/ReportsWidgets.jsx, frontend/src/pages/Reports.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+188. §186's SUPPRESSION LOGIC REVERTED — THE REASON IT EXISTED WAS QUIETLY REMOVED BY §187's OWN REDESIGN — 16 Aug 2026 (session 24, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark applied §187, with a screenshot: "Where are all the other graphs?
+I don't see the per portfolio breakdowns, etc." Correct catch — By
+Region, By Portfolio, and Meeting Type were all missing, exactly as
+designed by §186, and §186 was wrong to still exist by that point.
+
+THE ACTUAL SEQUENCE, worth being honest about: §186 suppressed a
+breakdown entirely whenever there were fewer than 2 distinct
+categories to compare, reasoning that a single-category card was
+decorative — "100% of the 2 wins" restated four different ways.
+That reasoning was sound AT THE TIME, against the card design that
+existed then (§184's compact stat — a bare number, no chart, minimal
+visual weight). §187, built one turn later, rebuilt DonutBreakdown
+from scratch specifically to fix that thinness: real donut, centre
+label, full legend with values and percentages, genuine visual weight
+regardless of category count. That rebuild quietly removed the actual
+justification for §186 — a single-category card isn't decorative
+anymore, it's informative (confirms the underlying data is real and
+populated, shows the exact count, same visual language as every other
+card on the page, matches what the "Overall" card in Mark's own
+screenshot already demonstrates working correctly at Won=2/Lost=0).
+§186 should have been reconsidered the moment §187 shipped; it wasn't,
+because the two were built as sequential fixes without stepping back
+to check whether the earlier one was still justified.
+
+FIXED: WonLostPair (Reports.jsx) reverted to the simple check that
+existed before §186 — show the pair whenever there's any data at all
+(wonRows or lostRows non-empty), regardless of category variety. Same
+reversion for Meeting Type — `.length > 1` back to `.length > 0`.
+Comments rewritten to state plainly what happened and why, not left as
+misleading git-archaeology arguing for logic that's since been removed.
+
+VERIFIED: npm run build clean, npx vitest run — 48/48 passing. Checked
+against Mark's own exact scenario (Won=2, both Western Cape/Discovery,
+Lost=0) — confirms By Region, By Portfolio, and Meeting Type all now
+render again. Diffed against a fresh GitHub hydration taken immediately
+before packaging — isolated to exactly one file, confirmed no drift
+since.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/src/pages/Reports.jsx.

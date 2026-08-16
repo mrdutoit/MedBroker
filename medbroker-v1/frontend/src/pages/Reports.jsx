@@ -131,35 +131,32 @@ const CANCEL_REASON_LABELS = {
 // genuine flex sibling of every other one, so stretch equalises all of
 // them correctly, automatically, without hand-tuned heights anywhere.
 //
-// REWORKED AGAIN 16 Aug 2026 (§186) — §184 fixed "a full donut ring for
-// one category conveys nothing" by replacing the ring with a compact
-// stat. That was necessary but not sufficient: once §185 corrected
-// Won/Lost to their true counts (a small business, most periods will
-// have single-digit deals), a WonLostPair with everything concentrated
-// in one region and one portfolio produced FOUR cards that each just
-// restated "100% of the 2 wins this period" a different way (Overall
-// already says this once) plus two empty "no losses" cards — five cards
-// of near-zero incremental information, still decorative, just wearing
-// compact-stat clothes instead of ring clothes. The actual fix isn't
-// about HOW a single category renders — it's about WHETHER a breakdown
-// with nothing to compare should be shown AT ALL. This pair now checks
-// the combined set of distinct categories across BOTH won and lost
-// before rendering anything: fewer than 2 real, distinct values means
-// there is no comparison to make yet, and the whole pair — not just one
-// side of it — is suppressed rather than padded out. Deliberately
-// decided at the PAIR level, not inside DonutBreakdown itself: a
-// Won side with real variety (2+ regions) paired against a Lost side
-// that happens to be a single-region compact stat is still genuinely
-// informative (it tells you WHERE the losses are, in the context of a
-// Won side that has spread) — only suppress when NEITHER side has
-// anything to compare against the other.
+// REWORKED AGAIN 16 Aug 2026 (§186), THEN REVERTED THE SAME DAY (§188)
+// — §184 fixed "a full donut ring for one category conveys nothing" by
+// replacing the ring with a compact stat. §186 went further: once §185
+// corrected Won/Lost to their true counts (a small business, most
+// periods will have single-digit deals), a WonLostPair with everything
+// concentrated in one region and one portfolio produced four cards
+// that each just restated "100% of the 2 wins" a different way — so
+// §186 suppressed the whole pair whenever there were fewer than 2
+// distinct categories to compare.
+//
+// §187 then rebuilt DonutBreakdown itself from the ground up — real
+// donut with a centre label, full legend with values and percentages
+// always visible, real visual weight at any category count, not just
+// 2+. That rebuild quietly removed the actual justification for §186's
+// suppression: a single-category card isn't decorative or repetitive
+// anymore, it's genuinely informative (confirms the data, shows the
+// real count, same visual language as every other card on the page).
+// Mark noticed the gap immediately — "where are all the other graphs?
+// I don't see the per portfolio breakdowns" — and he was right to.
+// §186's own reasoning ("nothing to compare, so don't show it") was
+// built for a thinner design that no longer exists; keeping it after
+// §187 just hid real, working data for no remaining reason. Reverted
+// to the simple check that was already here before §186 — show the
+// pair whenever there's any data at all, regardless of variety.
 function WonLostPair({ label, wonRows, lostRows, keyField, isMobile }) {
   if ((!wonRows || wonRows.length === 0) && (!lostRows || lostRows.length === 0)) return null;
-  const distinctCategories = new Set([
-    ...(wonRows ?? []).map(r => r[keyField]),
-    ...(lostRows ?? []).map(r => r[keyField]),
-  ]);
-  if (distinctCategories.size < 2) return null;
   const toData = rows => rows.map((r, i) => ({
     label: r[keyField], value: r.count,
     colour: r[keyField] === 'Not captured' ? colors.ink400 : CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
@@ -660,7 +657,7 @@ export default function Reports() {
                     sibling of the other, so stretch equalises them
                     correctly. */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: '20px', maxWidth: '1160px' }}>
-                  {appointmentAnalysis.byMeetingType.length > 1 && (
+                  {appointmentAnalysis.byMeetingType.length > 0 && (
                     /* 16 Aug 2026 (§180) — Mark's own suggestion: "perhaps
                        the Meeting Type could be a donut chart." Was a
                        DataTable (Booked/Won/Conversion Ratio columns) —
@@ -675,16 +672,19 @@ export default function Reports() {
                        so flagging the drop rather than silently losing
                        them — easy to bring back as its own small table
                        if that comparison specifically is wanted.
-                       CONDITION CHANGED 16 Aug 2026 (§186) from
-                       `.length > 0` to `.length > 1` — this section's
-                       whole point is comparing meeting types; a business
-                       that's only ever booked InPerson has nothing to
-                       compare yet, and "100% InPerson" forever is a
-                       fact already implicit (there's no other option
-                       recorded), not worth a dedicated card restating
-                       it. Same reasoning as WonLostPair's own §186
-                       rework just below — comes back automatically the
-                       first period Virtual actually gets used. */
+                       CONDITION CHANGED to `.length > 1` in §186, then
+                       REVERTED back to `.length > 0` in §188 — §186's
+                       "nothing to compare yet" reasoning was built
+                       around a thin single-category card design; §187
+                       rebuilt DonutBreakdown to carry real weight (a
+                       centre label, a full legend with values) at any
+                       category count, which removed the actual
+                       justification for hiding this at n=1. Mark's own
+                       question after applying §187 — "where are all the
+                       other graphs?" — confirmed the suppression was
+                       hiding real, working data for no remaining
+                       reason. See WonLostPair's own §188 comment for
+                       the fuller account. */
                     <DonutBreakdown
                       title="Meeting Type"
                       isMobile={isMobile}
