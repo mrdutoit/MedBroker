@@ -64,8 +64,18 @@ narrowly than every other breakdown in this file does, missing
 ReturnedToLeads appointments the KPI and Portfolio breakdown both
 correctly included. Also fixed: unequal card heights across a donut
 row (a DOM-nesting issue breaking flexbox's own stretch behaviour) and
-long category labels wrapping badly in the legend. Full detail in §177
-through §183 below.
+long category labels wrapping badly in the legend. §184 then identified
+the actual root cause behind Mark's "reads terribly" reaction to the
+whole donut row: single-category data (100% one region, 100% one
+portfolio) was still being rendered as a full donut ring — a chart
+whose entire purpose is comparison, spent on data with nothing to
+compare. Fixed with a compact stat treatment for that specific case;
+also confirmed (by re-reading the actual code, not guessed) that §183's
+region fix is working as designed — "Region wasn't captured for any of
+these" is now a genuinely different message from "no losses found,"
+and reflects an honest data gap in the specific test records rather
+than a code bug, pending Mark's own confirmation by checking those
+records directly. Full detail in §177 through §184 below.
 
 CORRECTED 16 Aug 2026 (session 24/§176) — this block, and the OTHER
 OUTSTANDING ITEMS list below, had drifted badly out of date: items 1
@@ -14773,3 +14783,78 @@ NOT YET DEPLOYED.
 
 FILES: frontend/api-lib/services/reportService.js,
 frontend/src/components/ReportsWidgets.jsx, frontend/src/pages/Reports.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+184. THE ACTUAL ROOT OF "READS TERRIBLY" — SINGLE-CATEGORY DATA WAS STILL RENDERING AS A FULL DONUT RING; §183's REGION FIX CONFIRMED WORKING AS DESIGNED — 16 Aug 2026 (session 24, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark, with fresh screenshots after §183: "you cannot tell me that's
+what a professional design team would come up with. It reads
+terribly!" — plus a repeat of the Region/Lost concern, and a direct
+ask for a standing prompt to stop this cycle.
+
+FIRST: verified §183 actually landed before responding to either point
+— confirmed directly against the live code (the ReturnedToLeads
+inclusion and mergeClosedMetrics call are both present). This matters
+for what "Region wasn't captured for any of these" actually means now:
+it's DonutBreakdown's realTotal===0 branch, which only fires when the
+query found real rows and every one of them has a null region — a
+categorically different outcome from total===0 ("found nothing at
+all"). Given By Portfolio · Lost shows real data for the same period
+(Discovery + Money and Medicine), and portfolio has been a mandatory
+field since earlier than region (§166), it's entirely plausible the
+specific lost appointments in this test data have a real portfolio but
+a genuinely empty region — predating region tracking, or created via a
+path (CSV import, e.g.) that doesn't enforce it. That would make the
+message CORRECT, not a bug. Cannot tell which from a screenshot alone,
+and said so directly rather than guessing a third time — asked Mark to
+check the actual Region field on those two appointments, which settles
+it in under a minute without another speculative code change.
+
+SECOND, THE REAL DESIGN PROBLEM: re-examined Mark's own screenshot
+specifically for what "reads terribly" actually meant, rather than
+re-applying general polish. Found it: three or four of the five cards
+in the Won vs Lost row were solid, single-colour rings — By Region ·
+Won (100% Western Cape), By Portfolio · Won (100% Discovery), Meeting
+Type (100% InPerson). A donut's whole communicative job is comparing
+categories against each other. With exactly one category, there is
+nothing to compare — a full ring conveys precisely what a single
+sentence would, while occupying the same visual weight as a genuinely
+informative multi-category donut sitting right next to it. That
+repetition (several near-identical solid circles in one row) is what
+reads as decorative rather than analytical — not spacing, not colour,
+the chart type itself being wrong for single-category data.
+
+FIXED: DonutBreakdown now checks for exactly one nonzero category
+(excluding the dedicated Not-captured case, which already has its own
+message) and renders a compact stat instead — the count, the category
+name, "100% of this period" — no ring. Same card chrome and height as
+every sibling (fits directly into §183's existing equal-height
+mechanism, no changes needed there), so a row mixing genuine
+multi-category donuts and single-category stats still aligns as one
+coherent set. Verified the branching logic against every exact scenario
+in both of Mark's screenshot sets (Won=2/Lost=1 and Won=4/Lost=2,
+across Region/Portfolio/Meeting Type) — confirms the four solid-ring
+cases now correctly produce compact stats, and the two genuinely
+multi-category cases (By Portfolio · Lost, Overall) correctly stay as
+real donuts.
+
+Also answered Mark's direct request for a standing prompt: gave him
+something concrete rather than a generic instruction — the actual
+process gap this session was insufficient verification before claiming
+"fixed" (§180's region bug, §183 itself only becoming necessary because
+§180 wasn't checked against the file's own established conventions),
+not insufficient design effort. Suggested language asks for exactly
+that: what was checked, what wasn't, and no claiming something is fixed
+without evidence.
+
+VERIFIED: npm run build clean, npx vitest run — 48/48 passing. Branching
+logic checked against synthetic data matching every exact case in
+Mark's own two screenshot sets, not just reasoned about abstractly.
+Diffed against a fresh GitHub hydration taken immediately before
+packaging — isolated to exactly one file, confirmed no drift since.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/src/components/ReportsWidgets.jsx.

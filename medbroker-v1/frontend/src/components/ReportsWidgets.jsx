@@ -180,15 +180,33 @@ export function KpiCard({ label, current, format, deltaPct, direction, lowerIsBe
 //    dot aligns with the first line specifically (alignItems:
 //    'flex-start' + a small top offset for cap-height), not floating
 //    in the middle of a multi-line block.
+//
+// §184 — the actual root of "this doesn't read like professional
+// design," identified directly from Mark's own screenshot: a row of
+// five cards where three or four are solid, single-colour rings (100%
+// one region, 100% one portfolio). A donut's entire job is comparing
+// categories against each other — with exactly one category, there is
+// nothing to compare, and a full ring conveys precisely as much as a
+// single sentence would while taking the same visual weight as a
+// genuinely informative multi-category donut beside it. That's what
+// reads as repetitive/decorative rather than analytical: not the
+// spacing or the colours, the CHART TYPE itself being wrong for
+// single-category data. Fixed below — when there's exactly one nonzero
+// category (and it isn't the dedicated Not-captured case, which
+// already has its own message), this renders a compact stat instead:
+// the count, the category name, no ring. Same card chrome and height
+// as every sibling, so a row mixing genuine multi-category donuts and
+// single-category stats still aligns and reads as one coherent set.
 export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessage, title }) {
   const total = data.reduce((sum, d) => sum + d.value, 0);
   const realTotal = data.filter(d => d.label !== 'Not captured').reduce((sum, d) => sum + d.value, 0);
+  const nonzero = data.filter(d => d.value > 0);
 
   const cardStyle = {
     display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
     padding: '20px', border: `1px solid ${colors.lineSoft}`, borderRadius: radius.md,
     width: isMobile ? '100%' : '220px', minHeight: '236px', boxSizing: 'border-box',
-    justifyContent: total === 0 || realTotal === 0 ? 'center' : 'flex-start',
+    justifyContent: total === 0 || realTotal === 0 || nonzero.length === 1 ? 'center' : 'flex-start',
   };
   // Reserved regardless of whether `title` is actually passed — see
   // §183's own comment above on why this has to be unconditional for
@@ -216,6 +234,26 @@ export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessag
         <div style={{ fontSize: '0.8125rem', color: colors.ink400, textAlign: 'center' }}>
           {notCapturedMessage ?? emptyMessage ?? 'Not captured for this period.'}
         </div>
+      </div>
+    );
+  }
+  // 16 Aug 2026 (§184) — exactly one real category carries all the
+  // value. A ring here would just be a solid circle in that category's
+  // colour — no comparison happening, no reason to spend a donut's
+  // worth of visual weight on it. Compact stat instead: the actual
+  // count (the informative number — "100%" on its own is trivially
+  // true whenever there's only one category, not worth leading with),
+  // the category name, and a small caption making the "only one
+  // category this period" fact explicit rather than implied.
+  if (nonzero.length === 1) {
+    const only = nonzero[0];
+    return (
+      <div style={cardStyle}>
+        {titleSlot}
+        <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: only.colour, flexShrink: 0 }} />
+        <div style={{ fontSize: '1.75rem', fontWeight: 700, color: colors.ink, lineHeight: 1 }}>{only.value}</div>
+        <div style={{ fontSize: '0.8125rem', color: colors.ink700, textAlign: 'center' }}>{only.label}</div>
+        <div style={{ fontSize: '0.6875rem', color: colors.ink400 }}>100% of this period</div>
       </div>
     );
   }

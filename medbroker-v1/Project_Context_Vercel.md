@@ -1073,10 +1073,10 @@ Unassigned Appointment Warning — built 14 Aug 2026 (§160, migration
   fresh region-based lookup when no such Task exists at all.
 
 Donut pattern (DonutBreakdown, ReportsWidgets.jsx) — CURRENT DESIGN as
-  of 16 Aug 2026 (§182), after four earlier passes (§175, §178, §179,
-  §180) each fixed a real problem without landing Mark's actual point.
-  Read this note, not the git-archaeology of how it got here, for what
-  the component actually does today:
+  of 16 Aug 2026 (§184), after five earlier passes (§175, §178, §179,
+  §180, §183) each fixed a real problem without landing Mark's actual
+  point. Read this note, not the git-archaeology of how it got here,
+  for what the component actually does today:
 
   DonutBreakdown is a single, self-contained donut widget — chart,
   hover (Recharts Tooltip, value + % of total), and a plain colour-key
@@ -1086,6 +1086,21 @@ Donut pattern (DonutBreakdown, ReportsWidgets.jsx) — CURRENT DESIGN as
   visual is wanted next to a donut, it must show DIFFERENT data (see
   WonLostPair below), never a second rendering of what the donut
   already carries.
+
+  SINGLE-CATEGORY CASE, 16 Aug 2026 (§184) — THE MOST IMPORTANT
+  STANDING RULE HERE, easy to miss: if exactly one category has a
+  nonzero value, DO NOT render a donut ring for it. A solid, single-
+  colour circle conveys nothing a sentence wouldn't, while costing the
+  same visual weight as a genuinely informative multi-category donut —
+  a row containing several of these reads as repetitive decoration,
+  which is exactly what Mark called "not professional design team
+  quality." DonutBreakdown already handles this (the `nonzero.length
+  === 1` branch — a compact stat: count, category name, "100% of this
+  period", no chart) — any FUTURE donut-shaped component on this page
+  needs the same check, not just this one. The failure mode isn't
+  "ugly enough to notice immediately" — a lone donut in isolation looks
+  fine; it's specifically a ROW of several that makes the pattern
+  visible, which is exactly how this went unnoticed through §175-§183.
 
   Card is 220px wide, 168px chart, minHeight 236px — sized generously
   enough (§182) that a lone card doesn't read as an accident, though
