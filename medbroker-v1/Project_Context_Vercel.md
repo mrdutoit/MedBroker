@@ -1073,63 +1073,71 @@ Unassigned Appointment Warning — built 14 Aug 2026 (§160, migration
   fresh region-based lookup when no such Task exists at all.
 
 Donut pattern (DonutBreakdown, ReportsWidgets.jsx) — CURRENT DESIGN as
-  of 16 Aug 2026 (§184), after five earlier passes (§175, §178, §179,
-  §180, §183) each fixed a real problem without landing Mark's actual
-  point. Read this note, not the git-archaeology of how it got here,
-  for what the component actually does today:
+  of 16 Aug 2026 (§187), a structural rebuild after six earlier passes
+  (§175, §178, §179, §180, §183, §184, §186 — seven, actually) each
+  fixed something real without ever landing Mark's actual point: the
+  component had almost no visual weight of its own, so no amount of
+  show/hide or interactivity logic could make a row of them read as
+  intentional. §187 was built directly from a reference dashboard Mark
+  supplied, keeping this app's own theme tokens throughout (Mark's
+  explicit instruction — structural rebuild, not a re-skin). Read this
+  note, not the git-archaeology of how it got here, for what the
+  component actually does today:
 
-  DonutBreakdown is a single, self-contained donut widget — chart,
-  hover (Recharts Tooltip, value + % of total), and a plain colour-key
-  legend (names only, no numbers). NO accompanying bar list or
-  breakdown panel, ever — a donut and a list showing the SAME numbers
-  is redundant regardless of layout or interactivity. If a second
-  visual is wanted next to a donut, it must show DIFFERENT data (see
-  WonLostPair below), never a second rendering of what the donut
-  already carries.
+  Card is 360px wide (up from 220px — needs to hold a donut AND a real
+  side legend together, not stacked in a narrow column), donut 104px
+  with a CENTRE LABEL (the total count, via a position:absolute overlay
+  div — simpler and more controllable than fighting Recharts' own
+  <Label> geometry). Legend sits BESIDE the donut, not below it, one row
+  per category, each showing the VALUE AND PERCENTAGE inline, ALWAYS —
+  never hover-only. Hover still works (Tooltip unchanged from §179,
+  cursor={false} still mandatory — see below) but is a bonus on top of
+  always-visible numbers now, not the only way to see them. Each legend
+  row uses alignItems:'flex-start' (not centre) so a long label
+  (cancellation/loss reasons routinely run 25-35 characters) wraps onto
+  a second line without dragging the value/% column down with it.
 
-  SINGLE-CATEGORY CASE, 16 Aug 2026 (§184) — THE MOST IMPORTANT
-  STANDING RULE HERE, easy to miss: if exactly one category has a
-  nonzero value, DO NOT render a donut ring for it. A solid, single-
-  colour circle conveys nothing a sentence wouldn't, while costing the
-  same visual weight as a genuinely informative multi-category donut —
-  a row containing several of these reads as repetitive decoration,
-  which is exactly what Mark called "not professional design team
-  quality." DonutBreakdown already handles this (the `nonzero.length
-  === 1` branch — a compact stat: count, category name, "100% of this
-  period", no chart) — any FUTURE donut-shaped component on this page
-  needs the same check, not just this one. The failure mode isn't
-  "ugly enough to notice immediately" — a lone donut in isolation looks
-  fine; it's specifically a ROW of several that makes the pattern
-  visible, which is exactly how this went unnoticed through §175-§183.
+  ONE CONSISTENT TREATMENT for 1 category or many — §184's separate
+  "compact stat" branch (no ring, just a bare number, for a single real
+  category) is GONE. A real donut with a centre label and a legend row
+  is MORE informative at n=1 than a bare number ever was — it still
+  shows the count, the label, AND the percentage in the same visual
+  language as every other card — and having two different visual
+  treatments for "one category" vs "many" was itself part of why the
+  page didn't read as one coherent product. A genuine 0-value category
+  (e.g. Closed Lost when nothing's been lost yet) now gets its own
+  explicit legend row too ("Closed Lost: 0 (0%)") rather than being
+  omitted — more complete information, not less, matching "show real
+  numbers always."
 
-  Card is 220px wide, 168px chart, minHeight 236px — sized generously
-  enough (§182) that a lone card doesn't read as an accident, though
-  the real fix for "looks sparse" is almost always CONSOLIDATION (see
-  the standing layout principle below), not just making one card
-  bigger. Both empty branches (total===0, "no data at all"; and
-  realTotal===0, "data exists but it's entirely the Not-captured
-  bucket" — a genuinely different fact, worth a different message,
-  wireable via the optional notCapturedMessage prop) render inside the
-  SAME card chrome as the populated case — same border, padding, size —
-  so a Won/Lost pair (or any set shown together) stays visually
-  coherent regardless of which side actually has data. Don't let either
-  branch fall through to the generic EmptyState component — that's a
-  differently-sized, differently-styled element built for a different
-  job (a whole section being empty, not one card in a set of several).
+  Both empty branches (total===0, "no data at all"; realTotal===0,
+  "data exists but it's entirely the Not-captured bucket" — a
+  genuinely different fact, wireable via the optional
+  notCapturedMessage prop) still render inside the SAME card chrome as
+  the populated case. Don't let either branch fall through to the
+  generic EmptyState component — differently-sized, built for a
+  different job (a whole section being empty, not one card in a set).
 
   Used ONLY for genuine parts-of-a-whole data (every item sums to 100%
   of something real), never for ranked tables or the sequential
-  pipeline stages — §156's original restraint principle. Optional
-  `title` prop labels an individual donut when more than one is shown
-  side by side (e.g. "Won" / "Lost" as a pair) — the parent section's
-  own heading isn't enough to distinguish them at that point.
+  pipeline stages — §156's original restraint principle, unchanged.
+  Optional `title` prop labels an individual donut when more than one
+  is shown side by side (e.g. "Region · Won" / "Region · Lost" as a
+  pair) — the parent section's own heading isn't enough to distinguish
+  them at that point; ALWAYS reserved (visibility:hidden when absent),
+  never conditionally rendered — a title-less card and a titled card
+  need identical internal structure for flexbox's own align-items:
+  stretch to equalise a row of them correctly.
 
   cursor={false} on the Tooltip — MANDATORY on any <Pie> in this
   codebase, not optional. Recharts' Tooltip cursor prop defaults to
   true, built for Cartesian charts; a <Pie> has no "column" for it to
   highlight, so leaving the default on renders a stray rectangle
-  unrelated to the chart (§179's own finding, likely what read as an
-  ugly "box" on hover before this was set).
+  unrelated to the chart (§179's own finding).
+
+  shadow.xs on the card — subtle, theme-aware (resolves through the
+  same tokens.js CSS variables as everything else), added §187 for a
+  touch more presence without departing from this app's own restraint.
 
   CATEGORICAL_PALETTE is six fixed hex values, deliberately NOT theme
   CSS variables — needs to stay mutually distinct regardless of active
@@ -1138,6 +1146,14 @@ Donut pattern (DonutBreakdown, ReportsWidgets.jsx) — CURRENT DESIGN as
   --pl-won/--pl-lost tokens in themes.css (added 13 Aug 2026, §151
   follow-up, for a donut removed in the §156/§162 rebuild) genuinely
   orphaned — zero references in frontend/src as of 16 Aug 2026.
+
+  STANDING RULE FOR THE ROW AROUND THESE CARDS, 16 Aug 2026 (§187): cap
+  the wrapping row at maxWidth: 1160px (fits 3 of the current 360px
+  cards per line) — with cards this wide, an uncapped row with only 1-2
+  items (§186 correctly suppresses the rest some periods) will stretch
+  across an entire wide monitor with nothing filling the remainder. A
+  bounded, intentional grid, not open-ended width waiting to be filled
+  — check this is still in place before adding a new breakdown row.
 
 STANDING LAYOUT PRINCIPLE, 16 Aug 2026 (§182) — don't give related
   content its own separate full-width block/card just because it was

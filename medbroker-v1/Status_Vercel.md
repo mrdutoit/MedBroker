@@ -90,7 +90,22 @@ addressed HOW a single category renders, not WHETHER a breakdown with
 nothing to compare should be shown at all. §186 suppresses those
 breakdowns entirely when there's insufficient variety to make them
 meaningful, rather than padding the page with cards that carry near-
-zero incremental information. Full detail in §177 through §186 below.
+zero incremental information. §187 is the entry that actually mattered
+most: Mark, at the end of his patience, supplied a real reference
+dashboard and was direct that every prior pass had fixed something
+real without ever addressing the actual root cause — DonutBreakdown
+had almost no visual weight of its own (narrow column, bare number,
+tiny below-legend, hover-only values), so no amount of show/hide logic
+could make a row of them read as intentional. §187 rebuilt the
+component from its reference: a real donut with a centre label, a side
+legend with values and percentages always visible (not hover-
+dependent), one consistent treatment for 1 category or many (§184's
+separate compact-stat branch is gone), plus a bounded max-width on the
+surrounding rows so a sparse period doesn't leave a lone card floating
+in a vast empty row on a wide monitor. Kept this app's own theme system
+and colour tokens throughout, per Mark's explicit instruction — this
+was a structural rebuild, not a re-skin. Full detail in §177 through
+§187 below.
 
 CORRECTED 16 Aug 2026 (session 24/§176) — this block, and the OTHER
 OUTSTANDING ITEMS list below, had drifted badly out of date: items 1
@@ -15049,3 +15064,100 @@ packaging — isolated to exactly one file, confirmed no drift since.
 NOT YET DEPLOYED.
 
 FILES: frontend/src/pages/Reports.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+187. THE STRUCTURAL REBUILD — WHAT SIX PATCHES (§175-§186) NEVER ADDRESSED: DONUTBREAKDOWN HAD NO REAL VISUAL WEIGHT — 16 Aug 2026 (session 24, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark, at the end of his patience, with fresh screenshots: "I am
+honestly at wits end with this, because it seems that you are
+deliberately making things worse. We have gone from donut graphs that
+were working that needed adjustment to the attached." He supplied a
+genuine reference dashboard (a real analytics product screenshot) and
+was explicit: "I still want to maintain the theme functionality and
+colour sets, but I want the page to look more contemporary."
+
+Owned directly, not defended: every one of §175 through §186 fixed
+something real in isolation — a stray Recharts cursor artifact, unequal
+card heights from a DOM-nesting issue, a redundant bar list duplicating
+the donut's own numbers, a trivial single-category ring, breakdowns
+with nothing genuine to compare — and every one of those fixes was
+individually correct. None of them ever addressed the actual root
+cause underneath all of it: DonutBreakdown itself had almost no visual
+weight — a narrow 220px column, a bare number with no context, a tiny
+colour-key legend below with no visible values, hover-dependent for
+anything beyond the shape of the ring. §186's suppression logic (hide
+a breakdown when there's nothing to compare) was correct on its own
+terms, but it made the underlying thinness of the remaining cards MORE
+visible, not less — a lone sparse card in a wide, uncapped row, exactly
+what the screenshots showed.
+
+WHAT THE REFERENCE ACTUALLY DOES DIFFERENTLY, extracted concretely
+rather than copied wholesale (Mark was explicit the theme/colours stay
+this app's own):
+  1. The donut has a real centre label — the total, not decoration. The
+     ring itself carries information beyond its slice angles.
+  2. The legend sits BESIDE the donut, not below it, with real values
+     and percentages always visible — never hover-only.
+  3. Every card has genuine visual weight regardless of category count
+     — nothing in that reference is a bare number in a mostly-empty box.
+
+REBUILT DonutBreakdown (ReportsWidgets.jsx) around these three points:
+  - Card width 220px -> 360px — wide enough to hold a donut and a real
+    side legend together, not stacked in a narrow column.
+  - Donut gets a centre label (the total count) via a position:absolute
+    overlay div, not fought into Recharts' own <Label> geometry.
+  - Legend moved beside the donut (was below), every row showing
+    value AND percentage inline, always — hover still works as a bonus
+    (Tooltip unchanged, cursor={false} from §179 kept), but the legend
+    no longer depends on it for basic legibility. alignItems:
+    'flex-start' on each legend row (not centre) so a long label
+    (cancellation/loss reasons routinely run 25-35 characters) wraps
+    onto a second line without dragging the value/% column down with
+    it — those stay pinned level with the label's first line regardless
+    of how many lines the label itself takes.
+  - §184's separate "compact stat" branch for a single real category is
+    GONE. One consistent treatment for 1 category or many: a real
+    donut, a centre label, a legend row per category (including a
+    genuine 0-value row when relevant — the Won=2/Lost=0 case now shows
+    BOTH "Closed Won: 2 (100%)" and "Closed Lost: 0 (0%)" explicitly,
+    which is more complete information than the old compact-stat ever
+    showed, not less). Two components sharing one visual language reads
+    as more coherent than a special case for the sparse periods.
+  - shadow.xs added to the card (subtle, theme-aware — resolves through
+    the same CSS variables as everything else in tokens.js) for a touch
+    more presence without departing from this app's own restraint.
+
+Reports.jsx: both breakdown-card rows (Won vs Lost; Meeting Type +
+Cancellation reasons) now cap at maxWidth: 1160px — fits 3 of the new,
+wider cards per line. With the cards themselves now carrying real
+weight, this bound stops a sparse row (§186 may correctly show only 1-2
+cards some periods) from stretching across an entire wide monitor with
+nothing filling the rest of it — a bounded, intentional grid, same
+discipline as the reference's own fixed-column KPI row, not open-ended
+width waiting to be filled.
+
+NOT CHANGED, per Mark's own explicit instruction: no new colour
+palette, no dark theme, no departure from this app's existing
+Linear/Stripe/Attio-class restraint (§156's original brief). Every
+colour in the rebuilt component resolves through the same theme-aware
+tokens (colors.*, shadow.*, radius.*) already used everywhere else on
+this page — switching data-theme still reskins this component with no
+code change required, exactly as before.
+
+VERIFIED: npm run build clean, npx vitest run — 48/48 passing. Render
+logic checked against all three of Mark's own screenshot scenarios
+(Won=2/Lost=0, Cancellation reasons with 2 real categories, Won=4/
+Lost=1) — confirms the centre label and full legend (including the
+explicit 0-value row) render as intended in each case. Diffed against a
+fresh GitHub hydration taken immediately before packaging — isolated to
+exactly two files, confirmed no drift since. Still no live browser in
+this sandbox to visually confirm the actual render — flagged honestly,
+same as every prior pass in this saga; this is reasoned through
+carefully against a concrete reference and verified at the logic level,
+not eyeballed.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/src/components/ReportsWidgets.jsx, frontend/src/pages/Reports.jsx.

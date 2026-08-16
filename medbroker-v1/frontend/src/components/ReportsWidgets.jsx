@@ -31,7 +31,7 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts';
-import { s, colors, radius, type } from '../styles/tokens.js';
+import { s, colors, radius, shadow, type } from '../styles/tokens.js';
 
 // ─── Formatting — shared with Reports.jsx, single source of truth ──────────
 export const fmt = v => `R${(v / 1000000).toFixed(2)}m`;
@@ -110,107 +110,61 @@ export function KpiCard({ label, current, format, deltaPct, direction, lowerIsBe
   );
 }
 
-// ─── Donut — 15 Aug 2026 (§175), REDESIGNED 16 Aug 2026 (§179, §180,
-// §182). Genuine parts-of-a-whole data ONLY (every item sums to 100% of
-// something real: a cancellation reason, a loss reason, a won/lost
-// split) — see this file's own header comment for why the ranked
-// tables and sequential pipeline stages don't use this.
+// ─── Donut — 15 Aug 2026 (§175), REDESIGNED REPEATEDLY through 16 Aug
+// 2026 (§179, §180, §182, §183, §184). Genuine parts-of-a-whole data
+// ONLY (every item sums to 100% of something real) — see this file's
+// own header comment for why the ranked tables and sequential pipeline
+// stages don't use this.
 //
-// §179 fixed the stray Recharts default-cursor artifact on hover
-// (cursor={false}, below) and split the donut from its own breakdown
-// list into two separate bordered panels, matching Mark's investment-
-// tracker reference structurally.
+// §187 — Mark, after the §184/§186 patches: "it seems that you are
+// deliberately making things worse... tell me if that looks like it
+// was designed by a data scientist for the information, and a design
+// studio for the UX?" Fair. Every prior pass fixed something real in
+// isolation (a stray cursor artifact, unequal heights, a redundant bar
+// list, a trivial single-category ring) without ever addressing the
+// actual root cause: this component had almost no visual weight of its
+// own — a narrow column, a bare number, a tiny below-legend with no
+// values shown — so no amount of show/hide logic could make it read as
+// intentional. Removing cards (§186) just moved the emptiness around
+// rather than fixing what was empty about the cards that remained.
 //
-// §180 removed the breakdown-list panel entirely — a bar list repeating
-// numbers the donut already shows (via hover) is still repeating them,
-// panel or no panel. Single self-contained donut widget: chart + a
-// plain, number-free colour-key legend, nothing else.
+// Mark supplied a concrete reference (a real analytics dashboard) and
+// was explicit: keep this app's own theme system and colour tokens,
+// change the STRUCTURE. Three concrete, specific things that reference
+// does that this component didn't:
+//   1. The donut has a real centre label (the total, not decoration) —
+//      the ring itself carries information beyond its slice angles.
+//   2. The legend sits BESIDE the donut with real values and
+//      percentages always visible — not a hover-only mystery, not a
+//      bare colour-key underneath with numbers you have to go find.
+//   3. Every card has real visual weight regardless of how many
+//      categories are in it — nothing in that reference is a bare
+//      number in a mostly-empty box.
 //
-// §182 — two more real problems Mark's screenshots caught, both about
-// treating emptiness/low-data as a deliberate design moment rather than
-// letting it fall out of whatever the populated case happens to render:
-//
-// 1. A donut whose data is ENTIRELY the "Not captured" bucket (every
-//    real category at zero) rendered as one flat, monotone ring —
-//    technically accurate, communicates nothing. Now checked separately
-//    from the true-empty case (total === 0): if there's data but none
-//    of it is a REAL category, this renders the same card-shaped empty
-//    state as true-emptiness, with a message that says what's actually
-//    going on ("not captured" vs "none this period" are different
-//    facts, worth saying differently).
-// 2. The empty state itself used to fall through to the generic
-//    EmptyState component — a dashed rectangle with its own sizing,
-//    nothing like this widget's own solid-bordered card. Sitting next
-//    to a populated donut (WonLostPair's Won/Lost pairing, for
-//    instance) the mismatch was obvious: two different visual
-//    languages for what's meant to read as one coherent pair. Both
-//    branches below now render inside the SAME card chrome — same
-//    border, padding, size — whether there's a chart in it or not.
-//
-// §183 — two more real problems, both about internal consistency
-// across a row of these cards, not the card in isolation:
-//
-// 1. UNEQUAL HEIGHTS — a card with a `title` (used whenever more than
-//    one donut sits in the same logical group, e.g. Won/Lost) needed
-//    more vertical space than a card without one, so a lone "Overall"
-//    card next to a titled "Won"/"Lost" pair came out visibly shorter,
-//    even though every card shared the same minHeight. minHeight alone
-//    can't equalise siblings whose actual content differs — flexbox's
-//    own align-items:stretch only works reliably when the cards are
-//    TRUE SIBLINGS at the same DOM level, which they weren't (see
-//    WonLostPair/Reports.jsx's own comment — grouped pairs used to
-//    nest inside an extra wrapper div with the group's own heading
-//    above them, breaking stretch propagation to the "Overall" card
-//    one level up). Real fix lives in Reports.jsx (flattened the DOM),
-//    but THIS component's own half of it: always reserve the title
-//    slot's height, whether or not a title is actually passed — a
-//    title-less card and a titled card must have identical internal
-//    structure for stretch to equalise them meaningfully, not just
-//    coincidentally similar total heights.
-// 2. LONG LABELS — the legend used to be a horizontal wrapping row of
-//    dot+text badges, centered. Fine for short single-word categories;
-//    genuinely bad for this app's actual data (cancellation/loss
-//    reasons routinely run 25-35 characters — "Scheduling conflict,
-//    wants to rebook"). A long label wrapped onto two lines WITHIN one
-//    horizontally-packed badge, with the dot vertically centered
-//    against the whole wrapped block rather than the first line —
-//    reads as broken, not restrained. Switched to a vertical list,
-//    left-aligned, one category per row — text now wraps naturally
-//    within the card's own width like an ordinary sentence, and the
-//    dot aligns with the first line specifically (alignItems:
-//    'flex-start' + a small top offset for cap-height), not floating
-//    in the middle of a multi-line block.
-//
-// §184 — the actual root of "this doesn't read like professional
-// design," identified directly from Mark's own screenshot: a row of
-// five cards where three or four are solid, single-colour rings (100%
-// one region, 100% one portfolio). A donut's entire job is comparing
-// categories against each other — with exactly one category, there is
-// nothing to compare, and a full ring conveys precisely as much as a
-// single sentence would while taking the same visual weight as a
-// genuinely informative multi-category donut beside it. That's what
-// reads as repetitive/decorative rather than analytical: not the
-// spacing or the colours, the CHART TYPE itself being wrong for
-// single-category data. Fixed below — when there's exactly one nonzero
-// category (and it isn't the dedicated Not-captured case, which
-// already has its own message), this renders a compact stat instead:
-// the count, the category name, no ring. Same card chrome and height
-// as every sibling, so a row mixing genuine multi-category donuts and
-// single-category stats still aligns and reads as one coherent set.
+// REBUILT accordingly. §184's separate "compact stat" branch for a
+// single real category is GONE — a real donut with a centre label and
+// a one-row legend is MORE informative at n=1 than a bare number ever
+// was (it still shows the count, the category name, AND the percentage
+// in the same visual language as every other card), and having one
+// consistent treatment instead of two is itself part of "reads like
+// one coherent product." A single-slice ring is no longer awkward
+// because it's not standing alone anymore — the centre label and the
+// legend row give it the same weight as a genuinely multi-category one.
 export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessage, title }) {
   const total = data.reduce((sum, d) => sum + d.value, 0);
   const realTotal = data.filter(d => d.label !== 'Not captured').reduce((sum, d) => sum + d.value, 0);
-  const nonzero = data.filter(d => d.value > 0);
 
   const cardStyle = {
-    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
-    padding: '20px', border: `1px solid ${colors.lineSoft}`, borderRadius: radius.md,
-    width: isMobile ? '100%' : '220px', minHeight: '236px', boxSizing: 'border-box',
-    justifyContent: total === 0 || realTotal === 0 || nonzero.length === 1 ? 'center' : 'flex-start',
+    display: 'flex', flexDirection: 'column', gap: '14px',
+    padding: '20px 22px', border: `1px solid ${colors.lineSoft}`, borderRadius: radius.lg,
+    background: colors.surface, boxShadow: shadow.xs,
+    width: isMobile ? '100%' : '360px', minHeight: '184px', boxSizing: 'border-box',
+    justifyContent: total === 0 || realTotal === 0 ? 'center' : 'flex-start',
   };
-  // Reserved regardless of whether `title` is actually passed — see
-  // §183's own comment above on why this has to be unconditional for
-  // sibling cards to come out the same height.
+  // Reserved regardless of whether `title` is actually passed — a
+  // title-less card and a titled card need identical internal
+  // structure for flexbox's own align-items:stretch to equalise a row
+  // of them correctly (§183's own finding, still true here).
   const titleSlot = (
     <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500, height: '16px', lineHeight: '16px', visibility: title ? 'visible' : 'hidden' }}>
       {title || '\u00A0'}
@@ -219,7 +173,7 @@ export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessag
 
   if (total === 0) {
     return (
-      <div style={cardStyle}>
+      <div style={{ ...cardStyle, alignItems: 'center' }}>
         {titleSlot}
         <div style={{ fontSize: '0.8125rem', color: colors.ink400, textAlign: 'center' }}>
           {emptyMessage ?? 'No data for this period.'}
@@ -229,7 +183,7 @@ export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessag
   }
   if (realTotal === 0) {
     return (
-      <div style={cardStyle}>
+      <div style={{ ...cardStyle, alignItems: 'center' }}>
         {titleSlot}
         <div style={{ fontSize: '0.8125rem', color: colors.ink400, textAlign: 'center' }}>
           {notCapturedMessage ?? emptyMessage ?? 'Not captured for this period.'}
@@ -237,62 +191,69 @@ export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessag
       </div>
     );
   }
-  // 16 Aug 2026 (§184) — exactly one real category carries all the
-  // value. A ring here would just be a solid circle in that category's
-  // colour — no comparison happening, no reason to spend a donut's
-  // worth of visual weight on it. Compact stat instead: the actual
-  // count (the informative number — "100%" on its own is trivially
-  // true whenever there's only one category, not worth leading with),
-  // the category name, and a small caption making the "only one
-  // category this period" fact explicit rather than implied.
-  if (nonzero.length === 1) {
-    const only = nonzero[0];
-    return (
-      <div style={cardStyle}>
-        {titleSlot}
-        <span style={{ width: '12px', height: '12px', borderRadius: '50%', background: only.colour, flexShrink: 0 }} />
-        <div style={{ fontSize: '1.75rem', fontWeight: 700, color: colors.ink, lineHeight: 1 }}>{only.value}</div>
-        <div style={{ fontSize: '0.8125rem', color: colors.ink700, textAlign: 'center' }}>{only.label}</div>
-        <div style={{ fontSize: '0.6875rem', color: colors.ink400 }}>100% of this period</div>
-      </div>
-    );
-  }
 
   return (
     <div style={cardStyle}>
       {titleSlot}
-      <div style={{ width: '168px', height: '168px', flexShrink: 0 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie
-              data={data} dataKey="value" nameKey="label"
-              innerRadius="62%" outerRadius="100%" paddingAngle={data.length > 1 ? 2 : 0}
-              stroke="none" isAnimationActive={false}
-            >
-              {data.map(d => <Cell key={d.label} fill={d.colour} />)}
-            </Pie>
-            {/* cursor={false} — §179. Recharts' Tooltip cursor defaults to
-                true, built for Cartesian charts; a <Pie> has no column for
-                it to highlight, so leaving it on renders a stray rectangle
-                unrelated to the chart. */}
-            <Tooltip
-              cursor={false}
-              formatter={(value, name) => {
-                const pct = total === 0 ? 0 : Math.round((value / total) * 100);
-                return [`${value} (${pct}%)`, name];
-              }}
-              contentStyle={{ background: colors.surface, border: `1px solid ${colors.line}`, borderRadius: radius.sm, fontSize: '0.8125rem' }}
-            />
-          </PieChart>
-        </ResponsiveContainer>
-      </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%' }}>
-        {data.map(d => (
-          <div key={d.label} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.75rem', color: colors.ink500, lineHeight: '1.3' }}>
-            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: d.colour, flexShrink: 0, marginTop: '4px' }} />
-            <span>{d.label}</span>
+      <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
+        {/* Donut with a real centre label — position:relative/absolute
+            overlay rather than fighting Recharts' own <Label> geometry;
+            simpler, and gives full control over the typography. */}
+        <div style={{ position: 'relative', width: '104px', height: '104px', flexShrink: 0 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={data} dataKey="value" nameKey="label"
+                cx="50%" cy="50%" innerRadius="68%" outerRadius="100%"
+                paddingAngle={data.length > 1 ? 2 : 0}
+                stroke="none" isAnimationActive={false}
+              >
+                {data.map(d => <Cell key={d.label} fill={d.colour} />)}
+              </Pie>
+              {/* cursor={false} — §179. Recharts' Tooltip cursor defaults
+                  to true, built for Cartesian charts; a <Pie> has no
+                  column for it to highlight, so leaving it on renders a
+                  stray rectangle unrelated to the chart. Hover still
+                  works as a bonus (exact value + %) — the legend below
+                  no longer depends on it for basic legibility. */}
+              <Tooltip
+                cursor={false}
+                formatter={(value, name) => {
+                  const pct = total === 0 ? 0 : Math.round((value / total) * 100);
+                  return [`${value} (${pct}%)`, name];
+                }}
+                contentStyle={{ background: colors.surface, border: `1px solid ${colors.line}`, borderRadius: radius.sm, fontSize: '0.8125rem' }}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+          <div style={{
+            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
+            justifyContent: 'center', pointerEvents: 'none',
+          }}>
+            <span style={{ fontSize: '1.25rem', fontWeight: 700, color: colors.ink, lineHeight: 1 }}>{total}</span>
           </div>
-        ))}
+        </div>
+        {/* Legend — real values and percentages always visible, not
+            hover-only. alignItems:flex-start (not centre) so a long
+            label (cancellation/loss reasons routinely run 25-35
+            characters) wraps onto a second line without dragging the
+            value/% column down with it — those stay pinned level with
+            the label's own first line regardless of how many lines the
+            label itself takes. */}
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px', flex: 1, minWidth: 0 }}>
+          {data.map(d => {
+            const pct = total === 0 ? 0 : Math.round((d.value / total) * 100);
+            return (
+              <div key={d.label} style={{ display: 'flex', alignItems: 'flex-start', gap: '7px' }}>
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: d.colour, flexShrink: 0, marginTop: '5px' }} />
+                <span style={{ fontSize: '0.8125rem', color: colors.ink700, lineHeight: '1.35', flex: 1 }}>{d.label}</span>
+                <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: colors.ink, flexShrink: 0, whiteSpace: 'nowrap' }}>
+                  {d.value} <span style={{ fontSize: '0.75rem', fontWeight: 400, color: colors.ink400 }}>({pct}%)</span>
+                </span>
+              </div>
+            );
+          })}
+        </div>
       </div>
     </div>
   );

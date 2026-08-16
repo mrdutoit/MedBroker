@@ -537,8 +537,21 @@ export default function Reports() {
                     WonLostPair's own reworked comment for why that
                     mattered), so stretch genuinely equalises all five
                     card heights automatically, wrapping onto new lines
-                    only when the viewport actually runs out of room. */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: '24px', marginTop: '18px' }}>
+                    only when the viewport actually runs out of room.
+                    maxWidth: 1160px added 16 Aug 2026 (§187) — cards
+                    themselves got much wider that same pass (360px, up
+                    from 220px, to actually carry visual weight — see
+                    DonutBreakdown's own header comment for the full
+                    account), but on a wide monitor a row with only 1-2
+                    cards (§186 suppresses the rest when there's nothing
+                    real to compare) still looked lost without SOME cap
+                    on how far the row itself could stretch. 1160px fits
+                    3 of the new, wider cards per line — a bounded,
+                    intentional grid rather than an open-ended one, same
+                    discipline as Mark's own reference dashboard's fixed
+                    KPI-row column count, not infinite width waiting to
+                    be filled. */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: '20px', marginTop: '18px', maxWidth: '1160px' }}>
                   <DonutBreakdown
                     title="Overall"
                     isMobile={isMobile}
@@ -646,7 +659,7 @@ export default function Reports() {
                     way a Won/Lost pair does) and sits as a true flex
                     sibling of the other, so stretch equalises them
                     correctly. */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: '24px' }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: '20px', maxWidth: '1160px' }}>
                   {appointmentAnalysis.byMeetingType.length > 1 && (
                     /* 16 Aug 2026 (§180) — Mark's own suggestion: "perhaps
                        the Meeting Type could be a donut chart." Was a
