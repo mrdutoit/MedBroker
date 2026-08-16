@@ -182,14 +182,21 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
   const [followUpRequired, setFollowUpRequired] = useState(null);
   const [cancelReason, setCancelReason] = useState(null);
 
-  // 15 Aug 2026 — the real signal for "should this date be locked", not
-  // just meetingNumber === 1 on its own (see the input's own comment
-  // below for the bug this replaced). True only for the ORIGINAL
-  // meeting-1 row created directly by createAppointment() at booking —
-  // every subsequent meeting-1 row (born from Cancelled/Rescheduled/
-  // Missed) starts with attempt.date === null the moment it's created,
-  // so this correctly evaluates false for those, leaving them editable.
-  const isOriginalMeeting1Date = meetingNumber === 1 && !!attempt.date;
+  // 16 Aug 2026 — REAL BUG Mark found: the previous signal here
+  // (meetingNumber === 1 && !!attempt.date) broke the moment a date-only
+  // save became possible (see canSave below) — saving just a date onto a
+  // rebooked meeting-1 row would make attempt.date truthy, which under
+  // the old check would then have locked that same row's date field
+  // right back up, as if it were the original booking-time row. Fixed by
+  // keying off attempt.recordedById === null instead — true ONLY for the
+  // pristine row created directly by createAppointment() at booking
+  // (which always passes recordedById: null), and reliably false for
+  // every other meeting-1 row, whether born from Cancelled/Rescheduled/
+  // Missed (these already get a non-null recordedById the moment
+  // they're created — see createMeetingAttempt()'s three call sites,
+  // appointmentService.js) or subsequently touched by a date-only save
+  // (which now stamps recordedById too, for exactly this reason).
+  const isOriginalMeeting1Date = meetingNumber === 1 && attempt.recordedById === null;
 
   // Follow-up is only ever asked for Held-Interested on a NON-last
   // meeting — matches saveMeetingAttemptOutcome()'s own server-side gate
@@ -202,13 +209,27 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
   // Zod schema itself stays optional, this is the layer that actually
   // makes sure it gets captured rather than left theoretically possible.
   const cancelReasonApplicable = status === 'Cancelled';
-  const canSave = !!date && !!status
-    && (!followUpApplicable || followUpRequired !== null)
-    && (!cancelReasonApplicable || !!cancelReason);
+  // 16 Aug 2026 — REAL BUG Mark found: canSave used to require BOTH date
+  // AND status together, always — meaning there was no way to save just
+  // the date on a fresh follow-up row (born from a Cancelled/Missed/
+  // Rescheduled attempt, or a brand-new meeting 2/3) without ALSO
+  // recording that meeting's outcome in the same action, before the
+  // meeting had even happened. status is now genuinely optional here: a
+  // date on its own is a valid, lighter save (saveMeetingAttemptOutcome's
+  // new date-only branch, appointmentService.js) — the row stays
+  // 'Scheduled', still active, still awaiting its real outcome later.
+  // Once status IS chosen, the existing conditional-field requirements
+  // apply exactly as before.
+  const isDateOnlySave = !!date && !status;
+  const canSave = !!date
+    && (!status || (
+         (!followUpApplicable || followUpRequired !== null)
+      && (!cancelReasonApplicable || !!cancelReason)
+    ));
 
   function handleSave() {
     onSave(attempt.id, {
-      date, status, notes: notes || null,
+      date, status: status || undefined, notes: notes || null,
       followUpRequired: followUpApplicable ? followUpRequired : null,
       cancelReason: cancelReasonApplicable ? cancelReason : null,
     });
@@ -312,14 +333,25 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
           onChange={e => setNotes(e.target.value)}
         />
       </div>
+      {/* 16 Aug 2026 — button label reflects which of the two genuinely
+          different actions this Save will perform: with no Status chosen
+          yet, it's just recording when the meeting is/was scheduled for
+          (row stays open); once a Status is picked, it's the real,
+          append-only outcome save. Same button, same canSave gate — just
+          honest about which one is about to happen. */}
       {!disabled && (
         <div style={{ marginTop: '12px', display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
           <button
             type="button" style={{ ...s.primaryBtn, opacity: (!canSave || saving) ? 0.5 : 1 }}
             disabled={!canSave || saving} onClick={handleSave}
           >
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? 'Saving…' : isDateOnlySave ? 'Save Date' : 'Save Outcome'}
           </button>
+          {isDateOnlySave && (
+            <span style={{ ...s.formHint, marginTop: 0 }}>
+              Saves the date only — come back and select a Status once this meeting has happened.
+            </span>
+          )}
         </div>
       )}
     </div>

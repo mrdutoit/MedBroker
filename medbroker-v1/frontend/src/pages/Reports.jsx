@@ -377,22 +377,29 @@ export default function Reports() {
           </Section>
 
           {/* ── 5. Broker / Agent performance ────────────────────────────── */}
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '16px', marginBottom: '16px' }}>
-            <Section title="Broker Performance">
-              <DataTable
-                columns={brokerColumns} rows={brokerRows} defaultSortKey="policyValue" highlightKey="policyValue"
-                onRowClick={r => navigate(`/reports/broker/${r.id}${detailLinkQuery}`)}
-                emptyMessage="No broker activity this period."
-              />
-            </Section>
-            <Section title="Agent Activity">
-              <DataTable
-                columns={agentColumns} rows={agentRows} defaultSortKey="appts" highlightKey="appts"
-                onRowClick={r => navigate(`/reports/agent/${r.id}${detailLinkQuery}`)}
-                emptyMessage="No agent activity this period."
-              />
-            </Section>
-          </div>
+          {/* 16 Aug 2026 — Mark's request: the side-by-side grid squeezed
+              both tables into half-width each, and Conversion Ratio/
+              Bookings Ratio's own column headers (wider than their
+              values) were eating space the Broker/Agent name column
+              actually needed, especially for longer names (e.g. "William
+              Barclay-Beuthin" wrapping awkwardly). Stacked full-width
+              instead — each table gets the whole row's width, no shared
+              grid to fight over. Section's own marginBottom already
+              spaces them apart, so no extra wrapper needed here. */}
+          <Section title="Broker Performance">
+            <DataTable
+              columns={brokerColumns} rows={brokerRows} defaultSortKey="policyValue" highlightKey="policyValue"
+              onRowClick={r => navigate(`/reports/broker/${r.id}${detailLinkQuery}`)}
+              emptyMessage="No broker activity this period."
+            />
+          </Section>
+          <Section title="Agent Activity">
+            <DataTable
+              columns={agentColumns} rows={agentRows} defaultSortKey="appts" highlightKey="appts"
+              onRowClick={r => navigate(`/reports/agent/${r.id}${detailLinkQuery}`)}
+              emptyMessage="No agent activity this period."
+            />
+          </Section>
 
           {/* ── 6. Lead Source analysis ──────────────────────────────────── */}
           <Section title="Lead Source Analysis" subtitle="Volume and outcome by where the lead came from.">

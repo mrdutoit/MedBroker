@@ -1102,6 +1102,18 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
     throw { status: 400, message: 'This appointment is locked and can no longer be edited.' };
   }
 
+  // 16 Aug 2026 — DATE-ONLY SAVE, checked before any of the
+  // outcome-recording machinery below runs. data.status is now optional
+  // (SaveMeetingAttemptSchema, models/appointment.js) — its absence means
+  // "just save the date on this Scheduled row, don't record an outcome
+  // yet." Deliberately skips staffBrokerAssigned entirely: attaching
+  // someone as broker-of-record is a real business decision that should
+  // happen when they actually engage with the appointment's outcome
+  // (Mark's own "if they did the work" framing), not just because they
+  // typed a follow-up date into a field — scheduling logistics isn't
+  // "the work" in that sense. Flag this if it should behave differently.
+  const isDateOnlySave = !data.status;
+
   // 14 Aug 2026 — Mark's explicit request, and explicit call on the
   // stats question he raised himself: "if they did the work, they
   // should appear in the lists" — no filtering, no separate marker
@@ -1120,7 +1132,7 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
   // free pass around it; an Agent was never a candidate to become "the
   // broker" at all.
   let staffBrokerAssigned = false;
-  if (!appt.brokerId && isStaffCaller) {
+  if (!isDateOnlySave && !appt.brokerId && isStaffCaller) {
     await executeQuery(
       `UPDATE Appointment SET brokerId = @recordedById, status = CASE WHEN status = 'Unassigned' THEN 'Assigned' ELSE status END, updatedAt = NOW()
        WHERE id = @appointmentId AND organisationId = @organisationId`,
@@ -1154,9 +1166,44 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
   // Append-only past this point — once a row has left 'Scheduled' it's
   // final, matching the spec's own "not the flat-column pattern" — a
   // second save here would be exactly the in-place overwrite this whole
-  // redesign exists to stop.
+  // redesign exists to stop. Applies equally to a date-only save — you
+  // can still only touch a row that's genuinely still awaiting a
+  // decision, whether what you're saving IS that decision or not.
   if (attempt.status !== 'Scheduled') {
     throw { status: 400, message: 'This meeting attempt has already been recorded and cannot be changed — reschedules and follow-ups create a new row instead.' };
+  }
+
+  // 16 Aug 2026 — the date-only branch itself: a single lightweight
+  // UPDATE, no four-branch routing, no newAttempt, no InProgress
+  // transition, row stays 'Scheduled' (still the active/editable one on
+  // next load). recordedById is still stamped — not "recording an
+  // outcome," but still worth tracking who last touched the row; it also
+  // happens to be exactly what AppointmentDetail.jsx's own
+  // isOriginalMeeting1Date check now keys off (recordedById === null),
+  // so this stamps the row as "no longer the pristine booking-time row"
+  // the same way any other save already would.
+  if (isDateOnlySave) {
+    if (!data.date) throw { status: 400, message: 'A date is required to save.' };
+    await executeQuery(
+      `UPDATE MeetingAttempt SET date = @date, notes = @notes, recordedById = @recordedById WHERE id = @attemptId`,
+      {
+        attemptId:    { type: sql.UniqueIdentifier, value: attemptId },
+        date:         { type: sql.Date,             value: data.date },
+        notes:        { type: sql.NVarChar(2000),   value: data.notes || null },
+        recordedById: { type: sql.UniqueIdentifier, value: recordedById ?? null },
+      }
+    );
+    return {
+      attempt: {
+        id: attemptId, meetingNumber: attempt.meetingNumber, date: data.date, status: 'Scheduled',
+        followUpRequired: null, cancelReason: null, notes: data.notes || null, recordedById: recordedById ?? null,
+      },
+      newAttempt: null,
+      appointmentStatus: appt.status,
+      outcomeDue: false,
+      prefillCustomerSigned: null,
+      brokerAssignedId: null,
+    };
   }
 
   const thirdMeetingMeta = await getFlagMeta('appointments.thirdMeeting.enabled');
@@ -1214,7 +1261,13 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
   // RECORDED, which is the entire point of separating them.
   if (data.status === 'Rescheduled' || data.status === 'Cancelled' || data.status === 'Missed') {
     const newId = await createMeetingAttempt(appointmentId, organisationId, attempt.meetingNumber, null, recordedById);
-    newAttempt = { id: newId, meetingNumber: attempt.meetingNumber, date: null, status: 'Scheduled', followUpRequired: null, notes: null };
+    // recordedById included here (and in the Held-Interested branch
+    // below) 16 Aug 2026 — matches what's actually written to the row by
+    // createMeetingAttempt() above; needed so the frontend's
+    // isOriginalMeeting1Date check (attempt.recordedById === null) reads
+    // correctly for this new row straight off the save response, no
+    // refetch required.
+    newAttempt = { id: newId, meetingNumber: attempt.meetingNumber, date: null, status: 'Scheduled', followUpRequired: null, notes: null, recordedById: recordedById ?? null };
   } else if (data.status === 'HeldNotInterested') {
     outcomeDue = true;
     prefillCustomerSigned = false;
@@ -1222,7 +1275,7 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
     if (followUpRequired) {
       const nextMeetingNumber = attempt.meetingNumber + 1;
       const newId = await createMeetingAttempt(appointmentId, organisationId, nextMeetingNumber, null, recordedById);
-      newAttempt = { id: newId, meetingNumber: nextMeetingNumber, date: null, status: 'Scheduled', followUpRequired: null, notes: null };
+      newAttempt = { id: newId, meetingNumber: nextMeetingNumber, date: null, status: 'Scheduled', followUpRequired: null, notes: null, recordedById: recordedById ?? null };
     } else {
       // Either the last configured meeting, or follow-up explicitly No.
       outcomeDue = true;
@@ -1231,7 +1284,7 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
   }
 
   return {
-    attempt: { id: attemptId, meetingNumber: attempt.meetingNumber, date: data.date || null, status: data.status, followUpRequired, cancelReason, notes: data.notes || null },
+    attempt: { id: attemptId, meetingNumber: attempt.meetingNumber, date: data.date || null, status: data.status, followUpRequired, cancelReason, notes: data.notes || null, recordedById: recordedById ?? null },
     newAttempt,
     appointmentStatus,
     outcomeDue,

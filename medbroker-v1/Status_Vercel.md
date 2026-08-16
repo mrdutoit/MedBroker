@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status (VERCEL VERSION)
 ==================================================
-Last updated: 12 August 2026
+Last updated: 16 August 2026
 Scope: this file tracks ONLY the Vercel + Neon Postgres deployment —
 frontend/api/ + frontend/api-lib/ + frontend/src/. It does NOT cover the
 separate Azure Functions/Azure SQL codebase (api/src/, infra/), which is
@@ -20,6 +20,33 @@ original file — only this summary block at the top is newly written.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0. CURRENT STATE — READ THIS FIRST
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+CORRECTED 16 Aug 2026 (session 24/§176) — this block, and the OTHER
+OUTSTANDING ITEMS list below, had drifted badly out of date: items 1
+(mixed-basis ratios, §158), 3 (Products on Lead, §159), and 5 (xlsx
+CVE fix, §157) were all still marked "NOT YET APPLIED TO THE LIVE
+REPO" despite Mark having applied and confirmed all three working —
+checked directly against the live GitHub code this session, not
+assumed. Same failure this file's own "PERMANENT PATTERNS" section
+already warns about, happening again. See §176 for the full correction
+and how it was verified.
+
+Migration 031 (Meeting/Appointment attempt-history redesign) —
+CONFIRMED complete and working, Mark's own words, 16 Aug 2026.
+
+Reports page ground-up redesign (§156/§162) — CONFIRMED deployed and
+working. §175 (session 23, continued — a second, later session Mark
+ran in parallel with this one) then went further on top of it: dropped
+bars from the sequential pipeline stages entirely (recognised they're
+not parts-of-a-whole data, a bar chart implying otherwise was never
+honest) and rebuilt Win Rate/Cancellation reasons/Loss reasons as a
+genuine donut + share-list, per Mark's own explicit request and design
+reference. That work is ALSO confirmed deployed and working — see §175
+below for the full account, and §176 for how a separate, parallel
+attempt at the same donut request (this session's own) was discovered
+mid-build to already be superseded by it, and dropped in favour of
+keeping §175's version rather than overwriting it.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 REWRITTEN FROM SCRATCH 13 Aug 2026, end of session 21 — the previous
 version of this block had become a long chain of session-to-session
@@ -119,33 +146,36 @@ OTHER OUTSTANDING ITEMS — roughly by priority, each verified against
 this file directly rather than assumed from memory
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. Mixed-basis conversion ratios — FIXED 14 Aug 2026 (§158), NOT YET
-   APPLIED TO THE LIVE REPO. Mark's decision: "Do what you recommend, or
-   think is the most accurate metric used as an industry standard" —
-   went with extending the ratio treatment (Broker conversion + all four
-   §151 breakdown-report Conversion columns), same reasoning §154 used
-   for Agent booking rate. Full detail in §158.
+1. Mixed-basis conversion ratios — FIXED 14 Aug 2026 (§158). CONFIRMED
+   LIVE 16 Aug 2026 (§176) — checked directly against the deployed code
+   (Broker conversion + all four §151 breakdown-report Conversion
+   columns all render as "Conversion Ratio" with .toFixed(1), not '%'),
+   not assumed from this file's own prior "not yet applied" claim,
+   which was stale. Went with extending the ratio treatment, same
+   reasoning §154 used for Agent booking rate. Full detail in §158.
+   Closed.
 
 2. Unclaimed/unassigned appointments nearing their date — FIXED 14 Aug
-   2026 (§160), NOT YET APPLIED TO THE LIVE REPO. Mark's answer: "yes,
-   please scope and build." Full detail in §160.
+   2026 (§160). CONFIRMED LIVE 16 Aug 2026 (§176) — schedulerService.js,
+   systemConfigService.js, and the schema column all present and wired
+   in the deployed code; this file's own prior "not yet applied" claim
+   was stale. Full detail in §160. Closed.
 
-3. Products on Lead — FIXED 14 Aug 2026 (§159), NOT YET APPLIED TO THE
-   LIVE REPO. Mark's decision: "Mandatory, manual form only." Full
-   detail in §159.
+3. Products on Lead — FIXED 14 Aug 2026 (§159). CONFIRMED LIVE — Mark
+   confirmed directly 16 Aug 2026 (§176), and the LeadProduct table plus
+   LeadDetail.jsx's "Products the client is interested in" required
+   field are both present in the deployed code. This file's own prior
+   "not yet applied" claim was stale. Full detail in §159. Closed.
 
 4. GlobalAdmin guide docx — still not touched this pass (documentation
    wasn't what was in flight); §2.2's two stale entries remain as
    described below. Carried forward.
 
-5. xlsx dependency — FIXED 14 Aug 2026 (§157), NOT YET APPLIED TO THE
-   LIVE REPO. package.json's "xlsx" dependency changed from "^0.18.5" to
-   "npm:@e965/xlsx@^0.20.3" — an npm-registry-native, automatically
-   updated mirror of SheetJS's own patched releases — closing
-   CVE-2023-30533 and CVE-2024-22363. Built, tested, npm-audit-clean;
-   full detail in §157. Mark needs to apply the delivered package.json +
-   package-lock.json via the normal github.dev workflow before this is
-   actually live — Claude has no push access to the repo, ever.
+5. xlsx dependency — FIXED 14 Aug 2026 (§157). CONFIRMED LIVE 16 Aug
+   2026 (§176) — package.json's "xlsx" dependency is
+   "npm:@e965/xlsx@^0.20.3" in the deployed code, not "^0.18.5"; this
+   file's own prior "not yet applied" claim was stale. Closes
+   CVE-2023-30533 and CVE-2024-22363. Full detail in §157. Closed.
 
 6. Migrations — CONFIRMED. Mark confirmed 14 Aug 2026 that every
    migration, including 022/023, has been run against Neon (§157).
@@ -207,11 +237,9 @@ CURRENT SECURITY / DEPENDENCY STATE (as of 30 Jul 2026):
     all). Closes CVE-2023-30533 (prototype pollution) and CVE-2024-22363
     (ReDoS), both present at 0.18.5. Zero code changes needed anywhere —
     the alias resolves the existing `import * as XLSX from 'xlsx'`
-    (LeadImport.jsx, sole call site) to the fork transparently. Verified
-    via fresh npm install, clean build, 55/55 tests, and confirming xlsx
-    no longer appears in npm audit at all. NOT YET LIVE — exists in this
-    session's delivery only; Mark applies via the normal github.dev
-    workflow, same as every other delivery.
+    (LeadImport.jsx, sole call site) to the fork transparently.
+    CONFIRMED LIVE 16 Aug 2026 (§176) — checked directly against
+    package.json in the deployed code.
   - engines.node: pinned to "24.x" (current Active LTS, supported
     through April 2028). Was briefly, incorrectly, pinned to "20.x" —
     fixed same day it was caught, see §66.
@@ -12115,7 +12143,7 @@ per Mark's explicit instruction.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-157. XLSX CVE FIX (CVE-2023-30533 + CVE-2024-22363) — BUILT AND VERIFIED, NOT YET DEPLOYED; ALL MIGRATIONS AND ALL DEPLOYMENTS CONFIRMED — 14 Aug 2026 (session 22)
+157. XLSX CVE FIX (CVE-2023-30533 + CVE-2024-22363) — BUILT, VERIFIED, AND CONFIRMED DEPLOYED (§176) — 14 Aug 2026 (session 22)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Two administrative confirmations from Mark first, closing out two
@@ -12197,7 +12225,7 @@ direct check — now: FIXED, pending Mark applying the delivered files).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-158. MIXED-BASIS CONVERSION RATIOS EXTENDED (BROKER + FOUR §151 BREAKDOWN REPORTS) — BUILT AND VERIFIED, NOT YET DEPLOYED — 14 Aug 2026 (session 23)
+158. MIXED-BASIS CONVERSION RATIOS EXTENDED (BROKER + FOUR §151 BREAKDOWN REPORTS) — BUILT, VERIFIED, AND CONFIRMED DEPLOYED (§176) — 14 Aug 2026 (session 23)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Closes outstanding item 1. §154 (13 Aug 2026) changed Agent booking rate
@@ -12274,13 +12302,17 @@ NOT YET DEPLOYED — built and verified in-sandbox only, per the standing
 "Claude never pushes to GitHub" boundary (§157). Mark applies via the
 normal github.dev workflow.
 
+CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§176) — Mark applied and
+confirmed this directly; the paragraph above was never corrected after
+he did. Same stale-claim pattern flagged elsewhere this session.
+
 FILES: frontend/api-lib/services/reportService.js, frontend/src/pages/
 Reports.jsx, frontend/src/pages/BrokerDetail.jsx, frontend/src/pages/
 AgentDetail.jsx.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-159. PRODUCTS ON LEAD — BUILT AND VERIFIED, NOT YET DEPLOYED — 14 Aug 2026 (session 23)
+159. PRODUCTS ON LEAD — BUILT, VERIFIED, AND CONFIRMED DEPLOYED (§176) — 14 Aug 2026 (session 23)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Closes outstanding item 3. Mark's decision on both open questions:
@@ -12383,6 +12415,10 @@ worth Mark spot-checking one real Create Lead submission end-to-end
 post-deploy, the same way §137's date-serialization change carried a
 similar "not exercised against live Neon" caveat.
 
+CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§176) — Mark applied and
+confirmed this directly; the paragraph above was never corrected after
+he did. Same stale-claim pattern flagged elsewhere this session.
+
 FILES: frontend/db/migrations/028_lead_product.sql (new),
 frontend/db/schema.postgres.sql, frontend/api-lib/services/userService.js,
 frontend/api-lib/services/leadService.js, frontend/api-lib/models/lead.js,
@@ -12390,7 +12426,7 @@ frontend/src/pages/LeadImport.jsx, frontend/src/pages/LeadDetail.jsx.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-160. UNASSIGNED APPOINTMENT WARNING — BUILT AND VERIFIED, NOT YET DEPLOYED — 14 Aug 2026 (session 23, continued)
+160. UNASSIGNED APPOINTMENT WARNING — BUILT, VERIFIED, AND CONFIRMED DEPLOYED (§176) — 14 Aug 2026 (session 23, continued)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Closes outstanding item 2. Mark's answer when asked whether to scope
@@ -12509,6 +12545,10 @@ Mark hadn't said so as of this entry).
 NOT YET DEPLOYED. Migration 029 needs to run against Neon before this
 feature means anything in production — same standing rule as every
 other migration in this project.
+
+CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§176) — Mark applied and
+confirmed this directly; the paragraph above was never corrected after
+he did. Same stale-claim pattern flagged elsewhere this session.
 
 FILES: frontend/db/migrations/029_appointment_unassigned_warning.sql
 (new), frontend/db/schema.postgres.sql, frontend/api-lib/services/
@@ -12917,7 +12957,7 @@ frontend/src/pages/AppointmentDetail.jsx.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-164. MEETING / APPOINTMENT ATTEMPT-HISTORY REDESIGN — FULLY BUILT AND VERIFIED, NOT YET DEPLOYED — 14 Aug 2026 (session 23, continued across multiple checkpoints)
+164. MEETING / APPOINTMENT ATTEMPT-HISTORY REDESIGN — FULLY BUILT, VERIFIED, AND CONFIRMED DEPLOYED (migration 031 run, Mark confirmed working — §176) — 14 Aug 2026 (session 23, continued across multiple checkpoints)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 §138's spec (session 20, 12 Aug 2026) built in full — the TOP PRIORITY
@@ -13084,6 +13124,10 @@ migration. Recommend Mark spot-check a handful of backfilled
 appointments against what he remembers of their real history before
 relying on the backfill for reporting, given the genuine inference
 involved in the interested/not-interested mapping.
+
+CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§176) — Mark applied and
+confirmed this directly; the paragraph above was never corrected after
+he did. Same stale-claim pattern flagged elsewhere this session.
 
 FILES: frontend/db/migrations/031_meeting_attempt.sql (new),
 frontend/db/schema.postgres.sql, frontend/api-lib/services/appointmentService.js,
@@ -13845,6 +13889,10 @@ change, no schema or backend touched.
 FILES: frontend/src/components/ReportsWidgets.jsx,
 frontend/src/pages/Reports.jsx.
 
+CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§176) — Mark applied and
+confirmed this directly; the line above was never corrected after he
+did. Same stale-claim pattern flagged elsewhere this session — see §176.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 174. REAL BUG — MEETING 1's DATE FIELD LOCKED ITSELF PERMANENTLY BLANK AFTER A CANCELLED/RESCHEDULED/MISSED ATTEMPT — 15 Aug 2026 (session 23, continued)
@@ -13880,6 +13928,10 @@ meeting 2 either way) — each evaluates correctly. Diffed against fresh
 GitHub — confirmed isolated to the one file.
 
 NOT YET DEPLOYED. No migration required — frontend-only.
+
+CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§176) — Mark applied and
+confirmed this directly; the paragraph above was never corrected after
+he did. Same stale-claim pattern flagged elsewhere this session.
 
 FILES: frontend/src/pages/AppointmentDetail.jsx.
 
@@ -13959,3 +14011,113 @@ change, no schema or backend touched.
 
 FILES: frontend/src/components/ReportsWidgets.jsx,
 frontend/src/pages/Reports.jsx.
+
+CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§176) — Mark applied and
+confirmed this directly; the line above was never corrected after he
+did. Same stale-claim pattern flagged elsewhere this session — see §176.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+176. STATUS FILE ACCURACY CORRECTION (§157/§158/§159/§160/§164/§173/§175 ALL CONFIRMED DEPLOYED), A PARALLEL SESSION DISCOVERED MID-BUILD, MEETING ATTEMPT DATE-ONLY SAVE CARRIED FORWARD, BROKER/AGENT TABLES UN-STACKED — 16 Aug 2026 (session 24, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark opened this turn by correcting several things this file had wrong,
+and asked directly: "Did you do a Github repo check as you were
+supposed to do?" Short answer: yes, both times — but the check compared
+code against Mark's live report of behaviour for the SPECIFIC bugs he'd
+reported, not against every "NOT YET APPLIED" claim already sitting in
+this file's own OTHER OUTSTANDING ITEMS list. Those claims got repeated
+back to Mark uncritically instead of being independently verified
+against the code, which was already sitting right there to check. Real
+miss, owned directly rather than explained away.
+
+RE-VERIFIED AGAINST A FRESH HYDRATION, EVERY ITEM MARK RAISED:
+  - §157 (xlsx CVE fix) — package.json already has
+    "npm:@e965/xlsx@^0.20.3". CONFIRMED LIVE. (§157's own body text
+    already said "ALL DEPLOYMENTS DONE" — only its own header title
+    contradicted that; fixed for internal consistency.)
+  - §158 (mixed-basis conversion ratios) — Broker + all four §151
+    breakdown-report Conversion columns render as "Conversion Ratio"
+    with .toFixed(1), not '%', in the live code. CONFIRMED LIVE.
+  - §159 (Products on Lead) — LeadProduct table present in
+    schema.postgres.sql, LeadDetail.jsx's "Products the client is
+    interested in *" required field present and wired. CONFIRMED LIVE
+    (and Mark confirmed directly too).
+  - §160 (Unassigned Appointment Warning) — schedulerService.js,
+    systemConfigService.js, the SystemConfig column, all present and
+    wired in the live code. CONFIRMED LIVE.
+  - §164 (Meeting/Appointment attempt-history redesign) — Mark
+    confirmed migration 031 run and working directly.
+  - §173 (Reports page visual fixes — funnel/KpiCard/DataTable n=1) —
+    CONFIRMED LIVE, Mark's own direct statement this turn.
+  - §156/§162 (Reports ground-up rebuild) — CONFIRMED LIVE; the full
+    toolbar/KPI/trend/pipeline/table structure the brief describes is
+    present and matches exactly.
+  - §175 (donut + share-list, session 23 continued) — see below; also
+    CONFIRMED LIVE, Mark's own direct statement.
+
+All corrected in place throughout this file — the OTHER OUTSTANDING
+ITEMS list (items 1/2/3/5), and every affected section's own header
+title and closing "NOT YET DEPLOYED" line, not just this entry — per
+this file's own PERMANENT PATTERNS rule ("go back and correct every
+place that used to say it wasn't"), which this exact failure mode
+already existed to prevent and had already caught happening twice
+before. Third time.
+
+A GENUINELY SURPRISING DISCOVERY, mid-build on this session's own
+donut-chart work (carried over from the previous turn, in progress
+when this message arrived): a fresh re-hydration done to investigate
+Mark's corrections turned up THREE files changed on GitHub main since
+THIS session's very first hydration at its own start — Status_Vercel.md,
+ReportsWidgets.jsx, and Reports.jsx — none of them changes this session
+made. Traced directly: §175 (above), dated "15 Aug 2026, session 23
+continued," is the explanation — Mark evidently ran session 23 forward
+in a second, parallel conversation after this session had already
+forked off from it (both conversations starting from the same §174
+point), and applied §175's delivery to GitHub main while this session
+was independently working on the near-identical donut request in
+parallel. Two different Claude conversations solved the same problem
+at roughly the same time, from the same starting point, without either
+being aware of the other — a real structural risk of running parallel
+sessions against one shared repo, not a code defect in either.
+
+Compared the two solutions directly rather than assuming mine was
+right by default: §175's build is more thorough than the one drafted
+this session — it recognised the sequential pipeline stages
+(Unassigned/Assigned/In Progress/Appointment Booked) aren't genuine
+parts-of-a-whole data at all (a lead doesn't split across them, it's a
+snapshot of where each lead in the cohort currently sits) and dropped
+bars from them entirely rather than just fixing their scale, a real
+insight this session's own draft hadn't reached. KEPT §175's version
+as-is. DROPPED this session's own ReportsWidgets.jsx changes entirely
+— not delivered, would have reverted already-live, already-Mark-
+confirmed-working code back to an earlier and less-considered design.
+
+WHAT'S ACTUALLY IN THIS DELIVERY, rebuilt against the current live
+state (not the stale hydration this session started from):
+  - Meeting Attempt date-only save (appointment.js,
+    appointmentService.js, AppointmentDetail.jsx) — unaffected by the
+    parallel session (confirmed: these three files are byte-identical
+    between this session's first hydration and the current live repo),
+    so the fix built earlier this session carries forward unchanged.
+    Full detail in this session's own earlier entry — not re-described
+    here.
+  - Broker Performance/Agent Activity un-stacked to full width each
+    (Reports.jsx) — re-applied directly to the CURRENT live Reports.jsx
+    (which already has §175's donut work in it), touching only the one
+    grid wrapper around these two tables; confirmed via diff that
+    nothing else in the file was touched.
+
+VERIFIED: fresh `npm install`, `npm run build` clean, `npx vitest run`
+— 48/48 passing. Diffed all five delivered files against a THIRD fresh
+GitHub hydration taken just before packaging — confirmed isolated to
+exactly the intended changes in each file, confirmed no further commits
+landed on main in the meantime.
+
+NOT YET DEPLOYED (the Meeting Attempt + Broker/Agent-table changes
+only — everything else in this entry is a documentation correction to
+already-deployed work, not new code).
+
+FILES: frontend/api-lib/models/appointment.js,
+frontend/api-lib/services/appointmentService.js,
+frontend/src/pages/AppointmentDetail.jsx, frontend/src/pages/Reports.jsx.

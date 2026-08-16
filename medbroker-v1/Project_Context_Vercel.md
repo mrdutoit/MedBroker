@@ -228,6 +228,33 @@ MeetingAttempt (§138 spec, session 20; §164 build, 14 Aug 2026, migration
   that function directly, or Status_Vercel.md §164/§172 for the build
   account, including two real bugs found during §164's own manual
   frontend review (neither caught by the build or test suite).
+  status is now OPTIONAL on the save endpoint (SaveMeetingAttemptSchema)
+  as of 16 Aug 2026 (§176) — a real gap Mark found: saving a row still
+  required BOTH date and status together, so there was no way to record
+  just a follow-up meeting's DATE without being forced to also record
+  its OUTCOME before the meeting had even happened. Omitting status now
+  saves the date only (recordedById, notes too) and leaves the row at
+  'Scheduled', still open, still awaiting a real outcome later —
+  handled as an early-return branch in saveMeetingAttemptOutcome(), not
+  the four-branch routing table (which only ever applies once a real
+  status is actually being recorded). recordedById doubles as the
+  frontend's own signal for "has this row been touched since creation"
+  (AppointmentDetail.jsx's isOriginalMeeting1Date, see below) — null
+  only on the pristine row createAppointment() creates at booking time;
+  every other row, including one that's only ever had its date saved,
+  gets it stamped.
+
+isOriginalMeeting1Date (AppointmentDetail.jsx, MeetingAttemptForm) — the
+  signal for locking a meeting-1 row's date field, since only the
+  original booking-time row's date should be immutable there. CHANGED
+  16 Aug 2026 (§176) from `!!attempt.date` to `attempt.recordedById ===
+  null` — the date-based check broke the moment a date-only save (above)
+  became possible: saving just a date onto a rebooked meeting-1 row
+  makes attempt.date truthy, which under the old check would have
+  locked that same row right back up, reintroducing the exact bug §174
+  had just fixed. recordedById is the more robust signal — true only
+  for the row nobody has ever saved anything onto since createAppointment()
+  created it.
 
 Task
   type: Callback | Appointment | Reschedule | Reminder | Outcome | Manual
@@ -1044,6 +1071,35 @@ Unassigned Appointment Warning — built 14 Aug 2026 (§160, migration
   (respects manual reassignment since creation) rather than
   re-deriving a routing decision from scratch; only fall back to a
   fresh region-based lookup when no such Task exists at all.
+
+Donut + share-list pattern (DonutBreakdown, ReportsWidgets.jsx) — built
+  15 Aug 2026 (§175, session 23 continued), reversing part of §156's
+  original brief, which had explicitly ruled out rotating-colour donuts
+  for share-of-whole data. Mark asked for exactly that, referencing a
+  donut + value-share list from another app of his — genuine, specific
+  feedback, not an oversight. Used ONLY for genuine parts-of-a-whole
+  data (every item sums to 100% of something real — a cancellation
+  reason, a loss reason, a won/lost split), never for the ranked tables
+  or the sequential pipeline stages, where a rotating category colour
+  would still be decoration, not information — §156's original
+  restraint principle still holds everywhere else. Share-list bars are
+  scaled to each item's share of the TOTAL (not share-of-the-largest-
+  item, the way this file's other ranked-table bars work) — a
+  deliberately different, more honest scale for this kind of data: a
+  lone category correctly reading as "100% of what's captured" is true
+  here, not an artefact of a small sample the way it would be for a
+  ranked list. CATEGORICAL_PALETTE (also ReportsWidgets.jsx) is six
+  fixed hex values, deliberately NOT theme CSS variables — a rotating
+  multi-colour palette needs to stay mutually distinct regardless of
+  which accent theme is active, which tying rotation to a single theme
+  variable can't guarantee the way it does for this file's other,
+  genuinely semantic colours (success/danger/etc.). This also, as a
+  side effect, leaves the --pl-unassigned/--pl-assigned/--pl-progress/
+  --pl-booked/--pl-won/--pl-lost tokens in themes.css (added 13 Aug
+  2026, §151 follow-up, for an earlier Pipeline Status Breakdown donut
+  since removed in the §156/§162 rebuild) genuinely orphaned — zero
+  references anywhere in frontend/src as of 16 Aug 2026 — worth knowing
+  before assuming they're still load-bearing somewhere.
 
 Task generation — REDESIGNED 12 Aug 2026 (session 20 design, session 21
   build — see Status_Vercel.md §138 for the full history). Core test,

@@ -174,6 +174,19 @@ export const SaveOutcomeSchema = z.object({
 // following elsewhere in this file) — kept optional here rather than
 // conditionally required by Zod, since that condition depends on data
 // (the flag value, the meeting number) Zod's own schema shape can't see.
+//
+// status made OPTIONAL 16 Aug 2026 — real gap Mark found: there was no
+// way to save just the DATE of a follow-up meeting (the new 'Scheduled'
+// row created by Cancelled/Missed/Rescheduled routing, or a fresh
+// meeting 2/3 row) without simultaneously being forced to record that
+// meeting's OUTCOME in the same breath, before it had even happened yet.
+// Omitting status now means "save the date only, leave this row at
+// 'Scheduled'" — a genuinely different, lighter action from recording an
+// outcome, handled as its own early branch in saveMeetingAttemptOutcome()
+// (appointmentService.js) rather than going through the four-branch
+// routing table at all. The .refine() below is the only thing actually
+// enforcing "you need to send SOMETHING" — Zod's own per-field optionality
+// can't express "date required only when status is absent" on its own.
 export const SaveMeetingAttemptSchema = z.object({
   date:             z.string().optional().nullable(),
   // 15 Aug 2026 (§172) — Cancelled/Missed added, reversing part of the
@@ -181,7 +194,7 @@ export const SaveMeetingAttemptSchema = z.object({
   // three route identically (saveMeetingAttemptOutcome, appointmentService.js
   // — new row, same meeting number, no outcome form); only the recorded
   // status differs, which is exactly the point.
-  status:           z.enum(['HeldInterested', 'HeldNotInterested', 'Rescheduled', 'Cancelled', 'Missed']),
+  status:           z.enum(['HeldInterested', 'HeldNotInterested', 'Rescheduled', 'Cancelled', 'Missed']).optional(),
   notes:            z.string().max(2000).optional().nullable(),
   followUpRequired: z.boolean().optional().nullable(),
   // 15 Aug 2026 (§172, migration 034) — only meaningful when status =
@@ -191,6 +204,9 @@ export const SaveMeetingAttemptSchema = z.object({
   // as Appointment.lostReason (§163) — the frontend is what actually
   // enforces "pick a reason before you can save this as Cancelled".
   cancelReason:     z.enum(['NoLongerInterested', 'FoundAlternative', 'SchedulingConflict', 'Uncontactable', 'Other']).optional().nullable(),
+}).refine(data => !!data.status || !!data.date, {
+  message: 'Either a status (to record an outcome) or a date (to save the scheduled date) is required.',
+  path: ['date'],
 });
 
 export const AppointmentListQuerySchema = z.object({
