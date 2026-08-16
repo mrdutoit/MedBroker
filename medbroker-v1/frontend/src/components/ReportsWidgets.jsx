@@ -121,6 +121,18 @@ export function KpiCard({ label, current, format, deltaPct, direction, lowerIsBe
 // than being visually capped/restrained the way a ranked-table bar is,
 // because for THIS data that full-width bar is actually true, not an
 // artifact of a small sample.
+//
+// Tooltip added 16 Aug 2026 — real gap in §175's own build, not a new
+// request: the donut had no hover interaction at all, meaning it was a
+// static ring sitting next to the share-list with no distinct value of
+// its own. Mark's original ask was specifically "hovering on the slice
+// shows the details of the slice" (his own words), matching his
+// investment tracker reference exactly — the share-list here already
+// matches that reference's own "Value Share" panel correctly; this was
+// the one piece of the original spec that never actually got built.
+// Same Tooltip/contentStyle pattern already established in this file by
+// TrendChart, just above — not a new visual language, the existing one
+// applied to the one chart in this file that was missing it.
 export function DonutBreakdown({ data, isMobile, emptyMessage }) {
   const total = data.reduce((sum, d) => sum + d.value, 0);
   if (total === 0) return <EmptyState message={emptyMessage ?? 'No data for this period.'} />;
@@ -137,6 +149,13 @@ export function DonutBreakdown({ data, isMobile, emptyMessage }) {
             >
               {data.map(d => <Cell key={d.label} fill={d.colour} />)}
             </Pie>
+            <Tooltip
+              formatter={(value, name) => {
+                const pct = total === 0 ? 0 : Math.round((value / total) * 100);
+                return [`${value} (${pct}%)`, name];
+              }}
+              contentStyle={{ background: colors.surface, border: `1px solid ${colors.line}`, borderRadius: radius.sm, fontSize: '0.8125rem' }}
+            />
           </PieChart>
         </ResponsiveContainer>
       </div>

@@ -30,7 +30,10 @@ silently only ever fetched 25 rows, no pagination UI to reach more),
 Portfolio sort + a combined Clear Sort & Filters button on both Leads
 and Appointments, a Date Created column on Appointments, real
 server-side sort on Leads, and Manual Entry moved out of the Import
-page onto its own route. Full detail in §177 below.
+page onto its own route. §178 then found and fixed a real gap in §175's
+own donut build — the donut had no hover interaction at all, the one
+piece of Mark's original spec that never actually got built. Full
+detail in §177 and §178 below.
 
 CORRECTED 16 Aug 2026 (session 24/§176) — this block, and the OTHER
 OUTSTANDING ITEMS list below, had drifted badly out of date: items 1
@@ -14283,3 +14286,55 @@ frontend/api-lib/models/lead.js, frontend/api-lib/services/leadService.js,
 frontend/src/pages/AppointmentList.jsx, frontend/src/pages/LeadList.jsx,
 frontend/src/pages/LeadImport.jsx, frontend/src/App.jsx (all modified),
 frontend/src/pages/LeadNew.jsx (new).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+178. REAL GAP IN §175's DONUT BUILD — NO HOVER INTERACTION AT ALL — 16 Aug 2026 (session 24, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark asked to "fix the reports" with no further detail; the previous
+response asked which specific thing, listing candidates including
+"something in §175's donut/pipeline work that isn't behaving the way
+you expected" — correct guess, but Mark read the question itself as a
+sign the original request had been lost track of, and repasted his
+original ask with screenshots as proof he'd already raised it. He had —
+extensively documented earlier this session (§175's own build, and this
+session's own now-abandoned parallel attempt at the same request,
+§176). The actual miss wasn't forgetting the request; it was never
+independently verifying §175's own donut build actually matched what
+Mark asked for, versus just confirming the component NAMES existed
+(DonutBreakdown, CATEGORICAL_PALETTE — checked via grep during the
+§176 parallel-session investigation, never a full read of what the
+component actually renders).
+
+Read DonutBreakdown (ReportsWidgets.jsx) in full this time: the
+<Pie> had NO <Tooltip> at all — a static ring, no hover interaction
+whatsoever. Mark's original words were specific: "hovering on the
+slice shows the details of the slice" — the one concrete, testable
+piece of the spec, and the one piece that was never actually built.
+Everything else about §175's build was correct and stays exactly as
+it was: donut + separate share-list table (not a redundant duplicate
+list bolted onto the donut, not a rotating-colour chart used anywhere
+it shouldn't be) genuinely matches Mark's own investment tracker
+reference. The share-list's own per-row bars aren't a second
+instance of this same redundancy — they're the legitimate "separate
+table" half of the reference he pointed at, which itself has bars in
+its own Value Share panel.
+
+FIX: added a real Recharts <Tooltip> to DonutBreakdown's <Pie>, same
+contentStyle pattern this file already establishes via TrendChart's
+own Tooltip just above it in the same file — not a new visual
+language, the existing one applied to the one chart that was missing
+it. Formatter shows value + % of total on hover. DonutBreakdown is
+shared by all three usages (Win Rate in PipelineHealth, Cancellation
+reasons and Loss reasons in Reports.jsx) — one fix in the shared
+component covers all three, no per-usage changes needed.
+
+VERIFIED: fresh npm install, npm run build clean, npx vitest run —
+48/48 passing. Diffed against a fresh GitHub hydration taken
+immediately before packaging — isolated to exactly the one file,
+confirmed no drift since.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/src/components/ReportsWidgets.jsx.

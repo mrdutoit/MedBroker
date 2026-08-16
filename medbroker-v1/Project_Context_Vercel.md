@@ -1099,7 +1099,13 @@ Donut + share-list pattern (DonutBreakdown, ReportsWidgets.jsx) — built
   2026, §151 follow-up, for an earlier Pipeline Status Breakdown donut
   since removed in the §156/§162 rebuild) genuinely orphaned — zero
   references anywhere in frontend/src as of 16 Aug 2026 — worth knowing
-  before assuming they're still load-bearing somewhere.
+  before assuming they're still load-bearing somewhere. Hover on the
+  donut itself — a real Recharts Tooltip, value + % of total — added 16
+  Aug 2026 (§178). Absent from the original §175 build; the one concrete
+  piece of Mark's original spec ("hovering on the slice shows the
+  details of the slice") that hadn't actually been built, found by
+  reading the component in full rather than just confirming its name
+  and exports existed.
 
 List sort — two genuinely different implementations on this codebase,
   by design, not inconsistency. AppointmentList.jsx sorts CLIENT-SIDE:
