@@ -130,8 +130,36 @@ const CANCEL_REASON_LABELS = {
 // of a labelled wrapper — every donut in the Won-vs-Lost row is now a
 // genuine flex sibling of every other one, so stretch equalises all of
 // them correctly, automatically, without hand-tuned heights anywhere.
+//
+// REWORKED AGAIN 16 Aug 2026 (§186) — §184 fixed "a full donut ring for
+// one category conveys nothing" by replacing the ring with a compact
+// stat. That was necessary but not sufficient: once §185 corrected
+// Won/Lost to their true counts (a small business, most periods will
+// have single-digit deals), a WonLostPair with everything concentrated
+// in one region and one portfolio produced FOUR cards that each just
+// restated "100% of the 2 wins this period" a different way (Overall
+// already says this once) plus two empty "no losses" cards — five cards
+// of near-zero incremental information, still decorative, just wearing
+// compact-stat clothes instead of ring clothes. The actual fix isn't
+// about HOW a single category renders — it's about WHETHER a breakdown
+// with nothing to compare should be shown AT ALL. This pair now checks
+// the combined set of distinct categories across BOTH won and lost
+// before rendering anything: fewer than 2 real, distinct values means
+// there is no comparison to make yet, and the whole pair — not just one
+// side of it — is suppressed rather than padded out. Deliberately
+// decided at the PAIR level, not inside DonutBreakdown itself: a
+// Won side with real variety (2+ regions) paired against a Lost side
+// that happens to be a single-region compact stat is still genuinely
+// informative (it tells you WHERE the losses are, in the context of a
+// Won side that has spread) — only suppress when NEITHER side has
+// anything to compare against the other.
 function WonLostPair({ label, wonRows, lostRows, keyField, isMobile }) {
   if ((!wonRows || wonRows.length === 0) && (!lostRows || lostRows.length === 0)) return null;
+  const distinctCategories = new Set([
+    ...(wonRows ?? []).map(r => r[keyField]),
+    ...(lostRows ?? []).map(r => r[keyField]),
+  ]);
+  if (distinctCategories.size < 2) return null;
   const toData = rows => rows.map((r, i) => ({
     label: r[keyField], value: r.count,
     colour: r[keyField] === 'Not captured' ? colors.ink400 : CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
@@ -619,7 +647,7 @@ export default function Reports() {
                     sibling of the other, so stretch equalises them
                     correctly. */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: '24px' }}>
-                  {appointmentAnalysis.byMeetingType.length > 0 && (
+                  {appointmentAnalysis.byMeetingType.length > 1 && (
                     /* 16 Aug 2026 (§180) — Mark's own suggestion: "perhaps
                        the Meeting Type could be a donut chart." Was a
                        DataTable (Booked/Won/Conversion Ratio columns) —
@@ -633,7 +661,17 @@ export default function Reports() {
                        Real, different metrics (not a repeat of Booked)
                        so flagging the drop rather than silently losing
                        them — easy to bring back as its own small table
-                       if that comparison specifically is wanted. */
+                       if that comparison specifically is wanted.
+                       CONDITION CHANGED 16 Aug 2026 (§186) from
+                       `.length > 0` to `.length > 1` — this section's
+                       whole point is comparing meeting types; a business
+                       that's only ever booked InPerson has nothing to
+                       compare yet, and "100% InPerson" forever is a
+                       fact already implicit (there's no other option
+                       recorded), not worth a dedicated card restating
+                       it. Same reasoning as WonLostPair's own §186
+                       rework just below — comes back automatically the
+                       first period Virtual actually gets used. */
                     <DonutBreakdown
                       title="Meeting Type"
                       isMobile={isMobile}

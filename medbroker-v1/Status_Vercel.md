@@ -82,7 +82,15 @@ explicit design decision on record from months earlier that
 ReturnedToLeads must NOT be folded into win/loss reporting. §185, with
 Mark's explicit confirmation, fixed this at its actual source across
 every one of the twelve places it had spread to — not another patch on
-the region query specifically. Full detail in §177 through §185 below.
+the region query specifically. §186 then addressed what §185's own
+correction exposed: with real (small, honest) Won/Lost numbers, a
+sparse period showed several breakdown cards each just restating "100%
+of the one thing that exists" a different way — §184's compact-stat fix
+addressed HOW a single category renders, not WHETHER a breakdown with
+nothing to compare should be shown at all. §186 suppresses those
+breakdowns entirely when there's insufficient variety to make them
+meaningful, rather than padding the page with cards that carry near-
+zero incremental information. Full detail in §177 through §186 below.
 
 CORRECTED 16 Aug 2026 (session 24/§176) — this block, and the OTHER
 OUTSTANDING ITEMS list below, had drifted badly out of date: items 1
@@ -14962,3 +14970,82 @@ file, confirmed no drift since.
 NOT YET DEPLOYED.
 
 FILES: frontend/api-lib/services/reportService.js.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+186. WHAT §185's OWN CORRECTION EXPOSED — SUPPRESSING BREAKDOWNS THAT HAVE NOTHING TO COMPARE, NOT JUST CHANGING HOW THEY RENDER — 16 Aug 2026 (session 24, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark, with fresh screenshots after §185 landed: "the fix for the Closed
+Lost count has worked, but the actual graphs have regressed... tell me
+if that looks like it was designed by a data scientist for the
+information, and a design studio for the UX?"
+
+The data was now genuinely correct (Won: 2, Lost: 0, matching the raw
+table exactly) — but with real, small, honest numbers, the Won vs Lost
+row showed: Overall (2, Closed Won, 100%), By Region · Won (2, Western
+Cape, 100%), By Region · Lost (empty, "no losses"), By Portfolio · Won
+(2, Discovery, 100%), By Portfolio · Lost (empty). Five cards, four of
+which just restated "the 2 wins this period" a different way — Overall
+already says this once, clearly, right next to the KPI row above it.
+§184's compact-stat fix (single category → count + name, not a solid
+ring) was necessary but not sufficient: it fixed HOW a single-category
+breakdown renders, not WHETHER a breakdown with nothing to compare
+should be shown at all. Same underlying problem as the original "reads
+terribly" complaint, wearing compact-stat clothes instead of ring
+clothes — still decorative, just quieter about it.
+
+REAL FIX: WonLostPair (Reports.jsx) now computes the combined set of
+distinct categories across BOTH won and lost before rendering anything
+— fewer than 2 real, distinct values means there's no comparison to
+make yet, and the ENTIRE PAIR is suppressed, not just one side of it.
+Deliberately decided at the pair level, not inside DonutBreakdown
+itself: a Won side with genuine variety (2+ regions) paired against a
+Lost side that happens to be a single-region compact stat is still
+informative — it tells you WHERE the losses are, in the context of a
+Won side that has spread across multiple regions. Only suppress when
+NEITHER side has anything to compare against the other. Same principle
+applied to Meeting Type (a standalone section, not a pair): changed
+from rendering whenever any meeting type exists at all to requiring at
+least 2 distinct types — a business that's only ever booked InPerson
+has nothing to compare yet, and "100% InPerson" forever is an implicit
+fact (no other option has been recorded), not worth a dedicated card.
+Comes back automatically the first period real variety shows up, no
+manual toggle needed.
+
+DELIBERATELY NOT applied everywhere — three sections keep §184's
+existing behaviour (single category still renders as a compact stat,
+never suppressed): Overall (the Won vs Lost donut itself), Loss
+reasons, and Cancellation reasons. Reasoning: Region/Portfolio/Meeting
+Type are SECONDARY cuts of an already-known headline number (you
+already know the Won/Lost count from the KPI row and the Overall card
+before ever looking at these) — with insufficient variety they add
+zero information beyond what's already stated once. Loss reasons and
+Cancellation reasons ARE the primary analytical payload of their own
+purpose — knowing "every cancellation so far has been for the same
+reason" directly answers the question that section exists to answer,
+even when there's only one reason recorded yet, unlike a region/
+portfolio split which is inherently supplementary. Overall stays
+visible for the same reason — "we haven't lost anything yet this
+period" is itself a genuine headline fact worth stating, not a
+redundant restatement of something else.
+
+CAUGHT AND FIXED A TYPO BEFORE IT SHIPPED: a stray `#` instead of `//`
+in one of this change's own code comments, which would have broken the
+JS parser — caught by the Vite build step in verification, exactly the
+kind of thing that verification step exists to catch, not skipped even
+for a comment-only mistake.
+
+VERIFIED: npm run build clean (confirms the typo fix and no other
+syntax issues), npx vitest run — 48/48 passing. Suppression logic
+checked against synthetic data built directly from Mark's own
+screenshot (Won=2 all Western Cape/Discovery, Lost=0) — confirms both
+By Region and By Portfolio now correctly suppress entirely, while a
+positive-control scenario with genuine multi-region variety confirms
+the pair still renders when there's actually something to compare.
+Diffed against a fresh GitHub hydration taken immediately before
+packaging — isolated to exactly one file, confirmed no drift since.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/src/pages/Reports.jsx.

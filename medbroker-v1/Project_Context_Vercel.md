@@ -1168,6 +1168,34 @@ STANDING LAYOUT PRINCIPLE, 16 Aug 2026 (§182) — don't give related
   labelled wrapper — check that pattern before adding a new paired or
   grouped donut anywhere on this page.
 
+  EXTENDED AGAIN 16 Aug 2026 (§186), THE MOST IMPORTANT VERSION OF THIS
+  RULE — §184's compact-stat fix addressed HOW a single-category
+  breakdown renders; it did NOT address WHETHER a breakdown with
+  nothing to compare should render at all. With genuinely small, honest
+  numbers (a real business's actual sparse periods, not just test
+  data), several secondary breakdowns in a row can EACH independently
+  degenerate to "100% of the one thing that exists" — technically
+  correct, collectively still decorative, since they're each just
+  restating the same headline number a different way. STANDING RULE:
+  a SECONDARY breakdown (a further cut of an already-known headline
+  number — region, portfolio, meeting type, anything in that shape)
+  must require at least 2 distinct real categories before rendering AT
+  ALL — check this at the point where you decide whether to render the
+  section/pair, not inside DonutBreakdown itself (a Won side with real
+  variety paired against a single-category Lost side is still
+  informative in context; only suppress when NEITHER side has anything
+  to compare). A PRIMARY breakdown (the thing a section exists
+  specifically to answer — Won vs Lost itself, Loss reasons,
+  Cancellation reasons) should NOT be suppressed this way — even a
+  trivial 100%-one-way answer to "did we win or lose" or "why did this
+  get cancelled" is the actual headline fact that section exists to
+  report, not a redundant restatement of something already shown
+  elsewhere. Telling the two apart: does removing this card lose
+  information not already stated elsewhere on the page (primary — keep
+  it, even at n=1), or does it just restate the same number that's
+  already visible in the KPI row or the Overall/primary card next to it
+  (secondary — gate it on real variety existing)?
+
 STANDING SKILL OBLIGATION, 16 Aug 2026 (§182) — this environment has a
   frontend-design skill (/mnt/skills/public/frontend-design/SKILL.md)
   that should be read before any UI/visual layout work on this page (or
