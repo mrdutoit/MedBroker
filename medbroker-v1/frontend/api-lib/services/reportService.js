@@ -15,10 +15,16 @@
  * Real buckets: Unassigned, Assigned, InProgress (straight from
  * pipelineStatus), then Converted leads split by their most recent
  * appointment's actual status — still active -> AppointmentBooked, ClosedWon
- * -> ClosedWon, ClosedLost/ReturnedToLeads -> ClosedLost. Leads that closed
+ * -> ClosedWon, ClosedLost -> ClosedLost. Leads that closed
  * via a call outcome without ever getting an appointment
  * (pipelineStatus = 'Closed') are folded into ClosedLost too — both
  * represent "didn't convert", no reason to split into a 7th/8th bucket.
+ * ReturnedToLeads is DELIBERATELY EXCLUDED from ClosedLost — 16 Aug 2026
+ * (§185, Mark's explicit decision): it's not a sales outcome (the
+ * appointment went back to the pool, might still convert with a
+ * different broker), and folding it into "lost" skews Win Rate and
+ * every breakdown built on it. See mergeClosedMetrics()'s own header
+ * comment, this file, for the full account.
  *
  * POLICY VALUE — also decided with Mark: no monetary/premium field exists
  * anywhere in the schema (checked, not assumed). The mock's Policy Value
@@ -174,7 +180,7 @@ export async function getReportSummary(period, referenceDate) {
        WHERE status = 'ClosedWon' AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId
        UNION ALL
        SELECT 'ClosedLost' AS bucket, COUNT(*) AS count FROM Appointment
-       WHERE status IN ('ClosedLost', 'ReturnedToLeads') AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId
+       WHERE status = 'ClosedLost' AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId
        UNION ALL
        SELECT 'ClosedLost' AS bucket, COUNT(*) AS count FROM Lead
        WHERE pipelineStatus = 'Closed' AND updatedAt >= @start AND updatedAt <= @end
@@ -817,13 +823,34 @@ export async function getAgentReport(period, scope, referenceDate) {
 // and an AVG-days-by-(group,status) result set into one map per group —
 // the same merge shape repeats across all four functions, pulled out
 // once rather than copy-pasted four times.
+//
+// "Lost" MEANS status = 'ClosedLost', STRICTLY — 16 Aug 2026 (§185,
+// Mark's explicit decision). This function used to fold ANY non-
+// ClosedWon row into closedLost (an `else`, not an `else if`), which
+// silently included ReturnedToLeads — an appointment sent back to the
+// pool, not a sales rejection, explicitly called out as such when that
+// status was first built (see this file's own header comment, and
+// Status_Vercel.md's original §35-era note: "'ReturnedToLeads' is
+// deliberately its OWN status, not folded into ClosedWon/ClosedLost —
+// it's not a sales outcome, so lumping it in would skew win/loss
+// reporting"). §151 built this function without that cross-reference,
+// and it went unnoticed until Mark checked the raw appointment table
+// directly and found zero ClosedLost rows against a report showing
+// "Lost: 1" — every caller of this function inherited the same bug.
+// Every WHERE clause feeding rows into this function has also been
+// corrected to stop fetching ReturnedToLeads rows at all (search this
+// file for '§185' to find each one) — this explicit status check is
+// now closer to a second, defensive guard than the only line of
+// defence, but kept explicit rather than reverted to a bare else, so a
+// future caller that DOES pass a stray ReturnedToLeads row (or any
+// other non-terminal status) fails safe instead of silently counting it.
 function mergeClosedMetrics(countRows, avgDaysRows) {
   const map = {};
   const ensure = (key) => (map[key] ??= { closedWon: 0, closedLost: 0, avgDaysWon: null, avgDaysLost: null });
   for (const row of countRows) {
     const g = ensure(row.groupKey);
     if (row.status === 'ClosedWon') g.closedWon += Number(row.count);
-    else g.closedLost += Number(row.count); // ClosedLost + ReturnedToLeads + the no-appointment 'Closed' path all fold in here
+    else if (row.status === 'ClosedLost') g.closedLost += Number(row.count); // ReturnedToLeads deliberately excluded — see this function's own header comment (§185)
   }
   for (const row of avgDaysRows) {
     const g = ensure(row.groupKey);
@@ -870,7 +897,7 @@ export async function getLeadsBySourceReport(period, referenceDate) {
     executeQuery(
       `SELECT ${originExpr} AS "groupKey", a.status, COUNT(*) AS count
        FROM Appointment a JOIN Lead l ON l.id = a.leadId
-       WHERE a.status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
+       WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
        GROUP BY ${originExpr}, a.status`, params
     ),
     executeQuery(
@@ -929,7 +956,7 @@ export async function getLeadsByPortfolioReport(period, referenceDate) {
     executeQuery(
       `SELECT p.name AS "groupKey", a.status, COUNT(DISTINCT a.id) AS count
        FROM Appointment a JOIN AppointmentPortfolio ap ON ap.appointmentId = a.id JOIN Portfolio p ON p.id = ap.portfolioId
-       WHERE a.status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
+       WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
        GROUP BY p.name, a.status`, params
     ),
     executeQuery(
@@ -992,7 +1019,7 @@ export async function getAppointmentsByPortfolioReport(period, referenceDate) {
     executeQuery(
       `SELECT p.name AS "groupKey", a.status, COUNT(DISTINCT a.id) AS count
        FROM Appointment a JOIN AppointmentPortfolio ap ON ap.appointmentId = a.id JOIN Portfolio p ON p.id = ap.portfolioId
-       WHERE a.status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
+       WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId
        GROUP BY p.name, a.status`, params
     ),
     executeQuery(
@@ -1054,7 +1081,7 @@ export async function getAppointmentsByMeetingTypeReport(period, referenceDate) 
     ),
     executeQuery(
       `SELECT meetingType AS "groupKey", status, COUNT(*) AS count FROM Appointment
-       WHERE status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId
+       WHERE status IN ('ClosedWon', 'ClosedLost') AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId
        GROUP BY meetingType, status`, params
     ),
     executeQuery(
@@ -1393,7 +1420,7 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
       const params = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
       const [bookedRows, closedCountRows, avgDaysRows] = await Promise.all([
         executeQuery(`SELECT a.meetingType AS "groupKey", COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.createdAt >= @start AND a.createdAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment} GROUP BY a.meetingType`, { ...params, ...apptF.params }),
-        executeQuery(`SELECT a.meetingType AS "groupKey", a.status, COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment} GROUP BY a.meetingType, a.status`, { ...params, ...apptF.params }),
+        executeQuery(`SELECT a.meetingType AS "groupKey", a.status, COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment} GROUP BY a.meetingType, a.status`, { ...params, ...apptF.params }),
         executeQuery(`SELECT a.meetingType AS "groupKey", a.status, AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays" FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment} GROUP BY a.meetingType, a.status`, { ...params, ...apptF.params }),
       ]);
       const booked = Object.fromEntries(bookedRows.map(r => [r.groupKey, Number(r.count)]));
@@ -1441,7 +1468,7 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
          UNION ALL
          SELECT 'won', COUNT(*) FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment}
          UNION ALL
-         SELECT 'lost', COUNT(*) FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status IN ('ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment}`,
+         SELECT 'lost', COUNT(*) FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status = 'ClosedLost' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF.sqlFragment}`,
         { ...params, ...leadF.params, ...apptF.params }
       ),
       executeQuery(
@@ -1501,7 +1528,7 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
        WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF2.sqlFragment}
        UNION ALL
        SELECT 'ClosedLost' AS bucket, COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId
-       WHERE a.status IN ('ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF2.sqlFragment}${noApptClosedBranch}`,
+       WHERE a.status = 'ClosedLost' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF2.sqlFragment}${noApptClosedBranch}`,
       { ...baseParams2, ...apptF2.params, ...leadF2.params }
     ),
   ]);
@@ -1533,7 +1560,7 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
   const originExprL = originExprFor('l');
   const [srcLeadsRows, srcClosedCountRows, srcNoApptClosedRows, srcAvgDaysRows, srcApptsRows, srcPolicyRows] = await Promise.all([
     executeQuery(`SELECT ${originExprL} AS "groupKey", COUNT(*) AS count FROM Lead l WHERE l.createdAt >= @start AND l.createdAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId${leadF3.sqlFragment} GROUP BY ${originExprL}`, { ...srcParams, ...leadF3.params }),
-    executeQuery(`SELECT ${originExprL} AS "groupKey", a.status, COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF3.sqlFragment} GROUP BY ${originExprL}, a.status`, { ...srcParams, ...apptF3.params }),
+    executeQuery(`SELECT ${originExprL} AS "groupKey", a.status, COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF3.sqlFragment} GROUP BY ${originExprL}, a.status`, { ...srcParams, ...apptF3.params }),
     f.brokerId ? Promise.resolve([]) : executeQuery(`SELECT ${originExprL} AS "groupKey", COUNT(*) AS count FROM Lead l WHERE l.pipelineStatus = 'Closed' AND l.updatedAt >= @start AND l.updatedAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId${leadF3.sqlFragment} GROUP BY ${originExprL}`, { ...srcParams, ...leadF3.params }),
     executeQuery(`SELECT ${originExprL} AS "groupKey", a.status, AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays" FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF3.sqlFragment} GROUP BY ${originExprL}, a.status`, { ...srcParams, ...apptF3.params }),
     executeQuery(`SELECT ${originExprL} AS "groupKey", COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.createdAt >= @start AND a.createdAt <= @end AND a.organisationId = @organisationId${apptF3.sqlFragment} GROUP BY ${originExprL}`, { ...srcParams, ...apptF3.params }),
@@ -1563,7 +1590,7 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
   const portParams = { start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
   const [portBookedRows, portClosedCountRows, portAvgDaysRows, portAvgPolicyRows] = await Promise.all([
     executeQuery(`SELECT p.name AS "groupKey", COUNT(DISTINCT a.id) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId JOIN AppointmentPortfolio ap2 ON ap2.appointmentId = a.id JOIN Portfolio p ON p.id = ap2.portfolioId WHERE a.createdAt >= @start AND a.createdAt <= @end AND a.organisationId = @organisationId${apptF4.sqlFragment} GROUP BY p.name`, { ...portParams, ...apptF4.params }),
-    executeQuery(`SELECT p.name AS "groupKey", a.status, COUNT(DISTINCT a.id) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId JOIN AppointmentPortfolio ap2 ON ap2.appointmentId = a.id JOIN Portfolio p ON p.id = ap2.portfolioId WHERE a.status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF4.sqlFragment} GROUP BY p.name, a.status`, { ...portParams, ...apptF4.params }),
+    executeQuery(`SELECT p.name AS "groupKey", a.status, COUNT(DISTINCT a.id) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId JOIN AppointmentPortfolio ap2 ON ap2.appointmentId = a.id JOIN Portfolio p ON p.id = ap2.portfolioId WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF4.sqlFragment} GROUP BY p.name, a.status`, { ...portParams, ...apptF4.params }),
     executeQuery(`SELECT p.name AS "groupKey", a.status, AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays" FROM Appointment a JOIN Lead l ON l.id = a.leadId JOIN AppointmentPortfolio ap2 ON ap2.appointmentId = a.id JOIN Portfolio p ON p.id = ap2.portfolioId WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF4.sqlFragment} GROUP BY p.name, a.status`, { ...portParams, ...apptF4.params }),
     executeQuery(`SELECT p.name AS "groupKey", AVG(prodTotals.total) AS "avgValue" FROM Portfolio p JOIN AppointmentPortfolio ap2 ON ap2.portfolioId = p.id JOIN Appointment a ON a.id = ap2.appointmentId JOIN Lead l ON l.id = a.leadId JOIN LATERAL (SELECT COALESCE(SUM(ap3.policyValue), 0) AS total FROM AppointmentProduct ap3 WHERE ap3.appointmentId = a.id) prodTotals ON true WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF4.sqlFragment} GROUP BY p.name`, { ...portParams, ...apptF4.params }),
   ]);
@@ -1626,40 +1653,27 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
   // carries no region at all; same "count it, label it honestly" pattern
   // as loss/cancel reasons above rather than silently dropping the row.
   //
-  // REAL BUG (§181, alias collision) already fixed here — see the
-  // groupKey rename below. A SECOND real bug, caught by Mark's own
-  // testing (§183): this query originally matched
-  // `a.status IN ('ClosedWon', 'ClosedLost')` only, same pattern as the
-  // loss-reason query just above it — but that's NOT what "Lost" means
-  // anywhere else in this file. mergeClosedMetrics() (this file, defined
-  // above) is the established, explicit convention: ClosedLost +
-  // ReturnedToLeads both fold into "lost" — portfolioTable (below) and
-  // every other breakdown in this file (source, broker, agent) already
-  // go through mergeClosedMetrics and get this right automatically. This
-  // query hand-rolled its own filter/groupby instead of reusing that
-  // shared helper, silently landing on a NARROWER definition of "lost"
-  // than the pipeline KPI (LOST: 2, which DOES include ReturnedToLeads)
-  // — so a region whose only "lost" deal was actually ReturnedToLeads
-  // status showed as having no losses at all, while the KPI and By
-  // Portfolio (correctly) counted it. Fixed by routing through
-  // mergeClosedMetrics() directly, matching the rest of this file
-  // exactly rather than re-deriving the same logic a second, slightly
-  // wrong way. Flagged separately, not silently changed here: the
-  // EXISTING loss-reasons query directly above (§175, predates this
-  // session) has the same narrower ClosedLost-only filter — left as-is,
-  // since lostReason is specifically collected during the ClosedLost
-  // outcome-recording flow and may never be set at all for a
-  // ReturnedToLeads appointment (a genuinely different closing path) —
-  // widening that filter isn't obviously correct the way it was here,
-  // and changing an established, working feature on a guess risks
-  // trading one bug for another. Worth Mark's own call on whether Loss
-  // reasons should also count ReturnedToLeads appointments (with no
-  // reason, since none was ever asked) or stay scoped to true
-  // ClosedLost outcomes specifically.
+  // §181 fixed a real alias-collision bug here (GROUP BY on an alias
+  // that also matched a real column from the Lead join). §183 then
+  // "fixed" a second apparent bug by making this query MATCH
+  // mergeClosedMetrics()'s then-current behaviour of folding
+  // ReturnedToLeads into "lost" — reasoning that every other breakdown
+  // in this file already did that, so this one should too. That
+  // reasoning was backwards: mergeClosedMetrics() itself had the bug.
+  // §185 (16 Aug 2026) is the actual fix, at the actual source — Mark
+  // checked the raw appointment table directly, found zero ClosedLost
+  // rows against a report showing "Lost: 1", and confirmed explicitly
+  // that a ReturnedToLeads appointment must NOT count as Lost anywhere
+  // in reporting (it's not a sales outcome — this exact principle was
+  // already on record from when the status was first built, months
+  // before §151 introduced the inconsistency). This query now matches
+  // ClosedWon/ClosedLost only, same as every other corrected query in
+  // this file — see mergeClosedMetrics()'s own header comment for the
+  // full account and the complete list of what else changed alongside it.
   const regionRows = await executeQuery(
     `SELECT COALESCE(a.region, 'Not captured') AS "groupKey", a.status, COUNT(*) AS count
      FROM Appointment a JOIN Lead l ON l.id = a.leadId
-     WHERE a.status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF5.sqlFragment}
+     WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF5.sqlFragment}
      GROUP BY "groupKey", a.status`,
     { ...lossReasonParams, ...apptF5.params }
   );

@@ -71,11 +71,18 @@ portfolio) was still being rendered as a full donut ring — a chart
 whose entire purpose is comparison, spent on data with nothing to
 compare. Fixed with a compact stat treatment for that specific case;
 also confirmed (by re-reading the actual code, not guessed) that §183's
-region fix is working as designed — "Region wasn't captured for any of
-these" is now a genuinely different message from "no losses found,"
-and reflects an honest data gap in the specific test records rather
-than a code bug, pending Mark's own confirmation by checking those
-records directly. Full detail in §177 through §184 below.
+region fix is working as designed — but Mark then checked the RAW
+appointment table directly and found zero ClosedLost rows against a
+report showing "Lost: 1", exposing something far more fundamental than
+any of §180-§184: "Lost" throughout this entire reporting layer
+(pipeline's own KPI, mergeClosedMetrics — used by nearly every
+breakdown table on the page) had silently included ReturnedToLeads
+appointments since §151 first built it, directly contradicting an
+explicit design decision on record from months earlier that
+ReturnedToLeads must NOT be folded into win/loss reporting. §185, with
+Mark's explicit confirmation, fixed this at its actual source across
+every one of the twelve places it had spread to — not another patch on
+the region query specifically. Full detail in §177 through §185 below.
 
 CORRECTED 16 Aug 2026 (session 24/§176) — this block, and the OTHER
 OUTSTANDING ITEMS list below, had drifted badly out of date: items 1
@@ -14858,3 +14865,100 @@ packaging — isolated to exactly one file, confirmed no drift since.
 NOT YET DEPLOYED.
 
 FILES: frontend/src/components/ReportsWidgets.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+185. THE ACTUAL ROOT CAUSE OF THE WHOLE REGION/LOST SAGA — "LOST" SILENTLY INCLUDED RETURNEDTOLEADS EVERYWHERE IN REPORTING, CONTRADICTING AN EXPLICIT MONTHS-OLD DESIGN DECISION — 16 Aug 2026 (session 24, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark, with a screenshot of the raw appointment table in Neon: "you keep
+saying it's lost deals and empty regions, but there are no lost deals
+in the DB?!?" — correct, and worth stating plainly: this exposed a real
+bug that every earlier pass in this saga (§180, §183) had been building
+on top of rather than catching.
+
+WHAT THE RAW TABLE ACTUALLY SHOWED: 10 appointments total, zero with
+status = 'ClosedLost'. One 'ReturnedToLeads'. Four 'ClosedWon'. The rest
+Assigned/Claimed/Unassigned. Yet the reports were showing "Lost: 1" (or
+"Lost: 2" in an earlier screenshot with more test data added). Traced
+directly: `pipeline`'s own Closed Lost bucket, and a shared helper
+called mergeClosedMetrics() that nearly every breakdown on this page
+routes through (Region, Portfolio, Lead Source, Broker/Agent tables —
+built by §151), both counted "Lost" as ANY status that isn't ClosedWon
+— an `else`, not an `else if` — which silently swept ReturnedToLeads
+appointments into the Lost bucket alongside genuine ClosedLost ones.
+
+THE PART THAT MATTERS MOST: this directly contradicts an EXPLICIT
+design decision already on record, from when the ReturnedToLeads status
+was first built (§35-era, Status_Vercel.md's own history, found by
+searching rather than assuming): "'ReturnedToLeads' is deliberately its
+OWN status, not folded into ClosedWon/ClosedLost — it's not a sales
+outcome, so lumping it in would skew win/loss reporting." §151 built
+mergeClosedMetrics() without cross-referencing that decision, and every
+report built on it since (including §180's region work, including
+§183's own "fix," which made region MATCH this broken convention rather
+than question it) inherited the same bug. §183 didn't just fail to fix
+the real problem — it actively made it worse by bringing a previously-
+correct-by-omission query into line with an already-wrong pattern.
+
+CONFIRMED WITH MARK DIRECTLY before touching code again, rather than
+guessing a fourth time: a ReturnedToLeads appointment should NOT count
+as Lost anywhere in reporting. His decision, matching the original
+design intent exactly.
+
+FIXED AT THE ACTUAL SOURCE — found and corrected all twelve places this
+had spread to in reportService.js, not just the region query:
+  1. mergeClosedMetrics() itself — `else` changed to
+     `else if (row.status === 'ClosedLost')`, the one central fix that
+     automatically corrects every caller (portfolioTable, source table,
+     both standalone Leads-by-Source/Portfolio report functions,
+     Appointments-by-Portfolio, Appointments-by-Meeting-Type — nine
+     separate breakdowns fixed by this one line).
+  2. getReportSummary()'s own standalone pipeline Lost bucket query.
+  3. getLeadsBySourceReport()'s closedCountRows.
+  4. getLeadsByPortfolioReport()'s closedCountRows.
+  5. getAppointmentsByPortfolioReport()'s closedCountRows.
+  6. getAppointmentsByMeetingTypeReport()'s closedCountRows.
+  7. getDashboardData()'s own inline meetingTypeTable query.
+  8. getDashboardData()'s own Trend chart "lost" bucket.
+  9. getDashboardData()'s own inline pipeline Closed Lost bucket
+     (the one actually feeding the KPI Mark screenshotted).
+  10. getDashboardData()'s own inline Lead Source table query.
+  11. getDashboardData()'s own inline Portfolio Performance table query.
+  12. The region query itself (§180/§183) — reverted back to
+     ClosedWon/ClosedLost only, now for the CORRECT reason.
+
+DELIBERATELY NOT CHANGED: two other ReturnedToLeads references in this
+same file (the "is this lead's most recent appointment still active"
+CASE-statement checks, used to classify a lead into the AppointmentBooked
+pipeline stage) are a genuinely different question — whether an
+appointment is still open, not whether it represented a sales loss —
+and were already correct. Confirmed by reading each one in context
+before touching anything, not assumed identical just because the same
+string appeared nearby. AppointmentList.jsx's own ReturnedToLeads
+handling (lock semantics, its own filter chip, audit labels) was also
+checked and confirmed unrelated — that file already treats
+ReturnedToLeads as its own status, matching the original design intent;
+the bug was contained entirely to reportService.js.
+
+Stale comments from §180/§183 that argued the case FOR folding
+ReturnedToLeads into Lost (reasoning §183 used to justify "fixing"
+region to match the broken convention) rewritten to state what
+actually happened and why, not left as misleading git-archaeology.
+
+VERIFIED: node --check clean, npm run build clean (exercises all four
+standalone report functions too, not just the dashboard path), npx
+vitest run — 48/48 passing. Logic re-verified against synthetic data
+built directly from Mark's own screenshot (4 ClosedWon, 1
+ReturnedToLeads, 0 ClosedLost, matching his exact table) — confirms
+Won: 4, Lost: 0, matching the raw data precisely, where every prior
+pass in this saga would have shown Lost: 1. Comprehensive grep across
+the whole file confirmed exactly 12 locations needed the fix, all 12
+corrected, zero missed, zero over-corrected (the two legitimate "still
+active" checks confirmed untouched). Diffed against a fresh GitHub
+hydration taken immediately before packaging — isolated to exactly one
+file, confirmed no drift since.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/api-lib/services/reportService.js.

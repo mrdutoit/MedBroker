@@ -1221,34 +1221,44 @@ WonLostPair (Reports.jsx, page-local — NOT exported from
   and will recur for any future query that groups by it under any alias
   other than groupKey.
 
-  SECOND REAL BUG, 16 Aug 2026 (§183), caught by Mark's own testing
-  once §182 put Overall/By Region/By Portfolio literally side by side
-  for the first time: the region query filtered
-  `a.status IN ('ClosedWon', 'ClosedLost')` only — but "Lost" means
-  something BROADER everywhere else in this file. mergeClosedMetrics()
-  (this file, used by portfolioTable/source table/broker/agent tables)
-  explicitly folds ClosedLost + ReturnedToLeads + the no-appointment
-  direct Lead-close path into "lost", and pipeline's own KPI (the
-  headline Won/Lost counts) uses that same broader definition. The
-  region query landed on the narrower definition by copying the
-  EXISTING loss-reasons query's own pattern as a template, not realising
-  that query itself uses the narrower filter (see below) rather than
-  the file's actual standing convention. STANDING RULE: any new
-  breakdown of Won/Lost data MUST route through mergeClosedMetrics() —
-  don't hand-roll a filter/GROUP BY and assume it matches; the two
-  definitions look almost identical (`ClosedLost` vs `ClosedLost +
-  ReturnedToLeads`) and will only diverge visibly when an org actually
-  has ReturnedToLeads appointments in the period being viewed, which
-  won't be true in every test.
+  THE REAL BUG, 16 Aug 2026 (§185) — "Lost" means status = 'ClosedLost',
+  STRICTLY, everywhere in this file. mergeClosedMetrics() used to fold
+  ANY non-ClosedWon row into "lost" (an `else`, not an `else if`),
+  silently including ReturnedToLeads appointments — sent back to the
+  pool, not a sales rejection. This directly contradicted an EXPLICIT
+  design decision already on record from when ReturnedToLeads was first
+  built, months earlier: "it's not a sales outcome, so lumping it in
+  would skew win/loss reporting." §151 built mergeClosedMetrics()
+  without cross-referencing that decision, and it silently spread to
+  nine breakdowns through the shared helper alone, plus three more
+  inline queries that hand-rolled the same pattern (getReportSummary's
+  own pipeline bucket, and getDashboardData's own inline Trend/pipeline
+  copies) — twelve locations total, found by grepping the whole file
+  for every ReturnedToLeads reference and checking each one in context,
+  not assumed identical from one match. Caught when Mark checked the
+  RAW appointment table directly and found zero ClosedLost rows against
+  a report showing "Lost: 1" — a genuinely different and more powerful
+  verification method than anything used earlier in this saga (§180's
+  region query was itself an attempt to FIX a symptom of this bug by
+  matching the broken convention, making things worse, not better).
 
-  KNOWN, UNRESOLVED, FLAGGED TO MARK: the loss-reasons query
-  specifically (§175, wonVsLost.lossReasons) has this same narrower
-  ClosedLost-only filter and was NOT changed alongside region — lostReason
-  is collected during the ClosedLost outcome-recording flow specifically
-  and may never be set for a ReturnedToLeads appointment (a different
-  closing path entirely), so widening it isn't obviously correct the
-  way it was for region. Needs Mark's own decision, not a unilateral
-  fix, before touching it.
+  STANDING RULE, not just for this specific bug: when a shared
+  aggregation helper's behaviour seems surprising or hard to explain,
+  check whether an EARLIER, more specific design decision already
+  answered the question — grep Status_Vercel.md for the relevant status/
+  concept before assuming a later, broader convention is the authoritative
+  one. The broader convention here (mergeClosedMetrics' catch-all else)
+  was actually the newer, less-considered one; the narrower, more
+  specific decision (ReturnedToLeads excluded, stated with an explicit
+  reason) predated it and should have won.
+
+  Two OTHER ReturnedToLeads references in this same file were correctly
+  left unchanged (checked in context, not assumed identical): the CASE-
+  statement checks classifying whether a lead's most recent appointment
+  is "still active" (AppointmentBooked pipeline stage) — a genuinely
+  different question (is this appointment still open) from whether it
+  represented a sales loss. Don't conflate these if touching either area
+  again.
 
 List sort — two genuinely different implementations on this codebase,
   by design, not inconsistency. AppointmentList.jsx sorts CLIENT-SIDE:
