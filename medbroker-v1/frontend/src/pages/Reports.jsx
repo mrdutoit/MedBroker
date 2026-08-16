@@ -100,14 +100,6 @@ const CANCEL_REASON_LABELS = {
   'Not captured': 'Not captured',
 };
 
-// 16 Aug 2026 (§182) — one shared sub-heading style for every donut
-// group label on this page (Overall/By Region/By Portfolio/Loss
-// reasons/Cancellation reasons/Meeting Type) — was drifting between two
-// slightly different inline styles depending which section it was
-// written in; consolidated to one so the page's own visual rhythm is
-// actually consistent, not accidentally close.
-const groupLabelStyle = { fontSize: '0.75rem', fontWeight: 600, color: colors.ink500, marginBottom: '10px' };
-
 // 16 Aug 2026 (§180) — a Won donut and a Lost donut for the same
 // dimension (region, portfolio), side by side under one shared
 // sub-heading. Page-local, not exported from ReportsWidgets.jsx — this
@@ -123,6 +115,21 @@ const groupLabelStyle = { fontSize: '0.75rem', fontWeight: 600, color: colors.in
 // answer (an org whose closed deals all predate 14 Aug 2026 would see
 // nothing else) — DonutBreakdown's own realTotal===0 branch needs a
 // message that actually explains that rather than a generic fallback.
+//
+// REWORKED 16 Aug 2026 (§183) — used to wrap its own pair in a group-
+// labelled <div> (its own heading, its own nested flex row). Mark's
+// report: "the graphs are not equal heights" — root cause was this
+// exact wrapper. The outer Won-vs-Lost row's direct children were
+// [Overall-card, By-Region-wrapper, By-Portfolio-wrapper] — THREE
+// items, not five — so flexbox's own align-items:stretch (the default)
+// equalised those three wrapper heights, but couldn't reach two levels
+// deep to equalise the actual donut CARDS inside each wrapper against
+// the standalone Overall card, since they were never true siblings of
+// it in the DOM. Fixed by returning the pair as a bare fragment of two
+// DonutBreakdowns with compound titles ("Region · Won" style) instead
+// of a labelled wrapper — every donut in the Won-vs-Lost row is now a
+// genuine flex sibling of every other one, so stretch equalises all of
+// them correctly, automatically, without hand-tuned heights anywhere.
 function WonLostPair({ label, wonRows, lostRows, keyField, isMobile }) {
   if ((!wonRows || wonRows.length === 0) && (!lostRows || lostRows.length === 0)) return null;
   const toData = rows => rows.map((r, i) => ({
@@ -133,13 +140,10 @@ function WonLostPair({ label, wonRows, lostRows, keyField, isMobile }) {
     ? "Region wasn't captured for any of these — tracking only started 14 Aug 2026."
     : undefined;
   return (
-    <div>
-      <div style={groupLabelStyle}>{label}</div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
-        <DonutBreakdown title="Won" isMobile={isMobile} data={toData(wonRows ?? [])} emptyMessage="No wins this period." notCapturedMessage={notCapturedMsg} />
-        <DonutBreakdown title="Lost" isMobile={isMobile} data={toData(lostRows ?? [])} emptyMessage="No losses this period." notCapturedMessage={notCapturedMsg} />
-      </div>
-    </div>
+    <>
+      <DonutBreakdown title={`${label} · Won`} isMobile={isMobile} data={toData(wonRows ?? [])} emptyMessage="No wins this period." notCapturedMessage={notCapturedMsg} />
+      <DonutBreakdown title={`${label} · Lost`} isMobile={isMobile} data={toData(lostRows ?? [])} emptyMessage="No losses this period." notCapturedMessage={notCapturedMsg} />
+    </>
   );
 }
 
@@ -495,41 +499,57 @@ export default function Reports() {
                     see PipelineHealth's own comment, ReportsWidgets.jsx)
                     while By Region/By Portfolio lived here. No good
                     reason for the split — all three are the same theme
-                    (what happened to closed deals, cut three ways), so
-                    now they're one flex-wrap row: Overall, By Region
-                    (Won|Lost), By Portfolio (Won|Lost) all genuinely
-                    beside each other, wrapping onto new lines only when
-                    the viewport actually runs out of room, not because
-                    of an arbitrary card boundary. */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px', marginTop: '18px' }}>
-                  <div>
-                    <div style={groupLabelStyle}>Overall</div>
-                    <DonutBreakdown
-                      isMobile={isMobile}
-                      data={[
-                        { label: 'Closed Won', value: wonVsLost.won, colour: colors.success },
-                        { label: 'Closed Lost', value: wonVsLost.lost, colour: colors.danger },
-                      ]}
-                      emptyMessage="No closed appointments this period."
-                    />
-                  </div>
+                    (what happened to closed deals, cut three ways).
+                    REWORKED again 16 Aug 2026 (§183) — alignItems:
+                    'stretch' made explicit (it's flexbox's own default,
+                    but stating it here is the whole point: this row's
+                    five children — Overall, Region·Won, Region·Lost,
+                    Portfolio·Won, Portfolio·Lost — are now TRUE flex
+                    siblings, no wrapper divs in between (see
+                    WonLostPair's own reworked comment for why that
+                    mattered), so stretch genuinely equalises all five
+                    card heights automatically, wrapping onto new lines
+                    only when the viewport actually runs out of room. */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: '24px', marginTop: '18px' }}>
+                  <DonutBreakdown
+                    title="Overall"
+                    isMobile={isMobile}
+                    data={[
+                      { label: 'Closed Won', value: wonVsLost.won, colour: colors.success },
+                      { label: 'Closed Lost', value: wonVsLost.lost, colour: colors.danger },
+                    ]}
+                    emptyMessage="No closed appointments this period."
+                  />
                   {wonByRegionPair}
                   {wonByPortfolioPair}
                 </div>
+                {/* 16 Aug 2026 (§183) — title moved onto DonutBreakdown
+                    itself (title="Loss reasons") rather than a separate
+                    outer wrapper div, matching Cancellation reasons/
+                    Meeting Type's own rework just below — one consistent
+                    pattern for every donut on this page, not two. This
+                    one's solo in its own row (no siblings to stretch
+                    against), so it isn't the height fix itself, but
+                    keeping it inconsistent with the rest of the page
+                    would just be a different, smaller version of the
+                    same problem. Fallback also now routed through
+                    DonutBreakdown's own empty-state branch instead of a
+                    bare <p>, for the same chrome-consistency reason as
+                    Cancellation reasons' own fallback. */}
                 {wonVsLost.hasLossReasons ? (
+                  /* 15 Aug 2026 (§175) — replaces the old ranked bar
+                      list. Genuine parts-of-a-whole data (every lost
+                      deal has exactly one reason) is what
+                      DonutBreakdown exists for — Mark's own explicit
+                      request, referencing a donut+share-list pattern
+                      from another app of his. 'Not captured' stays
+                      neutral grey, not a rotating palette slot — it's
+                      an absence-of-data bucket, not a real category
+                      the reader should visually equate with the
+                      others. */
                   <div style={{ marginTop: '18px' }}>
-                    <div style={groupLabelStyle}>Loss reasons</div>
-                    {/* 15 Aug 2026 (§175) — replaces the old ranked bar
-                        list. Genuine parts-of-a-whole data (every lost
-                        deal has exactly one reason) is what
-                        DonutBreakdown exists for — Mark's own explicit
-                        request, referencing a donut+share-list pattern
-                        from another app of his. 'Not captured' stays
-                        neutral grey, not a rotating palette slot — it's
-                        an absence-of-data bucket, not a real category
-                        the reader should visually equate with the
-                        others. */}
                     <DonutBreakdown
+                      title="Loss reasons"
                       isMobile={isMobile}
                       data={wonVsLost.lossReasons.map((r, i) => ({
                         label: LOST_REASON_LABELS[r.reason] ?? r.reason,
@@ -539,9 +559,14 @@ export default function Reports() {
                     />
                   </div>
                 ) : (
-                  <p style={{ fontSize: '0.75rem', color: colors.ink400, marginTop: '14px', marginBottom: 0 }}>
-                    No loss reasons captured yet this period — the field exists now (marking an appointment Lost prompts for one), but none of this period's lost appointments have one recorded.
-                  </p>
+                  <div style={{ marginTop: '18px' }}>
+                    <DonutBreakdown
+                      title="Loss reasons"
+                      isMobile={isMobile}
+                      data={[]}
+                      emptyMessage="No loss reasons captured yet this period — the field exists now (marking an appointment Lost prompts for one), but none of this period's lost appointments have one recorded."
+                    />
+                  </div>
                 )}
               </>
             ) : (
@@ -583,55 +608,69 @@ export default function Reports() {
                     single small donut floating in an otherwise-empty
                     row. Same fix as Won vs Lost's own Overall/By Region/
                     By Portfolio consolidation just above: one flex-wrap
-                    row, genuinely side by side where there's room. */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '24px' }}>
+                    row, genuinely side by side where there's room.
+                    REWORKED again 16 Aug 2026 (§183) — same fix as
+                    WonLostPair's own rework: wrapper divs with their own
+                    group heading broke flexbox's stretch from reaching
+                    the actual donut cards, so heights came out uneven.
+                    Each donut now carries its own title directly (no
+                    single-word label needs a separate group heading the
+                    way a Won/Lost pair does) and sits as a true flex
+                    sibling of the other, so stretch equalises them
+                    correctly. */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: '24px' }}>
                   {appointmentAnalysis.byMeetingType.length > 0 && (
-                    <div>
-                      <div style={groupLabelStyle}>Meeting Type</div>
-                      {/* 16 Aug 2026 (§180) — Mark's own suggestion: "perhaps
-                          the Meeting Type could be a donut chart." Was a
-                          DataTable (Booked/Won/Conversion Ratio columns) —
-                          genuine parts-of-a-whole data (every appointment
-                          has exactly one meeting type), so donut fits
-                          cleanly. Won/Conversion Ratio columns dropped
-                          rather than kept alongside — with only ever
-                          InPerson/Virtual as categories, a supplementary
-                          table for two rows added little beyond what the
-                          donut (booked share) plus hover already carries.
-                          Real, different metrics (not a repeat of Booked)
-                          so flagging the drop rather than silently losing
-                          them — easy to bring back as its own small table
-                          if that comparison specifically is wanted. */}
-                      <DonutBreakdown
-                        isMobile={isMobile}
-                        data={appointmentAnalysis.byMeetingType.map((m, i) => ({
-                          label: m.meetingType, value: m.booked,
-                          colour: CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
-                        }))}
-                      />
-                    </div>
+                    /* 16 Aug 2026 (§180) — Mark's own suggestion: "perhaps
+                       the Meeting Type could be a donut chart." Was a
+                       DataTable (Booked/Won/Conversion Ratio columns) —
+                       genuine parts-of-a-whole data (every appointment
+                       has exactly one meeting type), so donut fits
+                       cleanly. Won/Conversion Ratio columns dropped
+                       rather than kept alongside — with only ever
+                       InPerson/Virtual as categories, a supplementary
+                       table for two rows added little beyond what the
+                       donut (booked share) plus hover already carries.
+                       Real, different metrics (not a repeat of Booked)
+                       so flagging the drop rather than silently losing
+                       them — easy to bring back as its own small table
+                       if that comparison specifically is wanted. */
+                    <DonutBreakdown
+                      title="Meeting Type"
+                      isMobile={isMobile}
+                      data={appointmentAnalysis.byMeetingType.map((m, i) => ({
+                        label: m.meetingType, value: m.booked,
+                        colour: CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
+                      }))}
+                    />
                   )}
                   {appointmentAnalysis.cancelReasons.length > 0 ? (
-                    <div>
-                      <div style={groupLabelStyle}>Cancellation reasons</div>
-                      {/* 15 Aug 2026 (§175) — same DonutBreakdown as Won vs
-                          Lost's own loss-reasons section, for consistency
-                          between the two visually near-identical
-                          breakdowns. See that section's own comment for
-                          the full reasoning. */}
-                      <DonutBreakdown
-                        isMobile={isMobile}
-                        data={appointmentAnalysis.cancelReasons.map((r, i) => ({
-                          label: CANCEL_REASON_LABELS[r.reason] ?? r.reason,
-                          value: r.count,
-                          colour: r.reason === 'Not captured' ? colors.ink400 : CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
-                        }))}
-                      />
-                    </div>
+                    /* 15 Aug 2026 (§175) — same DonutBreakdown as Won vs
+                       Lost's own loss-reasons section, for consistency
+                       between the two visually near-identical
+                       breakdowns. See that section's own comment for
+                       the full reasoning. */
+                    <DonutBreakdown
+                      title="Cancellation reasons"
+                      isMobile={isMobile}
+                      data={appointmentAnalysis.cancelReasons.map((r, i) => ({
+                        label: CANCEL_REASON_LABELS[r.reason] ?? r.reason,
+                        value: r.count,
+                        colour: r.reason === 'Not captured' ? colors.ink400 : CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
+                      }))}
+                    />
                   ) : appointmentAnalysis.cancelled > 0 ? (
-                    <p style={{ fontSize: '0.75rem', color: colors.ink400, marginBottom: 0, maxWidth: '220px' }}>
-                      No cancellation reasons captured yet this period — the field exists now, but none of this period's cancelled meetings have one recorded.
-                    </p>
+                    /* 16 Aug 2026 (§183) — routed through DonutBreakdown's
+                       own empty-state branch (data=[]) rather than a bare
+                       <p>, so this card matches its sibling's chrome and
+                       height exactly instead of being an unstyled outlier
+                       in the same row — same reasoning as the card-chrome
+                       fix in DonutBreakdown itself (§179/§182). */
+                    <DonutBreakdown
+                      title="Cancellation reasons"
+                      isMobile={isMobile}
+                      data={[]}
+                      emptyMessage="No cancellation reasons captured yet this period — the field exists now, but none of this period's cancelled meetings have one recorded."
+                    />
                   ) : null}
                 </div>
 

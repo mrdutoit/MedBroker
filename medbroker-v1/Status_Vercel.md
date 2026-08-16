@@ -55,8 +55,17 @@ page sections for no real reason, and a degenerate "100% Not captured"
 case rendering as an uninformative flat grey ring. Real architectural
 consolidation, not a styling patch — see that entry for the full
 account, including the frontend-design skill this session should have
-been consulting throughout the whole donut saga and wasn't. Full detail
-in §177 through §182 below.
+been consulting throughout the whole donut saga and wasn't. §183 then
+found and fixed a genuine, pre-existing data bug the §182
+consolidation itself surfaced (putting Won/Lost breakdowns literally
+side by side made a real inconsistency visible that was always there,
+just never in view at once): the new region query counted "Lost" more
+narrowly than every other breakdown in this file does, missing
+ReturnedToLeads appointments the KPI and Portfolio breakdown both
+correctly included. Also fixed: unequal card heights across a donut
+row (a DOM-nesting issue breaking flexbox's own stretch behaviour) and
+long category labels wrapping badly in the legend. Full detail in §177
+through §183 below.
 
 CORRECTED 16 Aug 2026 (session 24/§176) — this block, and the OTHER
 OUTSTANDING ITEMS list below, had drifted badly out of date: items 1
@@ -14664,3 +14673,103 @@ actual rendered page before treating this as settled, same honesty as
 NOT YET DEPLOYED.
 
 FILES: frontend/src/components/ReportsWidgets.jsx, frontend/src/pages/Reports.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+183. THREE MORE ISSUES FROM §182's OWN DELIVERY — A REAL DATA BUG IN THE REGION QUERY, UNEQUAL CARD HEIGHTS, LONG LABEL WRAPPING — 16 Aug 2026 (session 24, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark, with screenshots of §182's own delivery live: graphs not equal
+heights; "the Closed - Lost reporting seems to be broken... shows 4
+Won and 2 Lost, but the graph doesn't match that"; and long
+cancellation-reason labels "display terribly."
+
+REAL DATA BUG (the Won/Lost mismatch) — traced directly against the
+code, not guessed. §182's own consolidation is what surfaced this: it
+put the Overall Won/Lost donut, By Region, and By Portfolio literally
+side by side for the first time, making a pre-existing inconsistency
+visible that was always there. §180's new region query filtered
+`a.status IN ('ClosedWon', 'ClosedLost')` — matching the pattern of the
+EXISTING loss-reasons query it was built next to. But that's not what
+"Lost" means anywhere else in this file: mergeClosedMetrics()
+(reportService.js, used by portfolioTable, the source table, broker/
+agent tables — everywhere except loss-reasons and, until now, region)
+explicitly folds ClosedLost + ReturnedToLeads + a no-appointment direct
+Lead-close path into "lost", and pipeline's own KPI (the "LOST: 2" at
+the top of Won vs Lost) uses that same broader definition. §180's
+region query landed on a narrower one by copying the wrong neighbour's
+pattern instead of reusing the shared helper — so a region whose only
+"lost" deal was actually ReturnedToLeads status showed zero losses,
+while the KPI and By Portfolio (which correctly goes through
+mergeClosedMetrics) counted it. FIXED: region query now includes
+ReturnedToLeads in its WHERE clause and routes its results through
+mergeClosedMetrics() directly — the exact same call every other
+breakdown in this file already makes, not a second hand-rolled version
+of the same logic. Verified against synthetic data matching Mark's own
+scenario (2 won/2 won across two regions, 1 lost as ReturnedToLeads in
+one region, 1 lost as ClosedLost in the other) — lostByRegion now
+correctly sums to 2, matching the KPI.
+
+FLAGGED, NOT CHANGED: the loss-reasons query (§175, predates this
+session) has the same narrower ClosedLost-only filter and likely shows
+the same class of gap — but lostReason is specifically collected
+during the ClosedLost outcome-recording flow and may never be set at
+all for a ReturnedToLeads appointment (a genuinely different closing
+path), so widening that filter isn't obviously correct the way it was
+for region. Left as-is rather than guessed at; worth Mark's own call on
+whether Loss reasons should count ReturnedToLeads appointments (with an
+implicit "no reason", since none was ever asked) or stay scoped to true
+ClosedLost outcomes specifically.
+
+UNEQUAL HEIGHTS — root cause: WonLostPair (and the Meeting Type/
+Cancellation reasons row) used to wrap each pair/item in its own
+labelled <div>, so the Won-vs-Lost row's direct flex children were
+THREE wrapper divs (Overall, By-Region-wrapper, By-Portfolio-wrapper),
+not five donut cards. Flexbox's own align-items:stretch (the default)
+equalised those three wrappers, but couldn't reach two levels deep to
+equalise the actual cards inside each wrapper against the standalone
+Overall card, since they were never true siblings of it in the DOM.
+FIXED: WonLostPair now returns a bare fragment of two DonutBreakdowns
+with compound titles ("Region · Won" style) instead of a wrapping div
+with its own heading; Meeting Type and Cancellation reasons likewise
+now carry their own title directly rather than sitting in a labelled
+wrapper. Every donut in a row is now a genuine flex sibling of every
+other one in that row, so stretch equalises all of them automatically.
+DonutBreakdown's own half of the fix: the title slot is now ALWAYS
+reserved (fixed height, hidden via visibility:hidden when no title is
+passed) rather than conditionally rendered — a title-less card and a
+titled card need identical internal structure for stretch to actually
+produce equal heights, not just coincidentally similar ones. Both
+"Cancellation reasons" and "Loss reasons" empty-state fallbacks (used
+to be bare <p> tags) now route through DonutBreakdown's own empty
+branch too (data=[], a real emptyMessage) — matches the sibling card's
+border/padding/size exactly instead of being a styleless outlier.
+
+LONG LABELS — legend was a horizontal wrapping row of dot+text badges,
+centered — fine for short categories, genuinely bad for this app's
+actual data (cancellation/loss reasons routinely run 25-35 characters).
+A long label wrapped onto two lines WITHIN one badge, with the dot
+centered against the whole wrapped block rather than the first line.
+FIXED: switched to a vertical list, one category per row, left-aligned
+— text wraps naturally like an ordinary sentence, dot aligns with the
+first line specifically (alignItems: 'flex-start' + a small top offset
+for cap-height) rather than floating mid-block.
+
+VERIFIED: node --check clean, npm run build clean (confirms no unused-
+variable issues from removing the now-dead groupLabelStyle constant),
+npx vitest run — 48/48 passing. Region-query fix verified against
+synthetic data matching Mark's own reported scenario, not just eyeballed
+— see above. Diffed against a fresh GitHub hydration taken immediately
+before packaging — isolated to exactly three files, confirmed no drift
+since. Still no live browser/Postgres in this sandbox — the height and
+wrapping fixes are reasoned through carefully (DOM structure, flexbox
+stretch semantics) but genuinely unverified visually; the region fix IS
+verified at the logic level against real Postgres semantics
+(mergeClosedMetrics is the same function already proven correct
+elsewhere in this file), which is a stronger claim than the layout
+fixes can honestly make.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/api-lib/services/reportService.js,
+frontend/src/components/ReportsWidgets.jsx, frontend/src/pages/Reports.jsx.

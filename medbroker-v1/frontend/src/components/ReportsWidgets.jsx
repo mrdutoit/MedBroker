@@ -146,6 +146,40 @@ export function KpiCard({ label, current, format, deltaPct, direction, lowerIsBe
 //    languages for what's meant to read as one coherent pair. Both
 //    branches below now render inside the SAME card chrome — same
 //    border, padding, size — whether there's a chart in it or not.
+//
+// §183 — two more real problems, both about internal consistency
+// across a row of these cards, not the card in isolation:
+//
+// 1. UNEQUAL HEIGHTS — a card with a `title` (used whenever more than
+//    one donut sits in the same logical group, e.g. Won/Lost) needed
+//    more vertical space than a card without one, so a lone "Overall"
+//    card next to a titled "Won"/"Lost" pair came out visibly shorter,
+//    even though every card shared the same minHeight. minHeight alone
+//    can't equalise siblings whose actual content differs — flexbox's
+//    own align-items:stretch only works reliably when the cards are
+//    TRUE SIBLINGS at the same DOM level, which they weren't (see
+//    WonLostPair/Reports.jsx's own comment — grouped pairs used to
+//    nest inside an extra wrapper div with the group's own heading
+//    above them, breaking stretch propagation to the "Overall" card
+//    one level up). Real fix lives in Reports.jsx (flattened the DOM),
+//    but THIS component's own half of it: always reserve the title
+//    slot's height, whether or not a title is actually passed — a
+//    title-less card and a titled card must have identical internal
+//    structure for stretch to equalise them meaningfully, not just
+//    coincidentally similar total heights.
+// 2. LONG LABELS — the legend used to be a horizontal wrapping row of
+//    dot+text badges, centered. Fine for short single-word categories;
+//    genuinely bad for this app's actual data (cancellation/loss
+//    reasons routinely run 25-35 characters — "Scheduling conflict,
+//    wants to rebook"). A long label wrapped onto two lines WITHIN one
+//    horizontally-packed badge, with the dot vertically centered
+//    against the whole wrapped block rather than the first line —
+//    reads as broken, not restrained. Switched to a vertical list,
+//    left-aligned, one category per row — text now wraps naturally
+//    within the card's own width like an ordinary sentence, and the
+//    dot aligns with the first line specifically (alignItems:
+//    'flex-start' + a small top offset for cap-height), not floating
+//    in the middle of a multi-line block.
 export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessage, title }) {
   const total = data.reduce((sum, d) => sum + d.value, 0);
   const realTotal = data.filter(d => d.label !== 'Not captured').reduce((sum, d) => sum + d.value, 0);
@@ -156,11 +190,19 @@ export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessag
     width: isMobile ? '100%' : '220px', minHeight: '236px', boxSizing: 'border-box',
     justifyContent: total === 0 || realTotal === 0 ? 'center' : 'flex-start',
   };
+  // Reserved regardless of whether `title` is actually passed — see
+  // §183's own comment above on why this has to be unconditional for
+  // sibling cards to come out the same height.
+  const titleSlot = (
+    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500, height: '16px', lineHeight: '16px', visibility: title ? 'visible' : 'hidden' }}>
+      {title || '\u00A0'}
+    </div>
+  );
 
   if (total === 0) {
     return (
       <div style={cardStyle}>
-        {title && <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500 }}>{title}</div>}
+        {titleSlot}
         <div style={{ fontSize: '0.8125rem', color: colors.ink400, textAlign: 'center' }}>
           {emptyMessage ?? 'No data for this period.'}
         </div>
@@ -170,7 +212,7 @@ export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessag
   if (realTotal === 0) {
     return (
       <div style={cardStyle}>
-        {title && <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500 }}>{title}</div>}
+        {titleSlot}
         <div style={{ fontSize: '0.8125rem', color: colors.ink400, textAlign: 'center' }}>
           {notCapturedMessage ?? emptyMessage ?? 'Not captured for this period.'}
         </div>
@@ -180,8 +222,8 @@ export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessag
 
   return (
     <div style={cardStyle}>
-      {title && <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500 }}>{title}</div>}
-      <div style={{ width: '168px', height: '168px' }}>
+      {titleSlot}
+      <div style={{ width: '168px', height: '168px', flexShrink: 0 }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
@@ -206,14 +248,13 @@ export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessag
           </PieChart>
         </ResponsiveContainer>
       </div>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '100%' }}>
         {data.map(d => (
-          <span key={d.label} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', color: colors.ink500 }}>
-            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: d.colour, flexShrink: 0 }} />
-            {d.label}
-          </span>
+          <div key={d.label} style={{ display: 'flex', alignItems: 'flex-start', gap: '6px', fontSize: '0.75rem', color: colors.ink500, lineHeight: '1.3' }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: d.colour, flexShrink: 0, marginTop: '4px' }} />
+            <span>{d.label}</span>
+          </div>
         ))}
-
       </div>
     </div>
   );

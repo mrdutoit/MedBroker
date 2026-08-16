@@ -1626,28 +1626,46 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
   // carries no region at all; same "count it, label it honestly" pattern
   // as loss/cancel reasons above rather than silently dropping the row.
   //
-  // REAL BUG, caught by Mark's own testing (§181): this query's alias
-  // was originally named `region`, matching every other query's own
-  // SELECT-column-as-its-real-name style EXCEPT the "groupKey" ones. The
-  // difference matters here specifically because Lead ALSO has its own
-  // region column, joined into scope right alongside Appointment's —
-  // `GROUP BY region` was genuinely ambiguous in Postgres (could mean the
-  // COALESCE(a.region,...) output alias, or l.region, or a.region), which
-  // Postgres correctly refuses to guess at and throws on. Every OTHER
-  // breakdown query in this file sidesteps exactly this risk by aliasing
-  // to "groupKey" — a name deliberately chosen to never collide with a
-  // real column on anything these queries join. Should have followed
-  // that same convention from the start rather than reaching for a
-  // human-readable alias; fixed now to match it.
+  // REAL BUG (§181, alias collision) already fixed here — see the
+  // groupKey rename below. A SECOND real bug, caught by Mark's own
+  // testing (§183): this query originally matched
+  // `a.status IN ('ClosedWon', 'ClosedLost')` only, same pattern as the
+  // loss-reason query just above it — but that's NOT what "Lost" means
+  // anywhere else in this file. mergeClosedMetrics() (this file, defined
+  // above) is the established, explicit convention: ClosedLost +
+  // ReturnedToLeads both fold into "lost" — portfolioTable (below) and
+  // every other breakdown in this file (source, broker, agent) already
+  // go through mergeClosedMetrics and get this right automatically. This
+  // query hand-rolled its own filter/groupby instead of reusing that
+  // shared helper, silently landing on a NARROWER definition of "lost"
+  // than the pipeline KPI (LOST: 2, which DOES include ReturnedToLeads)
+  // — so a region whose only "lost" deal was actually ReturnedToLeads
+  // status showed as having no losses at all, while the KPI and By
+  // Portfolio (correctly) counted it. Fixed by routing through
+  // mergeClosedMetrics() directly, matching the rest of this file
+  // exactly rather than re-deriving the same logic a second, slightly
+  // wrong way. Flagged separately, not silently changed here: the
+  // EXISTING loss-reasons query directly above (§175, predates this
+  // session) has the same narrower ClosedLost-only filter — left as-is,
+  // since lostReason is specifically collected during the ClosedLost
+  // outcome-recording flow and may never be set at all for a
+  // ReturnedToLeads appointment (a genuinely different closing path) —
+  // widening that filter isn't obviously correct the way it was here,
+  // and changing an established, working feature on a guess risks
+  // trading one bug for another. Worth Mark's own call on whether Loss
+  // reasons should also count ReturnedToLeads appointments (with no
+  // reason, since none was ever asked) or stay scoped to true
+  // ClosedLost outcomes specifically.
   const regionRows = await executeQuery(
     `SELECT COALESCE(a.region, 'Not captured') AS "groupKey", a.status, COUNT(*) AS count
      FROM Appointment a JOIN Lead l ON l.id = a.leadId
-     WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF5.sqlFragment}
+     WHERE a.status IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF5.sqlFragment}
      GROUP BY "groupKey", a.status`,
     { ...lossReasonParams, ...apptF5.params }
   );
-  const wonByRegion  = regionRows.filter(r => r.status === 'ClosedWon' ).map(r => ({ region: r.groupKey, count: Number(r.count) }));
-  const lostByRegion = regionRows.filter(r => r.status === 'ClosedLost').map(r => ({ region: r.groupKey, count: Number(r.count) }));
+  const regionClosed = mergeClosedMetrics(regionRows, []);
+  const wonByRegion  = Object.entries(regionClosed).filter(([, v]) => v.closedWon  > 0).map(([region, v]) => ({ region, count: v.closedWon }));
+  const lostByRegion = Object.entries(regionClosed).filter(([, v]) => v.closedLost > 0).map(([region, v]) => ({ region, count: v.closedLost }));
   const wonVsLost = {
     won: closedWonCount, lost: closedLostCount,
     winRate: (closedWonCount + closedLostCount) === 0 ? null : Math.round((closedWonCount / (closedWonCount + closedLostCount)) * 1000) / 10,

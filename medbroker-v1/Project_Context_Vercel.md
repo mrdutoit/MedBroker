@@ -1138,6 +1138,21 @@ STANDING LAYOUT PRINCIPLE, 16 Aug 2026 (§182) — don't give related
   otherwise-empty full-width row is the visible symptom; the actual
   fix is consolidation, not making that one card bigger.
 
+  EXTENDED 16 Aug 2026 (§183) — consolidating into one flex-wrap row
+  isn't enough on its own if any item in that row is wrapped in its own
+  extra <div> (a group heading, a label, anything). align-items:stretch
+  (flexbox's own default) only equalises TRUE SIBLINGS at the same DOM
+  level — it can't reach through an intermediate wrapper to equalise a
+  card two levels deep against one that's a direct child. When putting
+  multiple DonutBreakdowns in one row, every one of them must be a
+  direct child of that row — if a set needs its own label (a Won/Lost
+  pair, for instance), put the label INSIDE each DonutBreakdown via its
+  own `title` prop (compound titles like "Region · Won" work fine),
+  never as a separate wrapping <div> around the group. This is why
+  WonLostPair returns a bare fragment of two DonutBreakdowns now, not a
+  labelled wrapper — check that pattern before adding a new paired or
+  grouped donut anywhere on this page.
+
 STANDING SKILL OBLIGATION, 16 Aug 2026 (§182) — this environment has a
   frontend-design skill (/mnt/skills/public/frontend-design/SKILL.md)
   that should be read before any UI/visual layout work on this page (or
@@ -1190,6 +1205,35 @@ WonLostPair (Reports.jsx, page-local — NOT exported from
   and Lead simultaneously — the collision risk is real, not theoretical,
   and will recur for any future query that groups by it under any alias
   other than groupKey.
+
+  SECOND REAL BUG, 16 Aug 2026 (§183), caught by Mark's own testing
+  once §182 put Overall/By Region/By Portfolio literally side by side
+  for the first time: the region query filtered
+  `a.status IN ('ClosedWon', 'ClosedLost')` only — but "Lost" means
+  something BROADER everywhere else in this file. mergeClosedMetrics()
+  (this file, used by portfolioTable/source table/broker/agent tables)
+  explicitly folds ClosedLost + ReturnedToLeads + the no-appointment
+  direct Lead-close path into "lost", and pipeline's own KPI (the
+  headline Won/Lost counts) uses that same broader definition. The
+  region query landed on the narrower definition by copying the
+  EXISTING loss-reasons query's own pattern as a template, not realising
+  that query itself uses the narrower filter (see below) rather than
+  the file's actual standing convention. STANDING RULE: any new
+  breakdown of Won/Lost data MUST route through mergeClosedMetrics() —
+  don't hand-roll a filter/GROUP BY and assume it matches; the two
+  definitions look almost identical (`ClosedLost` vs `ClosedLost +
+  ReturnedToLeads`) and will only diverge visibly when an org actually
+  has ReturnedToLeads appointments in the period being viewed, which
+  won't be true in every test.
+
+  KNOWN, UNRESOLVED, FLAGGED TO MARK: the loss-reasons query
+  specifically (§175, wonVsLost.lossReasons) has this same narrower
+  ClosedLost-only filter and was NOT changed alongside region — lostReason
+  is collected during the ClosedLost outcome-recording flow specifically
+  and may never be set for a ReturnedToLeads appointment (a different
+  closing path entirely), so widening it isn't obviously correct the
+  way it was for region. Needs Mark's own decision, not a unilateral
+  fix, before touching it.
 
 List sort — two genuinely different implementations on this codebase,
   by design, not inconsistency. AppointmentList.jsx sorts CLIENT-SIDE:
