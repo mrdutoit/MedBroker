@@ -13882,3 +13882,80 @@ GitHub — confirmed isolated to the one file.
 NOT YET DEPLOYED. No migration required — frontend-only.
 
 FILES: frontend/src/pages/AppointmentDetail.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+175. REPORTS — DONUT + SHARE-LIST FOR GENUINE PARTS-OF-A-WHOLE DATA, REVERSING PART OF §156'S ORIGINAL BRIEF; PIPELINE HEALTH'S SEQUENTIAL STAGES DROP BARS ENTIRELY — 15 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark's follow-up to §173's fix went deeper than that fix addressed:
+"bars that essentially just show a number of items that aren't being
+compared to anything else," pointing at a donut + value-share list from
+another app of his (an investment tracker) as the reference. §173 fixed
+a real structural bug (bar widths that were correctly scaled but
+impossible to visually compare across separate boxes) — this is a
+different, more fundamental point: for genuine parts-of-a-whole data, a
+bar scaled against the largest item was never the right visualisation
+at all, no matter how correctly it's drawn.
+
+WORTH BEING DIRECT ABOUT: this reverses part of §156's own original
+Reports brief, which explicitly ruled out "one colour per category"
+rotating donuts for share-of-whole data — that reasoning is still
+visible in this file's own header comment history. Mark's current
+request is genuine, specific design feedback backed by a concrete
+reference, not an oversight to quietly paper over — noted directly in
+the file's own updated header comment, not silently changed.
+
+BUILT: DonutBreakdown, a new reusable component (ReportsWidgets.jsx) —
+a real recharts Pie/donut on the left, a share-list on the right
+(coloured dot, label, a bar scaled to each item's SHARE OF THE TOTAL —
+not share-of-the-largest-item the way this file's other bars work,
+value, percentage), matching Mark's referenced pattern. A NEW
+CATEGORICAL_PALETTE (six fixed hex colours, deliberately not theme CSS
+variables — a rotating palette needs to stay distinct regardless of
+which of the app's own accent themes is selected) — this constant was
+only ever referenced in an old comment before, never actually built;
+now it exists for exactly the case that comment carved out as
+legitimate. Scoped deliberately: used ONLY for genuine parts-of-a-whole
+data (a cancellation reason, a loss reason, a won/lost split — every
+item sums to 100% of something real) — never for the ranked tables or
+the sequential pipeline stages, where the original restraint principle
+still holds.
+
+APPLIED to three places:
+  - Won vs Lost's loss-reasons breakdown.
+  - Appointment Analysis's cancellation-reasons breakdown.
+  - Pipeline Health's Closed Won/Closed Lost — reframed as a genuine
+    "Win Rate" donut, since a deal being won or lost IS real
+    parts-of-a-whole data, unlike the sequential stages above it.
+
+PIPELINE HEALTH'S SEQUENTIAL STAGES (Unassigned/Assigned/In Progress/
+Appointment Booked) — bars dropped ENTIRELY, not just re-scaled again.
+Real reasoning, not just simplification for its own sake: these stages
+were never parts-of-a-whole data to begin with — a lead doesn't split
+across them, each count is a snapshot of where that period's cohort
+currently sits. A bar chart implies "these add up to something," which
+was never true here, so no rescaling could have made it read as
+meaningful — confirms Mark's complaint was correct even about the part
+§173's fix already touched. Replaced with a clean stat-flow: count +
+label per stage, connected by the real stage-to-stage conversion %
+(the only genuinely useful number in that part of the section, kept
+exactly as it was).
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 48/48 passing.
+Confirmed recharts 3.10.1 (already a dependency) exports Pie/PieChart/
+Cell before building against them, not assumed. Tested the share-of-
+total math directly against Mark's own exact reported data — Win Rate
+(Won=2, Lost=1) correctly computes 67%/33%, and the two-way
+cancellation-reasons split correctly computes 50%/50%, both genuinely
+meaningful proportions rather than the previous share-of-max scaling
+that conveyed comparative size but not real share. Swept for any
+leftover old bar-list code — clean, fully replaced, not left running
+alongside the new component. Diffed against fresh GitHub — confirmed
+isolated to exactly the two intended files.
+
+NOT YET DEPLOYED. No migration required — purely a frontend/component
+change, no schema or backend touched.
+
+FILES: frontend/src/components/ReportsWidgets.jsx,
+frontend/src/pages/Reports.jsx.

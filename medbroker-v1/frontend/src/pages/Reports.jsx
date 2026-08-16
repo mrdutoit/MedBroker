@@ -68,6 +68,7 @@ import { s, colors } from '../styles/tokens.js';
 import { PeriodSelector, getPeriodLabel, referenceDateToParam } from '../components/PeriodSelector.jsx';
 import {
   KpiCard, TrendChart, PipelineHealth, DataTable, EmptyState, Section,
+  DonutBreakdown, CATEGORICAL_PALETTE,
   fmt, fmtDays, fmtRatio,
 } from '../components/ReportsWidgets.jsx';
 
@@ -437,27 +438,25 @@ export default function Reports() {
                 </div>
                 {wonVsLost.hasLossReasons ? (
                   <div style={{ marginTop: '18px' }}>
-                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500, marginBottom: '8px' }}>Loss reasons</div>
-                    {(() => {
-                      const maxCount = Math.max(...wonVsLost.lossReasons.map(r => r.count), 1);
-                      return wonVsLost.lossReasons.map(r => (
-                        <div key={r.reason} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                          <span style={{ fontSize: '0.8125rem', width: isMobile ? '110px' : '160px', flexShrink: 0, color: r.reason === 'Not captured' ? colors.ink400 : colors.ink700 }}>
-                            {LOST_REASON_LABELS[r.reason] ?? r.reason}
-                          </span>
-                          <div style={{ flex: 1, height: '16px', background: colors.surfaceSubtle, borderRadius: '4px', overflow: 'hidden' }}>
-                            {/* 15 Aug 2026 — capped at 85%, not 100%,
-                                matching the identical fix applied to
-                                Appointment Analysis's cancel-reasons bar
-                                just below in this file — a lone
-                                category filling the entire row read as
-                                heavier than one data point warrants. */}
-                            <div style={{ width: `${Math.min(85, Math.max(4, (r.count / maxCount) * 85))}%`, height: '100%', background: r.reason === 'Not captured' ? colors.ink400 : colors.danger, opacity: r.reason === 'Not captured' ? 0.5 : 0.85 }} />
-                          </div>
-                          <span style={{ fontSize: '0.8125rem', fontWeight: 600, width: '24px', textAlign: 'right' }}>{r.count}</span>
-                        </div>
-                      ));
-                    })()}
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500, marginBottom: '10px' }}>Loss reasons</div>
+                    {/* 15 Aug 2026 (§175) — replaces the old ranked bar
+                        list. Genuine parts-of-a-whole data (every lost
+                        deal has exactly one reason) is what
+                        DonutBreakdown exists for — Mark's own explicit
+                        request, referencing a donut+share-list pattern
+                        from another app of his. 'Not captured' stays
+                        neutral grey, not a rotating palette slot — it's
+                        an absence-of-data bucket, not a real category
+                        the reader should visually equate with the
+                        others. */}
+                    <DonutBreakdown
+                      isMobile={isMobile}
+                      data={wonVsLost.lossReasons.map((r, i) => ({
+                        label: LOST_REASON_LABELS[r.reason] ?? r.reason,
+                        value: r.count,
+                        colour: r.reason === 'Not captured' ? colors.ink400 : CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
+                      }))}
+                    />
                   </div>
                 ) : (
                   <p style={{ fontSize: '0.75rem', color: colors.ink400, marginTop: '14px', marginBottom: 0 }}>
@@ -502,30 +501,20 @@ export default function Reports() {
                 )}
                 {appointmentAnalysis.cancelReasons.length > 0 ? (
                   <div style={{ marginTop: '18px' }}>
-                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500, marginBottom: '8px' }}>Cancellation reasons</div>
-                    {(() => {
-                      const maxCount = Math.max(...appointmentAnalysis.cancelReasons.map(r => r.count), 1);
-                      return appointmentAnalysis.cancelReasons.map(r => (
-                        <div key={r.reason} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '6px' }}>
-                          <span style={{ fontSize: '0.8125rem', width: isMobile ? '110px' : '160px', flexShrink: 0, color: r.reason === 'Not captured' ? colors.ink400 : colors.ink700 }}>
-                            {CANCEL_REASON_LABELS[r.reason] ?? r.reason}
-                          </span>
-                          <div style={{ flex: 1, height: '16px', background: colors.surfaceSubtle, borderRadius: '4px', overflow: 'hidden' }}>
-                            {/* 15 Aug 2026 — capped at 85%, not 100%: a
-                                lone category (the common case with a
-                                small dataset) previously filled the
-                                ENTIRE row, reading as heavier/more
-                                "final" than one data point actually
-                                warrants. Same cap applied to Won vs
-                                Lost's own loss-reasons bar below, for
-                                consistency between the two visually
-                                near-identical sections. */}
-                            <div style={{ width: `${Math.min(85, Math.max(4, (r.count / maxCount) * 85))}%`, height: '100%', background: r.reason === 'Not captured' ? colors.ink400 : '#b45309', opacity: r.reason === 'Not captured' ? 0.5 : 0.85 }} />
-                          </div>
-                          <span style={{ fontSize: '0.8125rem', fontWeight: 600, width: '24px', textAlign: 'right' }}>{r.count}</span>
-                        </div>
-                      ));
-                    })()}
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500, marginBottom: '10px' }}>Cancellation reasons</div>
+                    {/* 15 Aug 2026 (§175) — same DonutBreakdown as Won vs
+                        Lost's own loss-reasons section, for consistency
+                        between the two visually near-identical
+                        breakdowns. See that section's own comment for
+                        the full reasoning. */}
+                    <DonutBreakdown
+                      isMobile={isMobile}
+                      data={appointmentAnalysis.cancelReasons.map((r, i) => ({
+                        label: CANCEL_REASON_LABELS[r.reason] ?? r.reason,
+                        value: r.count,
+                        colour: r.reason === 'Not captured' ? colors.ink400 : CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
+                      }))}
+                    />
                   </div>
                 ) : appointmentAnalysis.cancelled > 0 ? (
                   <p style={{ fontSize: '0.75rem', color: colors.ink400, marginTop: '14px', marginBottom: 0 }}>

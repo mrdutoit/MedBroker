@@ -10,15 +10,26 @@
  * restraint (Linear/Stripe/Attio-class information hierarchy, not their
  * branding). Dense but not cluttered. Large numbers, strong headings, no
  * microscopic labels. Restrained semantic colour — green/red/neutral used
- * MEANINGFULLY (a real direction, a real comparison), never one colour per
- * category the way CATEGORICAL_PALETTE rotates for a share-of-whole donut.
- * Real empty/low-data states, not a chart rendering ridiculously at n=1.
+ * MEANINGFULLY (a real direction, a real comparison). Real empty/low-data
+ * states, not a chart rendering ridiculously at n=1.
+ *
+ * REVERSED 15 Aug 2026 (§175): §156's original brief explicitly ruled out
+ * "one colour per category" rotating donuts for share-of-whole data (this
+ * comment used to say so directly). Mark asked for exactly that, pointing
+ * at a concrete reference (a donut + value-share list from another app of
+ * his) — genuine, specific design feedback, not an oversight to quietly
+ * paper over. CATEGORICAL_PALETTE and DonutBreakdown (below) are the
+ * result — used ONLY for genuine parts-of-a-whole data (a cancellation/
+ * loss reason, a won/lost split — every item sums to 100% of something
+ * real), never for the ranked tables or the sequential pipeline stages,
+ * where a rotating category colour would still be decoration, not
+ * information, and the original restraint principle still holds.
  */
 
 import { useState } from 'react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer,
+  ResponsiveContainer, PieChart, Pie, Cell,
 } from 'recharts';
 import { s, colors, radius, type } from '../styles/tokens.js';
 
@@ -27,6 +38,16 @@ export const fmt = v => `R${(v / 1000000).toFixed(2)}m`;
 export const fmtDays = d => d === null || d === undefined ? '—' : `${d.toFixed(1)} days`;
 export const fmtRatio = v => v === null || v === undefined ? '—' : v.toFixed(1);
 export const fmtPct = v => v === null || v === undefined ? '—' : `${v.toFixed(1)}%`;
+
+// 15 Aug 2026 (§175) — fixed hex values, deliberately NOT theme CSS
+// variables (var(--accent) etc.) — a rotating multi-colour palette needs
+// to stay mutually distinct regardless of which of the app's own accent
+// themes is currently selected; tying rotation to a single theme
+// variable wouldn't make sense here the way it does for the rest of this
+// file's semantic colours. 'Not captured' / neutral buckets use
+// colors.ink400 instead of a palette slot — see DonutBreakdown's own
+// comment for why that stays a special case, not just another category.
+export const CATEGORICAL_PALETTE = ['#2563eb', '#0d9488', '#d97706', '#7c3aed', '#dc2626', '#0891b2'];
 
 /**
  * Direction -> colour, respecting `lowerIsBetter` (Avg Days to Close: a
@@ -85,6 +106,56 @@ export function KpiCard({ label, current, format, deltaPct, direction, lowerIsBe
           <Sparkline data={sparklineData} dataKey={sparklineKey} colour={sparklineColour ?? colors.primary} />
         </div>
       )}
+    </div>
+  );
+}
+
+// ─── Donut + share list — 15 Aug 2026 (§175). Genuine parts-of-a-whole
+// data ONLY (every item sums to 100% of something real: a cancellation
+// reason, a loss reason, a won/lost split) — see this file's own header
+// comment for why the ranked tables and sequential pipeline stages don't
+// use this. The share-list bars are scaled to each item's SHARE OF THE
+// TOTAL, not share-of-the-largest-item the way this file's other bars
+// work — a genuinely different, more honest scale for this kind of data:
+// a lone category correctly reads as "100% of what's captured" rather
+// than being visually capped/restrained the way a ranked-table bar is,
+// because for THIS data that full-width bar is actually true, not an
+// artifact of a small sample.
+export function DonutBreakdown({ data, isMobile, emptyMessage }) {
+  const total = data.reduce((sum, d) => sum + d.value, 0);
+  if (total === 0) return <EmptyState message={emptyMessage ?? 'No data for this period.'} />;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '24px', alignItems: 'center' }}>
+      <div style={{ width: isMobile ? '150px' : '170px', height: isMobile ? '150px' : '170px', flexShrink: 0 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data} dataKey="value" nameKey="label"
+              innerRadius="62%" outerRadius="100%" paddingAngle={data.length > 1 ? 2 : 0}
+              stroke="none" isAnimationActive={false}
+            >
+              {data.map(d => <Cell key={d.label} fill={d.colour} />)}
+            </Pie>
+          </PieChart>
+        </ResponsiveContainer>
+      </div>
+      <div style={{ flex: 1, width: '100%' }}>
+        {data.map(d => {
+          const pct = (d.value / total) * 100;
+          return (
+            <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
+              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: d.colour, flexShrink: 0 }} />
+              <span style={{ fontSize: '0.8125rem', color: colors.ink700, flexShrink: 0, width: isMobile ? '96px' : '150px' }}>{d.label}</span>
+              <div style={{ flex: 1, height: '6px', background: colors.surfaceSubtle, borderRadius: radius.pill, overflow: 'hidden' }}>
+                <div style={{ width: `${Math.max(pct, 2)}%`, height: '100%', background: d.colour, borderRadius: radius.pill }} />
+              </div>
+              <span style={{ fontSize: '0.8125rem', fontWeight: 600, width: '26px', textAlign: 'right', flexShrink: 0 }}>{d.value}</span>
+              <span style={{ fontSize: '0.75rem', color: colors.ink400, width: '36px', textAlign: 'right', flexShrink: 0 }}>{Math.round(pct)}%</span>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
@@ -181,83 +252,68 @@ function stageColour(ratio) {
 }
 
 /**
- * REDESIGNED 15 Aug 2026 — real bug Mark found, not a subjective
- * preference: the previous layout put each stage in its own side-by-side
- * column, each with an independently-rendered fill bar. The WIDTH
- * PERCENTAGE was already correctly scaled against one shared max across
- * every stage — the bug was structural, not arithmetic: four separate
- * boxes of equal size, one nearly empty and one fully filled, reads as
- * "this box is full, these are basically blank" to a human eye,
- * regardless of what the underlying numbers actually were. Any dataset
- * where most early-funnel stages sit at zero (not even an unusual case —
- * a healthy, fast-moving pipeline looks exactly like this) triggered it,
- * which is exactly the "chart rendering ridiculously at n=1"-class
- * failure this component's own header comment already said to avoid.
+ * REDESIGNED TWICE — 15 Aug 2026, both times real feedback, not
+ * successive guesses. First pass (this comment, same day, earlier):
+ * fixed a genuine structural bug (four side-by-side boxes made bar
+ * WIDTHS impossible to compare even though the percentages were already
+ * correct) by switching to a shared-scale vertical stack. Mark's
+ * follow-up went further: the bars still "just show a number... aren't
+ * being compared to anything else" — correct, and a deeper point than
+ * the first fix addressed. The sequential stages (Unassigned/Assigned/
+ * In Progress/Appointment Booked) aren't parts-of-a-whole data at all —
+ * a lead doesn't split across them, it's a snapshot of where each lead
+ * in this period's cohort currently sits. A bar chart implies "these
+ * add up to something," which was never true here, so no amount of
+ * rescaling could make it read as meaningful. Dropped bars from the
+ * sequential stages entirely — just the count, the label, and the real
+ * stage-to-stage conversion % that already existed (that number was
+ * always the actually useful part).
  *
- * Fixed by switching to a vertical stack where every bar shares the same
- * left edge and the same width scale — now a human can directly compare
- * bar LENGTHS against each other, which is what a side-by-side layout of
- * independently-boxed bars can never really offer no matter how the
- * percentages are computed. Closed Won/Closed Lost get their own
- * "Outcomes" group below a divider, on the SAME shared scale (so their
- * size is still meaningfully comparable to the funnel above) but
- * visually separated and coloured success/danger — honest about them
- * being parallel terminal outcomes of the last stage, not a fifth
- * sequential step, which reportService.js's own getDashboardData()
- * comment already establishes as the real shape of this data.
+ * Closed Won/Closed Lost ARE genuine parts-of-a-whole (every closed deal
+ * is exactly one or the other) — replaced with DonutBreakdown, the same
+ * component now used for Cancellation/Loss reasons, framed as what it
+ * actually is: a win rate.
  */
 export function PipelineHealth({ stages, stageConversion, isMobile }) {
   if (!stages || stages.every(s2 => s2.count === 0)) {
     return <EmptyState message="No leads in the pipeline this period." />;
   }
-  const maxCount = Math.max(...stages.map(s2 => s2.count), 1);
   const sequential = stages.slice(0, 4); // Unassigned/Assigned/In Progress/Appointment Booked — see reportService.js's own comment on why Closed Won/Lost aren't a 5th sequential stage
-  const terminal = stages.slice(4);
-
-  function FunnelBar({ stage, colour }) {
-    const pct = Math.max(4, (stage.count / maxCount) * 100);
-    return (
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-        <div style={{ width: isMobile ? '92px' : '140px', flexShrink: 0, fontSize: '0.8125rem', color: colors.ink500 }}>{stage.status}</div>
-        <div style={{ flex: 1, background: colors.surfaceSubtle, borderRadius: radius.sm, height: '30px', display: 'flex', alignItems: 'center', overflow: 'hidden' }}>
-          <div style={{
-            width: `${pct}%`, height: '100%', background: colour ?? colors.primarySoft,
-            borderRadius: radius.sm, display: 'flex', alignItems: 'center', justifyContent: 'flex-end',
-            paddingRight: '10px', transition: 'width 0.3s', minWidth: '32px',
-          }}>
-            <span style={{ fontSize: '0.8125rem', fontWeight: 700, color: colour ? '#fff' : colors.primary }}>{stage.count}</span>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const won  = stages.find(s2 => s2.status === 'Closed Won')?.count ?? 0;
+  const lost = stages.find(s2 => s2.status === 'Closed Lost')?.count ?? 0;
 
   return (
     <div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '4px' : '0' }}>
         {sequential.map((stage, i) => (
-          <div key={stage.status}>
-            <FunnelBar stage={stage} />
+          <div key={stage.status} style={{ display: 'flex', alignItems: 'center', flex: isMobile ? 'none' : 1 }}>
+            <div style={{ flex: 1, textAlign: isMobile ? 'left' : 'center' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: colors.ink }}>{stage.count}</div>
+              <div style={{ fontSize: '0.75rem', color: colors.ink500, marginTop: '2px' }}>{stage.status}</div>
+            </div>
             {i < sequential.length - 1 && stageConversion[i] && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '3px 0 3px', marginLeft: isMobile ? '92px' : '140px' }}>
-                <span style={{ fontSize: '0.8rem', color: colors.ink400 }}>↓</span>
-                <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: stageColour(stageConversion[i].ratio) }}>
-                  {stageConversion[i].ratio === null ? 'No prior stage data' : `${Math.round(stageConversion[i].ratio * 100)}% converted`}
+              <div style={{ display: 'flex', flexDirection: isMobile ? 'row' : 'column', alignItems: 'center', gap: isMobile ? '6px' : '2px', padding: isMobile ? '2px 0' : '0 10px', flexShrink: 0 }}>
+                <span style={{ fontSize: '0.9rem', color: colors.ink400 }}>{isMobile ? '↓' : '→'}</span>
+                <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: stageColour(stageConversion[i].ratio), whiteSpace: 'nowrap' }}>
+                  {stageConversion[i].ratio === null ? 'No prior data' : `${Math.round(stageConversion[i].ratio * 100)}%`}
                 </span>
               </div>
             )}
           </div>
         ))}
       </div>
-      <div style={{ marginTop: '16px', paddingTop: '14px', borderTop: `1px solid ${colors.lineSoft}` }}>
-        <div style={{ fontSize: '0.6875rem', fontWeight: 600, color: colors.ink400, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '8px' }}>
-          Outcomes
+      <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: `1px solid ${colors.lineSoft}` }}>
+        <div style={{ fontSize: '0.6875rem', fontWeight: 600, color: colors.ink400, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '12px' }}>
+          Win Rate
         </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {terminal.map(stage => (
-            <FunnelBar key={stage.status} stage={stage} colour={stage.status === 'Closed Won' ? colors.success : colors.danger} />
-          ))}
-        </div>
+        <DonutBreakdown
+          isMobile={isMobile}
+          data={[
+            { label: 'Closed Won', value: won, colour: colors.success },
+            { label: 'Closed Lost', value: lost, colour: colors.danger },
+          ]}
+          emptyMessage="No closed appointments this period."
+        />
       </div>
     </div>
   );
