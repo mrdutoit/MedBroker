@@ -110,56 +110,90 @@ export function KpiCard({ label, current, format, deltaPct, direction, lowerIsBe
   );
 }
 
-// ─── Donut + share list — 15 Aug 2026 (§175). Genuine parts-of-a-whole
-// data ONLY (every item sums to 100% of something real: a cancellation
-// reason, a loss reason, a won/lost split) — see this file's own header
-// comment for why the ranked tables and sequential pipeline stages don't
-// use this. The share-list bars are scaled to each item's SHARE OF THE
-// TOTAL, not share-of-the-largest-item the way this file's other bars
-// work — a genuinely different, more honest scale for this kind of data:
-// a lone category correctly reads as "100% of what's captured" rather
-// than being visually capped/restrained the way a ranked-table bar is,
-// because for THIS data that full-width bar is actually true, not an
-// artifact of a small sample.
+// ─── Donut + breakdown panel — 15 Aug 2026 (§175), REDESIGNED 16 Aug
+// 2026 (§179). Genuine parts-of-a-whole data ONLY (every item sums to
+// 100% of something real: a cancellation reason, a loss reason, a
+// won/lost split) — see this file's own header comment for why the
+// ranked tables and sequential pipeline stages don't use this.
 //
-// Tooltip added 16 Aug 2026 — real gap in §175's own build, not a new
-// request: the donut had no hover interaction at all, meaning it was a
-// static ring sitting next to the share-list with no distinct value of
-// its own. Mark's original ask was specifically "hovering on the slice
-// shows the details of the slice" (his own words), matching his
-// investment tracker reference exactly — the share-list here already
-// matches that reference's own "Value Share" panel correctly; this was
-// the one piece of the original spec that never actually got built.
-// Same Tooltip/contentStyle pattern already established in this file by
-// TrendChart, just above — not a new visual language, the existing one
-// applied to the one chart in this file that was missing it.
+// TWO REAL PROBLEMS Mark reported after the §178 tooltip fix, neither
+// actually solved by that fix alone:
+//
+// 1. "Clicking on a section of the donut just highlights things as a
+//    box, which is not visually appealing." Recharts' <Tooltip> has a
+//    `cursor` prop that defaults to true — built for Cartesian charts
+//    (Bar/Line), where it draws a highlighted column/row behind the
+//    hovered point. A <Pie> has no equivalent "column" for that
+//    highlight to mean anything, and without `cursor={false}` Recharts
+//    still tries to render one anyway — a stray rectangular highlight
+//    with no relationship to the pie shape, which is almost certainly
+//    the empty black box Mark saw. Fixed by explicitly disabling it
+//    below. Genuinely can't visually confirm this render in this
+//    sandbox (no browser available here) — worth Mark's own eyes on it
+//    once applied, flagging that rather than overclaiming certainty.
+//
+// 2. The share-list was still reading as a duplicate of the donut
+//    because of HOW it was laid out, not just whether the donut itself
+//    was interactive — §178's fix kept §175's single flex-row (donut,
+//    then the numbered list, no visual boundary between them), so even
+//    with a working hover tooltip the two were still visually fused
+//    into one block showing the same numbers twice. Mark's own
+//    investment-tracker reference doesn't do that: "Allocation by
+//    Vehicle" (the donut, with a plain colour-key legend underneath —
+//    no numbers there at all) and "Value Share" (the actual numbers +
+//    bars) are two DISTINCT, separately-bordered panels. Rebuilt to
+//    match that structure directly: the donut's own legend now carries
+//    no numbers (hover is how you get those, or the breakdown panel
+//    beside it) — genuinely two different things now, not one row that
+//    happened to have a chart on one end.
 export function DonutBreakdown({ data, isMobile, emptyMessage }) {
   const total = data.reduce((sum, d) => sum + d.value, 0);
   if (total === 0) return <EmptyState message={emptyMessage ?? 'No data for this period.'} />;
 
   return (
-    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '24px', alignItems: 'center' }}>
-      <div style={{ width: isMobile ? '150px' : '170px', height: isMobile ? '150px' : '170px', flexShrink: 0 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie
-              data={data} dataKey="value" nameKey="label"
-              innerRadius="62%" outerRadius="100%" paddingAngle={data.length > 1 ? 2 : 0}
-              stroke="none" isAnimationActive={false}
-            >
-              {data.map(d => <Cell key={d.label} fill={d.colour} />)}
-            </Pie>
-            <Tooltip
-              formatter={(value, name) => {
-                const pct = total === 0 ? 0 : Math.round((value / total) * 100);
-                return [`${value} (${pct}%)`, name];
-              }}
-              contentStyle={{ background: colors.surface, border: `1px solid ${colors.line}`, borderRadius: radius.sm, fontSize: '0.8125rem' }}
-            />
-          </PieChart>
-        </ResponsiveContainer>
+    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '16px', alignItems: 'stretch' }}>
+      {/* Chart panel — donut + a plain colour-key legend (name only, no
+          values/percentages — those live in hover or the breakdown
+          panel beside this one, never repeated a third time here). */}
+      <div style={{
+        flex: isMobile ? 'none' : '0 0 200px', display: 'flex', flexDirection: 'column',
+        alignItems: 'center', gap: '14px', padding: '18px',
+        border: `1px solid ${colors.lineSoft}`, borderRadius: radius.md,
+      }}>
+        <div style={{ width: '150px', height: '150px' }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={data} dataKey="value" nameKey="label"
+                innerRadius="62%" outerRadius="100%" paddingAngle={data.length > 1 ? 2 : 0}
+                stroke="none" isAnimationActive={false}
+              >
+                {data.map(d => <Cell key={d.label} fill={d.colour} />)}
+              </Pie>
+              <Tooltip
+                cursor={false}
+                formatter={(value, name) => {
+                  const pct = total === 0 ? 0 : Math.round((value / total) * 100);
+                  return [`${value} (${pct}%)`, name];
+                }}
+                contentStyle={{ background: colors.surface, border: `1px solid ${colors.line}`, borderRadius: radius.sm, fontSize: '0.8125rem' }}
+              />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center' }}>
+          {data.map(d => (
+            <span key={d.label} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', color: colors.ink500 }}>
+              <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: d.colour, flexShrink: 0 }} />
+              {d.label}
+            </span>
+          ))}
+        </div>
       </div>
-      <div style={{ flex: 1, width: '100%' }}>
+
+      {/* Breakdown panel — the actual numbers, its own separate
+          bordered box, not fused against the chart panel above. */}
+      <div style={{ flex: 1, padding: '18px', border: `1px solid ${colors.lineSoft}`, borderRadius: radius.md }}>
         {data.map(d => {
           const pct = (d.value / total) * 100;
           return (

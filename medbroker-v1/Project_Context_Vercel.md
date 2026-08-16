@@ -1105,7 +1105,24 @@ Donut + share-list pattern (DonutBreakdown, ReportsWidgets.jsx) — built
   piece of Mark's original spec ("hovering on the slice shows the
   details of the slice") that hadn't actually been built, found by
   reading the component in full rather than just confirming its name
-  and exports existed.
+  and exports existed. Two more real gaps found 16 Aug 2026 (§179),
+  neither solved by §178's tooltip fix alone: Recharts' Tooltip
+  `cursor` prop defaults to true, meant for Cartesian charts — on a
+  <Pie> it renders as a stray rectangle with no relationship to the
+  chart, near-certainly what Mark reported as an ugly "box" on hover.
+  ALWAYS set cursor={false} on a Tooltip paired with a <Pie> in this
+  codebase — there's no Cartesian-style "column" for it to highlight,
+  so the default is never correct here. Layout itself was the deeper
+  issue: donut and breakdown list used to share one flex row with no
+  visual boundary, which read as duplicating the same numbers
+  regardless of whether the donut was interactive. Now two genuinely
+  separate bordered panels (donut + a plain, number-free colour-key
+  legend / the actual breakdown list) — matches the investment-tracker
+  reference's real structure (two distinct cards, not one row), not
+  just its general "donut plus list" shape. When building any future
+  donut+breakdown pairing, use two visually separate panels from the
+  start, not one shared row — that's the standing pattern now, not an
+  optional refinement.
 
 List sort — two genuinely different implementations on this codebase,
   by design, not inconsistency. AppointmentList.jsx sorts CLIENT-SIDE:

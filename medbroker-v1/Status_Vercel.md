@@ -32,8 +32,12 @@ and Appointments, a Date Created column on Appointments, real
 server-side sort on Leads, and Manual Entry moved out of the Import
 page onto its own route. §178 then found and fixed a real gap in §175's
 own donut build — the donut had no hover interaction at all, the one
-piece of Mark's original spec that never actually got built. Full
-detail in §177 and §178 below.
+piece of Mark's original spec that never actually got built — but §178
+itself didn't fully land the fix: a stray Recharts default-cursor
+rendering artifact on hover, AND the donut/breakdown-list layout still
+reading as a duplicate because of how it was laid out, not just
+whether it was interactive. §179 fixed both — see that entry for the
+full account. Full detail in §177, §178, and §179 below.
 
 CORRECTED 16 Aug 2026 (session 24/§176) — this block, and the OTHER
 OUTSTANDING ITEMS list below, had drifted badly out of date: items 1
@@ -14334,6 +14338,66 @@ VERIFIED: fresh npm install, npm run build clean, npx vitest run —
 48/48 passing. Diffed against a fresh GitHub hydration taken
 immediately before packaging — isolated to exactly the one file,
 confirmed no drift since.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/src/components/ReportsWidgets.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+179. §178's DONUT FIX INCOMPLETE — STRAY CURSOR ARTIFACT ON HOVER, AND THE REAL LAYOUT PROBLEM (DONUT + LIST STILL FUSED INTO ONE ROW) — 16 Aug 2026 (session 24, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark reported §178's fix hadn't actually solved it, with screenshots:
+"Clicking on a section of the donut just highlights things as a box,
+which is not visually appealing," and "the bars showing the same data
+is still shown alongside the donut charts... which I asked you to
+either change or remove," pointing again at the investment-tracker
+reference.
+
+TWO SEPARATE REAL PROBLEMS, neither addressed by §178's Tooltip-only
+fix:
+
+1. THE BLACK BOX — Recharts' <Tooltip> has a `cursor` prop that
+   defaults to true, built for Cartesian charts (Bar/Line), where it
+   draws a highlighted column/row behind whatever's hovered. A <Pie>
+   has no equivalent "column" for that highlight to mean anything —
+   without cursor={false}, Recharts still tries to render one anyway,
+   producing a stray rectangle with no relationship to the pie shape.
+   Near-certainly what Mark saw. Fixed: cursor={false} added to the
+   Tooltip. Flagged honestly rather than overclaimed: this sandbox has
+   no browser to visually confirm the render — this is the correct,
+   well-documented fix for this exact class of Recharts behaviour, but
+   worth Mark's own eyes on it once applied.
+
+2. THE REAL LAYOUT PROBLEM — this is the one that actually explains
+   "I asked you to either change or remove [the bars]" landing as
+   unaddressed feedback even after §178's tooltip fix shipped: the
+   donut and the numbered breakdown list were still in ONE shared flex
+   row with no visual boundary between them (§175's original layout,
+   untouched by §178 — that fix only added interactivity to the
+   existing structure, never questioned the structure itself). Even
+   with a working hover tooltip, a donut and a numbered list sitting
+   directly beside each other in the same unbordered space still reads
+   as "the same information twice, right next to each other." Checked
+   Mark's own investment-tracker reference again, specifically for
+   this: "Allocation by Vehicle" (donut + a PLAIN colour-key legend
+   underneath — names only, no numbers) and "Value Share" (the actual
+   numbers + bars) are two DISTINCT, separately-bordered panels, not
+   one row. That's the actual structural difference §175/§178 never
+   had. Rebuilt DonutBreakdown to match it directly: donut's own legend
+   now carries no numbers at all (hover, or the breakdown panel beside
+   it, is where those live) — genuinely two different panels now, each
+   with its own border, not one row that happened to have a chart on
+   one end.
+
+Component's external API unchanged (data/isMobile/emptyMessage) — all
+three call sites (Win Rate in PipelineHealth, Cancellation reasons and
+Loss reasons in Reports.jsx) needed no changes, same as §178.
+
+VERIFIED: npm run build clean, npx vitest run — 48/48 passing. Diffed
+against a fresh GitHub hydration taken immediately before packaging —
+isolated to exactly the one file, confirmed no drift since.
 
 NOT YET DEPLOYED.
 
