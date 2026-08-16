@@ -1625,15 +1625,29 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
   // 2026 (§166, migration 032), so any appointment booked before that
   // carries no region at all; same "count it, label it honestly" pattern
   // as loss/cancel reasons above rather than silently dropping the row.
+  //
+  // REAL BUG, caught by Mark's own testing (§181): this query's alias
+  // was originally named `region`, matching every other query's own
+  // SELECT-column-as-its-real-name style EXCEPT the "groupKey" ones. The
+  // difference matters here specifically because Lead ALSO has its own
+  // region column, joined into scope right alongside Appointment's —
+  // `GROUP BY region` was genuinely ambiguous in Postgres (could mean the
+  // COALESCE(a.region,...) output alias, or l.region, or a.region), which
+  // Postgres correctly refuses to guess at and throws on. Every OTHER
+  // breakdown query in this file sidesteps exactly this risk by aliasing
+  // to "groupKey" — a name deliberately chosen to never collide with a
+  // real column on anything these queries join. Should have followed
+  // that same convention from the start rather than reaching for a
+  // human-readable alias; fixed now to match it.
   const regionRows = await executeQuery(
-    `SELECT COALESCE(a.region, 'Not captured') AS region, a.status, COUNT(*) AS count
+    `SELECT COALESCE(a.region, 'Not captured') AS "groupKey", a.status, COUNT(*) AS count
      FROM Appointment a JOIN Lead l ON l.id = a.leadId
      WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF5.sqlFragment}
-     GROUP BY region, a.status`,
+     GROUP BY "groupKey", a.status`,
     { ...lossReasonParams, ...apptF5.params }
   );
-  const wonByRegion  = regionRows.filter(r => r.status === 'ClosedWon' ).map(r => ({ region: r.region, count: Number(r.count) }));
-  const lostByRegion = regionRows.filter(r => r.status === 'ClosedLost').map(r => ({ region: r.region, count: Number(r.count) }));
+  const wonByRegion  = regionRows.filter(r => r.status === 'ClosedWon' ).map(r => ({ region: r.groupKey, count: Number(r.count) }));
+  const lostByRegion = regionRows.filter(r => r.status === 'ClosedLost').map(r => ({ region: r.groupKey, count: Number(r.count) }));
   const wonVsLost = {
     won: closedWonCount, lost: closedLostCount,
     winRate: (closedWonCount + closedLostCount) === 0 ? null : Math.round((closedWonCount / (closedWonCount + closedLostCount)) * 1000) / 10,

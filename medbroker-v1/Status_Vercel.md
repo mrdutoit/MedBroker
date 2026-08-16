@@ -42,8 +42,13 @@ fundamental objection was still standing underneath all three of
 redundant regardless of layout or interactivity, full stop. §180
 removed the list from DonutBreakdown entirely — donut only, ever — and
 built genuinely NEW breakdown dimensions (Won/Lost by Region, Won/Lost
-by Portfolio) as the "different data" Mark asked for instead. Full
-detail in §177 through §180 below.
+by Portfolio) as the "different data" Mark asked for instead — but
+shipped with a real SQL bug in the new region query (ambiguous GROUP BY
+column, since Lead and Appointment both have their own region column)
+that Mark's own testing caught within minutes as an "Internal server
+error" banner on the live Reports page. §181 fixed it — a one-line
+alias rename, isolated to that single query. Full detail in §177
+through §181 below.
 
 CORRECTED 16 Aug 2026 (session 24/§176) — this block, and the OTHER
 OUTSTANDING ITEMS list below, had drifted badly out of date: items 1
@@ -14502,3 +14507,62 @@ NOT YET DEPLOYED.
 
 FILES: frontend/api-lib/services/reportService.js,
 frontend/src/components/ReportsWidgets.jsx, frontend/src/pages/Reports.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+181. REAL BUG IN §180's REGION QUERY — AMBIGUOUS GROUP BY COLUMN, POSTGRES CORRECTLY REJECTED IT — 16 Aug 2026 (session 24, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Exactly the risk §180 flagged honestly on delivery — "no live Postgres
+available in this sandbox... worth Mark's own first look" — materialised
+within minutes of Mark applying it: a red "Could not load some report
+data: Internal server error" banner on the live Reports page,
+screenshotted. Trend and Pipeline Health both fell back to their empty
+states; Broker Performance kept working (a separate endpoint,
+unaffected). Consistent with exactly one thing throwing inside
+getDashboardData(), caught gracefully by the frontend rather than
+taking the whole page down.
+
+ROOT CAUSE, found on inspection, not guessed: §180's new region query
+aliased its COALESCE output as `region` —
+
+    SELECT COALESCE(a.region, 'Not captured') AS region, a.status, ...
+    GROUP BY region, a.status
+
+— and Lead ALSO has its own region column (§166), joined into the same
+query as `l`. `GROUP BY region` was therefore genuinely ambiguous:
+Postgres had three candidates it could mean (the output alias, l.region,
+a.region) and correctly refused to guess, throwing rather than silently
+picking one. Every OTHER breakdown query in this file (Lead Source,
+Portfolio, Meeting Type, Loss reasons, Cancel reasons) already avoids
+exactly this trap by aliasing to `groupKey` — a name deliberately
+chosen never to collide with a real column on anything these queries
+join. §180 broke from that established, already-proven convention for
+a single query, reaching for a more human-readable alias instead — the
+one place in the whole change that mattered, since region is the one
+dimension in this codebase that's a real column on BOTH Appointment and
+Lead simultaneously; portfolio/source/meetingType/reason have no such
+collision risk, which is presumably why the pattern hadn't bitten
+anyone until now.
+
+FIX: one-line alias rename, `region` -> `"groupKey"`, matching every
+other query's own convention exactly. GROUP BY updated to match. The
+two downstream `.map()` calls updated to read `r.groupKey` instead of
+`r.region` — the OUTPUT shape callers see (`{region, count}`) is
+unchanged, this was purely an internal SQL naming fix.
+
+VERIFIED: npm run build clean, npx vitest run — 48/48 passing. Diffed
+against §180's own delivered version — confirmed the fix is isolated to
+exactly the one query (the SELECT alias, the GROUP BY clause, and the
+two .map() calls reading it), nothing else touched. Diffed against a
+fresh GitHub hydration taken immediately before packaging — confirmed
+no drift, isolated to the one file. Still no local Postgres available
+in this sandbox to run the corrected query against a real database —
+same limitation as §180's own delivery note; this fix addresses the
+specific, identifiable cause of the specific, reported error rather
+than being verified end-to-end, and should be confirmed working (not
+just no-longer-erroring) once applied.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/api-lib/services/reportService.js.

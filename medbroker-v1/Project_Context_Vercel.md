@@ -1134,11 +1134,23 @@ WonLostPair (Reports.jsx, page-local — NOT exported from
   captured' matters — Appointment.region is nullable, only populated
   since 14 Aug 2026 (§166, migration 032), so any appointment booked
   before that carries none; same honest-labelling pattern as loss/
-  cancel reasons rather than silently dropping those rows. NOT verified
-  against a real Postgres instance — no local database available in
-  the sandbox that built this; the JS-side filter/derivation logic was
-  checked against synthetic data and is correct, but the SQL itself
-  wants a first real run before being trusted blindly.
+  cancel reasons rather than silently dropping those rows.
+
+  REAL BUG, 16 Aug 2026 (§181), caught by Mark's own testing within
+  minutes of delivery: the region query's first draft aliased its
+  COALESCE output as `region` — but Lead ALSO has its own region
+  column, joined into the same query, so `GROUP BY region` was
+  genuinely ambiguous (three candidates: the output alias, l.region,
+  a.region) and Postgres correctly threw rather than guess. STANDING
+  RULE for this file, not just this one query: always alias a computed
+  GROUP BY column to "groupKey" (matching every other breakdown query
+  here — Lead Source, Portfolio, Meeting Type, loss/cancel reasons all
+  already do this), never to a human-readable name that might match a
+  real column on anything joined into the query. Region is the one
+  dimension in this codebase that's a genuine column on BOTH Appointment
+  and Lead simultaneously — the collision risk is real, not theoretical,
+  and will recur for any future query that groups by it under any alias
+  other than groupKey.
 
 List sort — two genuinely different implementations on this codebase,
   by design, not inconsistency. AppointmentList.jsx sorts CLIENT-SIDE:
