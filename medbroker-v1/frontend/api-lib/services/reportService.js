@@ -1612,12 +1612,40 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
   );
   const lossReasons = lossReasonRows.map(r => ({ reason: r.reason, count: Number(r.count) }));
   const hasLossReasons = lossReasons.some(r => r.reason !== 'Not captured');
+  // 16 Aug 2026 (§180) — Mark's explicit request, after the redundant
+  // donut+bar-of-the-same-numbers pattern was fixed (§179): "different
+  // data displayed like win/loss by region, win/loss by portfolio."
+  // Region has no existing breakdown anywhere in this file — genuinely
+  // new query, same apptFilterSql/scope pattern every other breakdown
+  // here already uses. Portfolio needs no new query at all: portfolioTable
+  // (computed below, this same function) already carries closedWon/
+  // closedLost per portfolio — wonByPortfolio/lostByPortfolio are pure
+  // derivations of it, not a second trip to the database for the same
+  // rows. COALESCE to 'Not captured' for region — nullable since 14 Aug
+  // 2026 (§166, migration 032), so any appointment booked before that
+  // carries no region at all; same "count it, label it honestly" pattern
+  // as loss/cancel reasons above rather than silently dropping the row.
+  const regionRows = await executeQuery(
+    `SELECT COALESCE(a.region, 'Not captured') AS region, a.status, COUNT(*) AS count
+     FROM Appointment a JOIN Lead l ON l.id = a.leadId
+     WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF5.sqlFragment}
+     GROUP BY region, a.status`,
+    { ...lossReasonParams, ...apptF5.params }
+  );
+  const wonByRegion  = regionRows.filter(r => r.status === 'ClosedWon' ).map(r => ({ region: r.region, count: Number(r.count) }));
+  const lostByRegion = regionRows.filter(r => r.status === 'ClosedLost').map(r => ({ region: r.region, count: Number(r.count) }));
   const wonVsLost = {
     won: closedWonCount, lost: closedLostCount,
     winRate: (closedWonCount + closedLostCount) === 0 ? null : Math.round((closedWonCount / (closedWonCount + closedLostCount)) * 1000) / 10,
     avgDaysToCloseWon: current.avgDaysToCloseWon,
     avgDaysToCloseLost: null, // computed below, alongside the rest of the lost-side detail this filtered/scoped rebuild needs fresh (getReportSummary's own avgDaysToClose.lost was org-wide/unfiltered)
     lossReasons, hasLossReasons,
+    wonByRegion, lostByRegion,
+    // 16 Aug 2026 (§180) — derived from portfolioTable, computed earlier
+    // in this same function (well above this point) — not a second trip
+    // to the database for rows already fetched.
+    wonByPortfolio:  portfolioTable.filter(p => p.closedWon  > 0).map(p => ({ portfolio: p.portfolio, count: p.closedWon })),
+    lostByPortfolio: portfolioTable.filter(p => p.closedLost > 0).map(p => ({ portfolio: p.portfolio, count: p.closedLost })),
   };
   {
     const lostDaysRows = await executeQuery(

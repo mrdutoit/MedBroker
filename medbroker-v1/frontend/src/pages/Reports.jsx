@@ -100,6 +100,33 @@ const CANCEL_REASON_LABELS = {
   'Not captured': 'Not captured',
 };
 
+// 16 Aug 2026 (§180) — a Won donut and a Lost donut for the same
+// dimension (region, portfolio), side by side under one shared
+// sub-heading. Page-local, not exported from ReportsWidgets.jsx — this
+// specific "two DonutBreakdowns paired under one label" composition is
+// a Won-vs-Lost-section concern, not a generic building block the way
+// DonutBreakdown itself is. keyField picks the label off each row
+// (r.region or r.portfolio) since the two dimensions don't share a
+// common field name. 'Not captured' (region only — every appointment
+// has a real portfolio, but region is nullable pre-§166) gets the same
+// neutral-grey treatment as loss/cancel reasons elsewhere on this page.
+function WonLostPair({ label, wonRows, lostRows, keyField, isMobile }) {
+  if ((!wonRows || wonRows.length === 0) && (!lostRows || lostRows.length === 0)) return null;
+  const toData = rows => rows.map((r, i) => ({
+    label: r[keyField], value: r.count,
+    colour: r[keyField] === 'Not captured' ? colors.ink400 : CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
+  }));
+  return (
+    <div style={{ marginTop: '18px' }}>
+      <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500, marginBottom: '10px' }}>{label}</div>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '16px' }}>
+        <DonutBreakdown title="Won" isMobile={isMobile} data={toData(wonRows ?? [])} emptyMessage="No wins this period." />
+        <DonutBreakdown title="Lost" isMobile={isMobile} data={toData(lostRows ?? [])} emptyMessage="No losses this period." />
+      </div>
+    </div>
+  );
+}
+
 export default function Reports() {
   const navigate           = useNavigate();
   const { role, portfolios: allPortfolios } = useRole();
@@ -250,12 +277,14 @@ export default function Reports() {
     { key: 'avgPolicyValueWon', label: 'Avg Policy Value (Won)', align: 'right', render: r => r.avgPolicyValueWon === null ? '—' : fmt(r.avgPolicyValueWon) },
   ];
 
-  const meetingTypeColumns = [
-    { key: 'meetingType', label: 'Meeting Type', sortable: false },
-    { key: 'booked',      label: 'Booked', align: 'right' },
-    { key: 'closedWon',   label: 'Won',    align: 'right' },
-    { key: 'conversion',  label: 'Conversion Ratio', align: 'right' },
-  ];
+  // 16 Aug 2026 (§180) — computed once here, used by the two WonLostPair
+  // calls in the Won vs Lost section below.
+  const wonByRegionPair = wonVsLost ? (
+    <WonLostPair label="By Region" wonRows={wonVsLost.wonByRegion} lostRows={wonVsLost.lostByRegion} keyField="region" isMobile={isMobile} />
+  ) : null;
+  const wonByPortfolioPair = wonVsLost ? (
+    <WonLostPair label="By Portfolio" wonRows={wonVsLost.wonByPortfolio} lostRows={wonVsLost.lostByPortfolio} keyField="portfolio" isMobile={isMobile} />
+  ) : null;
 
   const productColumns = [
     { key: 'product', label: 'Product', sortable: false },
@@ -470,6 +499,22 @@ export default function Reports() {
                     No loss reasons captured yet this period — the field exists now (marking an appointment Lost prompts for one), but none of this period's lost appointments have one recorded.
                   </p>
                 )}
+                {/* 16 Aug 2026 (§180) — Mark's explicit request, once the
+                    redundant same-data bar list was actually removed
+                    (§180, DonutBreakdown itself): "different data
+                    displayed like win/loss by region, win/loss by
+                    portfolio... in other donut charts." Each pair is
+                    genuinely different data from the Won/Lost donut
+                    above it (WHERE the wins/losses came from, not another
+                    view of the same two numbers) and from each other
+                    (region vs portfolio) — not a second and third
+                    rendering of the same breakdown. Won and Lost shown
+                    side by side per dimension rather than combined into
+                    one donut — a single "Region x outcome" donut would
+                    need up to 18 slices (9 regions x 2 outcomes) for no
+                    real gain over two clean 9-slice-max donuts. */}
+                {wonByRegionPair}
+                {wonByPortfolioPair}
               </>
             ) : (
               <EmptyState message="No closed appointments this period." />
@@ -504,7 +549,30 @@ export default function Reports() {
                   <KpiCard label="Missed / No-show" current={appointmentAnalysis.missed} />
                 </div>
                 {appointmentAnalysis.byMeetingType.length > 0 && (
-                  <DataTable columns={meetingTypeColumns} rows={appointmentAnalysis.byMeetingType} defaultSortKey="booked" highlightKey="booked" />
+                  <div style={{ marginBottom: '18px' }}>
+                    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500, marginBottom: '10px' }}>Meeting Type</div>
+                    {/* 16 Aug 2026 (§180) — Mark's own suggestion: "perhaps
+                        the Meeting Type could be a donut chart." Was a
+                        DataTable (Booked/Won/Conversion Ratio columns) —
+                        genuine parts-of-a-whole data (every appointment
+                        has exactly one meeting type), so donut fits
+                        cleanly. Won/Conversion Ratio columns dropped
+                        rather than kept alongside — with only ever
+                        InPerson/Virtual as categories, a supplementary
+                        table for two rows added little beyond what the
+                        donut (booked share) plus hover already carries.
+                        Real, different metrics (not a repeat of Booked)
+                        so flagging the drop rather than silently losing
+                        them — easy to bring back as its own small table
+                        if that comparison specifically is wanted. */}
+                    <DonutBreakdown
+                      isMobile={isMobile}
+                      data={appointmentAnalysis.byMeetingType.map((m, i) => ({
+                        label: m.meetingType, value: m.booked,
+                        colour: CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
+                      }))}
+                    />
+                  </div>
                 )}
                 {appointmentAnalysis.cancelReasons.length > 0 ? (
                   <div style={{ marginTop: '18px' }}>

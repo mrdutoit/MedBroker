@@ -36,8 +36,14 @@ piece of Mark's original spec that never actually got built — but §178
 itself didn't fully land the fix: a stray Recharts default-cursor
 rendering artifact on hover, AND the donut/breakdown-list layout still
 reading as a duplicate because of how it was laid out, not just
-whether it was interactive. §179 fixed both — see that entry for the
-full account. Full detail in §177, §178, and §179 below.
+whether it was interactive. §179 fixed both, but Mark's actual, more
+fundamental objection was still standing underneath all three of
+§175/§178/§179: a donut and a bar list showing the SAME numbers is
+redundant regardless of layout or interactivity, full stop. §180
+removed the list from DonutBreakdown entirely — donut only, ever — and
+built genuinely NEW breakdown dimensions (Won/Lost by Region, Won/Lost
+by Portfolio) as the "different data" Mark asked for instead. Full
+detail in §177 through §180 below.
 
 CORRECTED 16 Aug 2026 (session 24/§176) — this block, and the OTHER
 OUTSTANDING ITEMS list below, had drifted badly out of date: items 1
@@ -14402,3 +14408,97 @@ isolated to exactly the one file, confirmed no drift since.
 NOT YET DEPLOYED.
 
 FILES: frontend/src/components/ReportsWidgets.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+180. THE ACTUAL FIX — DONUT + BAR SHOWING THE SAME DATA REMOVED ENTIRELY; WON/LOST BY REGION AND BY PORTFOLIO ADDED AS THE "DIFFERENT DATA" — 16 Aug 2026 (session 24, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark, directly: "having a bar chart and donut chart showing the EXACT
+same thing is superfluous... I don't want the bar chart with the same
+data displayed, if anything, I want it to have different data
+displayed like win/loss by region, win/loss by portfolio, etc. in
+other donut charts... Please act like a senior data analyst when doing
+this, I feel like I have wasted a lot of time and tokens on this."
+
+Fair, and worth being direct about what actually went wrong across
+§175/§178/§179: each pass fixed a real, genuine problem — no hover
+(§178), a stray cursor artifact and a fused unbordered layout (§179) —
+but none of them addressed Mark's actual, more basic objection, which
+was never really about hover or layout at all: a donut and a list
+carrying the SAME numbers is redundant no matter how it's laid out or
+whether it's interactive. Should have been caught on the first pass
+by reading the request as "these two things show one one metric twice"
+rather than "these two things could be styled better."
+
+FIXED THIS TIME, properly:
+
+DonutBreakdown (ReportsWidgets.jsx) — the breakdown-list panel is GONE,
+not just visually separated (§179) or made interactive (§178). It's
+now a single self-contained donut widget: chart, hover, and a plain
+colour-key legend with names only, no numbers anywhere on the widget
+itself. Optional `title` prop added — needed now that a single section
+can hold more than one of these side by side (a Won donut and a Lost
+donut, for instance) with no other way to label which is which.
+Automatically fixes Cancellation reasons and Loss reasons too — same
+shared component, no changes needed at either call site.
+
+NEW DIMENSIONS — the "different data" Mark asked for, built rather than
+just reshuffling what already existed:
+  - Won by Region / Lost by Region — genuinely new; region had no
+    existing breakdown anywhere in reportService.js. New query in
+    getDashboardData(), same apptFilterSql/scope pattern every other
+    filtered breakdown in that function already uses. COALESCE to 'Not
+    captured' for the nullable case (region only exists on Appointment
+    since 14 Aug 2026, §166/migration 032 — anything booked before that
+    carries none) — same honest-labelling pattern as loss/cancel
+    reasons rather than silently dropping those rows.
+  - Won by Portfolio / Lost by Portfolio — no new query at all: derived
+    directly from portfolioTable, already computed earlier in the same
+    function for the existing Portfolio Performance table. Caught and
+    fixed a real ordering bug while building this — first draft
+    referenced portfolioTable from inside the wonVsLost object literal
+    before wonVsLost's own declaration had been reordered correctly;
+    fixed by computing wonByPortfolio/lostByPortfolio directly in the
+    wonVsLost literal itself, at the point in the function where
+    portfolioTable already exists.
+  - Rendered as a new WonLostPair component (Reports.jsx, page-local —
+    not exported from ReportsWidgets.jsx; this specific "two donuts
+    paired under one heading" composition is a Won-vs-Lost-section
+    concern, not a generic building block). Two paired donuts (Won |
+    Lost) per dimension, not a single combined donut — a "region ×
+    outcome" donut would need up to 18 slices (9 regions × 2 outcomes)
+    for no real gain over two clean, honest donuts capped at 9 slices
+    each.
+
+MEETING TYPE — Mark's own suggestion, "perhaps the Meeting Type could
+be a donut chart." Converted from a DataTable (Booked/Won/Conversion
+Ratio columns) to a donut (booked share by type) — genuine parts-of-
+a-whole data, every appointment has exactly one meeting type. Won/
+Conversion Ratio columns dropped rather than kept as a leftover table
+alongside it — with only ever InPerson/Virtual as categories, a
+supplementary 1-2-row table added little beyond what the donut plus
+hover already carries. Flagged rather than silently dropped: real,
+different metrics from Booked share, easy to reinstate as its own
+small table if that specific comparison is wanted back.
+
+VERIFIED: npm run build clean, npx vitest run — 48/48 passing. No live
+Postgres available in this sandbox to test the new region query
+directly against real data (this codebase's own standing practice,
+per Status_Vercel.md's own documented lessons, is real Postgres over
+mocks for exactly this reason) — flagging that honestly rather than
+overclaiming; the filter/derivation JS logic (wonByRegion/lostByRegion
+filtering, portfolioTable-derived wonByPortfolio/lostByPortfolio, the
+WonLostPair colour-assignment logic including the 'Not captured' and
+empty-array paths) was checked directly against synthetic data and
+behaves as intended, but the SQL itself is unverified against a real
+database — worth Mark's own first look confirming the region/portfolio
+donuts actually populate correctly once applied, same "flag rather
+than overclaim" approach as §179's cursor fix. Diffed against a fresh
+GitHub hydration taken immediately before packaging — isolated to
+exactly three files, confirmed no drift since.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/api-lib/services/reportService.js,
+frontend/src/components/ReportsWidgets.jsx, frontend/src/pages/Reports.jsx.

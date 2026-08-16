@@ -110,104 +110,76 @@ export function KpiCard({ label, current, format, deltaPct, direction, lowerIsBe
   );
 }
 
-// ─── Donut + breakdown panel — 15 Aug 2026 (§175), REDESIGNED 16 Aug
-// 2026 (§179). Genuine parts-of-a-whole data ONLY (every item sums to
-// 100% of something real: a cancellation reason, a loss reason, a
-// won/lost split) — see this file's own header comment for why the
-// ranked tables and sequential pipeline stages don't use this.
+// ─── Donut — 15 Aug 2026 (§175), REDESIGNED 16 Aug 2026 (§179, §180).
+// Genuine parts-of-a-whole data ONLY (every item sums to 100% of
+// something real: a cancellation reason, a loss reason, a won/lost
+// split) — see this file's own header comment for why the ranked
+// tables and sequential pipeline stages don't use this.
 //
-// TWO REAL PROBLEMS Mark reported after the §178 tooltip fix, neither
-// actually solved by that fix alone:
+// §179 fixed the stray Recharts default-cursor artifact on hover
+// (cursor={false}, below) and split the donut from its own breakdown
+// list into two separate bordered panels, matching Mark's investment-
+// tracker reference structurally.
 //
-// 1. "Clicking on a section of the donut just highlights things as a
-//    box, which is not visually appealing." Recharts' <Tooltip> has a
-//    `cursor` prop that defaults to true — built for Cartesian charts
-//    (Bar/Line), where it draws a highlighted column/row behind the
-//    hovered point. A <Pie> has no equivalent "column" for that
-//    highlight to mean anything, and without `cursor={false}` Recharts
-//    still tries to render one anyway — a stray rectangular highlight
-//    with no relationship to the pie shape, which is almost certainly
-//    the empty black box Mark saw. Fixed by explicitly disabling it
-//    below. Genuinely can't visually confirm this render in this
-//    sandbox (no browser available here) — worth Mark's own eyes on it
-//    once applied, flagging that rather than overclaiming certainty.
-//
-// 2. The share-list was still reading as a duplicate of the donut
-//    because of HOW it was laid out, not just whether the donut itself
-//    was interactive — §178's fix kept §175's single flex-row (donut,
-//    then the numbered list, no visual boundary between them), so even
-//    with a working hover tooltip the two were still visually fused
-//    into one block showing the same numbers twice. Mark's own
-//    investment-tracker reference doesn't do that: "Allocation by
-//    Vehicle" (the donut, with a plain colour-key legend underneath —
-//    no numbers there at all) and "Value Share" (the actual numbers +
-//    bars) are two DISTINCT, separately-bordered panels. Rebuilt to
-//    match that structure directly: the donut's own legend now carries
-//    no numbers (hover is how you get those, or the breakdown panel
-//    beside it) — genuinely two different things now, not one row that
-//    happened to have a chart on one end.
-export function DonutBreakdown({ data, isMobile, emptyMessage }) {
+// §180 REMOVES the breakdown-list panel entirely — Mark's own words:
+// "having a bar chart and donut chart showing the EXACT same thing is
+// superfluous... I don't want the bar chart with the same data
+// displayed." Splitting into two panels (§179) fixed how it LOOKED but
+// not the actual complaint: a bar list repeating numbers the donut
+// already shows (now via hover) is still repeating them, panel or no
+// panel. DonutBreakdown is now a single self-contained donut widget —
+// chart + a plain, number-free colour-key legend, nothing else. Where a
+// second visual is actually wanted alongside a donut, it now has to be
+// DIFFERENT data (Won by Region next to Lost by Region, for instance —
+// see Reports.jsx's Won vs Lost section), never a second rendering of
+// the same numbers the donut already carries. Optional `title` renders
+// a small label above the chart — needed now that a single section can
+// hold more than one of these side by side (e.g. "Won" / "Lost" as a
+// pair under a shared "By Region" heading) with no other way to tell
+// them apart.
+export function DonutBreakdown({ data, isMobile, emptyMessage, title }) {
   const total = data.reduce((sum, d) => sum + d.value, 0);
   if (total === 0) return <EmptyState message={emptyMessage ?? 'No data for this period.'} />;
 
   return (
-    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', gap: '16px', alignItems: 'stretch' }}>
-      {/* Chart panel — donut + a plain colour-key legend (name only, no
-          values/percentages — those live in hover or the breakdown
-          panel beside this one, never repeated a third time here). */}
-      <div style={{
-        flex: isMobile ? 'none' : '0 0 200px', display: 'flex', flexDirection: 'column',
-        alignItems: 'center', gap: '14px', padding: '18px',
-        border: `1px solid ${colors.lineSoft}`, borderRadius: radius.md,
-      }}>
-        <div style={{ width: '150px', height: '150px' }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={data} dataKey="value" nameKey="label"
-                innerRadius="62%" outerRadius="100%" paddingAngle={data.length > 1 ? 2 : 0}
-                stroke="none" isAnimationActive={false}
-              >
-                {data.map(d => <Cell key={d.label} fill={d.colour} />)}
-              </Pie>
-              <Tooltip
-                cursor={false}
-                formatter={(value, name) => {
-                  const pct = total === 0 ? 0 : Math.round((value / total) * 100);
-                  return [`${value} (${pct}%)`, name];
-                }}
-                contentStyle={{ background: colors.surface, border: `1px solid ${colors.line}`, borderRadius: radius.sm, fontSize: '0.8125rem' }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-        </div>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center' }}>
-          {data.map(d => (
-            <span key={d.label} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', color: colors.ink500 }}>
-              <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: d.colour, flexShrink: 0 }} />
-              {d.label}
-            </span>
-          ))}
-        </div>
+    <div style={{
+      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
+      padding: '18px', border: `1px solid ${colors.lineSoft}`, borderRadius: radius.md,
+      width: isMobile ? '100%' : '200px', boxSizing: 'border-box',
+    }}>
+      {title && <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500 }}>{title}</div>}
+      <div style={{ width: '150px', height: '150px' }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <PieChart>
+            <Pie
+              data={data} dataKey="value" nameKey="label"
+              innerRadius="62%" outerRadius="100%" paddingAngle={data.length > 1 ? 2 : 0}
+              stroke="none" isAnimationActive={false}
+            >
+              {data.map(d => <Cell key={d.label} fill={d.colour} />)}
+            </Pie>
+            {/* cursor={false} — §179. Recharts' Tooltip cursor defaults to
+                true, built for Cartesian charts; a <Pie> has no column for
+                it to highlight, so leaving it on renders a stray rectangle
+                unrelated to the chart. */}
+            <Tooltip
+              cursor={false}
+              formatter={(value, name) => {
+                const pct = total === 0 ? 0 : Math.round((value / total) * 100);
+                return [`${value} (${pct}%)`, name];
+              }}
+              contentStyle={{ background: colors.surface, border: `1px solid ${colors.line}`, borderRadius: radius.sm, fontSize: '0.8125rem' }}
+            />
+          </PieChart>
+        </ResponsiveContainer>
       </div>
-
-      {/* Breakdown panel — the actual numbers, its own separate
-          bordered box, not fused against the chart panel above. */}
-      <div style={{ flex: 1, padding: '18px', border: `1px solid ${colors.lineSoft}`, borderRadius: radius.md }}>
-        {data.map(d => {
-          const pct = (d.value / total) * 100;
-          return (
-            <div key={d.label} style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '8px' }}>
-              <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: d.colour, flexShrink: 0 }} />
-              <span style={{ fontSize: '0.8125rem', color: colors.ink700, flexShrink: 0, width: isMobile ? '96px' : '150px' }}>{d.label}</span>
-              <div style={{ flex: 1, height: '6px', background: colors.surfaceSubtle, borderRadius: radius.pill, overflow: 'hidden' }}>
-                <div style={{ width: `${Math.max(pct, 2)}%`, height: '100%', background: d.colour, borderRadius: radius.pill }} />
-              </div>
-              <span style={{ fontSize: '0.8125rem', fontWeight: 600, width: '26px', textAlign: 'right', flexShrink: 0 }}>{d.value}</span>
-              <span style={{ fontSize: '0.75rem', color: colors.ink400, width: '36px', textAlign: 'right', flexShrink: 0 }}>{Math.round(pct)}%</span>
-            </div>
-          );
-        })}
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center' }}>
+        {data.map(d => (
+          <span key={d.label} style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.75rem', color: colors.ink500 }}>
+            <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: d.colour, flexShrink: 0 }} />
+            {d.label}
+          </span>
+        ))}
       </div>
     </div>
   );

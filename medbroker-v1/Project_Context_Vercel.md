@@ -1072,57 +1072,73 @@ Unassigned Appointment Warning — built 14 Aug 2026 (§160, migration
   re-deriving a routing decision from scratch; only fall back to a
   fresh region-based lookup when no such Task exists at all.
 
-Donut + share-list pattern (DonutBreakdown, ReportsWidgets.jsx) — built
-  15 Aug 2026 (§175, session 23 continued), reversing part of §156's
-  original brief, which had explicitly ruled out rotating-colour donuts
-  for share-of-whole data. Mark asked for exactly that, referencing a
-  donut + value-share list from another app of his — genuine, specific
-  feedback, not an oversight. Used ONLY for genuine parts-of-a-whole
-  data (every item sums to 100% of something real — a cancellation
-  reason, a loss reason, a won/lost split), never for the ranked tables
-  or the sequential pipeline stages, where a rotating category colour
-  would still be decoration, not information — §156's original
-  restraint principle still holds everywhere else. Share-list bars are
-  scaled to each item's share of the TOTAL (not share-of-the-largest-
-  item, the way this file's other ranked-table bars work) — a
-  deliberately different, more honest scale for this kind of data: a
-  lone category correctly reading as "100% of what's captured" is true
-  here, not an artefact of a small sample the way it would be for a
-  ranked list. CATEGORICAL_PALETTE (also ReportsWidgets.jsx) is six
-  fixed hex values, deliberately NOT theme CSS variables — a rotating
-  multi-colour palette needs to stay mutually distinct regardless of
-  which accent theme is active, which tying rotation to a single theme
-  variable can't guarantee the way it does for this file's other,
-  genuinely semantic colours (success/danger/etc.). This also, as a
-  side effect, leaves the --pl-unassigned/--pl-assigned/--pl-progress/
-  --pl-booked/--pl-won/--pl-lost tokens in themes.css (added 13 Aug
-  2026, §151 follow-up, for an earlier Pipeline Status Breakdown donut
-  since removed in the §156/§162 rebuild) genuinely orphaned — zero
-  references anywhere in frontend/src as of 16 Aug 2026 — worth knowing
-  before assuming they're still load-bearing somewhere. Hover on the
-  donut itself — a real Recharts Tooltip, value + % of total — added 16
-  Aug 2026 (§178). Absent from the original §175 build; the one concrete
-  piece of Mark's original spec ("hovering on the slice shows the
-  details of the slice") that hadn't actually been built, found by
-  reading the component in full rather than just confirming its name
-  and exports existed. Two more real gaps found 16 Aug 2026 (§179),
-  neither solved by §178's tooltip fix alone: Recharts' Tooltip
-  `cursor` prop defaults to true, meant for Cartesian charts — on a
-  <Pie> it renders as a stray rectangle with no relationship to the
-  chart, near-certainly what Mark reported as an ugly "box" on hover.
-  ALWAYS set cursor={false} on a Tooltip paired with a <Pie> in this
-  codebase — there's no Cartesian-style "column" for it to highlight,
-  so the default is never correct here. Layout itself was the deeper
-  issue: donut and breakdown list used to share one flex row with no
-  visual boundary, which read as duplicating the same numbers
-  regardless of whether the donut was interactive. Now two genuinely
-  separate bordered panels (donut + a plain, number-free colour-key
-  legend / the actual breakdown list) — matches the investment-tracker
-  reference's real structure (two distinct cards, not one row), not
-  just its general "donut plus list" shape. When building any future
-  donut+breakdown pairing, use two visually separate panels from the
-  start, not one shared row — that's the standing pattern now, not an
-  optional refinement.
+Donut pattern (DonutBreakdown, ReportsWidgets.jsx) — CURRENT DESIGN as
+  of 16 Aug 2026 (§180), after three earlier passes (§175, §178, §179)
+  each fixed a real problem without landing Mark's actual point. Read
+  this note, not the git-archaeology of how it got here, for what the
+  component actually does today:
+
+  DonutBreakdown is a single, self-contained donut widget — chart,
+  hover (Recharts Tooltip, value + % of total), and a plain colour-key
+  legend (names only, no numbers). NO accompanying bar list or
+  breakdown panel, ever — that was the actual, standing objection the
+  first three passes never fully addressed: a donut and a list showing
+  the SAME numbers is redundant regardless of layout or interactivity.
+  If a second visual is wanted next to a donut, it must show DIFFERENT
+  data (see WonLostPair below), never a second rendering of what the
+  donut already carries.
+
+  Used ONLY for genuine parts-of-a-whole data (every item sums to 100%
+  of something real), never for ranked tables or the sequential
+  pipeline stages — §156's original restraint principle. Optional
+  `title` prop labels an individual donut when more than one is shown
+  side by side (e.g. "Won" / "Lost" as a pair) — the parent section's
+  own heading isn't enough to distinguish them at that point.
+
+  cursor={false} on the Tooltip — MANDATORY on any <Pie> in this
+  codebase, not optional. Recharts' Tooltip cursor prop defaults to
+  true, built for Cartesian charts; a <Pie> has no "column" for it to
+  highlight, so leaving the default on renders a stray rectangle
+  unrelated to the chart (§179's own finding, likely what read as an
+  ugly "box" on hover before this was set).
+
+  CATEGORICAL_PALETTE is six fixed hex values, deliberately NOT theme
+  CSS variables — needs to stay mutually distinct regardless of active
+  accent theme, which a single rotating theme variable can't guarantee.
+  Leaves the --pl-unassigned/--pl-assigned/--pl-progress/--pl-booked/
+  --pl-won/--pl-lost tokens in themes.css (added 13 Aug 2026, §151
+  follow-up, for a donut removed in the §156/§162 rebuild) genuinely
+  orphaned — zero references in frontend/src as of 16 Aug 2026.
+
+WonLostPair (Reports.jsx, page-local — NOT exported from
+  ReportsWidgets.jsx) — built 16 Aug 2026 (§180) for Won vs Lost's new
+  "By Region" / "By Portfolio" breakdowns, Mark's own explicit request
+  for genuinely different data rather than a redundant re-rendering of
+  the same Won/Lost split. Two DonutBreakdowns side by side (Won |
+  Lost) under one shared heading, not a single combined donut — a
+  "dimension × outcome" donut would need up to 18 slices (9 SA
+  regions × 2 outcomes) for no real gain over two clean, honest donuts
+  capped at 9 slices each. Deliberately kept page-local rather than
+  promoted into ReportsWidgets.jsx — this specific "two donuts paired
+  under one label" composition is a Won-vs-Lost-section concern, not a
+  generic building block the way DonutBreakdown itself is; promote it
+  only if a second, genuinely different section needs the exact same
+  shape, not preemptively.
+
+  wonVsLost.wonByRegion/lostByRegion/wonByPortfolio/lostByPortfolio
+  (reportService.js, getDashboardData()) — region needed a genuinely
+  new query (no existing breakdown grouped by region anywhere in this
+  file before); portfolio needed none at all, derived directly from
+  portfolioTable, already computed earlier in the same function for
+  the existing Portfolio Performance table. Region's COALESCE to 'Not
+  captured' matters — Appointment.region is nullable, only populated
+  since 14 Aug 2026 (§166, migration 032), so any appointment booked
+  before that carries none; same honest-labelling pattern as loss/
+  cancel reasons rather than silently dropping those rows. NOT verified
+  against a real Postgres instance — no local database available in
+  the sandbox that built this; the JS-side filter/derivation logic was
+  checked against synthetic data and is correct, but the SQL itself
+  wants a first real run before being trusted blindly.
 
 List sort — two genuinely different implementations on this codebase,
   by design, not inconsistency. AppointmentList.jsx sorts CLIENT-SIDE:
