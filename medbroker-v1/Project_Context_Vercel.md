@@ -1073,20 +1073,34 @@ Unassigned Appointment Warning — built 14 Aug 2026 (§160, migration
   fresh region-based lookup when no such Task exists at all.
 
 Donut pattern (DonutBreakdown, ReportsWidgets.jsx) — CURRENT DESIGN as
-  of 16 Aug 2026 (§180), after three earlier passes (§175, §178, §179)
-  each fixed a real problem without landing Mark's actual point. Read
-  this note, not the git-archaeology of how it got here, for what the
-  component actually does today:
+  of 16 Aug 2026 (§182), after four earlier passes (§175, §178, §179,
+  §180) each fixed a real problem without landing Mark's actual point.
+  Read this note, not the git-archaeology of how it got here, for what
+  the component actually does today:
 
   DonutBreakdown is a single, self-contained donut widget — chart,
   hover (Recharts Tooltip, value + % of total), and a plain colour-key
   legend (names only, no numbers). NO accompanying bar list or
-  breakdown panel, ever — that was the actual, standing objection the
-  first three passes never fully addressed: a donut and a list showing
-  the SAME numbers is redundant regardless of layout or interactivity.
-  If a second visual is wanted next to a donut, it must show DIFFERENT
-  data (see WonLostPair below), never a second rendering of what the
-  donut already carries.
+  breakdown panel, ever — a donut and a list showing the SAME numbers
+  is redundant regardless of layout or interactivity. If a second
+  visual is wanted next to a donut, it must show DIFFERENT data (see
+  WonLostPair below), never a second rendering of what the donut
+  already carries.
+
+  Card is 220px wide, 168px chart, minHeight 236px — sized generously
+  enough (§182) that a lone card doesn't read as an accident, though
+  the real fix for "looks sparse" is almost always CONSOLIDATION (see
+  the standing layout principle below), not just making one card
+  bigger. Both empty branches (total===0, "no data at all"; and
+  realTotal===0, "data exists but it's entirely the Not-captured
+  bucket" — a genuinely different fact, worth a different message,
+  wireable via the optional notCapturedMessage prop) render inside the
+  SAME card chrome as the populated case — same border, padding, size —
+  so a Won/Lost pair (or any set shown together) stays visually
+  coherent regardless of which side actually has data. Don't let either
+  branch fall through to the generic EmptyState component — that's a
+  differently-sized, differently-styled element built for a different
+  job (a whole section being empty, not one card in a set of several).
 
   Used ONLY for genuine parts-of-a-whole data (every item sums to 100%
   of something real), never for ranked tables or the sequential
@@ -1109,6 +1123,31 @@ Donut pattern (DonutBreakdown, ReportsWidgets.jsx) — CURRENT DESIGN as
   --pl-won/--pl-lost tokens in themes.css (added 13 Aug 2026, §151
   follow-up, for a donut removed in the §156/§162 rebuild) genuinely
   orphaned — zero references in frontend/src as of 16 Aug 2026.
+
+STANDING LAYOUT PRINCIPLE, 16 Aug 2026 (§182) — don't give related
+  content its own separate full-width block/card just because it was
+  built in a different session or a different pass. Before adding a new
+  breakdown/chart/table to Reports.jsx, check whether it's the same
+  underlying theme as something already on the page (Won/Lost by any
+  cut, any breakdown of the same appointment set, etc.) and if so, put
+  it in the SAME section, in the SAME flex-wrap row, not a new stacked
+  block below it. Mark's own direct question after the §175-through-
+  §181 saga: "why could these not be displayed next to each other?" —
+  the honest answer was "no good reason, they were just built at
+  different times." A single donut (or any card) floating alone in an
+  otherwise-empty full-width row is the visible symptom; the actual
+  fix is consolidation, not making that one card bigger.
+
+STANDING SKILL OBLIGATION, 16 Aug 2026 (§182) — this environment has a
+  frontend-design skill (/mnt/skills/public/frontend-design/SKILL.md)
+  that should be read before any UI/visual layout work on this page (or
+  any page), not just component logic changes. It wasn't consulted once
+  across the entire §175-§181 donut saga, and its own stated principles
+  ("Structure is information," "treat failure and emptiness as moments
+  for direction, not mood," "elegance is executing the chosen vision
+  well") directly diagnose problems Mark had to point out manually that
+  should have been caught before delivery. Load it before touching
+  layout/spacing/empty-state design on this page again.
 
 WonLostPair (Reports.jsx, page-local — NOT exported from
   ReportsWidgets.jsx) — built 16 Aug 2026 (§180) for Won vs Lost's new

@@ -110,8 +110,8 @@ export function KpiCard({ label, current, format, deltaPct, direction, lowerIsBe
   );
 }
 
-// ─── Donut — 15 Aug 2026 (§175), REDESIGNED 16 Aug 2026 (§179, §180).
-// Genuine parts-of-a-whole data ONLY (every item sums to 100% of
+// ─── Donut — 15 Aug 2026 (§175), REDESIGNED 16 Aug 2026 (§179, §180,
+// §182). Genuine parts-of-a-whole data ONLY (every item sums to 100% of
 // something real: a cancellation reason, a loss reason, a won/lost
 // split) — see this file's own header comment for why the ranked
 // tables and sequential pipeline stages don't use this.
@@ -121,34 +121,67 @@ export function KpiCard({ label, current, format, deltaPct, direction, lowerIsBe
 // list into two separate bordered panels, matching Mark's investment-
 // tracker reference structurally.
 //
-// §180 REMOVES the breakdown-list panel entirely — Mark's own words:
-// "having a bar chart and donut chart showing the EXACT same thing is
-// superfluous... I don't want the bar chart with the same data
-// displayed." Splitting into two panels (§179) fixed how it LOOKED but
-// not the actual complaint: a bar list repeating numbers the donut
-// already shows (now via hover) is still repeating them, panel or no
-// panel. DonutBreakdown is now a single self-contained donut widget —
-// chart + a plain, number-free colour-key legend, nothing else. Where a
-// second visual is actually wanted alongside a donut, it now has to be
-// DIFFERENT data (Won by Region next to Lost by Region, for instance —
-// see Reports.jsx's Won vs Lost section), never a second rendering of
-// the same numbers the donut already carries. Optional `title` renders
-// a small label above the chart — needed now that a single section can
-// hold more than one of these side by side (e.g. "Won" / "Lost" as a
-// pair under a shared "By Region" heading) with no other way to tell
-// them apart.
-export function DonutBreakdown({ data, isMobile, emptyMessage, title }) {
+// §180 removed the breakdown-list panel entirely — a bar list repeating
+// numbers the donut already shows (via hover) is still repeating them,
+// panel or no panel. Single self-contained donut widget: chart + a
+// plain, number-free colour-key legend, nothing else.
+//
+// §182 — two more real problems Mark's screenshots caught, both about
+// treating emptiness/low-data as a deliberate design moment rather than
+// letting it fall out of whatever the populated case happens to render:
+//
+// 1. A donut whose data is ENTIRELY the "Not captured" bucket (every
+//    real category at zero) rendered as one flat, monotone ring —
+//    technically accurate, communicates nothing. Now checked separately
+//    from the true-empty case (total === 0): if there's data but none
+//    of it is a REAL category, this renders the same card-shaped empty
+//    state as true-emptiness, with a message that says what's actually
+//    going on ("not captured" vs "none this period" are different
+//    facts, worth saying differently).
+// 2. The empty state itself used to fall through to the generic
+//    EmptyState component — a dashed rectangle with its own sizing,
+//    nothing like this widget's own solid-bordered card. Sitting next
+//    to a populated donut (WonLostPair's Won/Lost pairing, for
+//    instance) the mismatch was obvious: two different visual
+//    languages for what's meant to read as one coherent pair. Both
+//    branches below now render inside the SAME card chrome — same
+//    border, padding, size — whether there's a chart in it or not.
+export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessage, title }) {
   const total = data.reduce((sum, d) => sum + d.value, 0);
-  if (total === 0) return <EmptyState message={emptyMessage ?? 'No data for this period.'} />;
+  const realTotal = data.filter(d => d.label !== 'Not captured').reduce((sum, d) => sum + d.value, 0);
+
+  const cardStyle = {
+    display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
+    padding: '20px', border: `1px solid ${colors.lineSoft}`, borderRadius: radius.md,
+    width: isMobile ? '100%' : '220px', minHeight: '236px', boxSizing: 'border-box',
+    justifyContent: total === 0 || realTotal === 0 ? 'center' : 'flex-start',
+  };
+
+  if (total === 0) {
+    return (
+      <div style={cardStyle}>
+        {title && <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500 }}>{title}</div>}
+        <div style={{ fontSize: '0.8125rem', color: colors.ink400, textAlign: 'center' }}>
+          {emptyMessage ?? 'No data for this period.'}
+        </div>
+      </div>
+    );
+  }
+  if (realTotal === 0) {
+    return (
+      <div style={cardStyle}>
+        {title && <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500 }}>{title}</div>}
+        <div style={{ fontSize: '0.8125rem', color: colors.ink400, textAlign: 'center' }}>
+          {notCapturedMessage ?? emptyMessage ?? 'Not captured for this period.'}
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px',
-      padding: '18px', border: `1px solid ${colors.lineSoft}`, borderRadius: radius.md,
-      width: isMobile ? '100%' : '200px', boxSizing: 'border-box',
-    }}>
+    <div style={cardStyle}>
       {title && <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500 }}>{title}</div>}
-      <div style={{ width: '150px', height: '150px' }}>
+      <div style={{ width: '168px', height: '168px' }}>
         <ResponsiveContainer width="100%" height="100%">
           <PieChart>
             <Pie
@@ -180,6 +213,7 @@ export function DonutBreakdown({ data, isMobile, emptyMessage, title }) {
             {d.label}
           </span>
         ))}
+
       </div>
     </div>
   );
@@ -294,52 +328,40 @@ function stageColour(ratio) {
  * stage-to-stage conversion % that already existed (that number was
  * always the actually useful part).
  *
- * Closed Won/Closed Lost ARE genuine parts-of-a-whole (every closed deal
- * is exactly one or the other) — replaced with DonutBreakdown, the same
- * component now used for Cancellation/Loss reasons, framed as what it
- * actually is: a win rate.
+ * Win Rate REMOVED from here 16 Aug 2026 (§182) — Mark's direct
+ * question: "why could these not be displayed next to each other?"
+ * Closed Won/Lost, By Region, and By Portfolio are all the same
+ * underlying theme (what happened to closed deals) but were split
+ * across two unrelated cards — this one, and Won vs Lost further down
+ * the page — for no real reason beyond having been built in separate
+ * sessions. This card's job is now purely the sequential funnel; every
+ * closed-deal breakdown lives together in Won vs Lost (Reports.jsx),
+ * where it can actually sit side by side instead of scattered.
  */
 export function PipelineHealth({ stages, stageConversion, isMobile }) {
   if (!stages || stages.every(s2 => s2.count === 0)) {
     return <EmptyState message="No leads in the pipeline this period." />;
   }
   const sequential = stages.slice(0, 4); // Unassigned/Assigned/In Progress/Appointment Booked — see reportService.js's own comment on why Closed Won/Lost aren't a 5th sequential stage
-  const won  = stages.find(s2 => s2.status === 'Closed Won')?.count ?? 0;
-  const lost = stages.find(s2 => s2.status === 'Closed Lost')?.count ?? 0;
 
   return (
-    <div>
-      <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '4px' : '0' }}>
-        {sequential.map((stage, i) => (
-          <div key={stage.status} style={{ display: 'flex', alignItems: 'center', flex: isMobile ? 'none' : 1 }}>
-            <div style={{ flex: 1, textAlign: isMobile ? 'left' : 'center' }}>
-              <div style={{ fontSize: '1.5rem', fontWeight: 700, color: colors.ink }}>{stage.count}</div>
-              <div style={{ fontSize: '0.75rem', color: colors.ink500, marginTop: '2px' }}>{stage.status}</div>
-            </div>
-            {i < sequential.length - 1 && stageConversion[i] && (
-              <div style={{ display: 'flex', flexDirection: isMobile ? 'row' : 'column', alignItems: 'center', gap: isMobile ? '6px' : '2px', padding: isMobile ? '2px 0' : '0 10px', flexShrink: 0 }}>
-                <span style={{ fontSize: '0.9rem', color: colors.ink400 }}>{isMobile ? '↓' : '→'}</span>
-                <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: stageColour(stageConversion[i].ratio), whiteSpace: 'nowrap' }}>
-                  {stageConversion[i].ratio === null ? 'No prior data' : `${Math.round(stageConversion[i].ratio * 100)}%`}
-                </span>
-              </div>
-            )}
+    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '4px' : '0' }}>
+      {sequential.map((stage, i) => (
+        <div key={stage.status} style={{ display: 'flex', alignItems: 'center', flex: isMobile ? 'none' : 1 }}>
+          <div style={{ flex: 1, textAlign: isMobile ? 'left' : 'center' }}>
+            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: colors.ink }}>{stage.count}</div>
+            <div style={{ fontSize: '0.75rem', color: colors.ink500, marginTop: '2px' }}>{stage.status}</div>
           </div>
-        ))}
-      </div>
-      <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: `1px solid ${colors.lineSoft}` }}>
-        <div style={{ fontSize: '0.6875rem', fontWeight: 600, color: colors.ink400, textTransform: 'uppercase', letterSpacing: '0.03em', marginBottom: '12px' }}>
-          Win Rate
+          {i < sequential.length - 1 && stageConversion[i] && (
+            <div style={{ display: 'flex', flexDirection: isMobile ? 'row' : 'column', alignItems: 'center', gap: isMobile ? '6px' : '2px', padding: isMobile ? '2px 0' : '0 10px', flexShrink: 0 }}>
+              <span style={{ fontSize: '0.9rem', color: colors.ink400 }}>{isMobile ? '↓' : '→'}</span>
+              <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: stageColour(stageConversion[i].ratio), whiteSpace: 'nowrap' }}>
+                {stageConversion[i].ratio === null ? 'No prior data' : `${Math.round(stageConversion[i].ratio * 100)}%`}
+              </span>
+            </div>
+          )}
         </div>
-        <DonutBreakdown
-          isMobile={isMobile}
-          data={[
-            { label: 'Closed Won', value: won, colour: colors.success },
-            { label: 'Closed Lost', value: lost, colour: colors.danger },
-          ]}
-          emptyMessage="No closed appointments this period."
-        />
-      </div>
+      ))}
     </div>
   );
 }

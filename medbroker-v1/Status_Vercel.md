@@ -47,8 +47,16 @@ shipped with a real SQL bug in the new region query (ambiguous GROUP BY
 column, since Lead and Appointment both have their own region column)
 that Mark's own testing caught within minutes as an "Internal server
 error" banner on the live Reports page. §181 fixed it — a one-line
-alias rename, isolated to that single query. Full detail in §177
-through §181 below.
+alias rename, isolated to that single query. §182 then addressed a
+different kind of problem, correctly called out as a genuine design
+quality gap rather than a bug: donut cards floating alone in mostly-
+empty rows, related win/loss breakdowns split across two unconnected
+page sections for no real reason, and a degenerate "100% Not captured"
+case rendering as an uninformative flat grey ring. Real architectural
+consolidation, not a styling patch — see that entry for the full
+account, including the frontend-design skill this session should have
+been consulting throughout the whole donut saga and wasn't. Full detail
+in §177 through §182 below.
 
 CORRECTED 16 Aug 2026 (session 24/§176) — this block, and the OTHER
 OUTSTANDING ITEMS list below, had drifted badly out of date: items 1
@@ -14566,3 +14574,93 @@ just no-longer-erroring) once applied.
 NOT YET DEPLOYED.
 
 FILES: frontend/api-lib/services/reportService.js.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+182. A GENUINE DESIGN-QUALITY PASS — CONSOLIDATED SCATTERED WIN/LOSS DONUTS, FIXED WASTED LAYOUT SPACE, HONEST EMPTY/LOW-DATA STATES — 16 Aug 2026 (session 24, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark, with screenshots: "when I asked you to act as though you were a
+senior data scientist, is this what you thought would be a good
+design? Why could these not be displayed next to each other? ... Can
+you provide me with the prompt to get you to build design studio level
+representations of data as this is sub par."
+
+Fair, and worth being direct about the actual gap: this codebase's own
+environment has a frontend-design skill (/mnt/skills/public/frontend-
+design/SKILL.md) — "Guidance for distinctive, intentional visual
+design when building new UI or reshaping an existing one" — that
+should have been consulted for every piece of the Reports donut work
+across §175/§178/§179/§180/§181, and wasn't, not once. Its own stated
+principles ("Structure is information," "Treat failure and emptiness
+as moments for direction, not mood," "Elegance is executing the chosen
+vision well") directly diagnose what was wrong in the screenshots.
+That's a real, avoidable process gap, not a one-off styling miss —
+noted here so future sessions doing UI/visual work on this page (or
+any other) load that skill before touching layout, not after being
+told the result looks unfinished.
+
+THREE SEPARATE, REAL PROBLEMS in the screenshots, not one:
+
+1. SCATTERED ARCHITECTURE — the direct answer to "why could these not
+   be displayed next to each other": the overall Win Rate donut lived
+   in the Pipeline Health card; Won/Lost by Region and by Portfolio
+   (built §180) lived in the separate Won vs Lost card, further down
+   the page. Same underlying theme (what happened to closed deals, cut
+   three ways) split across two cards that have no real relationship
+   on the page, purely because they were built in different sessions
+   without stepping back to ask where they actually belonged. FIXED:
+   Win Rate's donut removed from PipelineHealth entirely — that card's
+   job is now purely the sequential funnel, a genuinely distinct
+   concern from "what happened to closed deals." Overall Won/Lost moved
+   into Won vs Lost, positioned first, followed by By Region and By
+   Portfolio in one continuous flex-wrap row — Overall, By Region
+   (Won|Lost), By Portfolio (Won|Lost), genuinely beside each other,
+   wrapping onto new lines only when the viewport actually runs out of
+   room. Same consolidation applied to Meeting Type + Cancellation
+   reasons (Appointment Analysis) — different breakdowns, same section,
+   used to each get their own full-width stacked block; now one
+   flex-wrap row too.
+
+2. WASTED SPACE — each DonutBreakdown card was a fixed 200px box in a
+   full-width flex container; a section with only one or two cards left
+   the majority of the row empty, reading as unfinished rather than
+   restrained. Card size increased modestly (170px→168... actually
+   150px chart→168px, 200px→220px card) — not dramatically bigger, but
+   enough that a card reads as deliberately sized rather than
+   accidentally small. The real fix is (1) above: consolidating related
+   donuts into shared rows means most rows now genuinely have enough
+   content to fill available width without stretching anything
+   artificially.
+
+3. DISHONEST EMPTY/LOW-DATA STATES — two separate issues here. First,
+   "By Region → Won" rendering as one flat grey "Not captured" ring —
+   technically accurate (region genuinely wasn't captured for those
+   appointments, all pre-dating §166), completely uninformative as a
+   chart. DonutBreakdown now distinguishes "no data at all" (total===0)
+   from "data exists but none of it is a real category" (realTotal===0,
+   every item is the Not-captured bucket) — the second case gets its
+   own message via a new notCapturedMessage prop, wired up on the
+   region pair specifically ("Region wasn't captured for any of these —
+   tracking only started 14 Aug 2026"), since that's the one dimension
+   where this can be the whole answer. Second: the true-empty case
+   ("No losses this period") used to fall through to the generic
+   EmptyState component — a dashed rectangle with its own sizing,
+   nothing like DonutBreakdown's own solid-bordered card. Sitting next
+   to a populated donut in a Won/Lost pair, the mismatch was obvious.
+   Both empty branches now render inside the SAME card chrome as the
+   populated case — same border, padding, size — so a pair always reads
+   as one coherent pair regardless of which side has data.
+
+VERIFIED: npm run build clean, npx vitest run — 48/48 passing. Diffed
+against a fresh GitHub hydration taken immediately before packaging —
+isolated to exactly two files, confirmed no drift since. Still no live
+browser or Postgres in this sandbox — the layout change is reasoned
+through carefully (flex-wrap behaviour, card dimensions, consistent
+chrome) but genuinely unverified visually; worth Mark's own look at the
+actual rendered page before treating this as settled, same honesty as
+§179/§180's own delivery notes.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/src/components/ReportsWidgets.jsx, frontend/src/pages/Reports.jsx.
