@@ -1135,9 +1135,17 @@ Donut pattern (DonutBreakdown, ReportsWidgets.jsx) — CURRENT DESIGN as
   highlight, so leaving the default on renders a stray rectangle
   unrelated to the chart (§179's own finding).
 
-  shadow.xs on the card — subtle, theme-aware (resolves through the
-  same tokens.js CSS variables as everything else), added §187 for a
-  touch more presence without departing from this app's own restraint.
+  shadow.sm on the card — same shared token s.card/s.metricCard already
+  use everywhere else on this page and this app. CORRECTED 16 Aug 2026
+  (§189) — §187's own first pass used one-off values (border:
+  colors.lineSoft, radius.lg, shadow.xs) instead of these shared tokens
+  (colors.line, radius.md, shadow.sm), a real inconsistency: the
+  rebuilt donut cards had a visibly different border weight and shadow
+  than their own immediate neighbours (KPI cards, Section wrappers).
+  STANDING RULE: any new card-shaped element on this page should reach
+  for s.card/s.metricCard's own values first, not invent a new
+  one-off — "contemporary design system" means applying the existing
+  system consistently, not introducing a second one beside it.
 
   CATEGORICAL_PALETTE is six fixed hex values, deliberately NOT theme
   CSS variables — needs to stay mutually distinct regardless of active
@@ -1154,6 +1162,32 @@ Donut pattern (DonutBreakdown, ReportsWidgets.jsx) — CURRENT DESIGN as
   across an entire wide monitor with nothing filling the remainder. A
   bounded, intentional grid, not open-ended width waiting to be filled
   — check this is still in place before adding a new breakdown row.
+
+  EXTENDED 16 Aug 2026 (§189) — EVERY card meant to sit in this row
+  must be a TRUE FLEX CHILD of the row's own container, never a
+  separately-wrapped <div> below or beside it, even if it looks
+  visually similar. Loss reasons was built as its own block with
+  marginTop instead of a sibling inside the flex row — worked fine in
+  isolation, but could never flow into leftover space in the row above
+  it (By Portfolio · Won/Lost only filled 2 of 3 slots), so it always
+  forced a new line regardless of how much room was actually available.
+  Exact same failure shape as §183's own WonLostPair fix (a card
+  outside the flex container can't be equalised or flowed by CSS on the
+  container alone) — check for this specific pattern (a donut/card
+  wrapped in its own <div> "just to add spacing") whenever adding
+  anything new to one of these rows.
+
+  LABEL LENGTH, 16 Aug 2026 (§189) — this page's own display labels
+  (CANCEL_REASON_LABELS, LOST_REASON_LABELS, Reports.jsx) don't have to
+  match the fuller, more descriptive labels used in the actual
+  selection UI (AppointmentDetail.jsx's own dropdowns) word-for-word.
+  The legend column here has real width constraints a full-width
+  <select> doesn't; a label that reads fine in a dropdown can still
+  wrap awkwardly in a 360px card's legend. When a legend label is
+  flagged as too long, shorten the DISPLAY copy specifically rather
+  than trying to fix it purely with layout (wrapping/truncation) —
+  check whether the category name itself has an obvious shorter form
+  first, and only reach for CSS truncation if it genuinely doesn't.
 
 STANDING LAYOUT PRINCIPLE, 16 Aug 2026 (§182) — don't give related
   content its own separate full-width block/card just because it was

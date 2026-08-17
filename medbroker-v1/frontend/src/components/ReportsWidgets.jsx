@@ -156,8 +156,17 @@ export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessag
 
   const cardStyle = {
     display: 'flex', flexDirection: 'column', gap: '14px',
-    padding: '20px 22px', border: `1px solid ${colors.lineSoft}`, borderRadius: radius.lg,
-    background: colors.surface, boxShadow: shadow.xs,
+    // 16 Aug 2026 (§189) — border/radius/shadow changed from one-off
+    // values (radius.lg, shadow.xs) to the SAME shared tokens s.card and
+    // s.metricCard already use everywhere else on this page (KPI cards,
+    // Section wrapper, in fact everywhere in the whole app) — colors.line
+    // (not colors.lineSoft), radius.md, shadow.sm. Mark's ask was for
+    // "a contemporary design system," not a new one sitting beside the
+    // existing one; this card was quietly using a different border
+    // weight and shadow than its own siblings, which undermines exactly
+    // the "reads like one coherent product" goal §187 was aiming for.
+    padding: '20px 22px', border: `1px solid ${colors.line}`, borderRadius: radius.md,
+    background: colors.surface, boxShadow: shadow.sm,
     width: isMobile ? '100%' : '360px', minHeight: '184px', boxSizing: 'border-box',
     justifyContent: total === 0 || realTotal === 0 ? 'center' : 'flex-start',
   };

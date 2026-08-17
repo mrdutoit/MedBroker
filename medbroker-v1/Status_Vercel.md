@@ -113,7 +113,24 @@ decorative. That reasoning was built around the THIN pre-§187 card
 design; §187's rebuild made every card substantial regardless of
 category count, which quietly removed the justification for hiding
 any of them. All three breakdowns show again whenever there's real
-data, full stop. Full detail in §177 through §188 below.
+data, full stop. §189 then fixed two more concrete issues on that same
+§187/§188 layout: Loss reasons sat in its own separate block below the
+main Won vs Lost row instead of as a true flex child within it, so it
+always started a fresh line even when real space remained in the row
+above (fixed — it's a genuine row sibling now, flows in next to By
+Portfolio · Lost); and the Cancellation reasons donut's own
+"Scheduling conflict, wants to rebook" legend label was long enough to
+wrap awkwardly in the card's own legend column (shortened to
+"Scheduling conflict" in the Reports display specifically, leaving the
+fuller description intact where it's actually chosen in
+AppointmentDetail.jsx's own dropdown). Also caught and fixed a real
+inconsistency while addressing Mark's "apply a contemporary design
+system" instruction: §187's own donut card had quietly used different
+border/radius/shadow tokens than every other card on this same page
+(KPI cards, Section wrappers) — aligned to the same shared s.card/
+s.metricCard tokens the rest of the app already uses, rather than a
+new one-off variant sitting beside the existing system. Full detail in
+§177 through §189 below.
 
 CORRECTED 16 Aug 2026 (session 24/§176) — this block, and the OTHER
 OUTSTANDING ITEMS list below, had drifted badly out of date: items 1
@@ -15216,3 +15233,76 @@ since.
 NOT YET DEPLOYED.
 
 FILES: frontend/src/pages/Reports.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+189. LOSS REASONS STUCK BELOW THE ROW, A LEGEND LABEL STILL TOO LONG, AND A CARD-TOKEN INCONSISTENCY §187 INTRODUCED — 16 Aug 2026 (session 24, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark, with fresh screenshots after §188: "the Loss reasons graph is
+tucked underneath the other 5, why? Can it not be in line with By
+Portfolio · Lost?" — plus "the Cancellation Reason label for
+Scheduling conflict shortened. It's way too long and makes the graph
+difficult to read" — plus a direct instruction to use every skill
+available and apply a contemporary design system to the page as a
+whole, not just patch symptoms one at a time.
+
+LOSS REASONS LAYOUT — real, findable bug, not a CSS-tuning problem:
+Loss reasons lived in its OWN separate <div style={{marginTop:'18px'}}>
+below the main Won vs Lost flex row, not as a flex CHILD within that
+row. A card outside a flex container can never flow into it, no matter
+how the row's own gap/maxWidth/wrap settings are tuned — it always
+starts a fresh line, even when By Portfolio · Won and · Lost only fill
+2 of the row's 3 card slots, leaving real, visible space Loss reasons
+could have used. Exact same root-cause SHAPE as §183's own WonLostPair
+fix (a card that isn't a true sibling can't be equalised or flowed by
+its neighbours' own CSS) — should have been caught by checking for this
+pattern elsewhere on the page after §183, not re-discovered here.
+FIXED: moved inside the same flex container as a genuine sibling of
+Overall/Region/Portfolio. Row math confirmed directly: 360px cards +
+20px gap fit exactly 3 per line at the row's own 1160px cap — Loss
+reasons is now the 3rd card in row 2, beside By Portfolio · Lost,
+exactly where Mark asked for it.
+
+LEGEND LABEL LENGTH — "Scheduling conflict, wants to rebook" (36
+characters) shortened to "Scheduling conflict" (19) in
+CANCEL_REASON_LABELS, Reports.jsx specifically. "Found an alternative
+broker/solution" (also long, not yet flagged but the same class of
+problem) shortened to "Found an alternative" alongside it, pre-emptively
+rather than waiting for it to actually appear in a chart and get
+flagged separately. Deliberately NOT changed in AppointmentDetail.jsx's
+own copy of these same two labels (its cancelReason dropdown, a
+full-width <select> with no comparable space constraint) — the fuller,
+more descriptive text still helps whoever's actually choosing a reason
+while recording an outcome; the readability problem was specific to
+this file's own narrow donut-legend column, not the category names
+themselves. The two label sets intentionally differ now (full text
+where chosen, short text where charted) — a deliberate, documented
+choice, not an oversight.
+
+CARD-TOKEN INCONSISTENCY, found while addressing "apply a contemporary
+design system": §187's rebuilt donut card used one-off styling values
+(border: colors.lineSoft, radius.lg, shadow.xs) instead of the SAME
+shared s.card/s.metricCard tokens (colors.line, radius.md, shadow.sm)
+every other card on this page — KPI cards, Section wrappers, in fact
+every card anywhere in this app — already uses. A real, if subtle,
+inconsistency: the newly-rebuilt donut cards had a visibly different
+border weight and shadow than their own immediate neighbours, which
+works directly against "reads like one coherent product," the entire
+point §187 was built around. FIXED: aligned to the shared tokens.
+Contemporary design isn't a new, separate visual language sitting
+beside the existing one — it's the existing one, applied consistently,
+which is exactly what this fix does rather than introducing a third
+variant.
+
+VERIFIED: npm run build clean, npx vitest run — 48/48 passing. Row-flow
+math checked directly (3 cards per 1160px row at the current card
+width, confirming Loss reasons lands in row 2 beside Portfolio · Lost
+as intended) rather than assumed. Label lengths checked directly
+(36 chars -> 19). Diffed against a fresh GitHub hydration taken
+immediately before packaging — isolated to exactly two files, confirmed
+no drift since.
+
+NOT YET DEPLOYED.
+
+FILES: frontend/src/components/ReportsWidgets.jsx, frontend/src/pages/Reports.jsx.

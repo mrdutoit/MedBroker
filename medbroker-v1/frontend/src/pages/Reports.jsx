@@ -91,10 +91,22 @@ const LOST_REASON_LABELS = {
 // is a real, separate category value here from lostReason's own
 // identically-named one above — same label text, different field
 // (Appointment.lostReason vs MeetingAttempt.cancelReason), not a typo.
+//
+// SchedulingConflict/FoundAlternative SHORTENED here, 16 Aug 2026
+// (§189) — Mark, directly: "the Cancellation Reason label for
+// Scheduling conflict shortened. It's way too long and makes the graph
+// difficult to read." Deliberately NOT changed to match in
+// AppointmentDetail.jsx's own copy of these same two labels (its own
+// dropdown, line ~102-103) — that's a full-width <select>, plenty of
+// room, and the extra context (", wants to rebook" / "broker/solution")
+// genuinely helps whoever's choosing the right reason while recording
+// an outcome. The readability problem is specific to this file's own
+// narrow donut-legend column, not the underlying category names
+// themselves — shortened only where the actual constraint is.
 const CANCEL_REASON_LABELS = {
   NoLongerInterested: 'No longer interested',
-  FoundAlternative: 'Found an alternative broker/solution',
-  SchedulingConflict: 'Scheduling conflict, wants to rebook',
+  FoundAlternative: 'Found an alternative',
+  SchedulingConflict: 'Scheduling conflict',
   Uncontactable: 'Uncontactable',
   Other: 'Other',
   'Not captured': 'Not captured',
@@ -548,6 +560,21 @@ export default function Reports() {
                     discipline as Mark's own reference dashboard's fixed
                     KPI-row column count, not infinite width waiting to
                     be filled. */}
+                {/* 16 Aug 2026 (§189) — Mark's direct question: "the
+                    Loss reasons graph is tucked underneath the other 5,
+                    why? Can it not be in line with By Portfolio · Lost?"
+                    Root cause: Loss reasons used to live in its OWN
+                    separate <div> below this row (marginTop:'18px'),
+                    not as a flex child WITHIN it — so it always started
+                    a fresh line of its own regardless of how much room
+                    was actually left in the row above (Portfolio·Won/
+                    Portfolio·Lost only fill 2 of the row's 3 card
+                    slots, leaving real space Loss reasons could have
+                    used). Moved inside this same flex container as a
+                    true sibling of Overall/Region/Portfolio — same fix
+                    class as §183's own WonLostPair rework (a card
+                    outside the flex row can't flow into it, no matter
+                    how the row's own CSS is tuned). */}
                 <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: '20px', marginTop: '18px', maxWidth: '1160px' }}>
                   <DonutBreakdown
                     title="Overall"
@@ -560,32 +587,17 @@ export default function Reports() {
                   />
                   {wonByRegionPair}
                   {wonByPortfolioPair}
-                </div>
-                {/* 16 Aug 2026 (§183) — title moved onto DonutBreakdown
-                    itself (title="Loss reasons") rather than a separate
-                    outer wrapper div, matching Cancellation reasons/
-                    Meeting Type's own rework just below — one consistent
-                    pattern for every donut on this page, not two. This
-                    one's solo in its own row (no siblings to stretch
-                    against), so it isn't the height fix itself, but
-                    keeping it inconsistent with the rest of the page
-                    would just be a different, smaller version of the
-                    same problem. Fallback also now routed through
-                    DonutBreakdown's own empty-state branch instead of a
-                    bare <p>, for the same chrome-consistency reason as
-                    Cancellation reasons' own fallback. */}
-                {wonVsLost.hasLossReasons ? (
-                  /* 15 Aug 2026 (§175) — replaces the old ranked bar
-                      list. Genuine parts-of-a-whole data (every lost
-                      deal has exactly one reason) is what
-                      DonutBreakdown exists for — Mark's own explicit
-                      request, referencing a donut+share-list pattern
-                      from another app of his. 'Not captured' stays
-                      neutral grey, not a rotating palette slot — it's
-                      an absence-of-data bucket, not a real category
-                      the reader should visually equate with the
-                      others. */
-                  <div style={{ marginTop: '18px' }}>
+                  {wonVsLost.hasLossReasons ? (
+                    /* 15 Aug 2026 (§175) — replaces the old ranked bar
+                        list. Genuine parts-of-a-whole data (every lost
+                        deal has exactly one reason) is what
+                        DonutBreakdown exists for — Mark's own explicit
+                        request, referencing a donut+share-list pattern
+                        from another app of his. 'Not captured' stays
+                        neutral grey, not a rotating palette slot — it's
+                        an absence-of-data bucket, not a real category
+                        the reader should visually equate with the
+                        others. */
                     <DonutBreakdown
                       title="Loss reasons"
                       isMobile={isMobile}
@@ -595,17 +607,15 @@ export default function Reports() {
                         colour: r.reason === 'Not captured' ? colors.ink400 : CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
                       }))}
                     />
-                  </div>
-                ) : (
-                  <div style={{ marginTop: '18px' }}>
+                  ) : (
                     <DonutBreakdown
                       title="Loss reasons"
                       isMobile={isMobile}
                       data={[]}
                       emptyMessage="No loss reasons captured yet this period — the field exists now (marking an appointment Lost prompts for one), but none of this period's lost appointments have one recorded."
                     />
-                  </div>
-                )}
+                  )}
+                </div>
               </>
             ) : (
               <EmptyState message="No closed appointments this period." />
