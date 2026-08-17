@@ -54,6 +54,7 @@ import { useNavigate } from 'react-router';
 import * as XLSX from 'xlsx';
 import { leadsApi, ApiError } from '../services/api.js';
 import { s } from '../styles/tokens.js';
+import { useWindowSize } from '../hooks/useWindowSize.js';
 
 const REQUIRED_COLUMNS = ['title', 'firstName', 'lastName', 'dateOfBirth', 'occupation', 'mobileNumber', 'email'];
 
@@ -69,6 +70,7 @@ function stripEmpty(obj) {
 }
 
 export default function LeadImport() {
+  const { isMobile } = useWindowSize();
   const navigate  = useNavigate();
   const fileRef   = useRef();
   const [tab, setTab] = useState('csv');
@@ -226,19 +228,24 @@ export default function LeadImport() {
   const importable = csvRows.length - dupeIndices.size;
 
   return (
-    <div style={{ ...s.page, maxWidth: '720px' }}>
+    <div style={{ ...s.page, maxWidth: '720px', padding: isMobile ? '12px' : '24px' }}>
       <button onClick={() => navigate('/leads')} style={s.backBtn}>← Back to Leads</button>
       <h1 style={{ fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)', margin: '6px 0 18px' }}>Import Leads</h1>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '20px' }}>
+      {/* Tabs — same overflowX/flexShrink treatment as AppAdmin.jsx/
+          FeatureFlags.jsx's own tab bars, applied here too for
+          consistency — only two tabs, less likely to actually overflow,
+          but "Medical Subscription" is still a long enough label that
+          leaving this one file as the odd one out wasn't worth the
+          inconsistency. */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '20px', overflowX: 'auto' }}>
         {[['csv', 'Historical Import'], ['subscription', 'Medical Subscription']].map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
             style={{
               padding: '9px 18px', border: 'none', background: 'none', cursor: 'pointer',
-              fontSize: '0.875rem', fontFamily: 'inherit',
+              fontSize: '0.875rem', fontFamily: 'inherit', whiteSpace: 'nowrap', flexShrink: 0,
               fontWeight: tab === key ? 600 : 400,
               color: tab === key ? 'var(--accent)' : 'var(--mut)',
               borderBottom: tab === key ? '2px solid var(--accent)' : '2px solid transparent',

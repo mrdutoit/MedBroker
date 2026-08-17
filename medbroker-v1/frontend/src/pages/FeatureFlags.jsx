@@ -17,6 +17,7 @@
 
 import { useState, useEffect } from 'react';
 import { useFlags } from '../context/FlagContext.jsx';
+import { useWindowSize } from '../hooks/useWindowSize.js';
 import { flagsApi } from '../services/api.js';
 import { s }        from '../styles/tokens.js';
 
@@ -314,6 +315,7 @@ function FlagRow({ meta, rawValue, onSave }) {
 
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export default function FeatureFlags() {
+  const { isMobile } = useWindowSize();
   const { flags, setFlag, refetch } = useFlags();
   const [activeTier, setActiveTier] = useState('Core');
 
@@ -358,7 +360,7 @@ export default function FeatureFlags() {
     .filter(isFlagVisible);
 
   return (
-    <div style={s.page}>
+    <div style={{ ...s.page, padding: isMobile ? '12px' : '24px' }}>
       <div style={{ marginBottom: '20px' }}>
         <h1 style={{ margin: '0 0 4px', fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)' }}>Feature Flags</h1>
         <p style={{ margin: 0, fontSize: '0.875rem', color:'var(--mut)' }}>
@@ -371,8 +373,11 @@ export default function FeatureFlags() {
         at customer onboarding and not changed in production without testing.
       </div>
 
-      {/* Tier tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '20px' }}>
+      {/* Tier tabs — same overflow gap as AppAdmin.jsx's own tab bar, fixed
+          identically: overflowX: 'auto' + flexShrink: 0 on each button,
+          rather than letting a handful of tier labels overflow a narrow
+          phone's width outright. */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '20px', overflowX: 'auto' }}>
         {Object.entries(TIER_META).map(([key, meta]) => {
           const count = FLAG_META.filter(f => f.tier === key && isFlagVisible(f)).length;
           return (
@@ -381,7 +386,7 @@ export default function FeatureFlags() {
               onClick={() => setActiveTier(key)}
               style={{
                 padding: '9px 18px', border: 'none', background: 'none', cursor: 'pointer',
-                fontSize: '0.875rem', fontFamily: 'inherit',
+                fontSize: '0.875rem', fontFamily: 'inherit', whiteSpace: 'nowrap', flexShrink: 0,
                 fontWeight: activeTier === key ? 600 : 400,
                 color: activeTier === key ? 'var(--accent)' : 'var(--mut)',
                 borderBottom: activeTier === key ? '2px solid var(--accent)' : '2px solid transparent',

@@ -25,6 +25,7 @@ import { leadsApi, ApiError } from '../services/api.js';
 import { s } from '../styles/tokens.js';
 import { TITLES, JOB_TITLES, REGIONS } from '../constants/leadOptions.js';
 import { useRole } from '../context/RoleContext.jsx';
+import { useWindowSize } from '../hooks/useWindowSize.js';
 
 // title, firstName, lastName, dateOfBirth, occupation (Job Title),
 // mobileNumber, and email are the client's real required intake fields —
@@ -55,6 +56,7 @@ function stripEmpty(obj) {
 export default function LeadNew() {
   const navigate  = useNavigate();
   const { portfolios: allPortfolios, productsByPortfolio } = useRole();
+  const { isMobile } = useWindowSize();
 
   const [form,          setForm]          = useState(BLANK_FORM);
   const [formErrors,    setFormErrors]    = useState({});
@@ -98,7 +100,7 @@ export default function LeadNew() {
   }
 
   return (
-    <div style={{ ...s.page, maxWidth: '720px' }}>
+    <div style={{ ...s.page, maxWidth: '720px', padding: isMobile ? '12px' : '24px' }}>
       <button onClick={() => navigate('/leads')} style={s.backBtn}>← Back to Leads</button>
       <h1 style={{ fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)', margin: '6px 0 18px' }}>Add Lead</h1>
 
@@ -112,7 +114,7 @@ export default function LeadNew() {
           {formErrors.source && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.source}</div>}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '0.6fr 1fr 1fr', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '0.6fr 1fr 1fr', gap: '12px' }}>
           <div style={s.formGroup}>
             <label style={s.formLabel}>Title *</label>
             <select style={s.formInput} value={form.title} onChange={e => setForm(f => ({ ...f, title: e.target.value }))}>
@@ -133,7 +135,7 @@ export default function LeadNew() {
           ))}
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px' }}>
           <div style={s.formGroup}>
             <label style={s.formLabel}>Date of Birth *</label>
             <input type="date" style={s.formInput} value={form.dateOfBirth} onChange={e => setForm(f => ({ ...f, dateOfBirth: e.target.value }))} />
@@ -149,7 +151,7 @@ export default function LeadNew() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px' }}>
           <div style={s.formGroup}>
             <label style={s.formLabel}>Contact Number *</label>
             <input style={s.formInput} value={form.mobileNumber} onChange={e => setForm(f => ({ ...f, mobileNumber: e.target.value }))} placeholder="082 XXX XXXX" />
@@ -162,7 +164,7 @@ export default function LeadNew() {
           </div>
         </div>
 
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px' }}>
           <div style={s.formGroup}><label style={s.formLabel}>Hospital / Practice</label><input style={s.formInput} value={form.hospitalOrPractice} onChange={e => setForm(f => ({ ...f, hospitalOrPractice: e.target.value }))} /></div>
           <div style={s.formGroup}><label style={s.formLabel}>University Attended</label><input style={s.formInput} value={form.universityAttended} onChange={e => setForm(f => ({ ...f, universityAttended: e.target.value }))} /></div>
         </div>

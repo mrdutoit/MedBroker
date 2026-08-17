@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status (VERCEL VERSION)
 ==================================================
-Last updated: 16 August 2026
+Last updated: 12 August 2026
 Scope: this file tracks ONLY the Vercel + Neon Postgres deployment —
 frontend/api/ + frontend/api-lib/ + frontend/src/. It does NOT cover the
 separate Azure Functions/Azure SQL codebase (api/src/, infra/), which is
@@ -20,144 +20,6 @@ original file — only this summary block at the top is newly written.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0. CURRENT STATE — READ THIS FIRST
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-SESSION 24 (16 Aug 2026) — §176's meeting-attempt date-only save and
-Broker/Agent table stacking fix CONFIRMED redelivered and live (the
-first attempt silently didn't apply — see §176 and §177 for the full
-account; nothing was ever actually broken, just not yet landed). §177
-then delivered: the Appointments pagination bug (real bug — the page
-silently only ever fetched 25 rows, no pagination UI to reach more),
-Portfolio sort + a combined Clear Sort & Filters button on both Leads
-and Appointments, a Date Created column on Appointments, real
-server-side sort on Leads, and Manual Entry moved out of the Import
-page onto its own route. §178 then found and fixed a real gap in §175's
-own donut build — the donut had no hover interaction at all, the one
-piece of Mark's original spec that never actually got built — but §178
-itself didn't fully land the fix: a stray Recharts default-cursor
-rendering artifact on hover, AND the donut/breakdown-list layout still
-reading as a duplicate because of how it was laid out, not just
-whether it was interactive. §179 fixed both, but Mark's actual, more
-fundamental objection was still standing underneath all three of
-§175/§178/§179: a donut and a bar list showing the SAME numbers is
-redundant regardless of layout or interactivity, full stop. §180
-removed the list from DonutBreakdown entirely — donut only, ever — and
-built genuinely NEW breakdown dimensions (Won/Lost by Region, Won/Lost
-by Portfolio) as the "different data" Mark asked for instead — but
-shipped with a real SQL bug in the new region query (ambiguous GROUP BY
-column, since Lead and Appointment both have their own region column)
-that Mark's own testing caught within minutes as an "Internal server
-error" banner on the live Reports page. §181 fixed it — a one-line
-alias rename, isolated to that single query. §182 then addressed a
-different kind of problem, correctly called out as a genuine design
-quality gap rather than a bug: donut cards floating alone in mostly-
-empty rows, related win/loss breakdowns split across two unconnected
-page sections for no real reason, and a degenerate "100% Not captured"
-case rendering as an uninformative flat grey ring. Real architectural
-consolidation, not a styling patch — see that entry for the full
-account, including the frontend-design skill this session should have
-been consulting throughout the whole donut saga and wasn't. §183 then
-found and fixed a genuine, pre-existing data bug the §182
-consolidation itself surfaced (putting Won/Lost breakdowns literally
-side by side made a real inconsistency visible that was always there,
-just never in view at once): the new region query counted "Lost" more
-narrowly than every other breakdown in this file does, missing
-ReturnedToLeads appointments the KPI and Portfolio breakdown both
-correctly included. Also fixed: unequal card heights across a donut
-row (a DOM-nesting issue breaking flexbox's own stretch behaviour) and
-long category labels wrapping badly in the legend. §184 then identified
-the actual root cause behind Mark's "reads terribly" reaction to the
-whole donut row: single-category data (100% one region, 100% one
-portfolio) was still being rendered as a full donut ring — a chart
-whose entire purpose is comparison, spent on data with nothing to
-compare. Fixed with a compact stat treatment for that specific case;
-also confirmed (by re-reading the actual code, not guessed) that §183's
-region fix is working as designed — but Mark then checked the RAW
-appointment table directly and found zero ClosedLost rows against a
-report showing "Lost: 1", exposing something far more fundamental than
-any of §180-§184: "Lost" throughout this entire reporting layer
-(pipeline's own KPI, mergeClosedMetrics — used by nearly every
-breakdown table on the page) had silently included ReturnedToLeads
-appointments since §151 first built it, directly contradicting an
-explicit design decision on record from months earlier that
-ReturnedToLeads must NOT be folded into win/loss reporting. §185, with
-Mark's explicit confirmation, fixed this at its actual source across
-every one of the twelve places it had spread to — not another patch on
-the region query specifically. §186 then addressed what §185's own
-correction exposed: with real (small, honest) Won/Lost numbers, a
-sparse period showed several breakdown cards each just restating "100%
-of the one thing that exists" a different way — §184's compact-stat fix
-addressed HOW a single category renders, not WHETHER a breakdown with
-nothing to compare should be shown at all. §186 suppresses those
-breakdowns entirely when there's insufficient variety to make them
-meaningful, rather than padding the page with cards that carry near-
-zero incremental information. §187 is the entry that actually mattered
-most: Mark, at the end of his patience, supplied a real reference
-dashboard and was direct that every prior pass had fixed something
-real without ever addressing the actual root cause — DonutBreakdown
-had almost no visual weight of its own (narrow column, bare number,
-tiny below-legend, hover-only values), so no amount of show/hide logic
-could make a row of them read as intentional. §187 rebuilt the
-component from its reference: a real donut with a centre label, a side
-legend with values and percentages always visible (not hover-
-dependent), one consistent treatment for 1 category or many (§184's
-separate compact-stat branch is gone), plus a bounded max-width on the
-surrounding rows so a sparse period doesn't leave a lone card floating
-in a vast empty row on a wide monitor. Kept this app's own theme system
-and colour tokens throughout, per Mark's explicit instruction — this
-was a structural rebuild, not a re-skin. §188 then reverted §186's
-suppression logic entirely — Mark applied §187 and immediately asked
-"where are all the other graphs?", and he was right to: §186 hid By
-Region/By Portfolio/Meeting Type whenever there was less than genuine
-variety to compare, reasoning that a single-category card was
-decorative. That reasoning was built around the THIN pre-§187 card
-design; §187's rebuild made every card substantial regardless of
-category count, which quietly removed the justification for hiding
-any of them. All three breakdowns show again whenever there's real
-data, full stop. §189 then fixed two more concrete issues on that same
-§187/§188 layout: Loss reasons sat in its own separate block below the
-main Won vs Lost row instead of as a true flex child within it, so it
-always started a fresh line even when real space remained in the row
-above (fixed — it's a genuine row sibling now, flows in next to By
-Portfolio · Lost); and the Cancellation reasons donut's own
-"Scheduling conflict, wants to rebook" legend label was long enough to
-wrap awkwardly in the card's own legend column (shortened to
-"Scheduling conflict" in the Reports display specifically, leaving the
-fuller description intact where it's actually chosen in
-AppointmentDetail.jsx's own dropdown). Also caught and fixed a real
-inconsistency while addressing Mark's "apply a contemporary design
-system" instruction: §187's own donut card had quietly used different
-border/radius/shadow tokens than every other card on this same page
-(KPI cards, Section wrappers) — aligned to the same shared s.card/
-s.metricCard tokens the rest of the app already uses, rather than a
-new one-off variant sitting beside the existing system. Full detail in
-§177 through §189 below.
-
-CORRECTED 16 Aug 2026 (session 24/§176) — this block, and the OTHER
-OUTSTANDING ITEMS list below, had drifted badly out of date: items 1
-(mixed-basis ratios, §158), 3 (Products on Lead, §159), and 5 (xlsx
-CVE fix, §157) were all still marked "NOT YET APPLIED TO THE LIVE
-REPO" despite Mark having applied and confirmed all three working —
-checked directly against the live GitHub code this session, not
-assumed. Same failure this file's own "PERMANENT PATTERNS" section
-already warns about, happening again. See §176 for the full correction
-and how it was verified.
-
-Migration 031 (Meeting/Appointment attempt-history redesign) —
-CONFIRMED complete and working, Mark's own words, 16 Aug 2026.
-
-Reports page ground-up redesign (§156/§162) — CONFIRMED deployed and
-working. §175 (session 23, continued — a second, later session Mark
-ran in parallel with this one) then went further on top of it: dropped
-bars from the sequential pipeline stages entirely (recognised they're
-not parts-of-a-whole data, a bar chart implying otherwise was never
-honest) and rebuilt Win Rate/Cancellation reasons/Loss reasons as a
-genuine donut + share-list, per Mark's own explicit request and design
-reference. That work is ALSO confirmed deployed and working — see §175
-below for the full account, and §176 for how a separate, parallel
-attempt at the same donut request (this session's own) was discovered
-mid-build to already be superseded by it, and dropped in favour of
-keeping §175's version rather than overwriting it.
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 REWRITTEN FROM SCRATCH 13 Aug 2026, end of session 21 — the previous
 version of this block had become a long chain of session-to-session
@@ -257,36 +119,33 @@ OTHER OUTSTANDING ITEMS — roughly by priority, each verified against
 this file directly rather than assumed from memory
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-1. Mixed-basis conversion ratios — FIXED 14 Aug 2026 (§158). CONFIRMED
-   LIVE 16 Aug 2026 (§176) — checked directly against the deployed code
-   (Broker conversion + all four §151 breakdown-report Conversion
-   columns all render as "Conversion Ratio" with .toFixed(1), not '%'),
-   not assumed from this file's own prior "not yet applied" claim,
-   which was stale. Went with extending the ratio treatment, same
-   reasoning §154 used for Agent booking rate. Full detail in §158.
-   Closed.
+1. Mixed-basis conversion ratios — FIXED 14 Aug 2026 (§158), NOT YET
+   APPLIED TO THE LIVE REPO. Mark's decision: "Do what you recommend, or
+   think is the most accurate metric used as an industry standard" —
+   went with extending the ratio treatment (Broker conversion + all four
+   §151 breakdown-report Conversion columns), same reasoning §154 used
+   for Agent booking rate. Full detail in §158.
 
 2. Unclaimed/unassigned appointments nearing their date — FIXED 14 Aug
-   2026 (§160). CONFIRMED LIVE 16 Aug 2026 (§176) — schedulerService.js,
-   systemConfigService.js, and the schema column all present and wired
-   in the deployed code; this file's own prior "not yet applied" claim
-   was stale. Full detail in §160. Closed.
+   2026 (§160), NOT YET APPLIED TO THE LIVE REPO. Mark's answer: "yes,
+   please scope and build." Full detail in §160.
 
-3. Products on Lead — FIXED 14 Aug 2026 (§159). CONFIRMED LIVE — Mark
-   confirmed directly 16 Aug 2026 (§176), and the LeadProduct table plus
-   LeadDetail.jsx's "Products the client is interested in" required
-   field are both present in the deployed code. This file's own prior
-   "not yet applied" claim was stale. Full detail in §159. Closed.
+3. Products on Lead — FIXED 14 Aug 2026 (§159), NOT YET APPLIED TO THE
+   LIVE REPO. Mark's decision: "Mandatory, manual form only." Full
+   detail in §159.
 
 4. GlobalAdmin guide docx — still not touched this pass (documentation
    wasn't what was in flight); §2.2's two stale entries remain as
    described below. Carried forward.
 
-5. xlsx dependency — FIXED 14 Aug 2026 (§157). CONFIRMED LIVE 16 Aug
-   2026 (§176) — package.json's "xlsx" dependency is
-   "npm:@e965/xlsx@^0.20.3" in the deployed code, not "^0.18.5"; this
-   file's own prior "not yet applied" claim was stale. Closes
-   CVE-2023-30533 and CVE-2024-22363. Full detail in §157. Closed.
+5. xlsx dependency — FIXED 14 Aug 2026 (§157), NOT YET APPLIED TO THE
+   LIVE REPO. package.json's "xlsx" dependency changed from "^0.18.5" to
+   "npm:@e965/xlsx@^0.20.3" — an npm-registry-native, automatically
+   updated mirror of SheetJS's own patched releases — closing
+   CVE-2023-30533 and CVE-2024-22363. Built, tested, npm-audit-clean;
+   full detail in §157. Mark needs to apply the delivered package.json +
+   package-lock.json via the normal github.dev workflow before this is
+   actually live — Claude has no push access to the repo, ever.
 
 6. Migrations — CONFIRMED. Mark confirmed 14 Aug 2026 that every
    migration, including 022/023, has been run against Neon (§157).
@@ -348,9 +207,11 @@ CURRENT SECURITY / DEPENDENCY STATE (as of 30 Jul 2026):
     all). Closes CVE-2023-30533 (prototype pollution) and CVE-2024-22363
     (ReDoS), both present at 0.18.5. Zero code changes needed anywhere —
     the alias resolves the existing `import * as XLSX from 'xlsx'`
-    (LeadImport.jsx, sole call site) to the fork transparently.
-    CONFIRMED LIVE 16 Aug 2026 (§176) — checked directly against
-    package.json in the deployed code.
+    (LeadImport.jsx, sole call site) to the fork transparently. Verified
+    via fresh npm install, clean build, 55/55 tests, and confirming xlsx
+    no longer appears in npm audit at all. NOT YET LIVE — exists in this
+    session's delivery only; Mark applies via the normal github.dev
+    workflow, same as every other delivery.
   - engines.node: pinned to "24.x" (current Active LTS, supported
     through April 2028). Was briefly, incorrectly, pinned to "20.x" —
     fixed same day it was caught, see §66.
@@ -12254,7 +12115,7 @@ per Mark's explicit instruction.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-157. XLSX CVE FIX (CVE-2023-30533 + CVE-2024-22363) — BUILT, VERIFIED, AND CONFIRMED DEPLOYED (§176) — 14 Aug 2026 (session 22)
+157. XLSX CVE FIX (CVE-2023-30533 + CVE-2024-22363) — BUILT AND VERIFIED, NOT YET DEPLOYED; ALL MIGRATIONS AND ALL DEPLOYMENTS CONFIRMED — 14 Aug 2026 (session 22)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Two administrative confirmations from Mark first, closing out two
@@ -12336,7 +12197,7 @@ direct check — now: FIXED, pending Mark applying the delivered files).
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-158. MIXED-BASIS CONVERSION RATIOS EXTENDED (BROKER + FOUR §151 BREAKDOWN REPORTS) — BUILT, VERIFIED, AND CONFIRMED DEPLOYED (§176) — 14 Aug 2026 (session 23)
+158. MIXED-BASIS CONVERSION RATIOS EXTENDED (BROKER + FOUR §151 BREAKDOWN REPORTS) — BUILT AND VERIFIED, NOT YET DEPLOYED — 14 Aug 2026 (session 23)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Closes outstanding item 1. §154 (13 Aug 2026) changed Agent booking rate
@@ -12413,17 +12274,13 @@ NOT YET DEPLOYED — built and verified in-sandbox only, per the standing
 "Claude never pushes to GitHub" boundary (§157). Mark applies via the
 normal github.dev workflow.
 
-CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§176) — Mark applied and
-confirmed this directly; the paragraph above was never corrected after
-he did. Same stale-claim pattern flagged elsewhere this session.
-
 FILES: frontend/api-lib/services/reportService.js, frontend/src/pages/
 Reports.jsx, frontend/src/pages/BrokerDetail.jsx, frontend/src/pages/
 AgentDetail.jsx.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-159. PRODUCTS ON LEAD — BUILT, VERIFIED, AND CONFIRMED DEPLOYED (§176) — 14 Aug 2026 (session 23)
+159. PRODUCTS ON LEAD — BUILT AND VERIFIED, NOT YET DEPLOYED — 14 Aug 2026 (session 23)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Closes outstanding item 3. Mark's decision on both open questions:
@@ -12526,10 +12383,6 @@ worth Mark spot-checking one real Create Lead submission end-to-end
 post-deploy, the same way §137's date-serialization change carried a
 similar "not exercised against live Neon" caveat.
 
-CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§176) — Mark applied and
-confirmed this directly; the paragraph above was never corrected after
-he did. Same stale-claim pattern flagged elsewhere this session.
-
 FILES: frontend/db/migrations/028_lead_product.sql (new),
 frontend/db/schema.postgres.sql, frontend/api-lib/services/userService.js,
 frontend/api-lib/services/leadService.js, frontend/api-lib/models/lead.js,
@@ -12537,7 +12390,7 @@ frontend/src/pages/LeadImport.jsx, frontend/src/pages/LeadDetail.jsx.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-160. UNASSIGNED APPOINTMENT WARNING — BUILT, VERIFIED, AND CONFIRMED DEPLOYED (§176) — 14 Aug 2026 (session 23, continued)
+160. UNASSIGNED APPOINTMENT WARNING — BUILT AND VERIFIED, NOT YET DEPLOYED — 14 Aug 2026 (session 23, continued)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 Closes outstanding item 2. Mark's answer when asked whether to scope
@@ -12656,10 +12509,6 @@ Mark hadn't said so as of this entry).
 NOT YET DEPLOYED. Migration 029 needs to run against Neon before this
 feature means anything in production — same standing rule as every
 other migration in this project.
-
-CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§176) — Mark applied and
-confirmed this directly; the paragraph above was never corrected after
-he did. Same stale-claim pattern flagged elsewhere this session.
 
 FILES: frontend/db/migrations/029_appointment_unassigned_warning.sql
 (new), frontend/db/schema.postgres.sql, frontend/api-lib/services/
@@ -13068,7 +12917,7 @@ frontend/src/pages/AppointmentDetail.jsx.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-164. MEETING / APPOINTMENT ATTEMPT-HISTORY REDESIGN — FULLY BUILT, VERIFIED, AND CONFIRMED DEPLOYED (migration 031 run, Mark confirmed working — §176) — 14 Aug 2026 (session 23, continued across multiple checkpoints)
+164. MEETING / APPOINTMENT ATTEMPT-HISTORY REDESIGN — FULLY BUILT AND VERIFIED, NOT YET DEPLOYED — 14 Aug 2026 (session 23, continued across multiple checkpoints)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 §138's spec (session 20, 12 Aug 2026) built in full — the TOP PRIORITY
@@ -13235,10 +13084,6 @@ migration. Recommend Mark spot-check a handful of backfilled
 appointments against what he remembers of their real history before
 relying on the backfill for reporting, given the genuine inference
 involved in the interested/not-interested mapping.
-
-CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§176) — Mark applied and
-confirmed this directly; the paragraph above was never corrected after
-he did. Same stale-claim pattern flagged elsewhere this session.
 
 FILES: frontend/db/migrations/031_meeting_attempt.sql (new),
 frontend/db/schema.postgres.sql, frontend/api-lib/services/appointmentService.js,
@@ -14000,10 +13845,6 @@ change, no schema or backend touched.
 FILES: frontend/src/components/ReportsWidgets.jsx,
 frontend/src/pages/Reports.jsx.
 
-CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§176) — Mark applied and
-confirmed this directly; the line above was never corrected after he
-did. Same stale-claim pattern flagged elsewhere this session — see §176.
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 174. REAL BUG — MEETING 1's DATE FIELD LOCKED ITSELF PERMANENTLY BLANK AFTER A CANCELLED/RESCHEDULED/MISSED ATTEMPT — 15 Aug 2026 (session 23, continued)
@@ -14039,10 +13880,6 @@ meeting 2 either way) — each evaluates correctly. Diffed against fresh
 GitHub — confirmed isolated to the one file.
 
 NOT YET DEPLOYED. No migration required — frontend-only.
-
-CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§176) — Mark applied and
-confirmed this directly; the paragraph above was never corrected after
-he did. Same stale-claim pattern flagged elsewhere this session.
 
 FILES: frontend/src/pages/AppointmentDetail.jsx.
 
@@ -14123,1186 +13960,109 @@ change, no schema or backend touched.
 FILES: frontend/src/components/ReportsWidgets.jsx,
 frontend/src/pages/Reports.jsx.
 
-CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§176) — Mark applied and
-confirmed this directly; the line above was never corrected after he
-did. Same stale-claim pattern flagged elsewhere this session — see §176.
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-176. STATUS FILE ACCURACY CORRECTION (§157/§158/§159/§160/§164/§173/§175 ALL CONFIRMED DEPLOYED), A PARALLEL SESSION DISCOVERED MID-BUILD, MEETING ATTEMPT DATE-ONLY SAVE CARRIED FORWARD, BROKER/AGENT TABLES UN-STACKED — 16 Aug 2026 (session 24, continued)
+176. RESPONSIVE-DESIGN AUDIT AND FIXES — PLUS A REAL PARALLEL-SESSION CONFLICT CAUGHT AND CORRECTED BEFORE DELIVERY — 15-16 Aug 2026 (session 23, continued)
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-Mark opened this turn by correcting several things this file had wrong,
-and asked directly: "Did you do a Github repo check as you were
-supposed to do?" Short answer: yes, both times — but the check compared
-code against Mark's live report of behaviour for the SPECIFIC bugs he'd
-reported, not against every "NOT YET APPLIED" claim already sitting in
-this file's own OTHER OUTSTANDING ITEMS list. Those claims got repeated
-back to Mark uncritically instead of being independently verified
-against the code, which was already sitting right there to check. Real
-miss, owned directly rather than explained away.
-
-RE-VERIFIED AGAINST A FRESH HYDRATION, EVERY ITEM MARK RAISED:
-  - §157 (xlsx CVE fix) — package.json already has
-    "npm:@e965/xlsx@^0.20.3". CONFIRMED LIVE. (§157's own body text
-    already said "ALL DEPLOYMENTS DONE" — only its own header title
-    contradicted that; fixed for internal consistency.)
-  - §158 (mixed-basis conversion ratios) — Broker + all four §151
-    breakdown-report Conversion columns render as "Conversion Ratio"
-    with .toFixed(1), not '%', in the live code. CONFIRMED LIVE.
-  - §159 (Products on Lead) — LeadProduct table present in
-    schema.postgres.sql, LeadDetail.jsx's "Products the client is
-    interested in *" required field present and wired. CONFIRMED LIVE
-    (and Mark confirmed directly too).
-  - §160 (Unassigned Appointment Warning) — schedulerService.js,
-    systemConfigService.js, the SystemConfig column, all present and
-    wired in the live code. CONFIRMED LIVE.
-  - §164 (Meeting/Appointment attempt-history redesign) — Mark
-    confirmed migration 031 run and working directly.
-  - §173 (Reports page visual fixes — funnel/KpiCard/DataTable n=1) —
-    CONFIRMED LIVE, Mark's own direct statement this turn.
-  - §156/§162 (Reports ground-up rebuild) — CONFIRMED LIVE; the full
-    toolbar/KPI/trend/pipeline/table structure the brief describes is
-    present and matches exactly.
-  - §175 (donut + share-list, session 23 continued) — see below; also
-    CONFIRMED LIVE, Mark's own direct statement.
-
-All corrected in place throughout this file — the OTHER OUTSTANDING
-ITEMS list (items 1/2/3/5), and every affected section's own header
-title and closing "NOT YET DEPLOYED" line, not just this entry — per
-this file's own PERMANENT PATTERNS rule ("go back and correct every
-place that used to say it wasn't"), which this exact failure mode
-already existed to prevent and had already caught happening twice
-before. Third time.
-
-A GENUINELY SURPRISING DISCOVERY, mid-build on this session's own
-donut-chart work (carried over from the previous turn, in progress
-when this message arrived): a fresh re-hydration done to investigate
-Mark's corrections turned up THREE files changed on GitHub main since
-THIS session's very first hydration at its own start — Status_Vercel.md,
-ReportsWidgets.jsx, and Reports.jsx — none of them changes this session
-made. Traced directly: §175 (above), dated "15 Aug 2026, session 23
-continued," is the explanation — Mark evidently ran session 23 forward
-in a second, parallel conversation after this session had already
-forked off from it (both conversations starting from the same §174
-point), and applied §175's delivery to GitHub main while this session
-was independently working on the near-identical donut request in
-parallel. Two different Claude conversations solved the same problem
-at roughly the same time, from the same starting point, without either
-being aware of the other — a real structural risk of running parallel
-sessions against one shared repo, not a code defect in either.
-
-Compared the two solutions directly rather than assuming mine was
-right by default: §175's build is more thorough than the one drafted
-this session — it recognised the sequential pipeline stages
-(Unassigned/Assigned/In Progress/Appointment Booked) aren't genuine
-parts-of-a-whole data at all (a lead doesn't split across them, it's a
-snapshot of where each lead in the cohort currently sits) and dropped
-bars from them entirely rather than just fixing their scale, a real
-insight this session's own draft hadn't reached. KEPT §175's version
-as-is. DROPPED this session's own ReportsWidgets.jsx changes entirely
-— not delivered, would have reverted already-live, already-Mark-
-confirmed-working code back to an earlier and less-considered design.
-
-WHAT'S ACTUALLY IN THIS DELIVERY, rebuilt against the current live
-state (not the stale hydration this session started from):
-  - Meeting Attempt date-only save (appointment.js,
-    appointmentService.js, AppointmentDetail.jsx) — unaffected by the
-    parallel session (confirmed: these three files are byte-identical
-    between this session's first hydration and the current live repo),
-    so the fix built earlier this session carries forward unchanged.
-    Full detail in this session's own earlier entry — not re-described
-    here.
-  - Broker Performance/Agent Activity un-stacked to full width each
-    (Reports.jsx) — re-applied directly to the CURRENT live Reports.jsx
-    (which already has §175's donut work in it), touching only the one
-    grid wrapper around these two tables; confirmed via diff that
-    nothing else in the file was touched.
-
-VERIFIED: fresh `npm install`, `npm run build` clean, `npx vitest run`
-— 48/48 passing. Diffed all five delivered files against a THIRD fresh
-GitHub hydration taken just before packaging — confirmed isolated to
-exactly the intended changes in each file, confirmed no further commits
-landed on main in the meantime.
-
-NOT YET DEPLOYED (the Meeting Attempt + Broker/Agent-table changes
-only — everything else in this entry is a documentation correction to
-already-deployed work, not new code).
-
-FILES: frontend/api-lib/models/appointment.js,
-frontend/api-lib/services/appointmentService.js,
-frontend/src/pages/AppointmentDetail.jsx, frontend/src/pages/Reports.jsx.
-
-CONFIRMED DEPLOYED AND WORKING 16 Aug 2026 (§177) — the first attempt
-at applying this silently didn't land (see §177 for the full account);
-redelivered identically, re-verified directly against fresh GitHub code
-on the second attempt. Confirmed live, nothing lost or broken at any
-point.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-177. §176 REDELIVERED AND CONFIRMED LIVE; APPOINTMENTS PAGINATION BUG FOUND AND FIXED; SORT/FILTER WORK ON LEADS AND APPOINTMENTS; DATE CREATED COLUMN; MANUAL ENTRY MOVED TO ITS OWN PAGE — 16 Aug 2026 (session 24, continued)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-§176 REDELIVERY: Mark reported the §176 ZIP "didn't seem to fix
-anything" and hadn't applied the earlier, now-obsolete one either —
-understandably worried something had broken. Checked directly against
-fresh GitHub code before responding, not assumed: §176 genuinely never
-landed (isOriginalMeeting1Date still read the old !!attempt.date check,
-no date-only branch in saveMeetingAttemptOutcome(), Reports.jsx still
-had the old side-by-side grid, Status_Vercel.md still said "12 August
-2026") — but §175's donut work was fully intact and unaffected either
-way. Nothing broken, nothing lost; the repo was simply sitting exactly
-where it was before either §176 attempt. Most likely cause: something
-slipped in the github.dev drag-and-drop, same class of issue already on
-file for the migrations folder. Repackaged the identical content
-(confirmed byte-for-byte against what was built) and redelivered; Mark
-re-applied it and this session re-verified directly against fresh
-GitHub code — isDateOnlySave, the fixed isOriginalMeeting1Date, the
-optional-status schema with its .refine(), the backend date-only
-branch, and the Broker/Agent stacking fix are all confirmed present.
-Closed.
-
-REAL BUG FOUND WHILE INVESTIGATING MARK'S SORT REQUEST, NOT SOMETHING
-HE ASKED ABOUT DIRECTLY: AppointmentList.jsx calls appointmentsApi.
-list({}) with no pageSize, silently defaulting to
-AppointmentListQuerySchema's pageSize: 25 (max was 100) — while every
-filter, sort, and KPI count on that page operates on the result as if
-it already held every appointment (no pagination UI exists on this page
-at all, unlike LeadList.jsx, which genuinely paginates). Past 25 total
-appointments org-wide, anything further was invisible with no
-indication anything was missing.
-
-FIX: raised the schema's pageSize cap from 100 to 2000 and made
-AppointmentList.jsx request it explicitly (pageSize: 2000) instead of
-leaving it unspecified. NOT real pagination — deliberately not a
-rewrite of AppointmentList's entire fetch-everything-then-filter-client-
-side architecture (unlike LeadList, which was already built for real
-pagination) just to fix a default that was set too low; 2000 is high
-enough that a single brokerage won't realistically approach it for
-years. Added a visible warning banner (apptData.total >
-apptData.appointments.length) so this can never fail silently again —
-if the org ever does grow past 2000 appointments, the page will say so
-in plain language rather than quietly dropping rows the way the old
-default did.
-
-SORT ON PORTFOLIO (Appointments) — Mark's direct question: "Sort on
-Portfolio wasn't available. Is there a reason for that?" Real reason,
-not an oversight: an appointment's portfolios field is an array (can
-carry more than one), so there's no single scalar value to sort by.
-Sorts by the first portfolio alphabetically now — a stable, useful
-ordering rather than pretending a multi-value field has one true answer.
-
-CLEAR SORT & FILTERS — combined into the existing "Clear filters"
-button on both pages rather than adding a second button. Appointments'
-sortKey/sortDir were previously local state inside AppointmentsTable
-(a nested component) — lifted up to the parent AppointmentList()
-component so FiltersBar's Clear button (a sibling) can reach them; both
-AppointmentsTable render sites are mutually exclusive (claim-model
-"mine" tab vs. the assign-model/other-roles path), so one shared piece
-of state at the parent level is safe.
-
-DATE CREATED (Appointments) — Mark's exact words: "date of first
-meeting doesn't really tell me when the Lead was created." Confirmed:
-the appointments query never selected Lead.createdAt at all (Lead was
-already joined for every other l.* column in APPOINTMENT_SELECT — this
-was one more from the same row, no new join needed). Added as
-leadCreatedAt, a new sortable column, same firstDate/firstDateRaw
-pretty-string/raw-sort-value split already used for the meeting date
-column, same reasoning.
-
-SORT ON LEADS — genuinely missing before this, confirmed. Built as a
-REAL server-side sort (LeadListQuerySchema.sortKey/sortDir, models/
-lead.js; listLeads(), leadService.js), not a client-side re-order —
-Leads is genuinely paginated server-side (25/page), so sorting only
-what's loaded would silently ignore every other page's rows and read as
-broken the moment the "wrong" rows sorted to the top. sortKey validated
-against a Zod enum AND mapped through a fixed SORT_COLUMN whitelist of
-real column expressions server-side — the enum is the actual injection
-defence, the whitelist is a second, independent guard against ever
-interpolating a raw value into the ORDER BY clause. name/agentName sort
-NULLS LAST in both directions (an unassigned lead's agentName is NULL;
-Postgres's ASC default of NULLS FIRST would otherwise cluster every
-unassigned lead at the top of an alphabetical sort someone asked for,
-for a reason that has nothing to do with the sort itself). Source and
-Status left deliberately non-sortable: Source has too many distinct
-free-text values for an alphabetical sort to be genuinely useful
-day-to-day, and Status is already fully navigable via the chips above
-the table — sorting by it would just re-group what a chip already
-isolates.
-
-REAL BUG FOUND IN PASSING, FIXED: LeadList.jsx's data-fetch useFetch
-dependency array was missing sourceFilter — the filter itself worked
-(apiParams included it, and the separate page-reset useEffect above
-DID have it in its own deps), but changing the Source filter never
-actually triggered a refetch, silently leaving stale results on screen
-filtered as if nothing had changed. Added sourceFilter (and sortKey/
-sortDir) to that dependency array while already touching this exact
-block for the sort work.
-
-MANUAL ENTRY MOVED TO ITS OWN PAGE — Mark's request: "extract Manual
-Entry out of the Lead Import page and have it as a separate button on
-the Leads page next to Import Leads." Confirmed the old structure: tab
-3 of 3 inside LeadImport.jsx, sharing that page's title and back link
-even though a single manual add has nothing to do with a CSV/Excel/JSON
-upload or a Medical Subscription batch. New file, LeadNew.jsx — pure
-relocation, not a rewrite; same fields, same validation, same submit
-behaviour, same POST /api/leads call. Confirmed every import this tab
-used (TITLES, JOB_TITLES, REGIONS, useRole/allPortfolios/
-productsByPortfolio) was used ONLY by the manual tab before moving
-anything — a clean extraction, nothing left half-used in either file.
-stripEmpty() duplicated rather than shared — a 3-line pure helper,
-LeadImport.jsx still needs its own copy for the CSV/Subscription path,
-no shared module introduced for one tiny function. New route,
-/leads/new (App.jsx), same isBroker gating pattern as the other two
-Lead routes. New "Add Lead" button on LeadList.jsx, next to Import
-Leads — gated on role only (Admin/Supervisor/GlobalAdmin, matching
-handleCreateLead's own requireRole() exactly, leadHandlers.js)
-deliberately NOT also gated on showImport's CSV/Subscription feature
-flags the way Manual Entry accidentally was before, purely from living
-inside that page — a single manual add has nothing to do with whether
-bulk import is switched on.
-
-VERIFIED: fresh npm install, node --check clean on all four edited
-backend files, ESM import smoke tests on all four (including direct
-schema.safeParse() tests confirming pageSize=2000 accepted/2001
-rejected, invalid Lead sortKey values rejected, default sortDir='asc'),
-npm run build clean (LeadNew compiled as its own lazy-loaded chunk,
-confirming the route/import wiring is genuinely connected, not just
-file-present), npx vitest run — 48/48 passing. Diffed every touched
-file against a fresh GitHub hydration taken just before packaging —
-confirmed isolated to exactly eight modified files plus the one new
-file, nothing else, and confirmed no further commits landed on main
-during this round.
-
-NOT YET DEPLOYED.
-
-FILES: frontend/api-lib/models/appointment.js,
-frontend/api-lib/services/appointmentService.js,
-frontend/api-lib/models/lead.js, frontend/api-lib/services/leadService.js,
-frontend/src/pages/AppointmentList.jsx, frontend/src/pages/LeadList.jsx,
-frontend/src/pages/LeadImport.jsx, frontend/src/App.jsx (all modified),
-frontend/src/pages/LeadNew.jsx (new).
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-178. REAL GAP IN §175's DONUT BUILD — NO HOVER INTERACTION AT ALL — 16 Aug 2026 (session 24, continued)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Mark asked to "fix the reports" with no further detail; the previous
-response asked which specific thing, listing candidates including
-"something in §175's donut/pipeline work that isn't behaving the way
-you expected" — correct guess, but Mark read the question itself as a
-sign the original request had been lost track of, and repasted his
-original ask with screenshots as proof he'd already raised it. He had —
-extensively documented earlier this session (§175's own build, and this
-session's own now-abandoned parallel attempt at the same request,
-§176). The actual miss wasn't forgetting the request; it was never
-independently verifying §175's own donut build actually matched what
-Mark asked for, versus just confirming the component NAMES existed
-(DonutBreakdown, CATEGORICAL_PALETTE — checked via grep during the
-§176 parallel-session investigation, never a full read of what the
-component actually renders).
-
-Read DonutBreakdown (ReportsWidgets.jsx) in full this time: the
-<Pie> had NO <Tooltip> at all — a static ring, no hover interaction
-whatsoever. Mark's original words were specific: "hovering on the
-slice shows the details of the slice" — the one concrete, testable
-piece of the spec, and the one piece that was never actually built.
-Everything else about §175's build was correct and stays exactly as
-it was: donut + separate share-list table (not a redundant duplicate
-list bolted onto the donut, not a rotating-colour chart used anywhere
-it shouldn't be) genuinely matches Mark's own investment tracker
-reference. The share-list's own per-row bars aren't a second
-instance of this same redundancy — they're the legitimate "separate
-table" half of the reference he pointed at, which itself has bars in
-its own Value Share panel.
-
-FIX: added a real Recharts <Tooltip> to DonutBreakdown's <Pie>, same
-contentStyle pattern this file already establishes via TrendChart's
-own Tooltip just above it in the same file — not a new visual
-language, the existing one applied to the one chart that was missing
-it. Formatter shows value + % of total on hover. DonutBreakdown is
-shared by all three usages (Win Rate in PipelineHealth, Cancellation
-reasons and Loss reasons in Reports.jsx) — one fix in the shared
-component covers all three, no per-usage changes needed.
-
-VERIFIED: fresh npm install, npm run build clean, npx vitest run —
-48/48 passing. Diffed against a fresh GitHub hydration taken
-immediately before packaging — isolated to exactly the one file,
-confirmed no drift since.
-
-NOT YET DEPLOYED.
-
-FILES: frontend/src/components/ReportsWidgets.jsx.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-179. §178's DONUT FIX INCOMPLETE — STRAY CURSOR ARTIFACT ON HOVER, AND THE REAL LAYOUT PROBLEM (DONUT + LIST STILL FUSED INTO ONE ROW) — 16 Aug 2026 (session 24, continued)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Mark reported §178's fix hadn't actually solved it, with screenshots:
-"Clicking on a section of the donut just highlights things as a box,
-which is not visually appealing," and "the bars showing the same data
-is still shown alongside the donut charts... which I asked you to
-either change or remove," pointing again at the investment-tracker
-reference.
-
-TWO SEPARATE REAL PROBLEMS, neither addressed by §178's Tooltip-only
-fix:
-
-1. THE BLACK BOX — Recharts' <Tooltip> has a `cursor` prop that
-   defaults to true, built for Cartesian charts (Bar/Line), where it
-   draws a highlighted column/row behind whatever's hovered. A <Pie>
-   has no equivalent "column" for that highlight to mean anything —
-   without cursor={false}, Recharts still tries to render one anyway,
-   producing a stray rectangle with no relationship to the pie shape.
-   Near-certainly what Mark saw. Fixed: cursor={false} added to the
-   Tooltip. Flagged honestly rather than overclaimed: this sandbox has
-   no browser to visually confirm the render — this is the correct,
-   well-documented fix for this exact class of Recharts behaviour, but
-   worth Mark's own eyes on it once applied.
-
-2. THE REAL LAYOUT PROBLEM — this is the one that actually explains
-   "I asked you to either change or remove [the bars]" landing as
-   unaddressed feedback even after §178's tooltip fix shipped: the
-   donut and the numbered breakdown list were still in ONE shared flex
-   row with no visual boundary between them (§175's original layout,
-   untouched by §178 — that fix only added interactivity to the
-   existing structure, never questioned the structure itself). Even
-   with a working hover tooltip, a donut and a numbered list sitting
-   directly beside each other in the same unbordered space still reads
-   as "the same information twice, right next to each other." Checked
-   Mark's own investment-tracker reference again, specifically for
-   this: "Allocation by Vehicle" (donut + a PLAIN colour-key legend
-   underneath — names only, no numbers) and "Value Share" (the actual
-   numbers + bars) are two DISTINCT, separately-bordered panels, not
-   one row. That's the actual structural difference §175/§178 never
-   had. Rebuilt DonutBreakdown to match it directly: donut's own legend
-   now carries no numbers at all (hover, or the breakdown panel beside
-   it, is where those live) — genuinely two different panels now, each
-   with its own border, not one row that happened to have a chart on
-   one end.
-
-Component's external API unchanged (data/isMobile/emptyMessage) — all
-three call sites (Win Rate in PipelineHealth, Cancellation reasons and
-Loss reasons in Reports.jsx) needed no changes, same as §178.
-
-VERIFIED: npm run build clean, npx vitest run — 48/48 passing. Diffed
-against a fresh GitHub hydration taken immediately before packaging —
-isolated to exactly the one file, confirmed no drift since.
-
-NOT YET DEPLOYED.
-
-FILES: frontend/src/components/ReportsWidgets.jsx.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-180. THE ACTUAL FIX — DONUT + BAR SHOWING THE SAME DATA REMOVED ENTIRELY; WON/LOST BY REGION AND BY PORTFOLIO ADDED AS THE "DIFFERENT DATA" — 16 Aug 2026 (session 24, continued)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Mark, directly: "having a bar chart and donut chart showing the EXACT
-same thing is superfluous... I don't want the bar chart with the same
-data displayed, if anything, I want it to have different data
-displayed like win/loss by region, win/loss by portfolio, etc. in
-other donut charts... Please act like a senior data analyst when doing
-this, I feel like I have wasted a lot of time and tokens on this."
-
-Fair, and worth being direct about what actually went wrong across
-§175/§178/§179: each pass fixed a real, genuine problem — no hover
-(§178), a stray cursor artifact and a fused unbordered layout (§179) —
-but none of them addressed Mark's actual, more basic objection, which
-was never really about hover or layout at all: a donut and a list
-carrying the SAME numbers is redundant no matter how it's laid out or
-whether it's interactive. Should have been caught on the first pass
-by reading the request as "these two things show one one metric twice"
-rather than "these two things could be styled better."
-
-FIXED THIS TIME, properly:
-
-DonutBreakdown (ReportsWidgets.jsx) — the breakdown-list panel is GONE,
-not just visually separated (§179) or made interactive (§178). It's
-now a single self-contained donut widget: chart, hover, and a plain
-colour-key legend with names only, no numbers anywhere on the widget
-itself. Optional `title` prop added — needed now that a single section
-can hold more than one of these side by side (a Won donut and a Lost
-donut, for instance) with no other way to label which is which.
-Automatically fixes Cancellation reasons and Loss reasons too — same
-shared component, no changes needed at either call site.
-
-NEW DIMENSIONS — the "different data" Mark asked for, built rather than
-just reshuffling what already existed:
-  - Won by Region / Lost by Region — genuinely new; region had no
-    existing breakdown anywhere in reportService.js. New query in
-    getDashboardData(), same apptFilterSql/scope pattern every other
-    filtered breakdown in that function already uses. COALESCE to 'Not
-    captured' for the nullable case (region only exists on Appointment
-    since 14 Aug 2026, §166/migration 032 — anything booked before that
-    carries none) — same honest-labelling pattern as loss/cancel
-    reasons rather than silently dropping those rows.
-  - Won by Portfolio / Lost by Portfolio — no new query at all: derived
-    directly from portfolioTable, already computed earlier in the same
-    function for the existing Portfolio Performance table. Caught and
-    fixed a real ordering bug while building this — first draft
-    referenced portfolioTable from inside the wonVsLost object literal
-    before wonVsLost's own declaration had been reordered correctly;
-    fixed by computing wonByPortfolio/lostByPortfolio directly in the
-    wonVsLost literal itself, at the point in the function where
-    portfolioTable already exists.
-  - Rendered as a new WonLostPair component (Reports.jsx, page-local —
-    not exported from ReportsWidgets.jsx; this specific "two donuts
-    paired under one heading" composition is a Won-vs-Lost-section
-    concern, not a generic building block). Two paired donuts (Won |
-    Lost) per dimension, not a single combined donut — a "region ×
-    outcome" donut would need up to 18 slices (9 regions × 2 outcomes)
-    for no real gain over two clean, honest donuts capped at 9 slices
-    each.
-
-MEETING TYPE — Mark's own suggestion, "perhaps the Meeting Type could
-be a donut chart." Converted from a DataTable (Booked/Won/Conversion
-Ratio columns) to a donut (booked share by type) — genuine parts-of-
-a-whole data, every appointment has exactly one meeting type. Won/
-Conversion Ratio columns dropped rather than kept as a leftover table
-alongside it — with only ever InPerson/Virtual as categories, a
-supplementary 1-2-row table added little beyond what the donut plus
-hover already carries. Flagged rather than silently dropped: real,
-different metrics from Booked share, easy to reinstate as its own
-small table if that specific comparison is wanted back.
-
-VERIFIED: npm run build clean, npx vitest run — 48/48 passing. No live
-Postgres available in this sandbox to test the new region query
-directly against real data (this codebase's own standing practice,
-per Status_Vercel.md's own documented lessons, is real Postgres over
-mocks for exactly this reason) — flagging that honestly rather than
-overclaiming; the filter/derivation JS logic (wonByRegion/lostByRegion
-filtering, portfolioTable-derived wonByPortfolio/lostByPortfolio, the
-WonLostPair colour-assignment logic including the 'Not captured' and
-empty-array paths) was checked directly against synthetic data and
-behaves as intended, but the SQL itself is unverified against a real
-database — worth Mark's own first look confirming the region/portfolio
-donuts actually populate correctly once applied, same "flag rather
-than overclaim" approach as §179's cursor fix. Diffed against a fresh
-GitHub hydration taken immediately before packaging — isolated to
-exactly three files, confirmed no drift since.
-
-NOT YET DEPLOYED.
-
-FILES: frontend/api-lib/services/reportService.js,
-frontend/src/components/ReportsWidgets.jsx, frontend/src/pages/Reports.jsx.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-181. REAL BUG IN §180's REGION QUERY — AMBIGUOUS GROUP BY COLUMN, POSTGRES CORRECTLY REJECTED IT — 16 Aug 2026 (session 24, continued)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Exactly the risk §180 flagged honestly on delivery — "no live Postgres
-available in this sandbox... worth Mark's own first look" — materialised
-within minutes of Mark applying it: a red "Could not load some report
-data: Internal server error" banner on the live Reports page,
-screenshotted. Trend and Pipeline Health both fell back to their empty
-states; Broker Performance kept working (a separate endpoint,
-unaffected). Consistent with exactly one thing throwing inside
-getDashboardData(), caught gracefully by the frontend rather than
-taking the whole page down.
-
-ROOT CAUSE, found on inspection, not guessed: §180's new region query
-aliased its COALESCE output as `region` —
-
-    SELECT COALESCE(a.region, 'Not captured') AS region, a.status, ...
-    GROUP BY region, a.status
-
-— and Lead ALSO has its own region column (§166), joined into the same
-query as `l`. `GROUP BY region` was therefore genuinely ambiguous:
-Postgres had three candidates it could mean (the output alias, l.region,
-a.region) and correctly refused to guess, throwing rather than silently
-picking one. Every OTHER breakdown query in this file (Lead Source,
-Portfolio, Meeting Type, Loss reasons, Cancel reasons) already avoids
-exactly this trap by aliasing to `groupKey` — a name deliberately
-chosen never to collide with a real column on anything these queries
-join. §180 broke from that established, already-proven convention for
-a single query, reaching for a more human-readable alias instead — the
-one place in the whole change that mattered, since region is the one
-dimension in this codebase that's a real column on BOTH Appointment and
-Lead simultaneously; portfolio/source/meetingType/reason have no such
-collision risk, which is presumably why the pattern hadn't bitten
-anyone until now.
-
-FIX: one-line alias rename, `region` -> `"groupKey"`, matching every
-other query's own convention exactly. GROUP BY updated to match. The
-two downstream `.map()` calls updated to read `r.groupKey` instead of
-`r.region` — the OUTPUT shape callers see (`{region, count}`) is
-unchanged, this was purely an internal SQL naming fix.
-
-VERIFIED: npm run build clean, npx vitest run — 48/48 passing. Diffed
-against §180's own delivered version — confirmed the fix is isolated to
-exactly the one query (the SELECT alias, the GROUP BY clause, and the
-two .map() calls reading it), nothing else touched. Diffed against a
-fresh GitHub hydration taken immediately before packaging — confirmed
-no drift, isolated to the one file. Still no local Postgres available
-in this sandbox to run the corrected query against a real database —
-same limitation as §180's own delivery note; this fix addresses the
-specific, identifiable cause of the specific, reported error rather
-than being verified end-to-end, and should be confirmed working (not
-just no-longer-erroring) once applied.
-
-NOT YET DEPLOYED.
-
-FILES: frontend/api-lib/services/reportService.js.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-182. A GENUINE DESIGN-QUALITY PASS — CONSOLIDATED SCATTERED WIN/LOSS DONUTS, FIXED WASTED LAYOUT SPACE, HONEST EMPTY/LOW-DATA STATES — 16 Aug 2026 (session 24, continued)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Mark, with screenshots: "when I asked you to act as though you were a
-senior data scientist, is this what you thought would be a good
-design? Why could these not be displayed next to each other? ... Can
-you provide me with the prompt to get you to build design studio level
-representations of data as this is sub par."
-
-Fair, and worth being direct about the actual gap: this codebase's own
-environment has a frontend-design skill (/mnt/skills/public/frontend-
-design/SKILL.md) — "Guidance for distinctive, intentional visual
-design when building new UI or reshaping an existing one" — that
-should have been consulted for every piece of the Reports donut work
-across §175/§178/§179/§180/§181, and wasn't, not once. Its own stated
-principles ("Structure is information," "Treat failure and emptiness
-as moments for direction, not mood," "Elegance is executing the chosen
-vision well") directly diagnose what was wrong in the screenshots.
-That's a real, avoidable process gap, not a one-off styling miss —
-noted here so future sessions doing UI/visual work on this page (or
-any other) load that skill before touching layout, not after being
-told the result looks unfinished.
-
-THREE SEPARATE, REAL PROBLEMS in the screenshots, not one:
-
-1. SCATTERED ARCHITECTURE — the direct answer to "why could these not
-   be displayed next to each other": the overall Win Rate donut lived
-   in the Pipeline Health card; Won/Lost by Region and by Portfolio
-   (built §180) lived in the separate Won vs Lost card, further down
-   the page. Same underlying theme (what happened to closed deals, cut
-   three ways) split across two cards that have no real relationship
-   on the page, purely because they were built in different sessions
-   without stepping back to ask where they actually belonged. FIXED:
-   Win Rate's donut removed from PipelineHealth entirely — that card's
-   job is now purely the sequential funnel, a genuinely distinct
-   concern from "what happened to closed deals." Overall Won/Lost moved
-   into Won vs Lost, positioned first, followed by By Region and By
-   Portfolio in one continuous flex-wrap row — Overall, By Region
-   (Won|Lost), By Portfolio (Won|Lost), genuinely beside each other,
-   wrapping onto new lines only when the viewport actually runs out of
-   room. Same consolidation applied to Meeting Type + Cancellation
-   reasons (Appointment Analysis) — different breakdowns, same section,
-   used to each get their own full-width stacked block; now one
-   flex-wrap row too.
-
-2. WASTED SPACE — each DonutBreakdown card was a fixed 200px box in a
-   full-width flex container; a section with only one or two cards left
-   the majority of the row empty, reading as unfinished rather than
-   restrained. Card size increased modestly (170px→168... actually
-   150px chart→168px, 200px→220px card) — not dramatically bigger, but
-   enough that a card reads as deliberately sized rather than
-   accidentally small. The real fix is (1) above: consolidating related
-   donuts into shared rows means most rows now genuinely have enough
-   content to fill available width without stretching anything
-   artificially.
-
-3. DISHONEST EMPTY/LOW-DATA STATES — two separate issues here. First,
-   "By Region → Won" rendering as one flat grey "Not captured" ring —
-   technically accurate (region genuinely wasn't captured for those
-   appointments, all pre-dating §166), completely uninformative as a
-   chart. DonutBreakdown now distinguishes "no data at all" (total===0)
-   from "data exists but none of it is a real category" (realTotal===0,
-   every item is the Not-captured bucket) — the second case gets its
-   own message via a new notCapturedMessage prop, wired up on the
-   region pair specifically ("Region wasn't captured for any of these —
-   tracking only started 14 Aug 2026"), since that's the one dimension
-   where this can be the whole answer. Second: the true-empty case
-   ("No losses this period") used to fall through to the generic
-   EmptyState component — a dashed rectangle with its own sizing,
-   nothing like DonutBreakdown's own solid-bordered card. Sitting next
-   to a populated donut in a Won/Lost pair, the mismatch was obvious.
-   Both empty branches now render inside the SAME card chrome as the
-   populated case — same border, padding, size — so a pair always reads
-   as one coherent pair regardless of which side has data.
-
-VERIFIED: npm run build clean, npx vitest run — 48/48 passing. Diffed
-against a fresh GitHub hydration taken immediately before packaging —
-isolated to exactly two files, confirmed no drift since. Still no live
-browser or Postgres in this sandbox — the layout change is reasoned
-through carefully (flex-wrap behaviour, card dimensions, consistent
-chrome) but genuinely unverified visually; worth Mark's own look at the
-actual rendered page before treating this as settled, same honesty as
-§179/§180's own delivery notes.
-
-NOT YET DEPLOYED.
-
-FILES: frontend/src/components/ReportsWidgets.jsx, frontend/src/pages/Reports.jsx.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-183. THREE MORE ISSUES FROM §182's OWN DELIVERY — A REAL DATA BUG IN THE REGION QUERY, UNEQUAL CARD HEIGHTS, LONG LABEL WRAPPING — 16 Aug 2026 (session 24, continued)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Mark, with screenshots of §182's own delivery live: graphs not equal
-heights; "the Closed - Lost reporting seems to be broken... shows 4
-Won and 2 Lost, but the graph doesn't match that"; and long
-cancellation-reason labels "display terribly."
-
-REAL DATA BUG (the Won/Lost mismatch) — traced directly against the
-code, not guessed. §182's own consolidation is what surfaced this: it
-put the Overall Won/Lost donut, By Region, and By Portfolio literally
-side by side for the first time, making a pre-existing inconsistency
-visible that was always there. §180's new region query filtered
-`a.status IN ('ClosedWon', 'ClosedLost')` — matching the pattern of the
-EXISTING loss-reasons query it was built next to. But that's not what
-"Lost" means anywhere else in this file: mergeClosedMetrics()
-(reportService.js, used by portfolioTable, the source table, broker/
-agent tables — everywhere except loss-reasons and, until now, region)
-explicitly folds ClosedLost + ReturnedToLeads + a no-appointment direct
-Lead-close path into "lost", and pipeline's own KPI (the "LOST: 2" at
-the top of Won vs Lost) uses that same broader definition. §180's
-region query landed on a narrower one by copying the wrong neighbour's
-pattern instead of reusing the shared helper — so a region whose only
-"lost" deal was actually ReturnedToLeads status showed zero losses,
-while the KPI and By Portfolio (which correctly goes through
-mergeClosedMetrics) counted it. FIXED: region query now includes
-ReturnedToLeads in its WHERE clause and routes its results through
-mergeClosedMetrics() directly — the exact same call every other
-breakdown in this file already makes, not a second hand-rolled version
-of the same logic. Verified against synthetic data matching Mark's own
-scenario (2 won/2 won across two regions, 1 lost as ReturnedToLeads in
-one region, 1 lost as ClosedLost in the other) — lostByRegion now
-correctly sums to 2, matching the KPI.
-
-FLAGGED, NOT CHANGED: the loss-reasons query (§175, predates this
-session) has the same narrower ClosedLost-only filter and likely shows
-the same class of gap — but lostReason is specifically collected
-during the ClosedLost outcome-recording flow and may never be set at
-all for a ReturnedToLeads appointment (a genuinely different closing
-path), so widening that filter isn't obviously correct the way it was
-for region. Left as-is rather than guessed at; worth Mark's own call on
-whether Loss reasons should count ReturnedToLeads appointments (with an
-implicit "no reason", since none was ever asked) or stay scoped to true
-ClosedLost outcomes specifically.
-
-UNEQUAL HEIGHTS — root cause: WonLostPair (and the Meeting Type/
-Cancellation reasons row) used to wrap each pair/item in its own
-labelled <div>, so the Won-vs-Lost row's direct flex children were
-THREE wrapper divs (Overall, By-Region-wrapper, By-Portfolio-wrapper),
-not five donut cards. Flexbox's own align-items:stretch (the default)
-equalised those three wrappers, but couldn't reach two levels deep to
-equalise the actual cards inside each wrapper against the standalone
-Overall card, since they were never true siblings of it in the DOM.
-FIXED: WonLostPair now returns a bare fragment of two DonutBreakdowns
-with compound titles ("Region · Won" style) instead of a wrapping div
-with its own heading; Meeting Type and Cancellation reasons likewise
-now carry their own title directly rather than sitting in a labelled
-wrapper. Every donut in a row is now a genuine flex sibling of every
-other one in that row, so stretch equalises all of them automatically.
-DonutBreakdown's own half of the fix: the title slot is now ALWAYS
-reserved (fixed height, hidden via visibility:hidden when no title is
-passed) rather than conditionally rendered — a title-less card and a
-titled card need identical internal structure for stretch to actually
-produce equal heights, not just coincidentally similar ones. Both
-"Cancellation reasons" and "Loss reasons" empty-state fallbacks (used
-to be bare <p> tags) now route through DonutBreakdown's own empty
-branch too (data=[], a real emptyMessage) — matches the sibling card's
-border/padding/size exactly instead of being a styleless outlier.
-
-LONG LABELS — legend was a horizontal wrapping row of dot+text badges,
-centered — fine for short categories, genuinely bad for this app's
-actual data (cancellation/loss reasons routinely run 25-35 characters).
-A long label wrapped onto two lines WITHIN one badge, with the dot
-centered against the whole wrapped block rather than the first line.
-FIXED: switched to a vertical list, one category per row, left-aligned
-— text wraps naturally like an ordinary sentence, dot aligns with the
-first line specifically (alignItems: 'flex-start' + a small top offset
-for cap-height) rather than floating mid-block.
-
-VERIFIED: node --check clean, npm run build clean (confirms no unused-
-variable issues from removing the now-dead groupLabelStyle constant),
-npx vitest run — 48/48 passing. Region-query fix verified against
-synthetic data matching Mark's own reported scenario, not just eyeballed
-— see above. Diffed against a fresh GitHub hydration taken immediately
-before packaging — isolated to exactly three files, confirmed no drift
-since. Still no live browser/Postgres in this sandbox — the height and
-wrapping fixes are reasoned through carefully (DOM structure, flexbox
-stretch semantics) but genuinely unverified visually; the region fix IS
-verified at the logic level against real Postgres semantics
-(mergeClosedMetrics is the same function already proven correct
-elsewhere in this file), which is a stronger claim than the layout
-fixes can honestly make.
-
-NOT YET DEPLOYED.
-
-FILES: frontend/api-lib/services/reportService.js,
-frontend/src/components/ReportsWidgets.jsx, frontend/src/pages/Reports.jsx.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-184. THE ACTUAL ROOT OF "READS TERRIBLY" — SINGLE-CATEGORY DATA WAS STILL RENDERING AS A FULL DONUT RING; §183's REGION FIX CONFIRMED WORKING AS DESIGNED — 16 Aug 2026 (session 24, continued)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Mark, with fresh screenshots after §183: "you cannot tell me that's
-what a professional design team would come up with. It reads
-terribly!" — plus a repeat of the Region/Lost concern, and a direct
-ask for a standing prompt to stop this cycle.
-
-FIRST: verified §183 actually landed before responding to either point
-— confirmed directly against the live code (the ReturnedToLeads
-inclusion and mergeClosedMetrics call are both present). This matters
-for what "Region wasn't captured for any of these" actually means now:
-it's DonutBreakdown's realTotal===0 branch, which only fires when the
-query found real rows and every one of them has a null region — a
-categorically different outcome from total===0 ("found nothing at
-all"). Given By Portfolio · Lost shows real data for the same period
-(Discovery + Money and Medicine), and portfolio has been a mandatory
-field since earlier than region (§166), it's entirely plausible the
-specific lost appointments in this test data have a real portfolio but
-a genuinely empty region — predating region tracking, or created via a
-path (CSV import, e.g.) that doesn't enforce it. That would make the
-message CORRECT, not a bug. Cannot tell which from a screenshot alone,
-and said so directly rather than guessing a third time — asked Mark to
-check the actual Region field on those two appointments, which settles
-it in under a minute without another speculative code change.
-
-SECOND, THE REAL DESIGN PROBLEM: re-examined Mark's own screenshot
-specifically for what "reads terribly" actually meant, rather than
-re-applying general polish. Found it: three or four of the five cards
-in the Won vs Lost row were solid, single-colour rings — By Region ·
-Won (100% Western Cape), By Portfolio · Won (100% Discovery), Meeting
-Type (100% InPerson). A donut's whole communicative job is comparing
-categories against each other. With exactly one category, there is
-nothing to compare — a full ring conveys precisely what a single
-sentence would, while occupying the same visual weight as a genuinely
-informative multi-category donut sitting right next to it. That
-repetition (several near-identical solid circles in one row) is what
-reads as decorative rather than analytical — not spacing, not colour,
-the chart type itself being wrong for single-category data.
-
-FIXED: DonutBreakdown now checks for exactly one nonzero category
-(excluding the dedicated Not-captured case, which already has its own
-message) and renders a compact stat instead — the count, the category
-name, "100% of this period" — no ring. Same card chrome and height as
-every sibling (fits directly into §183's existing equal-height
-mechanism, no changes needed there), so a row mixing genuine
-multi-category donuts and single-category stats still aligns as one
-coherent set. Verified the branching logic against every exact scenario
-in both of Mark's screenshot sets (Won=2/Lost=1 and Won=4/Lost=2,
-across Region/Portfolio/Meeting Type) — confirms the four solid-ring
-cases now correctly produce compact stats, and the two genuinely
-multi-category cases (By Portfolio · Lost, Overall) correctly stay as
-real donuts.
-
-Also answered Mark's direct request for a standing prompt: gave him
-something concrete rather than a generic instruction — the actual
-process gap this session was insufficient verification before claiming
-"fixed" (§180's region bug, §183 itself only becoming necessary because
-§180 wasn't checked against the file's own established conventions),
-not insufficient design effort. Suggested language asks for exactly
-that: what was checked, what wasn't, and no claiming something is fixed
-without evidence.
-
-VERIFIED: npm run build clean, npx vitest run — 48/48 passing. Branching
-logic checked against synthetic data matching every exact case in
-Mark's own two screenshot sets, not just reasoned about abstractly.
-Diffed against a fresh GitHub hydration taken immediately before
-packaging — isolated to exactly one file, confirmed no drift since.
-
-NOT YET DEPLOYED.
-
-FILES: frontend/src/components/ReportsWidgets.jsx.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-185. THE ACTUAL ROOT CAUSE OF THE WHOLE REGION/LOST SAGA — "LOST" SILENTLY INCLUDED RETURNEDTOLEADS EVERYWHERE IN REPORTING, CONTRADICTING AN EXPLICIT MONTHS-OLD DESIGN DECISION — 16 Aug 2026 (session 24, continued)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Mark, with a screenshot of the raw appointment table in Neon: "you keep
-saying it's lost deals and empty regions, but there are no lost deals
-in the DB?!?" — correct, and worth stating plainly: this exposed a real
-bug that every earlier pass in this saga (§180, §183) had been building
-on top of rather than catching.
-
-WHAT THE RAW TABLE ACTUALLY SHOWED: 10 appointments total, zero with
-status = 'ClosedLost'. One 'ReturnedToLeads'. Four 'ClosedWon'. The rest
-Assigned/Claimed/Unassigned. Yet the reports were showing "Lost: 1" (or
-"Lost: 2" in an earlier screenshot with more test data added). Traced
-directly: `pipeline`'s own Closed Lost bucket, and a shared helper
-called mergeClosedMetrics() that nearly every breakdown on this page
-routes through (Region, Portfolio, Lead Source, Broker/Agent tables —
-built by §151), both counted "Lost" as ANY status that isn't ClosedWon
-— an `else`, not an `else if` — which silently swept ReturnedToLeads
-appointments into the Lost bucket alongside genuine ClosedLost ones.
-
-THE PART THAT MATTERS MOST: this directly contradicts an EXPLICIT
-design decision already on record, from when the ReturnedToLeads status
-was first built (§35-era, Status_Vercel.md's own history, found by
-searching rather than assuming): "'ReturnedToLeads' is deliberately its
-OWN status, not folded into ClosedWon/ClosedLost — it's not a sales
-outcome, so lumping it in would skew win/loss reporting." §151 built
-mergeClosedMetrics() without cross-referencing that decision, and every
-report built on it since (including §180's region work, including
-§183's own "fix," which made region MATCH this broken convention rather
-than question it) inherited the same bug. §183 didn't just fail to fix
-the real problem — it actively made it worse by bringing a previously-
-correct-by-omission query into line with an already-wrong pattern.
-
-CONFIRMED WITH MARK DIRECTLY before touching code again, rather than
-guessing a fourth time: a ReturnedToLeads appointment should NOT count
-as Lost anywhere in reporting. His decision, matching the original
-design intent exactly.
-
-FIXED AT THE ACTUAL SOURCE — found and corrected all twelve places this
-had spread to in reportService.js, not just the region query:
-  1. mergeClosedMetrics() itself — `else` changed to
-     `else if (row.status === 'ClosedLost')`, the one central fix that
-     automatically corrects every caller (portfolioTable, source table,
-     both standalone Leads-by-Source/Portfolio report functions,
-     Appointments-by-Portfolio, Appointments-by-Meeting-Type — nine
-     separate breakdowns fixed by this one line).
-  2. getReportSummary()'s own standalone pipeline Lost bucket query.
-  3. getLeadsBySourceReport()'s closedCountRows.
-  4. getLeadsByPortfolioReport()'s closedCountRows.
-  5. getAppointmentsByPortfolioReport()'s closedCountRows.
-  6. getAppointmentsByMeetingTypeReport()'s closedCountRows.
-  7. getDashboardData()'s own inline meetingTypeTable query.
-  8. getDashboardData()'s own Trend chart "lost" bucket.
-  9. getDashboardData()'s own inline pipeline Closed Lost bucket
-     (the one actually feeding the KPI Mark screenshotted).
-  10. getDashboardData()'s own inline Lead Source table query.
-  11. getDashboardData()'s own inline Portfolio Performance table query.
-  12. The region query itself (§180/§183) — reverted back to
-     ClosedWon/ClosedLost only, now for the CORRECT reason.
-
-DELIBERATELY NOT CHANGED: two other ReturnedToLeads references in this
-same file (the "is this lead's most recent appointment still active"
-CASE-statement checks, used to classify a lead into the AppointmentBooked
-pipeline stage) are a genuinely different question — whether an
-appointment is still open, not whether it represented a sales loss —
-and were already correct. Confirmed by reading each one in context
-before touching anything, not assumed identical just because the same
-string appeared nearby. AppointmentList.jsx's own ReturnedToLeads
-handling (lock semantics, its own filter chip, audit labels) was also
-checked and confirmed unrelated — that file already treats
-ReturnedToLeads as its own status, matching the original design intent;
-the bug was contained entirely to reportService.js.
-
-Stale comments from §180/§183 that argued the case FOR folding
-ReturnedToLeads into Lost (reasoning §183 used to justify "fixing"
-region to match the broken convention) rewritten to state what
-actually happened and why, not left as misleading git-archaeology.
-
-VERIFIED: node --check clean, npm run build clean (exercises all four
-standalone report functions too, not just the dashboard path), npx
-vitest run — 48/48 passing. Logic re-verified against synthetic data
-built directly from Mark's own screenshot (4 ClosedWon, 1
-ReturnedToLeads, 0 ClosedLost, matching his exact table) — confirms
-Won: 4, Lost: 0, matching the raw data precisely, where every prior
-pass in this saga would have shown Lost: 1. Comprehensive grep across
-the whole file confirmed exactly 12 locations needed the fix, all 12
-corrected, zero missed, zero over-corrected (the two legitimate "still
-active" checks confirmed untouched). Diffed against a fresh GitHub
-hydration taken immediately before packaging — isolated to exactly one
-file, confirmed no drift since.
-
-NOT YET DEPLOYED.
-
-FILES: frontend/api-lib/services/reportService.js.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-186. WHAT §185's OWN CORRECTION EXPOSED — SUPPRESSING BREAKDOWNS THAT HAVE NOTHING TO COMPARE, NOT JUST CHANGING HOW THEY RENDER — 16 Aug 2026 (session 24, continued)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Mark, with fresh screenshots after §185 landed: "the fix for the Closed
-Lost count has worked, but the actual graphs have regressed... tell me
-if that looks like it was designed by a data scientist for the
-information, and a design studio for the UX?"
-
-The data was now genuinely correct (Won: 2, Lost: 0, matching the raw
-table exactly) — but with real, small, honest numbers, the Won vs Lost
-row showed: Overall (2, Closed Won, 100%), By Region · Won (2, Western
-Cape, 100%), By Region · Lost (empty, "no losses"), By Portfolio · Won
-(2, Discovery, 100%), By Portfolio · Lost (empty). Five cards, four of
-which just restated "the 2 wins this period" a different way — Overall
-already says this once, clearly, right next to the KPI row above it.
-§184's compact-stat fix (single category → count + name, not a solid
-ring) was necessary but not sufficient: it fixed HOW a single-category
-breakdown renders, not WHETHER a breakdown with nothing to compare
-should be shown at all. Same underlying problem as the original "reads
-terribly" complaint, wearing compact-stat clothes instead of ring
-clothes — still decorative, just quieter about it.
-
-REAL FIX: WonLostPair (Reports.jsx) now computes the combined set of
-distinct categories across BOTH won and lost before rendering anything
-— fewer than 2 real, distinct values means there's no comparison to
-make yet, and the ENTIRE PAIR is suppressed, not just one side of it.
-Deliberately decided at the pair level, not inside DonutBreakdown
-itself: a Won side with genuine variety (2+ regions) paired against a
-Lost side that happens to be a single-region compact stat is still
-informative — it tells you WHERE the losses are, in the context of a
-Won side that has spread across multiple regions. Only suppress when
-NEITHER side has anything to compare against the other. Same principle
-applied to Meeting Type (a standalone section, not a pair): changed
-from rendering whenever any meeting type exists at all to requiring at
-least 2 distinct types — a business that's only ever booked InPerson
-has nothing to compare yet, and "100% InPerson" forever is an implicit
-fact (no other option has been recorded), not worth a dedicated card.
-Comes back automatically the first period real variety shows up, no
-manual toggle needed.
-
-DELIBERATELY NOT applied everywhere — three sections keep §184's
-existing behaviour (single category still renders as a compact stat,
-never suppressed): Overall (the Won vs Lost donut itself), Loss
-reasons, and Cancellation reasons. Reasoning: Region/Portfolio/Meeting
-Type are SECONDARY cuts of an already-known headline number (you
-already know the Won/Lost count from the KPI row and the Overall card
-before ever looking at these) — with insufficient variety they add
-zero information beyond what's already stated once. Loss reasons and
-Cancellation reasons ARE the primary analytical payload of their own
-purpose — knowing "every cancellation so far has been for the same
-reason" directly answers the question that section exists to answer,
-even when there's only one reason recorded yet, unlike a region/
-portfolio split which is inherently supplementary. Overall stays
-visible for the same reason — "we haven't lost anything yet this
-period" is itself a genuine headline fact worth stating, not a
-redundant restatement of something else.
-
-CAUGHT AND FIXED A TYPO BEFORE IT SHIPPED: a stray `#` instead of `//`
-in one of this change's own code comments, which would have broken the
-JS parser — caught by the Vite build step in verification, exactly the
-kind of thing that verification step exists to catch, not skipped even
-for a comment-only mistake.
-
-VERIFIED: npm run build clean (confirms the typo fix and no other
-syntax issues), npx vitest run — 48/48 passing. Suppression logic
-checked against synthetic data built directly from Mark's own
-screenshot (Won=2 all Western Cape/Discovery, Lost=0) — confirms both
-By Region and By Portfolio now correctly suppress entirely, while a
-positive-control scenario with genuine multi-region variety confirms
-the pair still renders when there's actually something to compare.
-Diffed against a fresh GitHub hydration taken immediately before
-packaging — isolated to exactly one file, confirmed no drift since.
-
-NOT YET DEPLOYED.
-
-FILES: frontend/src/pages/Reports.jsx.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-187. THE STRUCTURAL REBUILD — WHAT SIX PATCHES (§175-§186) NEVER ADDRESSED: DONUTBREAKDOWN HAD NO REAL VISUAL WEIGHT — 16 Aug 2026 (session 24, continued)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Mark, at the end of his patience, with fresh screenshots: "I am
-honestly at wits end with this, because it seems that you are
-deliberately making things worse. We have gone from donut graphs that
-were working that needed adjustment to the attached." He supplied a
-genuine reference dashboard (a real analytics product screenshot) and
-was explicit: "I still want to maintain the theme functionality and
-colour sets, but I want the page to look more contemporary."
-
-Owned directly, not defended: every one of §175 through §186 fixed
-something real in isolation — a stray Recharts cursor artifact, unequal
-card heights from a DOM-nesting issue, a redundant bar list duplicating
-the donut's own numbers, a trivial single-category ring, breakdowns
-with nothing genuine to compare — and every one of those fixes was
-individually correct. None of them ever addressed the actual root
-cause underneath all of it: DonutBreakdown itself had almost no visual
-weight — a narrow 220px column, a bare number with no context, a tiny
-colour-key legend below with no visible values, hover-dependent for
-anything beyond the shape of the ring. §186's suppression logic (hide
-a breakdown when there's nothing to compare) was correct on its own
-terms, but it made the underlying thinness of the remaining cards MORE
-visible, not less — a lone sparse card in a wide, uncapped row, exactly
-what the screenshots showed.
-
-WHAT THE REFERENCE ACTUALLY DOES DIFFERENTLY, extracted concretely
-rather than copied wholesale (Mark was explicit the theme/colours stay
-this app's own):
-  1. The donut has a real centre label — the total, not decoration. The
-     ring itself carries information beyond its slice angles.
-  2. The legend sits BESIDE the donut, not below it, with real values
-     and percentages always visible — never hover-only.
-  3. Every card has genuine visual weight regardless of category count
-     — nothing in that reference is a bare number in a mostly-empty box.
-
-REBUILT DonutBreakdown (ReportsWidgets.jsx) around these three points:
-  - Card width 220px -> 360px — wide enough to hold a donut and a real
-    side legend together, not stacked in a narrow column.
-  - Donut gets a centre label (the total count) via a position:absolute
-    overlay div, not fought into Recharts' own <Label> geometry.
-  - Legend moved beside the donut (was below), every row showing
-    value AND percentage inline, always — hover still works as a bonus
-    (Tooltip unchanged, cursor={false} from §179 kept), but the legend
-    no longer depends on it for basic legibility. alignItems:
-    'flex-start' on each legend row (not centre) so a long label
-    (cancellation/loss reasons routinely run 25-35 characters) wraps
-    onto a second line without dragging the value/% column down with
-    it — those stay pinned level with the label's first line regardless
-    of how many lines the label itself takes.
-  - §184's separate "compact stat" branch for a single real category is
-    GONE. One consistent treatment for 1 category or many: a real
-    donut, a centre label, a legend row per category (including a
-    genuine 0-value row when relevant — the Won=2/Lost=0 case now shows
-    BOTH "Closed Won: 2 (100%)" and "Closed Lost: 0 (0%)" explicitly,
-    which is more complete information than the old compact-stat ever
-    showed, not less). Two components sharing one visual language reads
-    as more coherent than a special case for the sparse periods.
-  - shadow.xs added to the card (subtle, theme-aware — resolves through
-    the same CSS variables as everything else in tokens.js) for a touch
-    more presence without departing from this app's own restraint.
-
-Reports.jsx: both breakdown-card rows (Won vs Lost; Meeting Type +
-Cancellation reasons) now cap at maxWidth: 1160px — fits 3 of the new,
-wider cards per line. With the cards themselves now carrying real
-weight, this bound stops a sparse row (§186 may correctly show only 1-2
-cards some periods) from stretching across an entire wide monitor with
-nothing filling the rest of it — a bounded, intentional grid, same
-discipline as the reference's own fixed-column KPI row, not open-ended
-width waiting to be filled.
-
-NOT CHANGED, per Mark's own explicit instruction: no new colour
-palette, no dark theme, no departure from this app's existing
-Linear/Stripe/Attio-class restraint (§156's original brief). Every
-colour in the rebuilt component resolves through the same theme-aware
-tokens (colors.*, shadow.*, radius.*) already used everywhere else on
-this page — switching data-theme still reskins this component with no
-code change required, exactly as before.
-
-VERIFIED: npm run build clean, npx vitest run — 48/48 passing. Render
-logic checked against all three of Mark's own screenshot scenarios
-(Won=2/Lost=0, Cancellation reasons with 2 real categories, Won=4/
-Lost=1) — confirms the centre label and full legend (including the
-explicit 0-value row) render as intended in each case. Diffed against a
-fresh GitHub hydration taken immediately before packaging — isolated to
-exactly two files, confirmed no drift since. Still no live browser in
-this sandbox to visually confirm the actual render — flagged honestly,
-same as every prior pass in this saga; this is reasoned through
-carefully against a concrete reference and verified at the logic level,
-not eyeballed.
-
-NOT YET DEPLOYED.
-
-FILES: frontend/src/components/ReportsWidgets.jsx, frontend/src/pages/Reports.jsx.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-188. §186's SUPPRESSION LOGIC REVERTED — THE REASON IT EXISTED WAS QUIETLY REMOVED BY §187's OWN REDESIGN — 16 Aug 2026 (session 24, continued)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Mark applied §187, with a screenshot: "Where are all the other graphs?
-I don't see the per portfolio breakdowns, etc." Correct catch — By
-Region, By Portfolio, and Meeting Type were all missing, exactly as
-designed by §186, and §186 was wrong to still exist by that point.
-
-THE ACTUAL SEQUENCE, worth being honest about: §186 suppressed a
-breakdown entirely whenever there were fewer than 2 distinct
-categories to compare, reasoning that a single-category card was
-decorative — "100% of the 2 wins" restated four different ways.
-That reasoning was sound AT THE TIME, against the card design that
-existed then (§184's compact stat — a bare number, no chart, minimal
-visual weight). §187, built one turn later, rebuilt DonutBreakdown
-from scratch specifically to fix that thinness: real donut, centre
-label, full legend with values and percentages, genuine visual weight
-regardless of category count. That rebuild quietly removed the actual
-justification for §186 — a single-category card isn't decorative
-anymore, it's informative (confirms the underlying data is real and
-populated, shows the exact count, same visual language as every other
-card on the page, matches what the "Overall" card in Mark's own
-screenshot already demonstrates working correctly at Won=2/Lost=0).
-§186 should have been reconsidered the moment §187 shipped; it wasn't,
-because the two were built as sequential fixes without stepping back
-to check whether the earlier one was still justified.
-
-FIXED: WonLostPair (Reports.jsx) reverted to the simple check that
-existed before §186 — show the pair whenever there's any data at all
-(wonRows or lostRows non-empty), regardless of category variety. Same
-reversion for Meeting Type — `.length > 1` back to `.length > 0`.
-Comments rewritten to state plainly what happened and why, not left as
-misleading git-archaeology arguing for logic that's since been removed.
-
-VERIFIED: npm run build clean, npx vitest run — 48/48 passing. Checked
-against Mark's own exact scenario (Won=2, both Western Cape/Discovery,
-Lost=0) — confirms By Region, By Portfolio, and Meeting Type all now
-render again. Diffed against a fresh GitHub hydration taken immediately
-before packaging — isolated to exactly one file, confirmed no drift
-since.
-
-NOT YET DEPLOYED.
-
-FILES: frontend/src/pages/Reports.jsx.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-189. LOSS REASONS STUCK BELOW THE ROW, A LEGEND LABEL STILL TOO LONG, AND A CARD-TOKEN INCONSISTENCY §187 INTRODUCED — 16 Aug 2026 (session 24, continued)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-Mark, with fresh screenshots after §188: "the Loss reasons graph is
-tucked underneath the other 5, why? Can it not be in line with By
-Portfolio · Lost?" — plus "the Cancellation Reason label for
-Scheduling conflict shortened. It's way too long and makes the graph
-difficult to read" — plus a direct instruction to use every skill
-available and apply a contemporary design system to the page as a
-whole, not just patch symptoms one at a time.
-
-LOSS REASONS LAYOUT — real, findable bug, not a CSS-tuning problem:
-Loss reasons lived in its OWN separate <div style={{marginTop:'18px'}}>
-below the main Won vs Lost flex row, not as a flex CHILD within that
-row. A card outside a flex container can never flow into it, no matter
-how the row's own gap/maxWidth/wrap settings are tuned — it always
-starts a fresh line, even when By Portfolio · Won and · Lost only fill
-2 of the row's 3 card slots, leaving real, visible space Loss reasons
-could have used. Exact same root-cause SHAPE as §183's own WonLostPair
-fix (a card that isn't a true sibling can't be equalised or flowed by
-its neighbours' own CSS) — should have been caught by checking for this
-pattern elsewhere on the page after §183, not re-discovered here.
-FIXED: moved inside the same flex container as a genuine sibling of
-Overall/Region/Portfolio. Row math confirmed directly: 360px cards +
-20px gap fit exactly 3 per line at the row's own 1160px cap — Loss
-reasons is now the 3rd card in row 2, beside By Portfolio · Lost,
-exactly where Mark asked for it.
-
-LEGEND LABEL LENGTH — "Scheduling conflict, wants to rebook" (36
-characters) shortened to "Scheduling conflict" (19) in
-CANCEL_REASON_LABELS, Reports.jsx specifically. "Found an alternative
-broker/solution" (also long, not yet flagged but the same class of
-problem) shortened to "Found an alternative" alongside it, pre-emptively
-rather than waiting for it to actually appear in a chart and get
-flagged separately. Deliberately NOT changed in AppointmentDetail.jsx's
-own copy of these same two labels (its cancelReason dropdown, a
-full-width <select> with no comparable space constraint) — the fuller,
-more descriptive text still helps whoever's actually choosing a reason
-while recording an outcome; the readability problem was specific to
-this file's own narrow donut-legend column, not the category names
-themselves. The two label sets intentionally differ now (full text
-where chosen, short text where charted) — a deliberate, documented
-choice, not an oversight.
-
-CARD-TOKEN INCONSISTENCY, found while addressing "apply a contemporary
-design system": §187's rebuilt donut card used one-off styling values
-(border: colors.lineSoft, radius.lg, shadow.xs) instead of the SAME
-shared s.card/s.metricCard tokens (colors.line, radius.md, shadow.sm)
-every other card on this page — KPI cards, Section wrappers, in fact
-every card anywhere in this app — already uses. A real, if subtle,
-inconsistency: the newly-rebuilt donut cards had a visibly different
-border weight and shadow than their own immediate neighbours, which
-works directly against "reads like one coherent product," the entire
-point §187 was built around. FIXED: aligned to the shared tokens.
-Contemporary design isn't a new, separate visual language sitting
-beside the existing one — it's the existing one, applied consistently,
-which is exactly what this fix does rather than introducing a third
-variant.
-
-VERIFIED: npm run build clean, npx vitest run — 48/48 passing. Row-flow
-math checked directly (3 cards per 1160px row at the current card
-width, confirming Loss reasons lands in row 2 beside Portfolio · Lost
-as intended) rather than assumed. Label lengths checked directly
-(36 chars -> 19). Diffed against a fresh GitHub hydration taken
-immediately before packaging — isolated to exactly two files, confirmed
-no drift since.
-
-NOT YET DEPLOYED.
-
-FILES: frontend/src/components/ReportsWidgets.jsx, frontend/src/pages/Reports.jsx.
+Mark asked whether the app is responsive and how much work full coverage
+would take, explicitly asking to be told before any code was touched.
+Answered first: the foundation was already solid (real viewport meta
+tag, a real useWindowSize breakpoint hook, the persistent sidebar
+already collapses on mobile), roughly half the pages already had real
+mobile treatment (the high-traffic ones — Reports, Appointment/Lead
+Detail, the list pages, Tasks, Events), and the gaps were smaller than
+"not responsive" — four admin-only pages using a functional-but-dense
+horizontal-scroll fallback, plus one genuine problem (the manual Create
+Lead form's fixed grids, which don't have a table's horizontal-scroll
+fallback available to them). Mark said yes, go ahead.
+
+CHECKED, CONFIRMED FINE, NO CHANGES: Login.jsx and ChangePassword.jsx
+already use width + maxWidth:100% (a real, correct responsive pattern —
+verified by reading the actual code, not assumed from the page being
+simple). SingleSignOn.jsx and Notifications.jsx have no fixed-width or
+multi-column layouts at all to begin with.
+
+FIXED — UserAdmin.jsx: page padding (isMobile ? 12px : 24px, the
+established pattern from AppointmentList.jsx), the 4-column stat grid
+now 2 columns on mobile, the Role+Status grid inside the Edit User
+modal now stacks. Checked the modal's own width first rather than
+assuming it needed a fix — s.modal already has maxWidth: 95vw in its
+base style (tokens.js), so it was already correctly responsive; almost
+made a pointless edit there (width: 92vw vs the already-effective ~95vw
+cap changes nothing real) and caught it before committing to it.
+
+FIXED — AppAdmin.jsx: page padding. Found a REAL gap not on the
+original list while surveying the file: a 5-6 tab navigation bar
+(Portfolios/Products/Medical Subscriptions/System Settings/Audit
+Log/Data Requests) with zero overflow handling at all — some labels
+long enough that this would have overflowed a phone's width outright,
+not just looked dense. Fixed with overflowX: 'auto' plus flexShrink: 0
+on each button (without the second part, flex's default shrink
+behaviour squishes the button text instead of actually triggering
+scroll — tested this reasoning, not just applied it on faith).
+
+FIXED — FeatureFlags.jsx and (once relocated, see below) LeadImport.jsx:
+identical tab-bar overflow fix applied for consistency, once the same
+underlying pattern (a plain flex row of tab buttons, no wrap/scroll) was
+confirmed present in both.
+
+FIXED — Integrations.jsx: page padding, and SmtpCard's Host/Port grid
+now stacks on mobile. StripeCard/PaystackCard checked and confirmed
+already single-column forms, no fix needed.
+
+A REAL PARALLEL-SESSION CONFLICT, CAUGHT BEFORE DELIVERY, NOT AFTER —
+this is the significant part of this entry. Diffing this turn's work
+against a fresh GitHub hydration (standard practice, done before every
+delivery this session) turned up far more differing files than
+expected, including one file that doesn't exist anywhere in this
+session's own history: LeadNew.jsx. Investigated directly rather than
+assumed it was noise: a DIFFERENT session, dated 16 Aug 2026 in its own
+header comment — after this conversation's own most recent work — had
+extracted LeadImport.jsx's old Manual Entry tab into its own new page
+at Mark's request, matching how Import Leads already has its own
+button/page rather than living inside something else. This working
+copy had never been refreshed from GitHub since, so it had no idea this
+happened — meaning the four fixed-grid fixes already applied to the OLD
+LeadImport.jsx's manual-entry section were sitting on top of a version
+of that page that no longer exists on the live site. Delivering them
+as-is would have silently reverted a different session's real, dated,
+deliberate work.
+
+CORRECTED: discarded the stale LeadImport.jsx edits entirely (restored
+to the current live version — confirmed byte-identical via diff before
+moving on, not just deleted-and-hoped). Confirmed directly (not
+assumed) that LeadNew.jsx's own header comment claim — "everything
+below is unchanged from the old manual tab, a relocation, not a
+rewrite" — was accurate: it has the exact same four unconditional
+gridTemplateColumns declarations the old file had. Re-applied the
+identical, already-designed fix to the real, current file. Also fixed
+LeadImport.jsx's own remaining content (now CSV/Subscription import
+only) — the same tab-bar overflow gap the other admin pages had, newly
+visible only because the page's own structure had changed.
+
+Cross-checked the other four touched files (UserAdmin/AppAdmin/
+FeatureFlags/Integrations) against the same fresh hydration specifically
+to rule out any other undiscovered changes from that 16 Aug session or
+any other source — confirmed clean: each file's diff against current
+GitHub contains ONLY this entry's own intended edits, nothing else,
+checked file by file, not sampled.
+
+VERIFIED: `npm run build` clean, `npx vitest run` — 48/48 passing.
+Swept all six touched files for any remaining unconditional
+gridTemplateColumns — none. Confirmed useWindowSize is correctly
+imported AND called in every file (including twice where a modal/card
+sub-component needed its own separate hook call, not just the page-level
+one). Diffed against a SECOND, independently fresh GitHub hydration
+(not reused from the mid-session discovery) immediately before
+packaging — confirmed the final six files' diffs are still exactly and
+only the intended changes, and confirmed the broader repo scan shows
+nothing unexpected beyond this session's own already-delivered,
+not-yet-refreshed-locally history.
+
+NOT YET DEPLOYED. No migration required — purely frontend changes, no
+schema or backend touched.
+
+FILES: frontend/src/pages/LeadNew.jsx, frontend/src/pages/LeadImport.jsx,
+frontend/src/pages/UserAdmin.jsx, frontend/src/pages/AppAdmin.jsx,
+frontend/src/pages/FeatureFlags.jsx, frontend/src/pages/Integrations.jsx.

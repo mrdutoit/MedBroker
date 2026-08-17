@@ -9,6 +9,7 @@ import { s } from '../styles/tokens.js';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
+import { useWindowSize } from '../hooks/useWindowSize.js';
 import { systemConfigApi, auditApi, usersApi, sarApi, leadsApi } from '../services/api.js';
 import { formatDate } from '../utils/dateFormat.js';
 
@@ -110,6 +111,7 @@ function formatChangeDetail(changeDetail) {
 }
 
 export default function AppAdmin() {
+  const { isMobile } = useWindowSize();
   const [tab, setTab] = useState('portfolios');
   const { flag } = useFlags();
   const { refetchPortfolios: refetchSharedPortfolios } = useRole();
@@ -597,10 +599,18 @@ export default function AppAdmin() {
   }
 
   return (
-    <div style={s.page}>
+    <div style={{ ...s.page, padding: isMobile ? '12px' : '24px' }}>
       <h1 style={{ margin: '0 0 18px', fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)' }}>App Administration</h1>
 
-      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '20px' }}>
+      {/* overflowX: 'auto' — real gap, not previously handled at all. Five
+          to six tabs, some with long labels ("Medical Subscriptions",
+          "System Settings"), in a plain flex row with no wrap/scroll
+          behaviour would overflow a narrow phone's width outright.
+          Horizontal scroll keeps the underlined-tab visual intact (a
+          wrap would break the clean single-row underline), matching how
+          this app's own wide data tables already fall back to scroll
+          rather than break the page layout. */}
+      <div style={{ display: 'flex', borderBottom: '1px solid var(--line)', marginBottom: '20px', overflowX: 'auto' }}>
         {[['portfolios', 'Portfolios'], ['products', 'Products'], ['subscriptions', 'Medical Subscriptions'], ['settings', 'System Settings'], ['audit', 'Audit Log'],
           // §109 — Data Requests only shown when the flag that's supposed
           // to gate it is actually on. Before this it was unconditionally
@@ -618,7 +628,7 @@ export default function AppAdmin() {
             onClick={() => setTab(key)}
             style={{
               padding: '9px 18px', border: 'none', background: 'none', cursor: 'pointer',
-              fontSize: '0.875rem', fontFamily: 'inherit',
+              fontSize: '0.875rem', fontFamily: 'inherit', whiteSpace: 'nowrap', flexShrink: 0,
               fontWeight: tab === key ? 600 : 400,
               color: tab === key ? 'var(--accent)' : 'var(--mut)',
               borderBottom: tab === key ? '2px solid var(--accent)' : '2px solid transparent',

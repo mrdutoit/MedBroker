@@ -23,6 +23,7 @@ import { useState } from 'react';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
+import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useSortableData } from '../hooks/useSortableData.js';
 import { usersApi, appointmentsApi, ApiError } from '../services/api.js';
 import { REGIONS } from '../constants/leadOptions.js';
@@ -141,6 +142,7 @@ function PortfolioProductSelector({ portfolios, products, onPortfolioChange, onP
 // ─── Modal ────────────────────────────────────────────────────────────────────
 function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnlock, onForceLogout, onLinkIdentity, onTopUp, onForcePasswordReset }) {
   const { role, portfolios: allPortfolios, productsByPortfolio } = useRole();
+  const { isMobile } = useWindowSize();
   const isEdit = mode === 'edit';
   const isGlobalAdmin = role === 'GlobalAdmin';
   // §117 — broader than isGlobalAdmin above; the token top-up endpoint is
@@ -372,6 +374,9 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
 
   return (
     <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      {/* Width stays 520px, capped by s.modal's own maxWidth: 95vw (tokens.js)
+          — already correctly responsive on narrow screens without needing
+          an isMobile override here; checked before assuming otherwise. */}
       <div style={{ ...s.modal, width: '520px' }}>
         <div style={s.modalHeader}>
           <h2 style={s.modalTitle}>{isEdit ? 'Edit User' : 'Add User'}</h2>
@@ -644,7 +649,7 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
         )}
 
       {/* Role + Status row */}
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px' }}>
           <div style={s.formGroup}>
             <label style={s.formLabel}>Role *</label>
             <select
@@ -736,6 +741,7 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 export default function UserAdmin() {
+  const { isMobile } = useWindowSize();
   const [roleFilter, setRoleFilter] = useState('All');
   const [modal,      setModal]      = useState(null);   // { mode: 'create'|'edit', user? }
   const { flag } = useFlags();
@@ -831,7 +837,7 @@ export default function UserAdmin() {
   }
 
   return (
-    <div style={s.page}>
+    <div style={{ ...s.page, padding: isMobile ? '12px' : '24px' }}>
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
         <h1 style={{ margin: 0, fontSize: '1.375rem', fontWeight: 600, color:'var(--ink)' }}>User Administration</h1>
         <button style={s.primaryBtn} onClick={() => setModal({ mode: 'create' })}>+ Add User</button>
@@ -842,7 +848,7 @@ export default function UserAdmin() {
       )}
 
       {/* Metrics */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '12px', marginBottom: '18px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '12px', marginBottom: '18px' }}>
         {ROLES.map(r => {
           const rs = ROLE_STYLE[r];
           return (

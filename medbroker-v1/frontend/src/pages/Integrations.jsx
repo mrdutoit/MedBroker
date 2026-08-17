@@ -55,6 +55,7 @@ import { Link } from 'react-router';
 import { useFlags } from '../context/FlagContext.jsx';
 import { integrationsApi, ApiError } from '../services/api.js';
 import { useFetch } from '../hooks/useFetch.js';
+import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s } from '../styles/tokens.js';
 
 function StatusRow({ ok, children }) {
@@ -276,6 +277,7 @@ function PaystackCard({ status, onSaved }) {
 // StripeCard's own comment above for why the StatusRow no longer needs
 // to handle the "not active" case.
 function SmtpCard({ status, onSaved }) {
+  const { isMobile } = useWindowSize();
   const [host, setHost]         = useState('');
   const [port, setPort]         = useState('');
   const [user, setUser]         = useState('');
@@ -333,7 +335,7 @@ function SmtpCard({ status, onSaved }) {
       {error && <div style={{ ...s.errorBox, marginBottom: '12px' }}>{error}</div>}
       {saved && <div style={{ ...s.noticeSuccess, marginBottom: '12px' }}>✓ SMTP settings saved.</div>}
 
-      <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '12px' }}>
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '2fr 1fr', gap: '12px' }}>
         <div style={s.formGroup}>
           <label style={s.formLabel}>Host</label>
           <input type="text" style={s.formInput} value={host} onChange={e => setHost(e.target.value)} placeholder="smtp.resend.com" />
@@ -378,6 +380,7 @@ function SmtpCard({ status, onSaved }) {
 
 // ─── Page ───────────────────────────────────────────────────────────────────────
 export default function Integrations() {
+  const { isMobile } = useWindowSize();
   const { data, loading, error, refetch } = useFetch(() => integrationsApi.get(), []);
   const { flag } = useFlags();
   const paymentProvider = flag('appointments.tokens.paymentProvider') || 'none';
@@ -394,7 +397,7 @@ export default function Integrations() {
   }, [data]);
 
   return (
-    <div style={{ ...s.page, maxWidth: '700px' }}>
+    <div style={{ ...s.page, maxWidth: '700px', padding: isMobile ? '12px' : '24px' }}>
       <h1 style={{ margin: '0 0 6px', fontSize: '1.375rem', fontWeight: 600, color: 'var(--ink)' }}>Integrations</h1>
       <p style={{ color: 'var(--mut)', fontSize: '0.875rem', margin: '0 0 18px' }}>
         Credentials for this deployment's active integrations only — GlobalAdmin only. Stored encrypted,
