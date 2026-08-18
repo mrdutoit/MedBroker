@@ -575,23 +575,33 @@ export default function Reports() {
                     class as §183's own WonLostPair rework (a card
                     outside the flex row can't flow into it, no matter
                     how the row's own CSS is tuned). */}
-                {/* 16 Aug 2026 (§190) — Mark, separately from everything
-                    §179-189 already covered: even with each card now
-                    carrying real weight (§187) and flowing correctly as
-                    flex siblings (§189), the ROW holding them was never
-                    centred within the Section it sits in — on a wide
-                    screen this group of cards (capped at 1160px, often
-                    narrower still with only 2-3 cards actually present)
-                    sat flush against the row's own left edge, with real
-                    empty space to its right doing nothing. Every prior
-                    round fixed something about the cards themselves or
-                    how they relate to EACH OTHER; this is the first fix
-                    at the level of how the whole group relates to the
-                    page around it. margin: '0 auto' only — the existing
-                    maxWidth cap and card sizing were already correctly
-                    tuned through several rounds and didn't need
-                    touching, just centring within it. */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: '20px', maxWidth: '1160px', margin: '18px auto 0' }}>
+                {/* 16 Aug 2026 (§190, CORRECTED §191) — §190's own
+                    margin: '0 auto' was real but incomplete, confirmed by
+                    Mark directly inspecting the live element: that rule
+                    WAS present and DID correctly centre the row's own
+                    bounding box — verified with DevTools, not assumed.
+                    What it missed: this box has no visible border or
+                    background of its own, and flex's own default
+                    justify-content (flex-start) packs the CARDS against
+                    the box's left edge regardless of how wide or how
+                    centred the box itself is. A centred-but-invisible
+                    box with left-packed content inside it is visually
+                    IDENTICAL to a box that isn't centred at all — the
+                    eye has no way to tell "empty space is outside the
+                    box" from "empty space is inside the box, to the
+                    right of the cards." Confirmed by measuring the
+                    actual card positions directly (not just the row's
+                    own box) against a live render of the real,
+                    unmodified components — with only margin:auto, the
+                    cards' own combined span started exactly at the box's
+                    left edge and stopped 396px short of its right edge,
+                    every time. justifyContent: 'center' added — this
+                    centres the CARDS within whatever space the box
+                    provides, which is what was actually missing; kept
+                    margin: 'auto' too, since it's still correct for
+                    centring the box itself on a screen wide enough to
+                    exceed the 1160px cap. */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', justifyContent: 'center', gap: '20px', maxWidth: '1160px', margin: '18px auto 0' }}>
                   <DonutBreakdown
                     title="Overall"
                     isMobile={isMobile}
@@ -682,12 +692,16 @@ export default function Reports() {
                     way a Won/Lost pair does) and sits as a true flex
                     sibling of the other, so stretch equalises them
                     correctly. */}
-                {/* 16 Aug 2026 (§190) — same fix as the Won vs Lost row
-                    above, same reasoning: this group (often just 2
-                    cards, ~740px) was never centred within the Section
-                    it sits in. margin: '0 auto' only — see that row's
-                    own comment for the fuller account. */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: '20px', maxWidth: '1160px', margin: '0 auto' }}>
+                {/* 16 Aug 2026 (§190, CORRECTED §191) — same fix as the
+                    Won vs Lost row above, same real cause: margin:auto
+                    correctly centred this row's own invisible box, but
+                    said nothing about where the CARDS sit within that
+                    box — flex's default justify-content packed them
+                    left regardless. See that row's own comment for the
+                    fuller account, including how this was actually
+                    confirmed (Mark inspecting the live element directly,
+                    then a measured render of the real components). */}
+                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', justifyContent: 'center', gap: '20px', maxWidth: '1160px', margin: '0 auto' }}>
                   {appointmentAnalysis.byMeetingType.length > 0 && (
                     /* 16 Aug 2026 (§180) — Mark's own suggestion: "perhaps
                        the Meeting Type could be a donut chart." Was a

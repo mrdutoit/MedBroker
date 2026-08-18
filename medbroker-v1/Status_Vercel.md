@@ -14148,3 +14148,76 @@ NOT YET DEPLOYED. No migration required — purely a CSS/layout change,
 no schema or backend touched.
 
 FILES: frontend/src/pages/Reports.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+191. §190's FIX WAS REAL BUT INCOMPLETE — CENTERED THE INVISIBLE BOX, NOT THE VISIBLE CARDS INSIDE IT — 16 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Mark reported §190's fix hadn't landed — still off-center after a hard
+refresh. Root-caused properly rather than re-guess, in stages:
+
+STAGE 1 — assumed deployment/caching, given three separate empirical
+tests (an isolated CSS reproduction, a faithful full-layout
+reproduction across five real desktop widths, and finally the actual
+unmodified Section/DonutBreakdown components rendered live via a local
+Vite server and measured with Playwright) all showed correct centering
+with §190's own code. Asked Mark to hard-refresh — didn't fix it,
+ruling out browser cache.
+
+STAGE 2 — asked Mark for the live URL to inspect the deployed bundle
+directly. Fetched it; got only the SPA's empty shell (this app requires
+auth and is client-rendered, and this session's tools can't reach
+vercel.app directly — not in the sandbox's network allowlist, and
+web_fetch extracts readable content rather than raw script source).
+Asked Mark to inspect the live DOM directly instead — a more decisive
+check than anything further from this end could offer.
+
+STAGE 3 — Mark inspected the actual live element. Confirmed directly:
+margin: '0 auto' WAS present and correctly applied. This ruled out
+deployment/caching entirely and reframed the problem — the fix was
+genuinely live, so something about the CSS mechanism itself had to be
+incomplete, not missing.
+
+ROOT CAUSE, found by re-testing with Playwright measuring CARD
+positions specifically (not just the row's own bounding box, which is
+what every earlier test had checked): margin:auto DOES correctly centre
+the row's own invisible box — confirmed again, box left/right gaps
+equal. What it never addressed: that box has no visible border or
+background of its own, and flexbox's own default justify-content
+(flex-start) packs the CARDS against the box's left edge regardless of
+how wide or how centred the box itself is. A centred-but-invisible box
+with left-packed content inside it is VISUALLY IDENTICAL to a box
+that's not centred at all — there's no way for a viewer to distinguish
+"the empty space is outside the box" from "the empty space is inside
+the box, to the right of the cards." Measured directly: with only
+margin:auto, the cards' own combined span started exactly at the row
+box's left edge and stopped 396px short of its right edge, in a full,
+faithful render of the real components.
+
+FIX: justifyContent: 'center' added to both rows (Won vs Lost,
+Appointment Analysis), alongside the existing margin:auto (kept, not
+removed — margin:auto still correctly centres the box itself on a
+screen wide enough to exceed the 1160px cap; justifyContent:center
+additionally centres the cards within whatever space that box
+provides, which was the actual missing piece). Re-verified with the
+same measurement method used to find the bug: with the fix applied,
+the cards' own actual span was equidistant from both edges of the
+available page width — confirmed empirically, not just reasoned about,
+same standard as finding the bug in the first place.
+
+VERIFIED: `npm run build` clean, `npx vitest run` passing. Swept the
+whole frontend for any other margin:auto-centred flex container that
+might carry the identical latent bug — found only these same two,
+both now fixed. Diffed against fresh GitHub — confirmed isolated to
+exactly this one file. Test harness (a temporary Vite entry point
+importing the real, unmodified components with mock data, used to
+empirically confirm both the bug and the fix against actual rendered
+output rather than reasoning alone) was created twice during this
+investigation and fully removed both times before any delivery — never
+part of, or left lying around in, the actual codebase.
+
+NOT YET DEPLOYED. No migration required — purely a CSS/layout change,
+no schema or backend touched.
+
+FILES: frontend/src/pages/Reports.jsx.
