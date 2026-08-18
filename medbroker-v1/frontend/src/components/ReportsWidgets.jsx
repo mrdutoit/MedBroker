@@ -80,8 +80,15 @@ export function Sparkline({ data, dataKey, colour, height = 32 }) {
  * sparkline. This is the brief's own item 2 spelled out per-card: "current
  * value + prior period + %/pt change + direction, sparkline where useful."
  */
-export function KpiCard({ label, current, format, deltaPct, direction, lowerIsBetter, sparklineData, sparklineKey, sparklineColour }) {
-  const formatted =
+export function KpiCard({ label, current, format, customValue, deltaPct, direction, lowerIsBetter, sparklineData, sparklineKey, sparklineColour }) {
+  // customValue — 18 Aug 2026. Escape hatch for a metric that isn't a
+  // single formattable number, e.g. Won vs Lost's "Avg Days (Won vs
+  // Lost)" — genuinely two fmtDays() values shown as "21.3 days / —",
+  // not one value under one of the existing format keys. When passed,
+  // it wins outright; `current`/`format` are ignored rather than both
+  // being computed and one discarded, so there's no dead prop confusion
+  // at the call site.
+  const formatted = customValue !== undefined ? customValue :
     format === 'currency' ? fmt(current ?? 0) :
     format === 'ratio'    ? fmtRatio(current) :
     format === 'percent'  ? fmtPct(current) :
@@ -167,7 +174,18 @@ export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessag
     // the "reads like one coherent product" goal §187 was aiming for.
     padding: '20px 22px', border: `1px solid ${colors.line}`, borderRadius: radius.md,
     background: colors.surface, boxShadow: shadow.sm,
-    width: isMobile ? '100%' : '360px', minHeight: '184px', boxSizing: 'border-box',
+    width: isMobile ? '100%' : '360px',
+    // minHeight — 18 Aug 2026, raised from a flat 184px at Mark's
+    // request ("slightly higher, almost responsive"). Mobile keeps a
+    // flat floor deliberately: clamp()'s vw term scales off the FULL
+    // viewport width, and on a narrow portrait phone that number is too
+    // small to mean anything (21vw of a 375px screen is ~79px) — using
+    // it there would make cards SHORTER, the opposite of the ask.
+    // Desktop gets a real clamp(): 210px floor (up from 184px), scaling
+    // gently with viewport up to a 250px ceiling — genuinely responsive
+    // within a bounded range, not just one more fixed pixel value.
+    minHeight: isMobile ? '210px' : 'clamp(210px, 20vw, 250px)',
+    boxSizing: 'border-box',
     justifyContent: total === 0 || realTotal === 0 ? 'center' : 'flex-start',
   };
   // Reserved regardless of whether `title` is actually passed — a

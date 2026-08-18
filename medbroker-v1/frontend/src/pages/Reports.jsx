@@ -523,11 +523,26 @@ export default function Reports() {
           <Section title="Won vs Lost">
             {wonVsLost && (wonVsLost.won + wonVsLost.lost) > 0 ? (
               <>
+                {/* 18 Aug 2026 — Mark's request: this row was four bare
+                    numbers with no card treatment at all, unlike
+                    Appointment Analysis' identically-shaped row just
+                    below in this same file (§172's own KpiCard switch).
+                    Same component, same reasoning: no period-over-period
+                    delta computed for these four either, so KpiCard's
+                    existing "No prior-period data" fallback covers that
+                    honestly. Win Rate keeps the same null-safe "—" via
+                    fmtPct (format="percent") rather than the manual
+                    ternary this row used to have — one less bespoke
+                    null check, same behaviour. Avg Days is the one
+                    genuinely compound value on this whole page (two
+                    fmtDays() results, not one) — see KpiCard's own
+                    customValue comment for why that needed a real prop
+                    rather than a fmtDays()-as-string workaround. */}
                 <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '12px' }}>
-                  <div><div style={s.kpiLabel}>Won</div><div style={{ ...s.kpiValue, color: colors.success }}>{wonVsLost.won}</div></div>
-                  <div><div style={s.kpiLabel}>Lost</div><div style={{ ...s.kpiValue, color: colors.danger }}>{wonVsLost.lost}</div></div>
-                  <div><div style={s.kpiLabel}>Win Rate</div><div style={s.kpiValue}>{wonVsLost.winRate === null ? '—' : `${wonVsLost.winRate}%`}</div></div>
-                  <div><div style={s.kpiLabel}>Avg Days (Won vs Lost)</div><div style={{ ...s.kpiValue, fontSize: '1.1rem' }}>{fmtDays(wonVsLost.avgDaysToCloseWon)} / {fmtDays(wonVsLost.avgDaysToCloseLost)}</div></div>
+                  <KpiCard label="Won" current={wonVsLost.won} />
+                  <KpiCard label="Lost" current={wonVsLost.lost} />
+                  <KpiCard label="Win Rate" current={wonVsLost.winRate} format="percent" />
+                  <KpiCard label="Avg Days (Won vs Lost)" customValue={`${fmtDays(wonVsLost.avgDaysToCloseWon)} / ${fmtDays(wonVsLost.avgDaysToCloseLost)}`} />
                 </div>
                 {/* 16 Aug 2026 (§182) — Mark's direct question: "why could
                     these not be displayed next to each other?" They
