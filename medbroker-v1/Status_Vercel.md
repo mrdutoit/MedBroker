@@ -14066,3 +14066,85 @@ schema or backend touched.
 FILES: frontend/src/pages/LeadNew.jsx, frontend/src/pages/LeadImport.jsx,
 frontend/src/pages/UserAdmin.jsx, frontend/src/pages/AppAdmin.jsx,
 frontend/src/pages/FeatureFlags.jsx, frontend/src/pages/Integrations.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+190. REPORTS DONUT ROWS — CENTERED WITHIN THEIR SECTION; A REAL PARALLEL-SESSION DISCOVERY THAT CHANGED THE WHOLE APPROACH TO THIS FIX — 16 Aug 2026 (session 23, continued)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+NUMBERING NOTE — this entry picks up at 190, not 177, because this
+file's own last entry (§176) is genuinely current — byte-identical to
+what's live — but the CODE now contains extensive comment history
+referencing §179 through §189 that was never logged here. A different
+session did real, substantial iterative work on the Reports donut
+redesign (matching Mark's own "left aligned/lost" complaint, addressed
+there first through many rounds — a real centre label, a legend beside
+each donut with values always visible, consistent shared card tokens,
+a concrete reference dashboard Mark supplied) without appending its own
+entries to this file. Not this session's place to reconstruct that
+history after the fact from code comments alone — noted here plainly so
+the gap in this log's own numbering isn't mistaken for a missing
+session, and picking up at 190 keeps this file's own numbering
+consistent with what the code itself already references.
+
+A REAL PARALLEL-SESSION CONFLICT THAT CHANGED THE ENTIRE APPROACH TO
+THIS TASK, not just a footnote — worth documenting properly. Mark asked
+whether graphs could be centred and made to use more available space,
+describing them as "left aligned" and "floating." First pass: diagnosed
+DonutBreakdown's own internal sizing (fixed 170px donut, no width:100%
+on its own wrapper) and rebuilt it — bigger donut, capped/centred as a
+unit. Before packaging, the standard pre-delivery diff against fresh
+GitHub turned up far more than expected, including an import
+(`shadow`) this working copy didn't have. Investigated directly rather
+than dismissed as noise: that import belonged to the OTHER session's
+own extensive DonutBreakdown rebuild (§179-189, see above) — a
+completely different, more developed component (real centre labels,
+values-always-visible legends, shared s.card-family tokens) already
+addressing this exact "left aligned/lost" complaint through several
+rounds, including a moment where Mark told that session directly it
+seemed to be making things worse. Delivering this session's own
+first-pass edit would have silently reverted all of that real, hard-won
+work — including re-adding a "Win Rate" section that other session had
+explicitly removed at Mark's request.
+
+Stopped, discarded the first-pass edit entirely (restored
+ReportsWidgets.jsx to the current live version, confirmed byte-
+identical via diff, not just deleted-and-assumed), and asked Mark
+directly whether he'd already applied that other session's fixes and
+was seeing something genuinely separate, or whether he was looking at
+an older, not-yet-applied version. Mark confirmed: fixes applied,
+genuinely separate issue.
+
+RE-DIAGNOSED from scratch against the actual current code, not the
+first-pass mental model. The other session's rebuild had already fixed
+every card's OWN internal weight and how cards relate to EACH OTHER as
+flex siblings — what it hadn't touched was how the GROUP of cards
+relates to the page around it. Found it precisely: both places
+DonutBreakdown cards render (Won vs Lost, Appointment Analysis) wrap
+their cards in a flex row capped at maxWidth: 1160px — a deliberate,
+already-tuned constraint from that other session's own work (so cards
+don't stretch to absurd widths on an ultra-wide monitor) — but that row
+was never actually CENTRED within its Section. On a screen wider than
+1160px (or, more commonly, a row with only 2-3 of the ~360px cards
+actually present, well under the cap), the whole group sat flush
+against the row's own left edge, with real unused space to its right —
+exactly Mark's own description, and a genuinely different failure mode
+than anything the prior seven rounds had addressed, since every one of
+those was about the cards themselves or each other, never about the
+row's own position within the page.
+
+FIX: margin: '0 auto' added to both container divs (Won vs Lost's row,
+Appointment Analysis's row). Nothing else touched — the existing
+maxWidth cap and every card's own sizing were already correct and
+didn't need changing, only centring within it.
+
+VERIFIED: `npm run build` clean, `npx vitest run` passing. Swept the
+whole file for any other maxWidth-capped container that might have the
+same gap — found none beyond these two. Diffed against a fresh GitHub
+hydration — confirmed the change is exactly and only these two lines,
+nothing else, and confirmed no other file was touched this turn.
+
+NOT YET DEPLOYED. No migration required — purely a CSS/layout change,
+no schema or backend touched.
+
+FILES: frontend/src/pages/Reports.jsx.
