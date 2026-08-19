@@ -246,6 +246,52 @@ OUTSTANDING (unchanged from CURRENT STATE further up in this file):
    correct-but-undocumented change is functionally invisible to the
    next session reading this file "first."
 
+CLOSED, 19 Aug 2026 (later same day): two bugs Mark caught live-testing
+the Appointment editing feature above, both in the Change Log path
+specifically — root-caused and fixed from a single screenshot, no
+guessing.
+
+BUG 1 — AppointmentUpdated entries showed no diff at all, just the bare
+action name, while the LeadUpdated entry right below it (same save,
+same timestamp) correctly showed "idNumber: — → ...; WhatsApp: — → ...".
+Root cause: AuditLogList.jsx's describeEntry() has a dedicated
+formatting case for 'LeadUpdated' (turns changeDetail into "field: from
+→ to" text) but had no equivalent case for 'AppointmentUpdated' — a
+brand new action name this same day's earlier session introduced. The
+WRITE side was correct from the start (verified against real Postgres
+before that delivery); this was purely a display gap in a completely
+different file, the same shape of miss as the FLAG_META gap earlier
+this session — new backend capability shipped, a corresponding frontend
+piece in an unrelated file never got the matching update. Fixed: added
+the 'AppointmentUpdated' case to describeEntry(), identical formatting
+to 'LeadUpdated', plus FIELD_LABELS entries for the six Appointment-
+native field names (Current insurer, Meeting type, Appointment date/
+time, Address, Meeting link) so they render as words, not raw
+camelCase.
+
+BUG 2 — found proactively while fixing Bug 1, before it could produce a
+confusing phantom diff once the display actually started working:
+firstAppointmentTime is a Postgres TIME column, confirmed this session
+(and earlier this same day, independently) to come back from the driver
+as "14:30:00" (HH:mm:ss, a plain string) — but a native <input
+type="time"> with no step attribute normalises to "14:30" (HH:mm). The
+existing diff comparison used strict !==, so this field would have
+registered as "changed" on literally every save touching any Appointment
+field, even when the time was never touched — exactly the same class of
+bug dateOfBirth already needed Date-vs-string handling for. Fixed:
+both sides sliced to HH:mm before comparing, in the diff loop
+specifically (the write itself was never the problem — Postgres accepts
+"14:30" as TIME input and pads it internally, so nothing needed to
+change there).
+
+VERIFICATION: both fixes smoke-tested directly (the describeEntry
+formatting logic run standalone against a real changeDetail shape; the
+time-normalisation confirmed "14:30:00".slice(0,5) === "14:30".slice(0,5)).
+npm run build clean, 48/48 vitest. Diffed clean against a fresh
+hydration — exactly 2 files touched (appointmentHandlers.js,
+AuditLogList.jsx). Delivered as
+medbroker-changelog-fixes-20260819-1715.zip.
+
 CLOSED, 19 Aug 2026: Supervisor+/Admin+ can now edit Appointment detail
 fields — both Lead-owned (Personal Details/Education/Insurance
 Information, plus Occupation/Mobile on the pre-existing Lead Details

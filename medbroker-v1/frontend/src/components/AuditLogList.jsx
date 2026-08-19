@@ -33,6 +33,13 @@ const ACTION_LABELS = {
   AppointmentReassigned:       'Broker reassigned',
   AppointmentReturnedToLeads:  'Returned to Leads',
   AppointmentOutcomeSaved:     'Outcome updated',
+  // 19 Aug 2026 — added alongside the new describeEntry() case below,
+  // same session the write side (appointmentHandlers.js) shipped. Only
+  // ever shown as a fallback if changeDetail is somehow empty — the
+  // handler only writes this action when changeDetail has at least one
+  // key — same defensive symmetry LeadUpdated's own fallback above has,
+  // for the identical reason.
+  AppointmentUpdated:          'Appointment details updated',
 };
 
 const FIELD_LABELS = {
@@ -41,6 +48,17 @@ const FIELD_LABELS = {
   degreeAttained: 'Degree', occupation: 'Job Title', hospitalOrPractice: 'Hospital / Practice',
   existingCover: 'Existing cover', policies: 'Current policies', medicalAid: 'Medical aid',
   medicalAidProvider: 'Medical aid provider', portfolios: 'Portfolio',
+  // 19 Aug 2026 — Appointment-native fields (UPDATE_APPOINTMENT_COLUMNS,
+  // appointmentService.js), added alongside the AppointmentUpdated
+  // describeEntry() case below. idNumber deliberately NOT re-added here
+  // despite also being editable now (AppointmentDetail.jsx) — it's a
+  // Lead-owned field, always logged under LeadUpdated regardless of
+  // which page the edit was made from, so it only ever needs the one
+  // entry FIELD_LABELS is missing (added separately below).
+  currentInsurer: 'Current insurer', meetingType: 'Meeting type',
+  firstAppointmentDate: 'Appointment date', firstAppointmentTime: 'Appointment time',
+  firstAppointmentAddress: 'Address', virtualMeetingLink: 'Meeting link',
+  idNumber: 'ID Number',
 };
 
 function describeEntry(entry) {
@@ -76,6 +94,30 @@ function describeEntry(entry) {
   }
 
   if (entry.action === 'LeadUpdated') {
+    const format = (v) => {
+      if (Array.isArray(v)) return v.length ? v.join(', ') : '—';
+      return v ?? '—';
+    };
+    const changes = Object.entries(detail).map(([field, change]) => {
+      const fieldLabel = FIELD_LABELS[field] ?? field;
+      return `${fieldLabel}: ${format(change?.from)} → ${format(change?.to)}`;
+    });
+    return changes.length ? changes.join('; ') : label;
+  }
+
+  // 19 Aug 2026 — added same session the write side shipped
+  // (appointmentHandlers.js's PUT /appointments/:id). Mark caught this
+  // one live: the write was correct from the start (real changeDetail,
+  // confirmed against real Postgres before delivery), but nothing here
+  // knew how to format the 'AppointmentUpdated' action, so it fell
+  // through to the bare action-name fallback at the bottom of this
+  // function — same bug shape as LeadUpdated would have had if this
+  // case were missing, just never caught until now because this action
+  // name didn't exist until this session. Deliberately identical
+  // formatting to LeadUpdated immediately above — same shape of data,
+  // same rule (FIELD_LABELS lookup, "—" for a missing from/to), no
+  // reason for it to look different.
+  if (entry.action === 'AppointmentUpdated') {
     const format = (v) => {
       if (Array.isArray(v)) return v.length ? v.join(', ') : '—';
       return v ?? '—';

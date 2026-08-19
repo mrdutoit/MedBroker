@@ -242,6 +242,23 @@ export async function handleAppointmentById(req, res, id) {
           }
           continue;
         }
+        // firstAppointmentTime — same class of bug dateOfBirth already
+        // needed handling for, confirmed directly against real Postgres
+        // this session, not assumed: a TIME column comes back from the
+        // driver as "14:30:00" (HH:mm:ss, a plain string, not a Date),
+        // but a native <input type="time"> with no `step` attribute
+        // normalises to "14:30" (HH:mm) — so this field would register
+        // as "changed" on every single save, even when nobody touched
+        // it, without this normalisation. Sliced to HH:mm on both sides
+        // before comparing, same resolution the input itself offers.
+        if (field === 'firstAppointmentTime') {
+          const existingValue = appt.firstAppointmentTime?.slice(0, 5) ?? null;
+          const incomingValue = parsed.data.firstAppointmentTime?.slice(0, 5) ?? null;
+          if (existingValue !== incomingValue) {
+            changeDetail.firstAppointmentTime = { from: existingValue, to: incomingValue };
+          }
+          continue;
+        }
         if (appt[field] !== parsed.data[field]) {
           changeDetail[field] = { from: appt[field] ?? null, to: parsed.data[field] ?? null };
         }
