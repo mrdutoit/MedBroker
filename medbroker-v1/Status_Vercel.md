@@ -246,6 +246,45 @@ OUTSTANDING (unchanged from CURRENT STATE further up in this file):
    correct-but-undocumented change is functionally invisible to the
    next session reading this file "first."
 
+CLOSED, 19 Aug 2026: two follow-ups from Mark's live testing of the
+18-19 Aug data export / ID number / field parity delivery.
+
+FLAG_META GAP — genuine miss, root-caused. Mark ran the updated
+feature-flags.postgres.sql against Neon exactly as instructed, but the
+new data.export.enabled flag never appeared on the Feature Flags
+settings page at all — no toggle, nothing to switch on. Root cause:
+FeatureFlags.jsx's settings UI does NOT read its list of togglable
+flags from the database — it renders from a hardcoded FLAG_META array
+in that same file, meant to mirror the seed data (the file's own header
+comment says so, and even flags GET /api/flags/meta as the eventual
+"real" source, which doesn't exist yet). The 18 Aug session added the
+new flag to the seed file — which correctly drives the actual flag()
+gating logic everywhere else in the app via listFlags() — but never
+added the matching FLAG_META entry, so the settings page had nothing to
+render regardless of what the database said. This was a real gap in
+that session's own verification, not anything Mark did wrong: the
+gating logic was checked, the render path for the settings page itself
+never was. Fixed: FLAG_META entry added (FeatureFlags.jsx), matching
+the seed file's label/description/tier exactly. Also added
+data.export.enabled to FlagContext.jsx's DEFAULT_FLAGS while in the
+same file family, closing the earlier-flagged minor gap there too.
+
+"CONTACT DETAILS" RENAMED TO "PERSONAL DETAILS" — Mark's request,
+LeadDetail.jsx and AppointmentDetail.jsx both (parity preserved). The
+card holds Date of Birth, ID Number, WhatsApp, and Hospital/Practice
+(LeadDetail.jsx also Email/Mobile/Job Title) — a "Contact Details"
+label stopped making sense once ID Number joined it 18 Aug, particularly
+for a section holding sensitive identity data. "Personal Details" is
+the locally-idiomatic SA-forms heading for exactly this mix (identity +
+contact info together) — no fields moved, label only.
+
+VERIFICATION: npm run build clean, 48/48 vitest, grep-confirmed no
+remaining "Contact Details" UI references (only historical comments,
+correctly left referencing the old name for context). Delivered as
+medbroker-flagmeta-personaldetails-20260819-0600.zip, including
+Status_Vercel.md at its correct repo-root path per the corrected memory
+rule (memory edit #3) — first delivery since Mark caught it missing.
+
 CLOSED, 18 Aug 2026: architecture diagrams (MedBroker-Architecture-
 Overview.html). Mark uploaded the actual file — it was never missing
 from the deployment, only from this project's knowledge. Lead Pipeline

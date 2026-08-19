@@ -156,6 +156,18 @@ const FLAG_META = [
     description: 'Enable the Data Requests tab in App Admin for logging and fulfilling POPIA subject access requests against a Lead.',
     valueType: 'boolean', requiresRestart: false, isPhase2: false,
   },
+  {
+    // 18-19 Aug 2026 — added to feature-flags.postgres.sql when this
+    // flag was created, but missed here, which is the ONLY reason it
+    // never appeared as a toggle: this array, not the database, is what
+    // the settings page actually renders from (see this file's own
+    // header comment). Root-caused and fixed same session Mark reported
+    // "no flag to turn it on" — not a database or SQL problem.
+    key: 'data.export.enabled', tier: 'Operational',
+    label: 'Full data export',
+    description: 'Enable the Data Export tab in App Admin — a full Leads/Appointments/Meeting Attempts/Call Attempts export to Excel or JSON, Admin/GlobalAdmin only.',
+    valueType: 'boolean', requiresRestart: false, isPhase2: false,
+  },
   // ── Phase 2 — features not yet built ────────────────────────────────────────
   {
     key: 'broker.tokenIncentives.enabled', tier: 'Phase2',

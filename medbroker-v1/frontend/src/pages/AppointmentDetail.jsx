@@ -649,8 +649,10 @@ export default function AppointmentDetail() {
       mobile:         apptData.leadMobile,
       currentInsurer: apptData.currentInsurer,
       // 18 Aug 2026, Mark's explicit request — parity with the fields
-      // LeadDetail.jsx already shows for the same Lead (Contact Details/
-      // Education/Insurance Information sections below). apptData.idNumber
+      // LeadDetail.jsx already shows for the same Lead (Personal Details/
+      // Education/Insurance Information sections below — renamed from
+      // "Contact Details" 19 Aug 2026, see that card's own comment).
+      // apptData.idNumber
       // arrives already decrypted (getAppointmentById() does this
       // server-side, deliberately as a second, detail-only query — see
       // that function's own comment for why it's not on every Appointment
@@ -992,16 +994,19 @@ export default function AppointmentDetail() {
       </div>
 
       {/* ── Lead detail parity — 18 Aug 2026, Mark's explicit request ───────
-          Same three section titles LeadDetail.jsx uses (Contact Details/
+          Same three section titles LeadDetail.jsx uses (Personal Details/
           Education/Insurance Information), same field order, read-only
           here — editing these belongs on the Lead itself, not duplicated
-          here. Values come from getAppointmentById()'s own second,
+          here. "Personal Details" — renamed from "Contact Details" 19 Aug
+          2026, Mark's explicit request: ID Number and Hospital/Practice
+          under a "Contact" heading read wrong once ID Number joined it.
+          Values come from getAppointmentById()'s own second,
           detail-only Lead query (appointmentService.js) — see that
           function's comment for why this isn't in the shared
           APPOINTMENT_SELECT the Appointments list and claim pool also use. */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
         <div style={s.card}>
-          <div style={s.cardTitle}>Contact Details</div>
+          <div style={s.cardTitle}>Personal Details</div>
           <FieldRow label="Date of Birth">{formatDate(appt.dateOfBirth)}</FieldRow>
           <FieldRow label="ID Number">{appt.idNumber || '—'}</FieldRow>
           <FieldRow label="WhatsApp">{appt.whatsappNumber || '—'}</FieldRow>

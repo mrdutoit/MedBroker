@@ -280,7 +280,13 @@ export default function LeadDetail() {
   const [submitting,       setSubmitting]        = useState(false);
   const [submitError,      setSubmitError]       = useState('');
 
-  // Edit mode — Contact Details / Education / Insurance Information cards.
+  // Edit mode — Personal Details / Education / Insurance Information cards.
+  // Renamed from "Contact Details" 19 Aug 2026, Mark's explicit request —
+  // ID Number and Hospital/Practice living under a "Contact" heading read
+  // wrong once ID Number joined this section (18 Aug 2026). "Personal
+  // Details" covers the actual mix (identity + contact info) honestly,
+  // and is the locally-idiomatic heading SA forms already use for this
+  // exact combination — no field moved, only the label.
   const [editing,     setEditing]     = useState(false);
   const [editForm,    setEditForm]    = useState(null);
   const [savingEdit,  setSavingEdit]  = useState(false);
@@ -688,7 +694,7 @@ export default function LeadDetail() {
 
         {/* Personal details */}
         <div style={cardStyle}>
-          <div style={cardTitle}>Contact Details</div>
+          <div style={cardTitle}>Personal Details</div>
           <EditableField label="Date of Birth" type="date" editing={editing} value={editing ? editForm.dateOfBirth : baseLead.dateOfBirth} onChange={v => setField('dateOfBirth', v)} />
           <EditableField label="ID Number" editing={editing} value={editing ? editForm.idNumber : baseLead.idNumber} onChange={v => setField('idNumber', v.replace(/\D/g, '').slice(0, 13))} />
           <EditableField label="Email" editing={editing} value={editing ? editForm.email : baseLead.email} onChange={v => setField('email', v)} />

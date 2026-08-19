@@ -50,6 +50,7 @@ export const DEFAULT_FLAGS = {
   'broker.tokenIncentives.enabled':       false,
   'popia.subjectAccessRequest.enabled':   false,
   'security.kmsEncryption.enabled':       false,
+  'data.export.enabled':                  false,
 };
 
 const FlagContext = createContext(null);
