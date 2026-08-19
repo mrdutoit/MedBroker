@@ -19,6 +19,7 @@
  */
 
 import { executeQuery, executeQueryOne, sql } from './db.js';
+import { decrypt } from './encryption.js';
 import { computeAppointmentStatus } from './appointmentStatusService.js';
 import { getActiveUserById, resolvePortfolioIds, findLeastLoadedSupervisorForRegion } from './userService.js';
 import { createTask, deleteTasksForEntity, reassignTasksForEntity } from './taskService.js';
@@ -310,6 +311,38 @@ export async function getAppointmentById(id) {
   appt.productsSold = await getProductsSold(id);
   // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23).
   appt.meetingAttempts = await getMeetingAttempts(id);
+
+  // Lead-detail parity — 18 Aug 2026, Mark's explicit request: the same
+  // Contact Details/Education/Insurance fields LeadDetail.jsx shows
+  // should also be visible here. Deliberately a SECOND, detail-only
+  // query, not an addition to the shared APPOINTMENT_SELECT above —
+  // that constant is also used by the paged Appointments list and the
+  // claim-pool candidate query (listAvailableToClaim, below), and a
+  // Broker browsing appointments available to claim has no business
+  // seeing a Lead's ID number, date of birth, or full insurance history
+  // before they've even claimed it. Scoping the extra columns to this
+  // one function keeps that exposure where Mark actually asked for it.
+  const leadDetail = await executeQueryOne(
+    `SELECT dateOfBirth AS "dateOfBirth", idNumberEncrypted AS "idNumberEncrypted",
+            whatsappNumber AS "whatsappNumber", universityAttended AS "universityAttended",
+            yearOfAttendance AS "yearOfAttendance", degreeAttained AS "degreeAttained",
+            hospitalOrPractice AS "hospitalOrPractice", existingCover AS "existingCover",
+            policies, medicalAid AS "medicalAid", medicalAidProvider AS "medicalAidProvider"
+     FROM Lead WHERE id = @leadId`,
+    { leadId: { type: sql.UniqueIdentifier, value: appt.leadId } }
+  );
+  appt.dateOfBirth         = leadDetail?.dateOfBirth ?? null;
+  appt.idNumber             = leadDetail?.idNumberEncrypted ? await decrypt(leadDetail.idNumberEncrypted) : null;
+  appt.whatsappNumber      = leadDetail?.whatsappNumber ?? null;
+  appt.universityAttended  = leadDetail?.universityAttended ?? null;
+  appt.yearOfAttendance    = leadDetail?.yearOfAttendance ?? null;
+  appt.degreeAttained      = leadDetail?.degreeAttained ?? null;
+  appt.hospitalOrPractice  = leadDetail?.hospitalOrPractice ?? null;
+  appt.existingCover       = leadDetail?.existingCover ?? null;
+  appt.policies             = leadDetail?.policies ?? null;
+  appt.medicalAid           = leadDetail?.medicalAid ?? null;
+  appt.medicalAidProvider  = leadDetail?.medicalAidProvider ?? null;
+
   return appt;
 }
 

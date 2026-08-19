@@ -10,7 +10,7 @@ import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
-import { systemConfigApi, auditApi, usersApi, sarApi, leadsApi } from '../services/api.js';
+import { systemConfigApi, auditApi, usersApi, sarApi, leadsApi, dataExportApi } from '../services/api.js';
 import { formatDate } from '../utils/dateFormat.js';
 
 // Mirrors auditHandlers.js's VALID_ENTITY_TYPES/VALID_ACTIONS exactly —
@@ -254,6 +254,12 @@ export default function AppAdmin() {
   const [auditAction, setAuditAction] = useState('');
   const [auditPerformedById, setAuditPerformedById] = useState('');
   const [exporting, setExporting] = useState(null); // 'csv' | 'json' | null, drives button disabled state
+  // 18 Aug 2026 — separate from `exporting` above (audit log's own
+  // export-in-progress flag): the two exports are independent actions on
+  // two different tabs, and reusing one flag would disable the wrong
+  // tab's buttons while the other's export is running.
+  const [dataExporting, setDataExporting] = useState(null); // 'xlsx' | 'json' | null
+  const [dataExportError, setDataExportError] = useState(null);
   const [auditExportError, setAuditExportError] = useState(null);
 
   const auditFilters = {
@@ -557,6 +563,20 @@ export default function AppAdmin() {
     }
   }
 
+  // 18 Aug 2026 — mirrors handleAuditExport immediately above, exactly,
+  // against the new dataExportApi/dataExporting pair instead.
+  async function handleDataExport(format) {
+    setDataExporting(format);
+    setDataExportError(null);
+    try {
+      await dataExportApi.export(format);
+    } catch (err) {
+      setDataExportError(`Could not export data: ${err.message || 'unknown error'}`);
+    } finally {
+      setDataExporting(null);
+    }
+  }
+
   // Sync local editable state once the real config actually loads —
   // can't initialise useState directly from it, since the fetch hasn't
   // resolved yet on first render.
@@ -622,7 +642,11 @@ export default function AppAdmin() {
           // sarHandlers.js. The flag is about whether this capability
           // exists for a given deployment at all, same as every other
           // feature flag in this app.
-          ...(flag('popia.subjectAccessRequest.enabled') ? [['sar', 'Data Requests']] : [])].map(([key, label]) => (
+          ...(flag('popia.subjectAccessRequest.enabled') ? [['sar', 'Data Requests']] : []),
+          // 18 Aug 2026 — same gating pattern immediately above, against
+          // data.export.enabled instead. Role (Admin/GlobalAdmin) is the
+          // real boundary, already enforced in dataExportHandlers.js.
+          ...(flag('data.export.enabled') ? [['export', 'Data Export']] : [])].map(([key, label]) => (
           <button
             key={key}
             onClick={() => setTab(key)}
@@ -1656,6 +1680,34 @@ export default function AppAdmin() {
               <button style={{ ...s.secondaryBtn, opacity: sarPage >= sarTotalPages ? 0.5 : 1 }} disabled={sarPage >= sarTotalPages} onClick={() => setSarPage(p => Math.min(sarTotalPages, p + 1))}>Next →</button>
             </div>
           )}
+        </div>
+      )}
+
+      {/* Data Export — 18 Aug 2026, Mark's explicit request */}
+      {tab === 'export' && flag('data.export.enabled') && (
+        <div style={s.card}>
+          <div style={s.cardTitle}>Full Data Export</div>
+          <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: '0 0 14px' }}>
+            Exports every Lead, Appointment, Meeting Attempt, and Call Attempt
+            in your organisation to a single file. ID numbers are masked to
+            the last 4 digits in this export, regardless of how they appear
+            elsewhere in the app — a downloadable file is a different risk
+            to an access-controlled screen, so this export deliberately
+            shows less than the Lead and Appointment detail pages do.
+          </p>
+          {dataExportError && (
+            <div style={{ ...s.errorBox, marginBottom: '14px' }}>{dataExportError}</div>
+          )}
+          <div style={{ display: 'flex', gap: '8px' }}>
+            <button style={{ ...s.secondaryBtn, opacity: dataExporting ? 0.5 : 1 }}
+              disabled={!!dataExporting} onClick={() => handleDataExport('xlsx')}>
+              {dataExporting === 'xlsx' ? 'Exporting…' : 'Export Excel (.xlsx)'}
+            </button>
+            <button style={{ ...s.secondaryBtn, opacity: dataExporting ? 0.5 : 1 }}
+              disabled={!!dataExporting} onClick={() => handleDataExport('json')}>
+              {dataExporting === 'json' ? 'Exporting…' : 'Export JSON'}
+            </button>
+          </div>
         </div>
       )}
     </div>

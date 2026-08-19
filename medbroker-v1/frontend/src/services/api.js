@@ -448,6 +448,32 @@ export const flagsApi = {
 // natural domain fit; every existing router is where AppAdmin's own
 // routes ended up living, since there's zero headroom for a new
 // top-level function at 12/12).
+export const dataExportApi = {
+  /**
+   * Same "can't go through request()" reasoning as auditApi.export()
+   * immediately above — a file download, not a JSON response.
+   * @param {'xlsx'|'json'} format
+   */
+  export: async (format) => {
+    const params = new URLSearchParams({ format });
+    const response = await fetch(`${API_BASE}/flags/data-export?${params}`, {
+      credentials: 'same-origin',
+    });
+    if (!response.ok) {
+      throw new ApiError(response.status, `Export failed (${response.status})`);
+    }
+    const blob = await response.blob();
+    const disposition = response.headers.get('Content-Disposition') || '';
+    const match = disposition.match(/filename="([^"]+)"/);
+    const filename = match ? match[1] : `medbroker-export.${format}`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  },
+};
+
 export const auditApi = {
   list: (page = 1, pageSize = 25, filters = {}) => {
     const cleanFilters = Object.fromEntries(Object.entries(filters).filter(([, v]) => v !== undefined && v !== null && v !== ''));

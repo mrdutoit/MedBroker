@@ -38,7 +38,7 @@
  */
 
 import { executeQuery, executeQueryOne, sql } from './db.js';
-import { encrypt, blindIndex } from './encryption.js';
+import { encrypt, decrypt, blindIndex } from './encryption.js';
 import { computeLeadStatus } from './leadStatusService.js';
 import { getActiveUserById, resolvePortfolioIds, resolveProductIds } from './userService.js';
 import { createTask, deleteTasksForEntity, reassignTasksForEntity, completeOpenCallbackTasksForLead } from './taskService.js';
@@ -219,10 +219,10 @@ export async function listLeads({ status, excludeStatuses, agentId, brokerId, ev
  * @returns {Promise<Object|null>}
  */
 export async function getLeadById(id) {
-  return executeQueryOne(
+  const lead = await executeQueryOne(
     `SELECT
        l.id, l.title, l.firstName AS "firstName", l.lastName AS "lastName",
-       l.dateOfBirth AS "dateOfBirth", l.email,
+       l.dateOfBirth AS "dateOfBirth", l.idNumberEncrypted AS "idNumberEncrypted", l.email,
        l.mobileNumber AS "mobileNumber", l.whatsappNumber AS "whatsappNumber",
        l.universityAttended AS "universityAttended", l.yearOfAttendance AS "yearOfAttendance",
        l.degreeAttained AS "degreeAttained", l.occupation, l.hospitalOrPractice AS "hospitalOrPractice",
@@ -272,6 +272,18 @@ export async function getLeadById(id) {
       organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
     }
   );
+  if (!lead) return null;
+
+  // Decrypt for display — 18 Aug 2026, Mark's explicit request to make
+  // this visible on LeadDetail. Reverses sarService.getSarExportData()'s
+  // earlier framing of itself as "the one place in the app where showing
+  // the plaintext to a staff member is exactly the point" — that was
+  // true only because nothing else ever displayed it; now something
+  // else does, deliberately, per Mark's own instruction, not a
+  // regression of that earlier reasoning.
+  lead.idNumber = lead.idNumberEncrypted ? await decrypt(lead.idNumberEncrypted) : null;
+  delete lead.idNumberEncrypted;
+  return lead;
 }
 
 /**
@@ -436,11 +448,14 @@ export async function createLead(data, createdById) {
 
 // Columns updateLead() is allowed to touch — deliberately the exact set
 // LeadDetail.jsx renders as editable Field rows (Contact Details, Education,
-// Insurance Information), not the full UpdateLeadSchema surface. title/
-// firstName/lastName sit in the page header rather than a Field row and stay
-// read-only for now; idNumber isn't displayed on this page at all. Both are
-// already declared on UpdateLeadSchema so widening this later is additive,
-// not a redesign — just add the column here and a field on the page.
+// Insurance Information). title/firstName/lastName sit in the page header
+// rather than a Field row and stay read-only for now.
+// idNumber added 18 Aug 2026, at Mark's explicit request — handled outside
+// this map (see updateLead() below), not as a normal column entry: unlike
+// everything else here, one input field maps to two stored columns
+// (idNumberEncrypted + idNumberHash), the same encrypt()/blindIndex() pair
+// createLead() already uses, not something the generic col/type loop below
+// can express.
 const UPDATE_LEAD_COLUMNS = {
   dateOfBirth:        { col: 'dateOfBirth',        type: sql.Date },
   email:               { col: 'email',               type: sql.NVarChar(255) },
@@ -481,6 +496,17 @@ export async function updateLead(leadId, data) {
     if (data[field] === undefined) continue;
     setClauses.push(`${col} = @${field}`);
     params[field] = { type, value: data[field] };
+  }
+
+  // idNumber — outside the generic loop above for the reason given in
+  // UPDATE_LEAD_COLUMNS's own comment: one input field, two stored
+  // columns. An explicit empty string clears both, same "undefined
+  // means don't touch it, anything else is a real value including
+  // empty" rule the rest of this function already follows.
+  if (data.idNumber !== undefined) {
+    setClauses.push('idNumberEncrypted = @idNumberEncrypted', 'idNumberHash = @idNumberHash');
+    params.idNumberEncrypted = { type: sql.NVarChar(sql.MAX), value: data.idNumber ? await encrypt(data.idNumber) : null };
+    params.idNumberHash = { type: sql.NVarChar(64), value: data.idNumber ? blindIndex(data.idNumber) : null };
   }
 
   let changed = false;

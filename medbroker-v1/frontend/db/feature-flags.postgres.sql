@@ -84,6 +84,16 @@ INSERT INTO FeatureFlag (flagKey, label, description, valueType, value, allowedV
      'Enable the View button and drill-down report for individual broker performance.',
      'boolean', '1', NULL, 'Operational', FALSE, FALSE),
 
+    ('data.export.enabled', 'Full data export',
+     'Shows the Data Export tab on App Admin — a full Leads/Appointments/
+      MeetingAttempts/CallAttempts export to XLSX or JSON, Admin/GlobalAdmin
+      only. 18 Aug 2026, Mark''s explicit request. Off by default, same as
+      every other optional capability in this table — role (Admin/
+      GlobalAdmin) is the real security boundary either way, already
+      enforced server-side in dataExportHandlers.js regardless of this
+      flag''s value.',
+     'boolean', '0', NULL, 'Operational', FALSE, FALSE),
+
     ('notifications.email.enabled', 'Email notifications',
      'Dispatch email notifications in addition to in-app notifications, via whatever SMTP provider is configured (SMTP_HOST/SMTP_USER/SMTP_PASSWORD in Vercel env vars — see emailService.js). Wired up §78; requires those env vars to actually be set, or emails silently no-op (in-app notifications are unaffected either way).',
      'boolean', '0', NULL, 'Operational', FALSE, FALSE),

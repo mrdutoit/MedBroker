@@ -289,6 +289,11 @@ export default function LeadDetail() {
   function startEditing() {
     setEditForm({
       dateOfBirth: baseLead.dateOfBirth ? String(baseLead.dateOfBirth).slice(0, 10) : '',
+      // 18 Aug 2026, Mark's explicit request — was never on this page at
+      // all before. baseLead.idNumber arrives already decrypted
+      // (getLeadById() does this server-side; see that function's own
+      // comment) — this form never handles the encrypted form directly.
+      idNumber: baseLead.idNumber ?? '',
       email: baseLead.email ?? '', mobileNumber: baseLead.mobileNumber ?? '', whatsappNumber: baseLead.whatsappNumber ?? '',
       occupation: baseLead.occupation ?? '', hospitalOrPractice: baseLead.hospitalOrPractice ?? '',
       universityAttended: baseLead.universityAttended ?? '', yearOfAttendance: baseLead.yearOfAttendance ?? '',
@@ -685,6 +690,7 @@ export default function LeadDetail() {
         <div style={cardStyle}>
           <div style={cardTitle}>Contact Details</div>
           <EditableField label="Date of Birth" type="date" editing={editing} value={editing ? editForm.dateOfBirth : baseLead.dateOfBirth} onChange={v => setField('dateOfBirth', v)} />
+          <EditableField label="ID Number" editing={editing} value={editing ? editForm.idNumber : baseLead.idNumber} onChange={v => setField('idNumber', v.replace(/\D/g, '').slice(0, 13))} />
           <EditableField label="Email" editing={editing} value={editing ? editForm.email : baseLead.email} onChange={v => setField('email', v)} />
           <EditableField label="Contact Number" editing={editing} value={editing ? editForm.mobileNumber : baseLead.mobileNumber} onChange={v => setField('mobileNumber', v)} />
           <EditableField label="WhatsApp" editing={editing} value={editing ? editForm.whatsappNumber : baseLead.whatsappNumber} onChange={v => setField('whatsappNumber', v)} />

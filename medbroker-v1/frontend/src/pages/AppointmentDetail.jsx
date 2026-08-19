@@ -648,6 +648,24 @@ export default function AppointmentDetail() {
       occupation:     apptData.occupation,
       mobile:         apptData.leadMobile,
       currentInsurer: apptData.currentInsurer,
+      // 18 Aug 2026, Mark's explicit request — parity with the fields
+      // LeadDetail.jsx already shows for the same Lead (Contact Details/
+      // Education/Insurance Information sections below). apptData.idNumber
+      // arrives already decrypted (getAppointmentById() does this
+      // server-side, deliberately as a second, detail-only query — see
+      // that function's own comment for why it's not on every Appointment
+      // read).
+      dateOfBirth:        apptData.dateOfBirth,
+      idNumber:           apptData.idNumber,
+      whatsappNumber:     apptData.whatsappNumber,
+      universityAttended: apptData.universityAttended,
+      yearOfAttendance:   apptData.yearOfAttendance,
+      degreeAttained:     apptData.degreeAttained,
+      hospitalOrPractice: apptData.hospitalOrPractice,
+      existingCover:      apptData.existingCover,
+      policies:           apptData.policies,
+      medicalAid:         apptData.medicalAid,
+      medicalAidProvider: apptData.medicalAidProvider,
       // 14 Aug 2026 (§166 follow-up) — Mark's explicit request: shown
       // nowhere on this page before. apptData.region is Appointment's
       // own carried-over copy of Lead.region at booking time
@@ -970,6 +988,37 @@ export default function AppointmentDetail() {
           <FieldRow label="Broker">{appt.brokerName}</FieldRow>
           <FieldRow label="Agent">{appt.agentName}</FieldRow>
           <FieldRow label="Source">{appt.source}</FieldRow>
+        </div>
+      </div>
+
+      {/* ── Lead detail parity — 18 Aug 2026, Mark's explicit request ───────
+          Same three section titles LeadDetail.jsx uses (Contact Details/
+          Education/Insurance Information), same field order, read-only
+          here — editing these belongs on the Lead itself, not duplicated
+          here. Values come from getAppointmentById()'s own second,
+          detail-only Lead query (appointmentService.js) — see that
+          function's comment for why this isn't in the shared
+          APPOINTMENT_SELECT the Appointments list and claim pool also use. */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
+        <div style={s.card}>
+          <div style={s.cardTitle}>Contact Details</div>
+          <FieldRow label="Date of Birth">{formatDate(appt.dateOfBirth)}</FieldRow>
+          <FieldRow label="ID Number">{appt.idNumber || '—'}</FieldRow>
+          <FieldRow label="WhatsApp">{appt.whatsappNumber || '—'}</FieldRow>
+          <FieldRow label="Hospital / Practice">{appt.hospitalOrPractice || '—'}</FieldRow>
+        </div>
+        <div style={s.card}>
+          <div style={s.cardTitle}>Education</div>
+          <FieldRow label="University">{appt.universityAttended || '—'}</FieldRow>
+          <FieldRow label="Year">{appt.yearOfAttendance || '—'}</FieldRow>
+          <FieldRow label="Degree">{appt.degreeAttained || '—'}</FieldRow>
+        </div>
+        <div style={s.card}>
+          <div style={s.cardTitle}>Insurance Information</div>
+          <FieldRow label="Existing cover">{appt.existingCover === true ? 'Yes' : appt.existingCover === false ? 'No' : '—'}</FieldRow>
+          <FieldRow label="Current policies">{appt.policies || '—'}</FieldRow>
+          <FieldRow label="Medical aid">{appt.medicalAid === true ? 'Yes' : appt.medicalAid === false ? 'No' : '—'}</FieldRow>
+          <FieldRow label="Medical aid provider">{appt.medicalAidProvider || '—'}</FieldRow>
         </div>
       </div>
 

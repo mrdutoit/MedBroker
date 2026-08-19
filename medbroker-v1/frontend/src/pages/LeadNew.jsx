@@ -40,6 +40,12 @@ const BLANK_FORM = {
   // 14 Aug 2026 (§166) — same mandatory-on-manual-entry rule, single
   // value not an array.
   region: '',
+  // 18 Aug 2026, Mark's explicit request — optional (matches the
+  // backend's own saIdNumber schema, models/lead.js: z.string()
+  // .regex(/^\d{13}$/).optional()), but validated to the same 13-digit
+  // format below when a value IS entered, rather than only finding out
+  // from a server 400 after submit.
+  idNumber: '',
 };
 
 // Strips empty-string fields before sending. Left-blank optional fields
@@ -84,6 +90,11 @@ export default function LeadNew() {
     if (form.products.length === 0) errors.products = 'Select at least one product';
     // 14 Aug 2026 (§166) — mirrors the products check immediately above.
     if (!form.region) errors.region = 'Select a region';
+    // 18 Aug 2026 — matches saIdNumber's own regex (models/lead.js)
+    // exactly. Optional field: only validated when something was
+    // actually typed, same "empty means don't check it" rule every
+    // other optional field on this form already follows.
+    if (form.idNumber && !/^\d{13}$/.test(form.idNumber)) errors.idNumber = 'Must be exactly 13 digits';
     if (Object.keys(errors).length) { setFormErrors(errors); return; }
     setFormSubmitting(true);
     try {
@@ -161,6 +172,18 @@ export default function LeadNew() {
             <label style={s.formLabel}>Email Address *</label>
             <input type="email" style={s.formInput} value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} placeholder="jane.smith@hospital.co.za" />
             {formErrors.email && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.email}</div>}
+          </div>
+        </div>
+
+        <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px' }}>
+          <div style={s.formGroup}>
+            <label style={s.formLabel}>ID Number</label>
+            <input
+              style={s.formInput} value={form.idNumber} maxLength={13} inputMode="numeric"
+              onChange={e => setForm(f => ({ ...f, idNumber: e.target.value.replace(/\D/g, '') }))}
+              placeholder="13-digit South African ID number"
+            />
+            {formErrors.idNumber && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.idNumber}</div>}
           </div>
         </div>
 

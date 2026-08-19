@@ -408,9 +408,15 @@ export async function compileSubjectData(leadId) {
   );
   if (!lead) return null;
 
-  // Decrypt the ID number specifically for this export — the one place
-  // in the app where showing the plaintext to a staff member is exactly
-  // the point, not a leak. Every other view of a Lead never does this.
+  // Decrypt the ID number specifically for this export. UPDATED 18 Aug
+  // 2026 — this was previously "the one place in the app where showing
+  // the plaintext to a staff member is exactly the point... every other
+  // view of a Lead never does this." That's no longer true: Mark asked
+  // for it to be visible on LeadDetail (and, via the Lead join, on
+  // AppointmentDetail) as well — see leadService.getLeadById()'s own
+  // comment. Left as its own decrypt call here regardless, since this
+  // function builds its own independent SELECT rather than reusing
+  // getLeadById's.
   lead.idNumber = lead.idNumberEncrypted ? await decrypt(lead.idNumberEncrypted) : null;
   delete lead.idNumberEncrypted;
 
