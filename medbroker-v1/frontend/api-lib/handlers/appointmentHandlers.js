@@ -9,12 +9,12 @@ import { validateToken, requireRole, authErrorResponse } from '../middleware/aut
 import {
   listAppointments, createAppointment, getAppointmentById, assignBroker,
   reassignAppointment, returnToLeads, saveOutcome, claimAppointment, listAvailableToClaim,
-  saveMeetingAttemptOutcome,
+  saveMeetingAttemptOutcome, updateAppointment,
 } from '../services/appointmentService.js';
 import { findMatchingBrokers } from '../services/brokerMatchingService.js';
 import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById, getActiveUserById } from '../services/userService.js';
 import { getLeadDisplayNameById } from '../services/leadService.js';
-import { writeAuditLog, clientIp, listAuditLog } from '../services/auditService.js';
+import { writeAuditLog, clientIp, listAuditLogForAppointment } from '../services/auditService.js';
 import { getCurrentTokenLedger, manualTopUp, listTokenTransactions, creditPurchasedTokens } from '../services/tokenService.js';
 import { getSystemConfig } from '../services/systemConfigService.js';
 import { getFlagMeta } from '../services/flagService.js';
@@ -24,7 +24,7 @@ import { TOKEN_PACKS } from '../services/tokenPacks.js';
 import {
   CreateAppointmentSchema, AppointmentListQuerySchema, AssignBrokerSchema,
   ReassignAppointmentSchema, SaveOutcomeSchema, BrokerMatchingQuerySchema, TokenTopUpSchema,
-  SaveMeetingAttemptSchema,
+  SaveMeetingAttemptSchema, UpdateAppointmentSchema,
 } from '../models/appointment.js';
 import { TokenCheckoutSchema } from '../models/integration.js';
 import { isUuid } from '../http/helpers.js';
@@ -149,8 +149,8 @@ export async function handleAppointmentsCollection(req, res) {
 
 /** GET /api/appointments/:id */
 export async function handleAppointmentById(req, res, id) {
-  if (req.method !== 'GET') {
-    res.setHeader('Allow', 'GET, OPTIONS');
+  if (req.method !== 'GET' && req.method !== 'PUT') {
+    res.setHeader('Allow', 'GET, PUT, OPTIONS');
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
@@ -176,7 +176,90 @@ export async function handleAppointmentById(req, res, id) {
       }
     }
 
-    return res.status(200).json(appt);
+    if (req.method === 'GET') {
+      return res.status(200).json(appt);
+    }
+
+    // PUT — 19 Aug 2026, Mark's explicit request: edit Appointment-native
+    // detail fields (currentInsurer, meetingType, date/time, address/
+    // link — see UPDATE_APPOINTMENT_COLUMNS's own comment for the full
+    // field boundary and why). Supervisor/Admin/GlobalAdmin only —
+    // deliberately narrower than the read-role check above, which also
+    // allows Agent and Broker: this mirrors Leads' own edit boundary
+    // (canManage in LeadDetail.jsx / the Supervisor-and-above check in
+    // leadHandlers.js's PUT), not the read boundary. Neither an Agent
+    // nor a Broker can edit a Lead's details today; there's no reason
+    // editing the same category of information from the Appointment
+    // side should be more permissive.
+    requireRole(claims, ['Supervisor', 'Admin', 'GlobalAdmin']);
+
+    const parsed = UpdateAppointmentSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    // meetingType/address/link cross-validation against the MERGED
+    // existing+incoming state — see UpdateAppointmentSchema's own
+    // comment (models/appointment.js) for why this can't live in the
+    // Zod schema for a partial update. Only actually checked when
+    // meetingType is part of THIS request — changing only, say,
+    // currentInsurer shouldn't suddenly demand an address the
+    // appointment already has on file untouched.
+    if (parsed.data.meetingType) {
+      const effectiveAddress = parsed.data.firstAppointmentAddress ?? appt.firstAppointmentAddress;
+      const effectiveLink    = parsed.data.virtualMeetingLink ?? appt.virtualMeetingLink;
+      if (parsed.data.meetingType === 'InPerson' && !effectiveAddress?.trim()) {
+        return res.status(400).json({ error: { firstAppointmentAddress: ['Address is required for an in-person meeting'] } });
+      }
+      if (parsed.data.meetingType === 'Virtual' && !effectiveLink?.trim()) {
+        return res.status(400).json({ error: { virtualMeetingLink: ['A meeting link is required for a virtual meeting'] } });
+      }
+    }
+
+    const changed = await updateAppointment(id, parsed.data);
+    if (changed) {
+      // Diff only the fields actually present on the request, old vs
+      // new — exact same pattern as leadHandlers.js's PUT /leads/:id
+      // (Mark's explicit request: "showing a from-to value for anything
+      // changed like on Leads"). firstAppointmentDate needs the same
+      // Date-object-vs-string normalising leadHandlers.js's dateOfBirth
+      // needed, for the identical reason — node-postgres parses DATE
+      // columns into JS Date objects, but the client sends a plain
+      // 'YYYY-MM-DD' string. No field-name remapping needed otherwise —
+      // getAppointmentById() (this file, above) returns the real column
+      // names (firstAppointmentTime, firstAppointmentAddress) as-is;
+      // the firstTime/address aliases only exist in AppointmentDetail.jsx's
+      // OWN client-side state mapping, not here — caught before this
+      // shipped rather than after, by checking APPOINTMENT_SELECT's
+      // actual column aliases instead of assuming the frontend's naming
+      // applied server-side too.
+      const changeDetail = {};
+      for (const field of Object.keys(parsed.data)) {
+        if (field === 'firstAppointmentDate') {
+          const existingValue = appt.firstAppointmentDate instanceof Date
+            ? appt.firstAppointmentDate.toISOString().slice(0, 10)
+            : appt.firstAppointmentDate;
+          if (existingValue !== parsed.data.firstAppointmentDate) {
+            changeDetail.firstAppointmentDate = { from: existingValue ?? null, to: parsed.data.firstAppointmentDate ?? null };
+          }
+          continue;
+        }
+        if (appt[field] !== parsed.data[field]) {
+          changeDetail[field] = { from: appt[field] ?? null, to: parsed.data[field] ?? null };
+        }
+      }
+      if (Object.keys(changeDetail).length > 0) {
+        await writeAuditLog({
+          entityType: 'Appointment',
+          entityId: id,
+          action: 'AppointmentUpdated',
+          performedById: claims.oid,
+          changeDetail,
+          ipAddress: clientIp(req),
+        });
+      }
+    }
+
+    const updated = await getAppointmentById(id);
+    return res.status(200).json(updated);
 
   } catch (err) {
     if (err.status) {
@@ -356,7 +439,12 @@ export async function handleAppointmentAudit(req, res, id) {
       }
     }
 
-    const entries = await listAuditLog('Appointment', id);
+    // 19 Aug 2026 — merged with the Lead's own history (Mark's explicit
+    // request); see listAuditLogForAppointment's own comment
+    // (auditService.js) for why entries from editing the Lead-owned
+    // fields on this same page need to show up here too, not just under
+    // entityType='Appointment'.
+    const entries = await listAuditLogForAppointment(id, appt.leadId);
     return res.status(200).json({ entries });
 
   } catch (err) {

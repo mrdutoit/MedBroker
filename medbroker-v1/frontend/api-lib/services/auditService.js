@@ -126,6 +126,50 @@ export async function listAuditLogForLead(leadId) {
 }
 
 /**
+ * Change history for one Appointment, merged with its Lead's own history
+ * — 19 Aug 2026, Mark's explicit request, mirrors listAuditLogForLead()
+ * immediately above exactly (same UNION ALL shape, same reasoning).
+ * Needed because editing the Lead-owned detail fields from the
+ * Appointment page (Personal Details/Education/Insurance — see
+ * AppointmentDetail.jsx) writes an AuditLog entry with entityType='Lead'
+ * (the same leadHandlers.js code path LeadDetail.jsx's own edits use,
+ * unchanged), not 'Appointment' — correct, since the Lead row is what
+ * actually changed. But someone looking at the Change Log ON the
+ * Appointment page, having just made that edit from that exact page,
+ * should see it reflected right there, not only by navigating to the
+ * Lead's own history. This merges both entity types' entries for the
+ * one appointment + its lead, sorted together.
+ */
+export async function listAuditLogForAppointment(appointmentId, leadId) {
+  const organisationId = resolveOrganisationId();
+  const rows = await executeQuery(
+    `SELECT al.id, al.action, al.changeDetail AS "changeDetail",
+            al.performedAt AS "performedAt", al.performedById AS "performedById",
+            u.displayName AS "performedByName"
+     FROM AuditLog al
+     LEFT JOIN "User" u ON al.performedById = u.id
+     WHERE al.entityType = 'Appointment' AND al.entityId = @appointmentId::text AND al.organisationId = @organisationId
+     UNION ALL
+     SELECT al.id, al.action, al.changeDetail AS "changeDetail",
+            al.performedAt AS "performedAt", al.performedById AS "performedById",
+            u.displayName AS "performedByName"
+     FROM AuditLog al
+     LEFT JOIN "User" u ON al.performedById = u.id
+     WHERE al.entityType = 'Lead' AND al.entityId = @leadId::text AND al.organisationId = @organisationId
+     ORDER BY "performedAt" DESC`,
+    {
+      appointmentId:  { type: sql.UniqueIdentifier, value: appointmentId },
+      leadId:         { type: sql.UniqueIdentifier, value: leadId },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+    }
+  );
+  return rows.map((r) => ({
+    ...r,
+    changeDetail: r.changeDetail ? JSON.parse(r.changeDetail) : null,
+  }));
+}
+
+/**
  * Best-effort client IP extraction. Vercel Functions use a plain Node.js
  * `req` (http.IncomingMessage-style) — headers is an object, not a Headers
  * instance, so this differs from the Azure version's request.headers.get().

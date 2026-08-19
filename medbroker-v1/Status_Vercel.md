@@ -246,6 +246,86 @@ OUTSTANDING (unchanged from CURRENT STATE further up in this file):
    correct-but-undocumented change is functionally invisible to the
    next session reading this file "first."
 
+CLOSED, 19 Aug 2026: Supervisor+/Admin+ can now edit Appointment detail
+fields — both Lead-owned (Personal Details/Education/Insurance
+Information, plus Occupation/Mobile on the pre-existing Lead Details
+card) and Appointment-native (current insurer, meeting type, date/time,
+address/link) — with a merged, from/to Change Log covering both.
+
+ROOT CAUSE THIS WAS BUILT ON: the Lead "converted and locked" rule
+(leadHandlers.js) blocked ALL Lead edits — via LeadDetail.jsx AND the
+read-only Appointment cards built 18 Aug — the moment a Lead had an
+Appointment, which is essentially always. Not a bug in the 18 Aug work;
+a pre-existing gap that work exposed. Fixed by relaxing the lock at the
+ROLE level, not the field level: Supervisor/Admin/GlobalAdmin can now
+edit through PUT /leads/:id while converted; Agent stays fully blocked,
+matching Leads' own existing edit boundary. Safe because
+UPDATE_LEAD_COLUMNS never contained pipeline fields (pipelineStatus,
+assignedAgentId) to begin with — only ever detail fields — so there was
+no pipeline-state field for a relaxed lock to accidentally expose.
+
+APPOINTMENT-NATIVE FIELDS: brand new capability — updateAppointment() +
+UPDATE_APPOINTMENT_COLUMNS (appointmentService.js), UpdateAppointmentSchema
+(models/appointment.js), and PUT support added to the existing
+handleAppointmentById (appointmentHandlers.js) — completing an endpoint
+the frontend already half-expected: appointmentsApi.update() existed in
+api.js calling PUT /appointments/:id, but nothing implemented it
+server-side and nothing called it, confirmed by grep before building
+anything new. Editable: currentInsurer, meetingType,
+firstAppointmentDate/Time, firstAppointmentAddress, virtualMeetingLink.
+Deliberately NOT region, despite living in the same table — explicitly
+documented in schema.postgres.sql as a denormalised copy of Lead.region
+captured at booking time for claim-model query performance, not an
+independently editable fact; exposing it here would silently desync it
+from the Lead it was copied from. Also NOT status/broker/agent/
+portfolio — already governed by dedicated assign/reassign/claim/return
+endpoints; a generic editor touching them here would open a second,
+uncoordinated path to the same state changes.
+
+CHANGE LOG, MERGED: new listAuditLogForAppointment(appointmentId, leadId)
+(auditService.js) mirrors the existing listAuditLogForLead's UNION ALL
+pattern exactly. Needed because editing the Lead-owned fields from the
+Appointment page correctly writes an AuditLog entry with
+entityType='Lead' (same leadHandlers.js code path LeadDetail.jsx's own
+edits already use, completely unchanged) — but someone looking at the
+Change Log ON the Appointment page, having just made that edit from
+that exact page, should see it reflected right there. Verified against
+real Postgres: inserted one Appointment-entity entry and one Lead-entity
+entry, confirmed the merged query returns both, correctly sorted.
+From/to diffing on the Appointment side mirrors leadHandlers.js's
+pattern exactly, including the same Date-vs-string normalising
+dateOfBirth already needed.
+
+TWO BUGS CAUGHT AND FIXED DURING BUILD, BEFORE SHIPPING — worth naming
+since this is exactly the "verified delivery over claimed delivery"
+principle earning its keep, not just a formality:
+  1. updateAppointment() initially checked a `result.rowCount` that
+     doesn't exist on this codebase's executeQuery() return shape (it
+     returns the row array directly, matching Neon's driver — a `pg`
+     package assumption bleeding in from the earlier real-Postgres
+     testing setup in this same session, not this codebase's actual
+     shape). Fixed to match updateLead()'s own existing convention.
+  2. The audit-diffing code in the new PUT handler initially referenced
+     appt.firstDate/appt.address — AppointmentDetail.jsx's OWN
+     client-side state aliases, not what the service layer actually
+     returns. getAppointmentById() returns the real column names
+     (firstAppointmentDate, firstAppointmentAddress) directly. Caught
+     by checking APPOINTMENT_SELECT's actual column aliases rather than
+     assuming the frontend's naming applied server-side too.
+
+VERIFICATION: npm run build clean, 48/48 vitest, all five touched
+backend files node --check clean. Real Postgres 16 (same instance from
+earlier this session): ran the exact UPDATE_APPOINTMENT_COLUMNS-shaped
+query against real seed data (confirmed all six fields wrote and read
+back correctly); confirmed the target Lead was genuinely in
+AppointmentScheduled status before running the exact UPDATE_LEAD_COLUMNS
+query the relaxed lock allows through; ran the merged audit-log UNION
+ALL query with real inserted entries of both entity types. Diffed
+clean against a fresh hydration — exactly 6 files touched
+(appointmentHandlers.js, leadHandlers.js, models/appointment.js,
+appointmentService.js, auditService.js, AppointmentDetail.jsx), nothing
+else. Delivered as medbroker-appointment-editing-20260819-1330.zip.
+
 CLOSED, 19 Aug 2026: two follow-ups from Mark's live testing of the
 18-19 Aug data export / ID number / field parity delivery.
 

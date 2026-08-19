@@ -248,7 +248,23 @@ export async function handleLeadById(req, res, id) {
       // Locked once Converted — added 23 Jul 2026, Mark's request. Stays
       // locked through ClosedWon permanently, and through ClosedLost until
       // an Admin/Supervisor explicitly reopens it (PUT /leads/:id/reopen).
-      if (existing.pipelineStatus === 'AppointmentScheduled') {
+      //
+      // RELAXED 19 Aug 2026, Mark's explicit request — Supervisor and
+      // Admin/GlobalAdmin can still edit through this endpoint while
+      // converted; only Agent stays blocked. This lock was always meant
+      // to stop an Agent re-working a lead that's already progressed
+      // through the pipeline — it was never meant to make it impossible
+      // for anyone to fix a typo in someone's date of birth or contact
+      // number months into an active or won deal, which is what it
+      // actually did, since UPDATE_LEAD_COLUMNS only ever contained
+      // detail fields to begin with (dateOfBirth, contact info,
+      // education, insurance, idNumber) — never pipelineStatus or
+      // assignedAgentId, which stay governed by assign/reopen
+      // regardless. Safe to relax at the role level rather than the
+      // field level for exactly that reason: there was never a pipeline
+      // field in this allow-list for a relaxed lock to accidentally
+      // expose.
+      if (existing.pipelineStatus === 'AppointmentScheduled' && isAgentOnly(claims.roles)) {
         return res.status(400).json({ error: 'This lead is converted and locked. Reopen it before editing.' });
       }
 

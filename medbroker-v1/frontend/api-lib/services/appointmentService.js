@@ -382,6 +382,64 @@ async function syncAppointmentPortfolios(appointmentId, portfolioIds) {
   }
 }
 
+// Columns updateAppointment() is allowed to touch — 19 Aug 2026, Mark's
+// explicit request ("edit details for an Appointment... Appointment-
+// based"). Deliberately NOT status/brokerId/agentId/claimedByBrokerId/
+// portfolioId — those already have dedicated, purpose-built endpoints
+// (assign/reassign/claim/return) with their own notification and
+// token-debit side effects; a generic field editor touching them here
+// would open a second, uncoordinated path to the same state changes.
+// Deliberately NOT region either, despite it living right next to these
+// columns in the schema — see Appointment.region's own comment in
+// schema.postgres.sql: it's a denormalised COPY of Lead.region captured
+// at booking time for claim-model query performance, not an
+// independently editable fact about the appointment. Editing it here
+// would silently desync it from the Lead it was copied from; the
+// correct place to fix a region is the Lead itself (already editable
+// there), same as every other Lead-owned field shown on this page.
+const UPDATE_APPOINTMENT_COLUMNS = {
+  currentInsurer:          { col: 'currentInsurer',          type: sql.NVarChar(200) },
+  meetingType:              { col: 'meetingType',              type: sql.NVarChar(20) },
+  firstAppointmentDate:    { col: 'firstAppointmentDate',    type: sql.Date },
+  firstAppointmentTime:    { col: 'firstAppointmentTime',    type: sql.NVarChar(8) },
+  firstAppointmentAddress: { col: 'firstAppointmentAddress', type: sql.NVarChar(500) },
+  virtualMeetingLink:      { col: 'virtualMeetingLink',      type: sql.NVarChar(500) },
+};
+
+/**
+ * General field-level update for an Appointment's own detail fields —
+ * 19 Aug 2026. Mirrors updateLead()'s exact shape (leadService.js):
+ * only touches fields actually present in `data`, returns whether
+ * anything actually changed so the caller can decide whether an audit
+ * entry is worth writing.
+ */
+export async function updateAppointment(id, data) {
+  const setClauses = [];
+  const params = { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } };
+
+  for (const [field, { col, type }] of Object.entries(UPDATE_APPOINTMENT_COLUMNS)) {
+    if (data[field] === undefined) continue;
+    setClauses.push(`${col} = @${field}`);
+    params[field] = { type, value: data[field] };
+  }
+
+  if (setClauses.length === 0) return false;
+
+  // Matches updateLead()'s own convention exactly (leadService.js) —
+  // executeQuery() returns the row array from Neon's query function, not
+  // a { rowCount } result object (that's the `pg` package's shape, not
+  // this one's), so "changed" is inferred from whether there was
+  // anything to set, trusting the WHERE clause on an id already fetched
+  // and confirmed to exist by the caller — not from inspecting a return
+  // value that isn't there.
+  await executeQuery(
+    `UPDATE Appointment SET ${setClauses.join(', ')}, updatedAt = NOW()
+     WHERE id = @id AND organisationId = @organisationId`,
+    params
+  );
+  return true;
+}
+
 export async function createAppointment(data) {
   const organisationId = resolveOrganisationId();
 

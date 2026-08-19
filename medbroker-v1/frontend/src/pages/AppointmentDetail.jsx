@@ -45,7 +45,7 @@ import { useRole } from '../context/RoleContext';
 import { useFlags }                           from '../context/FlagContext';
 import { useWindowSize }                      from '../hooks/useWindowSize';
 import { useFetch }                           from '../hooks/useFetch.js';
-import { appointmentsApi, usersApi }          from '../services/api';
+import { appointmentsApi, usersApi, leadsApi, ApiError } from '../services/api';
 import { s, APPT_STATUS_META, MEETING_STATUS_META, MEETING_STATUS_LABELS } from '../styles/tokens.js';
 import { formatDate, formatTime }             from '../utils/dateFormat.js';
 import AuditLogList                           from '../components/AuditLogList.jsx';
@@ -126,6 +126,45 @@ function FieldRow({ label, children }) {
     <div style={{ display: 'flex', justifyContent: 'space-between', padding: '7px 0', borderBottom:'1px solid var(--line)', fontSize: '0.875rem' }}>
       <span style={{ color:'var(--mut)', flexShrink: 0, marginRight: '16px' }}>{label}</span>
       <span style={{ color:'var(--ink)', fontWeight: 500, textAlign: 'right' }}>{children}</span>
+    </div>
+  );
+}
+
+// 19 Aug 2026, Mark's explicit request — mirrors LeadDetail.jsx's own
+// EditableField exactly (that file's own comment for each type's
+// reasoning applies unchanged here), adapted to this file's FieldRow
+// instead of that one's Field for the non-editing render — the two
+// already share the identical row styling, so nothing visually changes
+// when editingDetails is false.
+function EditableFieldRow({ label, editing, type = 'text', value, onChange, options, displayValue }) {
+  const inputStyle = { border: '1px solid var(--line)', borderRadius: '6px', padding: '5px 8px', fontSize: '0.8125rem', fontFamily: 'inherit', textAlign: 'right', width: '60%', boxSizing: 'border-box' };
+
+  if (!editing) {
+    let display = displayValue !== undefined ? displayValue : value;
+    if (type === 'bool') display = value === true ? 'Yes' : value === false ? 'No' : '—';
+    if (type === 'date' && value) display = formatDate(value);
+    return <FieldRow label={label}>{display || '—'}</FieldRow>;
+  }
+
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom:'1px solid var(--line)', fontSize: '0.875rem', gap: '12px' }}>
+      <span style={{ color:'var(--mut)', flexShrink: 0 }}>{label}</span>
+      {type === 'select' && (
+        <select style={inputStyle} value={value ?? ''} onChange={e => onChange(e.target.value)}>
+          <option value="">—</option>
+          {options.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      )}
+      {type === 'bool' && (
+        <select style={inputStyle} value={value === null || value === undefined ? '' : value ? 'Yes' : 'No'} onChange={e => onChange(e.target.value === '' ? null : e.target.value === 'Yes')}>
+          <option value="">—</option>
+          <option value="Yes">Yes</option>
+          <option value="No">No</option>
+        </select>
+      )}
+      {(type === 'text' || type === 'date' || type === 'number' || type === 'time') && (
+        <input type={type === 'time' ? 'time' : type} style={inputStyle} value={value ?? ''} onChange={e => onChange(type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} />
+      )}
     </div>
   );
 }
@@ -608,6 +647,17 @@ export default function AppointmentDetail() {
   const auditEntries = auditData?.entries ?? [];
 
   const [appt,              setAppt]              = useState({ ...EMPTY_APPOINTMENT, id: id ?? '' });
+  // 19 Aug 2026, Mark's explicit request — one unified edit mode across
+  // both Lead-owned fields (Personal Details/Education/Insurance
+  // Information, plus Occupation/Mobile on the Lead Details card) and
+  // Appointment-native fields (Appointment Details card). One Save
+  // splits detailsForm into two payloads and fires both API calls — see
+  // handleSaveDetails below for the full reasoning on why this stays
+  // one edit mode rather than two separate ones.
+  const [editingDetails,    setEditingDetails]    = useState(false);
+  const [detailsForm,       setDetailsForm]       = useState({});
+  const [savingDetails,     setSavingDetails]     = useState(false);
+  const [detailsSaveError,  setDetailsSaveError]  = useState('');
   const [showReassign,      setShowReassign]      = useState(false);
   const [showReturnConfirm, setShowReturnConfirm] = useState(false);
   const [outcomeSaved,      setOutcomeSaved]      = useState(false);
@@ -908,6 +958,108 @@ export default function AppointmentDetail() {
   // Still loading: show a simple loading state rather than the neutral
   // empty-appointment shape appt starts from — otherwise the page would
   // briefly render with blank fields before the real fetch resolves.
+  // 19 Aug 2026, Mark's explicit request — populates one combined form
+  // from `appt`'s current values, covering both categories of editable
+  // field. Field-name mapping matches getAppointmentById()'s real
+  // server-side names for the Appointment-native half (see
+  // appointmentHandlers.js's own comment on why this file's local
+  // firstDate/address aliases don't apply server-side) and the plain
+  // Lead column names for the Lead-owned half (leadsApi.update expects
+  // exactly what LeadDetail.jsx's own startEditing() sends).
+  function startEditingDetails() {
+    setDetailsForm({
+      // Lead-owned — Lead Details card
+      occupation:          appt.occupation ?? '',
+      mobileNumber:        appt.mobile ?? '',
+      // Lead-owned — Personal Details card
+      dateOfBirth:         appt.dateOfBirth ? String(appt.dateOfBirth).slice(0, 10) : '',
+      idNumber:             appt.idNumber ?? '',
+      whatsappNumber:      appt.whatsappNumber ?? '',
+      hospitalOrPractice:  appt.hospitalOrPractice ?? '',
+      // Lead-owned — Education card
+      universityAttended:  appt.universityAttended ?? '',
+      yearOfAttendance:    appt.yearOfAttendance ?? '',
+      degreeAttained:      appt.degreeAttained ?? '',
+      // Lead-owned — Insurance Information card
+      existingCover:        appt.existingCover ?? null,
+      policies:             appt.policies ?? '',
+      medicalAid:           appt.medicalAid ?? null,
+      medicalAidProvider:  appt.medicalAidProvider ?? '',
+      // Appointment-native — Appointment Details card
+      currentInsurer:          appt.currentInsurer ?? '',
+      meetingType:              appt.meetingType ?? 'InPerson',
+      firstAppointmentDate:    appt.firstDate ? String(appt.firstDate).slice(0, 10) : '',
+      firstAppointmentTime:    appt.firstTime ?? '',
+      firstAppointmentAddress: appt.address ?? '',
+      virtualMeetingLink:      appt.virtualMeetingLink ?? '',
+    });
+    setDetailsSaveError('');
+    setEditingDetails(true);
+  }
+
+  function setDetailsField(field, value) {
+    setDetailsForm(f => ({ ...f, [field]: value }));
+  }
+
+  // Field-name lists deciding which half of detailsForm goes to which
+  // API call — the actual DB-write boundary this whole feature is built
+  // around (see UPDATE_LEAD_COLUMNS in leadService.js and
+  // UPDATE_APPOINTMENT_COLUMNS in appointmentService.js, which these two
+  // lists are deliberately kept in sync with).
+  const LEAD_DETAIL_FIELDS = [
+    'occupation', 'mobileNumber', 'dateOfBirth', 'idNumber', 'whatsappNumber',
+    'hospitalOrPractice', 'universityAttended', 'yearOfAttendance', 'degreeAttained',
+    'existingCover', 'policies', 'medicalAid', 'medicalAidProvider',
+  ];
+  const APPOINTMENT_DETAIL_FIELDS = [
+    'currentInsurer', 'meetingType', 'firstAppointmentDate', 'firstAppointmentTime',
+    'firstAppointmentAddress', 'virtualMeetingLink',
+  ];
+
+  async function handleSaveDetails() {
+    setSavingDetails(true);
+    setDetailsSaveError('');
+    try {
+      // Same stripEmpty-before-send reasoning as LeadDetail.jsx's own
+      // handleSaveEdit (that file's own comment has the full account):
+      // both UpdateLeadSchema and UpdateAppointmentSchema declare their
+      // fields .optional() but not .nullable() — an absent key is
+      // skipped server-side, but an explicit '' or null fails Zod
+      // validation (idNumber's 13-digit regex, existingCover/medicalAid's
+      // boolean type, the date/time regexes). Every field here starts as
+      // '' or null when unset, so strip both rather than sending them.
+      const leadPayload = Object.fromEntries(
+        Object.entries(detailsForm)
+          .filter(([k]) => LEAD_DETAIL_FIELDS.includes(k))
+          .filter(([, v]) => v !== '' && v !== null)
+      );
+      const apptPayload = Object.fromEntries(
+        Object.entries(detailsForm)
+          .filter(([k]) => APPOINTMENT_DETAIL_FIELDS.includes(k))
+          .filter(([, v]) => v !== '' && v !== null)
+      );
+
+      // Two independent writes, two independent tables — genuinely
+      // parallel, neither depends on the other's result. Both, one, or
+      // neither may have anything to send, depending which fields were
+      // actually touched (an empty payload is a legitimate "nothing in
+      // this category changed", not an error — the filtered object is
+      // simply {} and the corresponding call is skipped).
+      await Promise.all([
+        Object.keys(leadPayload).length > 0 ? leadsApi.update(appt.leadId, leadPayload) : null,
+        Object.keys(apptPayload).length > 0 ? appointmentsApi.update(id, apptPayload) : null,
+      ]);
+
+      setEditingDetails(false);
+      refetchAudit();
+      await refetchAppt();
+    } catch (err) {
+      setDetailsSaveError(err instanceof ApiError ? err.message : 'Could not save changes. Please try again.');
+    } finally {
+      setSavingDetails(false);
+    }
+  }
+
   if (apptLoading) {
     return (
       <div style={{ padding: isMobile ? '12px' : '24px' }}>
@@ -936,6 +1088,19 @@ export default function AppointmentDetail() {
         </div>
         {canManage && (
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+            {!editingDetails && (
+              <button style={s.secondaryBtn} onClick={startEditingDetails}>
+                Edit Details
+              </button>
+            )}
+            {editingDetails && (
+              <>
+                <button style={{ ...s.primaryBtn, opacity: savingDetails ? 0.5 : 1 }} disabled={savingDetails} onClick={handleSaveDetails}>
+                  {savingDetails ? 'Saving…' : 'Save Changes'}
+                </button>
+                <button style={s.secondaryBtn} disabled={savingDetails} onClick={() => setEditingDetails(false)}>Cancel</button>
+              </>
+            )}
             {canReassign && (
               <button style={s.secondaryBtn} onClick={() => setShowReassign(true)}>
                 Reassign
@@ -953,15 +1118,27 @@ export default function AppointmentDetail() {
         )}
       </div>
 
+      {detailsSaveError && (
+        <div style={{ ...s.errorBox, marginBottom: '14px' }}>{detailsSaveError}</div>
+      )}
+
       {/* ── Detail cards ────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
         <div style={s.card}>
           <div style={s.cardTitle}>Lead Details</div>
           <FieldRow label="Name">{appt.leadName}</FieldRow>
           <FieldRow label="Region">{appt.region || '—'}</FieldRow>
-          <FieldRow label="Occupation">{appt.occupation}</FieldRow>
-          <FieldRow label="Mobile">{appt.mobile}</FieldRow>
-          <FieldRow label="Current insurer">{appt.currentInsurer}</FieldRow>
+          <EditableFieldRow label="Occupation" editing={editingDetails} value={editingDetails ? detailsForm.occupation : appt.occupation} onChange={v => setDetailsField('occupation', v)} />
+          <EditableFieldRow label="Mobile" editing={editingDetails} value={editingDetails ? detailsForm.mobileNumber : appt.mobile} onChange={v => setDetailsField('mobileNumber', v)} />
+          {/* currentInsurer is Appointment-native, not Lead-owned, despite
+              sitting in this card visually (appt.currentInsurer, its own
+              independent column — see UPDATE_APPOINTMENT_COLUMNS's own
+              comment, appointmentService.js). Edited here regardless — it
+              belongs with the rest of this page's Lead-context fields from
+              a user's point of view — but detailsForm/handleSaveDetails
+              correctly route it to appointmentsApi.update(), not
+              leadsApi.update(), via APPOINTMENT_DETAIL_FIELDS above. */}
+          <EditableFieldRow label="Current insurer" editing={editingDetails} value={editingDetails ? detailsForm.currentInsurer : appt.currentInsurer} onChange={v => setDetailsField('currentInsurer', v)} />
           <FieldRow label="Products interested">{appt.productsInterested.join(', ')}</FieldRow>
         </div>
         <div style={s.card}>
@@ -972,20 +1149,35 @@ export default function AppointmentDetail() {
               {appt.portfolios.length ? appt.portfolios.map(p => <PortfolioPill key={p} portfolio={p} />) : <PortfolioPill portfolio={appt.portfolio} />}
             </div>
           </FieldRow>
-          <FieldRow label="First appt date">{formatDate(appt.firstDate)} · {formatTime(appt.firstTime)}</FieldRow>
-          <FieldRow label="Meeting type">{appt.meetingType === 'Virtual' ? 'Virtual' : 'In person'}</FieldRow>
-          {appt.meetingType === 'Virtual' ? (
-            <FieldRow label="Meeting link">
-              {appt.virtualMeetingLink ? (
-                /^https?:\/\//i.test(appt.virtualMeetingLink) ? (
-                  <a href={appt.virtualMeetingLink} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
-                    {appt.virtualMeetingLink}
-                  </a>
-                ) : appt.virtualMeetingLink
-              ) : '—'}
-            </FieldRow>
+          {editingDetails ? (
+            <>
+              <EditableFieldRow label="First appt date" type="date" editing value={detailsForm.firstAppointmentDate} onChange={v => setDetailsField('firstAppointmentDate', v)} />
+              <EditableFieldRow label="First appt time" type="time" editing value={detailsForm.firstAppointmentTime} onChange={v => setDetailsField('firstAppointmentTime', v)} />
+              <EditableFieldRow label="Meeting type" type="select" options={['InPerson', 'Virtual']} editing value={detailsForm.meetingType} onChange={v => setDetailsField('meetingType', v)} />
+              {detailsForm.meetingType === 'Virtual' ? (
+                <EditableFieldRow label="Meeting link" editing value={detailsForm.virtualMeetingLink} onChange={v => setDetailsField('virtualMeetingLink', v)} />
+              ) : (
+                <EditableFieldRow label="Address" editing value={detailsForm.firstAppointmentAddress} onChange={v => setDetailsField('firstAppointmentAddress', v)} />
+              )}
+            </>
           ) : (
-            <FieldRow label="Address">{appt.address || '—'}</FieldRow>
+            <>
+              <FieldRow label="First appt date">{formatDate(appt.firstDate)} · {formatTime(appt.firstTime)}</FieldRow>
+              <FieldRow label="Meeting type">{appt.meetingType === 'Virtual' ? 'Virtual' : 'In person'}</FieldRow>
+              {appt.meetingType === 'Virtual' ? (
+                <FieldRow label="Meeting link">
+                  {appt.virtualMeetingLink ? (
+                    /^https?:\/\//i.test(appt.virtualMeetingLink) ? (
+                      <a href={appt.virtualMeetingLink} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>
+                        {appt.virtualMeetingLink}
+                      </a>
+                    ) : appt.virtualMeetingLink
+                  ) : '—'}
+                </FieldRow>
+              ) : (
+                <FieldRow label="Address">{appt.address || '—'}</FieldRow>
+              )}
+            </>
           )}
           <FieldRow label="Broker">{appt.brokerName}</FieldRow>
           <FieldRow label="Agent">{appt.agentName}</FieldRow>
@@ -995,35 +1187,39 @@ export default function AppointmentDetail() {
 
       {/* ── Lead detail parity — 18 Aug 2026, Mark's explicit request ───────
           Same three section titles LeadDetail.jsx uses (Personal Details/
-          Education/Insurance Information), same field order, read-only
-          here — editing these belongs on the Lead itself, not duplicated
-          here. "Personal Details" — renamed from "Contact Details" 19 Aug
-          2026, Mark's explicit request: ID Number and Hospital/Practice
-          under a "Contact" heading read wrong once ID Number joined it.
-          Values come from getAppointmentById()'s own second,
-          detail-only Lead query (appointmentService.js) — see that
-          function's comment for why this isn't in the shared
-          APPOINTMENT_SELECT the Appointments list and claim pool also use. */}
+          Education/Insurance Information), same field order. Editable
+          19 Aug 2026, Mark's explicit request — writes straight to the
+          same Lead row via leadsApi.update(appt.leadId, ...) in
+          handleSaveDetails above, the exact endpoint LeadDetail.jsx's own
+          edit form already uses; nothing duplicated, just a second place
+          to reach the same record. "Personal Details" — renamed from
+          "Contact Details" 19 Aug 2026, Mark's explicit request: ID
+          Number and Hospital/Practice under a "Contact" heading read
+          wrong once ID Number joined it. Read-only values still come
+          from getAppointmentById()'s own second, detail-only Lead query
+          (appointmentService.js) — see that function's comment for why
+          this isn't in the shared APPOINTMENT_SELECT the Appointments
+          list and claim pool also use. */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
         <div style={s.card}>
           <div style={s.cardTitle}>Personal Details</div>
-          <FieldRow label="Date of Birth">{formatDate(appt.dateOfBirth)}</FieldRow>
-          <FieldRow label="ID Number">{appt.idNumber || '—'}</FieldRow>
-          <FieldRow label="WhatsApp">{appt.whatsappNumber || '—'}</FieldRow>
-          <FieldRow label="Hospital / Practice">{appt.hospitalOrPractice || '—'}</FieldRow>
+          <EditableFieldRow label="Date of Birth" type="date" editing={editingDetails} value={editingDetails ? detailsForm.dateOfBirth : appt.dateOfBirth} onChange={v => setDetailsField('dateOfBirth', v)} />
+          <EditableFieldRow label="ID Number" editing={editingDetails} value={editingDetails ? detailsForm.idNumber : appt.idNumber} onChange={v => setDetailsField('idNumber', v.replace(/\D/g, '').slice(0, 13))} />
+          <EditableFieldRow label="WhatsApp" editing={editingDetails} value={editingDetails ? detailsForm.whatsappNumber : appt.whatsappNumber} onChange={v => setDetailsField('whatsappNumber', v)} />
+          <EditableFieldRow label="Hospital / Practice" editing={editingDetails} value={editingDetails ? detailsForm.hospitalOrPractice : appt.hospitalOrPractice} onChange={v => setDetailsField('hospitalOrPractice', v)} />
         </div>
         <div style={s.card}>
           <div style={s.cardTitle}>Education</div>
-          <FieldRow label="University">{appt.universityAttended || '—'}</FieldRow>
-          <FieldRow label="Year">{appt.yearOfAttendance || '—'}</FieldRow>
-          <FieldRow label="Degree">{appt.degreeAttained || '—'}</FieldRow>
+          <EditableFieldRow label="University" editing={editingDetails} value={editingDetails ? detailsForm.universityAttended : appt.universityAttended} onChange={v => setDetailsField('universityAttended', v)} />
+          <EditableFieldRow label="Year" type="number" editing={editingDetails} value={editingDetails ? detailsForm.yearOfAttendance : appt.yearOfAttendance} onChange={v => setDetailsField('yearOfAttendance', v)} />
+          <EditableFieldRow label="Degree" editing={editingDetails} value={editingDetails ? detailsForm.degreeAttained : appt.degreeAttained} onChange={v => setDetailsField('degreeAttained', v)} />
         </div>
         <div style={s.card}>
           <div style={s.cardTitle}>Insurance Information</div>
-          <FieldRow label="Existing cover">{appt.existingCover === true ? 'Yes' : appt.existingCover === false ? 'No' : '—'}</FieldRow>
-          <FieldRow label="Current policies">{appt.policies || '—'}</FieldRow>
-          <FieldRow label="Medical aid">{appt.medicalAid === true ? 'Yes' : appt.medicalAid === false ? 'No' : '—'}</FieldRow>
-          <FieldRow label="Medical aid provider">{appt.medicalAidProvider || '—'}</FieldRow>
+          <EditableFieldRow label="Existing cover" type="bool" editing={editingDetails} value={editingDetails ? detailsForm.existingCover : appt.existingCover} onChange={v => setDetailsField('existingCover', v)} />
+          <EditableFieldRow label="Current policies" editing={editingDetails} value={editingDetails ? detailsForm.policies : appt.policies} onChange={v => setDetailsField('policies', v)} />
+          <EditableFieldRow label="Medical aid" type="bool" editing={editingDetails} value={editingDetails ? detailsForm.medicalAid : appt.medicalAid} onChange={v => setDetailsField('medicalAid', v)} />
+          <EditableFieldRow label="Medical aid provider" editing={editingDetails} value={editingDetails ? detailsForm.medicalAidProvider : appt.medicalAidProvider} onChange={v => setDetailsField('medicalAidProvider', v)} />
         </div>
       </div>
 

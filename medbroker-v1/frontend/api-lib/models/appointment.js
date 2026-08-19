@@ -105,6 +105,38 @@ export const CreateAppointmentSchema = z.object({
   });
 
 /**
+ * PUT /api/appointments/:id — 19 Aug 2026, Mark's explicit request.
+ * Fully partial — every field optional, matches UpdateLeadSchema's own
+ * pattern (models/lead.js) for the identical reason: this is a partial
+ * update, most calls only touch one or two fields. Deliberately built
+ * from its own field list rather than CreateAppointmentSchema.partial()
+ * — that schema's fields (leadId, brokerId, portfolios,
+ * productsInterestedIn) aren't in UPDATE_APPOINTMENT_COLUMNS at all
+ * (appointmentService.js has the full reasoning: those already have
+ * dedicated endpoints), so partial()-ing it and hoping the handler
+ * ignores the extra fields would be a wider contract than what's
+ * actually accepted.
+ *
+ * meetingType/address/link cross-validation deliberately does NOT live
+ * here as a superRefine, unlike CreateAppointmentSchema's — at create
+ * time every field is present in one payload to check against itself;
+ * at update time a caller might send only currentInsurer and nothing
+ * about meetingType at all, so the Zod layer has no way to know whether
+ * an omitted address is fine (meetingType isn't changing) or a real gap
+ * (it is). That check happens in the handler instead, against the
+ * MERGED existing+incoming state, not the raw partial payload —
+ * appointmentHandlers.js's own comment on this has the full reasoning.
+ */
+export const UpdateAppointmentSchema = z.object({
+  currentInsurer:          z.string().max(200).optional(),
+  meetingType:              z.enum(['InPerson', 'Virtual']).optional(),
+  firstAppointmentDate:    z.string().date('Must be a valid date (YYYY-MM-DD)').optional(),
+  firstAppointmentTime:    z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/, 'Must be a valid time (HH:mm)').optional(),
+  firstAppointmentAddress: z.string().max(500).optional(),
+  virtualMeetingLink:      z.string().max(500).optional(),
+});
+
+/**
  * Reassigning broker and/or agent on an existing appointment. Despite the
  * name, agentId here is Admin/Supervisor CORRECTING a mis-booking, not the
  * booking agent's own action — still gated Admin/Supervisor-only at the
