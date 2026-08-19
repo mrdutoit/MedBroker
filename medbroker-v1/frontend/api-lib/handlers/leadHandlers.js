@@ -328,14 +328,38 @@ export async function handleLeadById(req, res, id) {
             changeDetail[field] = { from: existing[field] ?? null, to: parsed.data[field] ?? null };
           }
         }
-        await writeAuditLog({
-          entityType: 'Lead',
-          entityId: id,
-          action: 'LeadUpdated',
-          performedById: claims.oid,
-          changeDetail,
-          ipAddress: clientIp(req),
-        });
+        // GATED 19 Aug 2026 — this call had no guard at all before now:
+        // it wrote a 'LeadUpdated' audit entry on every successful save,
+        // even when changeDetail ended up completely empty. Harmless in
+        // practice while the only caller was LeadDetail.jsx's own edit
+        // form, where a user clicking "Save Changes" without touching
+        // anything is a rare edge case. It stopped being rare the moment
+        // AppointmentDetail.jsx's new "Edit Details" (19 Aug 2026) started
+        // calling this same endpoint: that form always resends the FULL
+        // current Lead-owned field set on every save, not just the
+        // touched ones (same "resend everything, let the diff decide"
+        // pattern this form's own handleSaveEdit already used) — so
+        // saving an Appointment-only field like the meeting link, with no
+        // Lead field actually touched, produced a real write with a
+        // genuinely empty changeDetail every time. Root-caused from
+        // Mark's screenshot: "Lead details updated" with no diff text is
+        // exactly what describeEntry() (AuditLogList.jsx) falls back to
+        // when changeDetail is an empty object — {} is truthy, so the
+        // `if (!detail) return label` check at the top of that function
+        // never caught it either. Matches the gate this session's new
+        // handleAppointmentById PUT handler already has for the identical
+        // reason — that one was built correctly from the start; this
+        // pre-existing one was the actual gap.
+        if (Object.keys(changeDetail).length > 0) {
+          await writeAuditLog({
+            entityType: 'Lead',
+            entityId: id,
+            action: 'LeadUpdated',
+            performedById: claims.oid,
+            changeDetail,
+            ipAddress: clientIp(req),
+          });
+        }
       }
 
       const updated = await getLeadById(id);

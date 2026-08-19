@@ -246,6 +246,48 @@ OUTSTANDING (unchanged from CURRENT STATE further up in this file):
    correct-but-undocumented change is functionally invisible to the
    next session reading this file "first."
 
+CLOSED, 19 Aug 2026 (third fix, same day): phantom "Lead details
+updated" Change Log entries — a real, pre-existing gap this session's
+Appointment editing feature exposed, not something it broke. Root
+cause, verified by reading the actual live code rather than trusting
+memory: leadHandlers.js's PUT /leads/:id handler has ALWAYS written a
+'LeadUpdated' audit entry unconditionally after every successful save —
+no `if (changeDetail has keys)` guard, ever. Harmless while the only
+caller was LeadDetail.jsx's own edit form, where saving with nothing
+touched is a rare edge case. AppointmentDetail.jsx's new "Edit Details"
+(this same day) made it common instead of rare: that form always
+resends the FULL current Lead-owned field set on every save, not just
+whatever was actually touched — so saving a pure Appointment field like
+the meeting link, with zero Lead fields changed, produced a genuine
+write with an empty changeDetail every single time. describeEntry()
+(AuditLogList.jsx) falls back to the bare "Lead details updated" label
+for exactly this shape of entry — {} is truthy, so its own `if
+(!detail) return label` check never caught it either.
+
+CORRECTION TO THIS SAME DAY'S EARLIER ENTRY: the note claiming the new
+Appointment PUT handler's audit-diffing "mirrors leadHandlers.js's
+exact pattern" was based on a misreading of code read several turns
+earlier, not on checking the actual file at the time. The new handler
+was built correctly (gated) from the start; the OLD handler was the one
+missing the gate, not the other way around. Fixed now: leadHandlers.js
+gets the same `if (Object.keys(changeDetail).length > 0)` guard the
+Appointment handler already had. Also checked and ruled out a second
+hypothesis before settling on this one: idNumber's encryption is
+genuinely non-deterministic (random IV per call, confirmed by reading
+encryption.js), so re-encrypting an unchanged idNumber on every save
+does waste a redundant encrypt() call — but the AUDIT DIFF compares
+already-decrypted plaintext on both sides (existing.idNumber, via
+getLeadById()'s own decryption), never the raw ciphertext, so that
+specific mechanism was never actually the cause here. Left alone —
+real but harmless inefficiency, not a bug, not worth added complexity
+to avoid.
+
+VERIFICATION: build clean, 48/48 vitest, gate logic smoke-tested
+directly against the exact empty-changeDetail scenario from Mark's
+screenshot. Diffed clean against a fresh hydration — exactly 1 file
+touched (leadHandlers.js). Delivered as
+medbroker-leadupdated-gate-fix-20260819-1735.zip.
+
 CLOSED, 19 Aug 2026 (later same day): two bugs Mark caught live-testing
 the Appointment editing feature above, both in the Change Log path
 specifically — root-caused and fixed from a single screenshot, no
