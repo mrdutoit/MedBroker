@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status (VERCEL VERSION)
 ==================================================
-Last updated: 18 August 2026
+Last updated: 20 August 2026
 Scope: this file tracks ONLY the Vercel + Neon Postgres deployment —
 frontend/api/ + frontend/api-lib/ + frontend/src/. It does NOT cover the
 separate Azure Functions/Azure SQL codebase (api/src/, infra/), which is
@@ -135,6 +135,35 @@ hydration, 18 Aug 2026.
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+SESSION 20 AUG 2026 — ARCHITECTURE/COMPLIANCE/SECURITY REVIEW, DOCUMENTATION
+ONLY, NO CODE TOUCHED. Requested by Mark ahead of the client parking this
+project until Feb 2027 — wants the record straight before the gap.
+Fresh GitHub hydration, no npm build/vitest run (nothing in the app
+itself changed this session, so the standing pre-delivery verification
+step doesn't apply — noted explicitly rather than silently skipped).
+Three deliverables:
+  1. Project_Context_Vercel.md §12a (new) — POPIA/FAIS compliance gap
+     analysis. Confirmed both gaps Mark suspected going in are real
+     (Lead erasure is soft-delete only; field-level encryption is
+     idNumber-only) and corrected one stale line in the existing §12
+     (SAR endpoint marked "not built" — it is, verified by reading
+     sarService.js/sarHandlers.js/models/sar.js directly). Full detail
+     in that section; eight items added to the OUTSTANDING list above
+     (item 0) and the backlog.
+  2. MedBroker_Security_Code_Review_Findings.docx — new dated addendum,
+     Vercel-only scope sweep. The Jun 2026 content is Azure-era (Bicep,
+     Key Vault, Front Door/Cloudflare) and mostly no longer applicable
+     to this build; superseded findings marked as such rather than
+     deleted, for the historical record. Also corrected: the file on
+     GitHub was plain UTF-8 text saved with a .docx extension, not a
+     real OOXML package (despite §5.4 of its own prior content claiming
+     otherwise) — this delivery is a genuine .docx.
+  3. White-label feasibility answered in chat, not written to a file —
+     cosmetic rebrand (logo mark, page title, login/SSO copy, email
+     footer) is low-effort and low-risk; repurposing the data model for
+     a non-medical lead-management vertical is a materially bigger
+     decision, kept separate rather than conflated.
+
 CLOSED, 18-19 Aug 2026: full data export (JSON + Excel), ID Number
 visibility, and Lead/Appointment field parity — all three built and
 delivered in the same session as the architecture diagram update above.
@@ -214,6 +243,33 @@ for whatever's live today, not a design constraint being carried
 forward out of habit.
 
 OUTSTANDING (unchanged from CURRENT STATE further up in this file):
+
+0. COMPLIANCE-CRITICAL, added 20 Aug 2026 (full gap analysis in
+   Project_Context_Vercel.md §12a) — close before commercial go-live,
+   client is picking this project back up Feb 2027:
+   a. Lead erasure/anonymisation capability — deleteLead() is soft-
+      delete only, doesn't destroy PII (POPIA s14(5) gap). Needs both a
+      true-erasure path and a restrict-and-retain path (FAIS's 5-year
+      record-keeping obligation is a lawful retention basis under
+      s14(6)), wired to a new requestType (Access|Deletion) on the
+      existing SAR model.
+   b. Field-level encryption scope decision — idNumber only today;
+      recommend extending to medicalAid/medicalAidProvider/
+      existingCover/currentInsurer/policies (closest to POPIA s26
+      special personal information).
+   c. vercel.json security headers (CSP/HSTS/X-Content-Type-Options/
+      Referrer-Policy/Permissions-Policy) — none configured beyond
+      Cache-Control on /assets.
+   d. Confirm Neon's provisioning region; cross-border transfer
+      assessment if not South Africa.
+   e. Operator agreements: Vercel, Neon, Paystack, SMTP provider.
+   f. Breach-notification process; Information Officer registered.
+   g. Formal per-record-type data retention schedule (FAIS 5-year floor
+      vs. POPIA's default "no longer than necessary").
+   h. Enable security.kmsEncryption.enabled + configure AWS KMS for the
+      actual client production deployment before go-live — currently
+      off by default; DEMO_ENCRYPTION_KEY (unrotated env var) is what's
+      actually protecting idNumber until this is switched on.
 
 1. Vercel Pro upgrade — still an open business decision, required
    before commercial launch (higher function-count ceiling, Vercel's

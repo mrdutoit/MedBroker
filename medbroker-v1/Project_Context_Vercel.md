@@ -1010,12 +1010,143 @@ POPIA / THIRD PARTIES
      residency/sub-processor documentation when this becomes live,
      rather than assuming either way from here.
   ⬜ Breach-notification process; Information Officer registered.
-  ⬜ POPIA Subject Access Request (SAR) endpoint — flag exists
-     (popia.subjectAccessRequest.enabled), admin endpoint not built.
+  ✅ POPIA Subject Access Request (SAR) endpoint — CORRECTED 20 Aug 2026,
+     this line was stale (previously read "flag exists, admin endpoint
+     not built"). Confirmed live this session, direct code read:
+     sarService.js/sarHandlers.js/models/sar.js implement full request
+     tracking (Received → InProgress → Fulfilled/Rejected, locked once
+     terminal — assertNotLocked()), assignment to Admin/GlobalAdmin, a
+     comment thread (SarComment), and compileSubjectData() — a genuine
+     full export of everything MedBroker holds on a Lead (profile incl.
+     decrypted ID number, call attempts, appointments + meeting history,
+     tasks, the Lead's own audit trail), gated Admin/GlobalAdmin
+     (sarHandlers.js requireRole). This is the POPIA right-of-ACCESS
+     path (s23-s25) — see the new gap analysis immediately below for
+     what it does not cover.
 
 None of the ⬜ items above are live exposure today in the sense of an
 active breach — they're go-live gates, appropriate to close before real
 client PI flows through this system, not before then.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+12a. POPIA / FAIS COMPLIANCE — GAP ANALYSIS AND BACKLOG
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Added 20 Aug 2026, at Mark's request, going into the client's Feb 2027
+pickup break. Verified against a fresh GitHub hydration, code read
+directly rather than inferred from prior session notes. Two specific
+gaps Mark flagged going in are both confirmed real; a third
+(unencrypted browser transport of security headers) was already tracked
+above and is repeated here only because it's genuinely POPIA/FAIS-
+relevant, not edge hygiene for its own sake.
+
+GAP 1 — RIGHT TO ERASURE (POPIA s14(5), s24(1)(b)): SOFT-DELETE ONLY,
+DOES NOT ACTUALLY DESTROY DATA.
+  deleteLead() (leadService.js) sets Lead.deletedAt = NOW() and removes
+  the Lead's incomplete Tasks. Nothing else changes. Every other
+  column — idNumberEncrypted, idNumberHash, dateOfBirth, medicalAid/
+  medicalAidProvider/existingCover/currentInsurer/policies, email,
+  mobile/whatsapp numbers, university/degree, hospitalOrPractice —
+  stays fully intact and, for idNumber, still decryptable. The route is
+  correctly role-gated (Admin/GlobalAdmin) and audited (LeadDeleted),
+  and its own code comment already labels it "POPIA right to erasure" —
+  the labelling is right, the implementation only does half the job.
+  s14(5) requires destruction or deletion "in a manner that prevents
+  its reconstruction in an intelligible form"; a soft-delete flag is
+  the opposite of that by design — it exists specifically to filter a
+  record out of active queries while leaving it fully reconstructable,
+  which is exactly what deletedAt IS NULL indexes throughout this
+  schema do.
+
+  This is not simply "call the real DELETE statement instead" — FAIS's
+  own record-keeping obligation (General Code of Conduct: client
+  records kept a minimum of five years from termination of the
+  financial service) is itself a lawful basis under POPIA s14(1) to
+  keep some of what a Lead/Appointment holds, even against an erasure
+  request. POPIA anticipates exactly this conflict: s14(6) provides a
+  RESTRICTION path — stop actively processing the record, but don't
+  destroy it — for information the responsible party is still
+  authorised to retain (s14(6)(a): "retention of the record is
+  required or authorised by law"). Two distinct capabilities are
+  missing, not one:
+    - TRUE ERASURE, for Leads with no live FAIS retention obligation
+      (never progressed past initial contact, no appointment/advice
+      ever given) — irreversibly strip or de-identify PII fields in
+      place, not just flag deletedAt.
+    - RESTRICT-AND-RETAIN, for Leads where a FAIS retention window is
+      still running — PII locked from further display, processing, or
+      export; the transactional/compliance skeleton (that advice was
+      given, when, appointment outcome) kept for the statutory window,
+      then purged on schedule.
+
+GAP 2 — FIELD-LEVEL ENCRYPTION SCOPED TO idNumber ONLY.
+  Carried forward from the Jun 2026 code review (finding E4,
+  MedBroker_Security_Code_Review_Findings.docx) — confirmed unchanged
+  by reading encryption.js directly this session. idNumberEncrypted/
+  idNumberHash use genuinely solid envelope encryption (AES-256-GCM,
+  random per-value data key, KMS- or DEMO_ENCRYPTION_KEY-wrapped,
+  format-versioned for clean key-scheme migration) — this is not the
+  weak point. Every other Lead field sits in application-layer
+  plaintext: dateOfBirth, email/mobile/whatsapp, hospitalOrPractice,
+  occupation, university/degree, and — the fields closest to POPIA
+  s26's "special personal information" (health) — medicalAid/
+  medicalAidProvider/existingCover/currentInsurer/policies.
+  Neon provides disk-level encryption at rest as a platform default,
+  which covers "someone steals the physical storage volume" — it does
+  not cover "someone with valid DB credentials, or a SQL injection
+  foothold, reads the table," which is the more realistic exposure for
+  a hosted Postgres deployment and the actual reason idNumber got
+  field-level treatment in the first place.
+  RECOMMENDATION: extend field-level encryption to the health/insurance
+  fields at minimum (medicalAid, medicalAidProvider, existingCover,
+  currentInsurer, policies) — closest to s26 and to FAIS advice-record
+  sensitivity. dateOfBirth/contact fields are lower priority: genuinely
+  useful in plaintext for search/matching, less damaging in isolation.
+  This is a Mark decision to make explicitly, not a default to drift
+  into — matches finding E4's own original framing.
+
+GAP 3 — BROWSER SECURITY HEADERS (repeated from the control list above
+for POPIA s19 "appropriate technical measures" framing specifically).
+  vercel.json sets no CSP/HSTS/X-Content-Type-Options/Referrer-Policy/
+  Permissions-Policy — only Cache-Control on /assets. No defense-in-
+  depth against XSS beyond React's default JSX escaping. Cheap, low-
+  risk fix — see the security audit addendum (docs/security/) for the
+  actual header block to add.
+
+CARRIED FORWARD, UNCHANGED FROM THE EXISTING CONTROL LIST ABOVE:
+operator agreements (Vercel/Neon/Paystack/SMTP), the cross-border
+transfer assessment (confirm Neon's actual provisioning region),
+breach-notification process, and Information Officer registration.
+
+BACKLOG — ADD TO Status_Vercel.md OUTSTANDING ITEMS, COMPLIANCE-CRITICAL,
+CLOSE BEFORE COMMERCIAL GO-LIVE (none are live exposure today — same
+framing as the ⬜ list above):
+  1. Lead erasure/anonymisation capability — both the true-erasure and
+     restrict-and-retain paths from Gap 1. Wire to the SAR workflow: a
+     SAR currently models only an access request (SarStatus has no
+     request-type distinction) — needs a requestType field
+     (Access | Deletion) and deletion-specific fulfilment logic that
+     checks the Lead's live FAIS retention position before choosing
+     erase vs. restrict.
+  2. Decide and implement field-level encryption scope beyond idNumber
+     (Gap 2) — Mark's decision, recommend the five health/insurance
+     fields listed above as the minimum bar.
+  3. vercel.json security headers (Gap 3).
+  4. Confirm Neon's provisioning region; complete the cross-border
+     transfer assessment if it isn't South Africa.
+  5. Operator agreements: Vercel, Neon, Paystack, SMTP provider.
+  6. Breach-notification process documented; Information Officer
+     registered with the Information Regulator.
+  7. Formal data retention schedule — per-record-type, not ad hoc:
+     FAIS's five-year minimum for transaction/advice records against
+     POPIA's default "no longer than necessary for the purpose" for
+     everything else. Item 1's erase-vs-restrict decision needs this as
+     a concrete ruleset, not a per-request judgement call.
+  8. Enable security.kmsEncryption.enabled for the actual client
+     production deployment before go-live. Off by default today, which
+     means DEMO_ENCRYPTION_KEY — an unrotated Vercel env var — is what
+     actually protects idNumber in practice until this flag is switched
+     on and AWS KMS is configured.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
