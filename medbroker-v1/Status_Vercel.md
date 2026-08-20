@@ -135,6 +135,183 @@ hydration, 18 Aug 2026.
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+SESSION 20 AUG 2026 (CONTINUED, THIRD ROUND) — TECHNICAL SPECIFICATION
+REBUILT AND REPO DOCUMENT STRUCTURE ESTABLISHED. Mark asked for the
+Technical Specification updated with POPIA/FAIS content, then clarified
+it was a document Claude built in a past session (9-11 Aug 2026, v1.0,
+19 pages, 6 diagrams) that never reached this repo or project
+knowledge — found via conversation_search, confirmed genuinely absent
+from a fresh GitHub hydration. Not recoverable (lived only in that
+session's now-closed sandbox) and, separately, already ten days stale
+regardless (SAR, the erasure feature, KMS, F1/F3 all postdate it) — so
+rebuilt fresh (v2.0) rather than attempting to patch a version that no
+longer existed anywhere accessible.
+
+Diagrams (6, same count as v1.0): extracted 32 tables and 75 foreign-
+key relationships programmatically from the current schema.postgres.sql,
+same rigor the original build used, not approximated. All Mermaid
+(erDiagram \u00d7 4, flowchart, sequenceDiagram), rendered via mmdc per the
+solution-architecture skill. One flagged deviation: that skill specifies
+Draw.io XML with UML stencils for the component/deployment diagram — no
+Draw.io renderer was available in this build environment, so Mermaid
+flowchart notation was used instead and stated plainly in the
+document's own Document Control section, not silently substituted.
+
+REAL BUG FOUND AND FIXED DURING THE BUILD, WORTH RECORDING: every
+embedded diagram initially rendered as a tiny, unreadable sliver.
+Traced to a single line — a document-wide default paragraph style
+(spacing.line = 276, meant for body-text line height) was being applied
+to image-containing paragraphs too, and LibreOffice's renderer clips an
+inline image's paragraph to that line height instead of letting it grow
+to fit the image, unlike Word's more forgiving behaviour. Isolated with
+a minimal one-image test case before touching the real document, to
+confirm root cause rather than guessing. Fixed by moving that spacing
+into the body-text helper specifically rather than the document-wide
+default. Same "verified against real output before delivery" discipline
+this project already applies to SQL — applied here to a rendering
+pipeline instead.
+
+Also fixed: a duplicate consecutive PageBreak left over from an earlier
+edit, which produced one wasted blank page between Document Control and
+the Table of Contents. And: replaced a dynamic Word TOC field with a
+static section list after confirming (via LibreOffice's headless
+conversion) that the dynamic field renders blank unless a real Word
+session explicitly updates it — correctness across whatever Mark
+actually opens this in was judged more valuable than a clickable,
+auto-updating list.
+
+REPO STRUCTURE: Mark separately pointed out the User Guide and
+GlobalAdmin Guide were in the same situation as the Technical
+Specification — built by Claude, never actually in the GitHub repo,
+living only in project knowledge. Confirmed via fresh hydration. Both
+now added, alongside the new Technical Specification, under a proper
+docs/ structure:
+  docs/technical/MedBroker_Technical_Specification.docx (new)
+  docs/guides/MedBroker-User-Guide.docx
+  docs/guides/MedBroker-GlobalAdmin-Guide.docx
+  docs/security/MedBroker_Security_Code_Review_Findings.docx (already
+    in repo from an earlier delivery this session, unchanged, not
+    re-copied)
+
+FLAGGED, NOT FIXED THIS SESSION: both MedBroker-User-Guide.docx and
+MedBroker-GlobalAdmin-Guide.docx are plain UTF-8 text saved with a
+.docx extension, not real OOXML packages — the exact same defect the
+Security Findings document had before it was corrected earlier this
+session. Committed to the repo as-is per Mark's literal request (repo
+inclusion), not silently propagated without mention — this needs the
+same docx-js rebuild treatment the Security Findings document already
+got, as a follow-up, not attempted in this already-large session.
+
+SESSION 20 AUG 2026 (CONTINUED, SECOND ROUND) — F1/F3 SECURITY FIXES
+APPLIED, at Mark's explicit request ("I want these resolved"). Same
+session as the two entries below.
+
+F3 — BROWSER SECURITY HEADERS: CLOSED. vercel.json now sets CSP, HSTS,
+X-Content-Type-Options, X-Frame-Options, Referrer-Policy, Permissions-
+Policy on every route. Checked the actual build output (dist/index.html)
+and every external-navigation path before writing the CSP, not assumed
+from a generic template: style-src needs 'unsafe-inline' (this app
+styles almost entirely via React's inline style={{}} prop — thousands
+of call sites, no build-time CSP-nonce system to do it properly);
+Paystack/Stripe checkout is a window.location.href full-page redirect,
+not a form POST or iframe, so no CSP directive touches it; Entra SSO
+uses loginPopup() (a real popup window, grepped msalAuth.js — no
+acquireTokenSilent/hidden-iframe anywhere), which frame-src doesn't
+govern. Full reasoning in Project_Context_Vercel.md §12.
+CAUGHT BEFORE IT SHIPPED: first draft embedded the CSP reasoning as
+fake "//"-prefixed keys inside the vercel.json headers rule object —
+JSON has no comment syntax, and Vercel validates vercel.json against a
+strict schema; unrecognised keys in a headers rule risk a deploy-time
+validation failure. Caught by re-reading the file, not by testing
+against a real Vercel deploy (couldn't, in this sandbox) — fixed to
+clean, schema-valid JSON, with the reasoning moved to Project_Context_
+Vercel.md where every other config decision's reasoning already lives.
+
+F1 — FIELD-LEVEL ENCRYPTION EXTENDED: CLOSED. medicalAid, medicalAid
+Provider, existingCover, currentInsurer, policies now field-level
+encrypted (migration 036), same envelope scheme idNumber already uses.
+Investigated blast radius before touching anything: grepped every SQL
+use of these five fields across api-lib — confirmed none are ever
+filtered/sorted/grouped on (reportService.js's hits were unrelated
+English text, not the columns), so no searchable-encryption workaround
+was needed, unlike idNumber's blind-index hash.
+Touched: encryption.js (new encryptBoolean/decryptBoolean — no
+encrypted-boolean column type exists, so booleans are encrypted as
+'true'/'false' text; deliberately NOT Boolean(str) on decrypt, which
+would silently coerce the literal text 'false' to true), leadService.js
+(listLeads/getLeadById/createLead/UPDATE_LEAD_COLUMNS/updateLead/
+eraseLeadPII's anonymiser), appointmentService.js (the Lead-join query
+in getAppointmentById), sarService.js (compileSubjectData), dataExport
+Service.js (the bulk export). sarHandlers.js needed zero changes —
+confirmed it only ever reads from compileSubjectData's already-
+decrypted output, never a raw column.
+listLeads() DROPS these fields entirely rather than decrypting them —
+checked LeadList.jsx first (grepped for the field names, found
+nothing rendered), so this was pure unused cost being fetched on every
+list page load. Same "not exposed on the list view" treatment idNumber
+already had.
+Export (dataExportService.js): decrypted, NOT masked, unlike idNumber.
+idNumber's masking is specifically about a unique government
+identifier's bulk-correlation risk; a boolean or "which medical aid"
+doesn't carry that same risk tier, and this export already legitimately
+showed these fields in plaintext before — F1 closes the at-rest gap,
+it doesn't change export policy.
+Old plaintext columns kept, not dropped (same "deprecated, unused
+going forward" pattern as Lead.portfolioId elsewhere) — scripts/
+backfill-encrypt-lead-fields.js (new) migrates any existing plaintext
+data into the encrypted columns and nulls the old ones per row, in one
+UPDATE so a row is never left half-migrated if interrupted. Not run
+automatically — see that script's own header for why and how to run it.
+
+REAL BUG FOUND WHILE TRACING F1's BLAST RADIUS, UNRELATED TO F1 ITSELF:
+Lead.currentInsurer has had a working input on LeadDetail.jsx (sends a
+value on every save) since that page was built, but the field was
+never added to CreateLeadShape (models/lead.js) — Zod silently strips
+unknown keys, so the value never reached the service layer, on any
+Lead, ever, from day one. Confirmed root cause by checking UPDATE_LEAD_
+COLUMNS (no currentInsurer key), createLead()'s INSERT (no
+currentInsurer column), and the Zod shape itself (no currentInsurer
+field) — all three independently confirmed the same gap, not assumed
+from one. Fixed alongside F1 since every function that needed
+encrypting it also needed to actually be able to save it — encrypting
+a field that couldn't be persisted in the first place would have been
+functionally meaningless. Also added to the bulk export
+(dataExportService.js), which never included it before for the same
+reason.
+
+VERIFICATION: fresh npm install carried over from the F3 build, clean
+npm run build, 48/48 vitest. node --check clean on all ten touched
+backend files (including the new backfill script). ESM import smoke
+test clean on all — confirmed no circular-import issue. grepped for any
+remaining raw-SQL reference to the five old plaintext column names
+anywhere in api-lib/ after the edits — zero hits, confirmed nothing
+missed.
+encrypt()/decrypt() themselves could not be exercised live in this
+sandbox — they call getFlagMeta() (a DB read, to check security.
+kmsEncryption.enabled) internally, and db.js's neon() HTTP driver
+cannot reach a local Postgres instance the way a raw TCP client could
+(this is a pre-existing constraint of this codebase's architecture, not
+something this session introduced — idNumber's own encrypt()/decrypt()
+has always had this same untestable-in-isolation property). What WAS
+verified live against real local Postgres: migration 036's idempotency
+(ran twice cleanly, learned from migration 035's mistake last session —
+correct pg_constraint lowercase comparison used from the start this
+time) and the backfill script's exact SQL shape (SELECT WHERE clause
+correctly caught only rows with old plaintext data and correctly
+skipped a row with none; simulated UPDATE correctly nulled all five old
+columns and populated all five new ones in one statement; re-running
+the same SELECT afterward correctly returned zero rows). The
+encryptBoolean/decryptBoolean wrapper logic itself was code-reviewed
+rather than live-tested for the same DB-dependency reason, but is
+low-complexity (seven lines each) and directly mirrors the already-
+proven encrypt()/decrypt() pattern.
+
+DOCUMENTATION: Project_Context_Vercel.md §12/§12a updated — Gap 2
+(F1) and the browser-headers control (F3) both marked closed with
+resolution detail, backlog renumbered. MedBroker_Security_Code_Review_
+Findings.docx NOT regenerated this entry — see the next entry below,
+which does.
+
 SESSION 20 AUG 2026 (CONTINUED) — FAIS HOLD / POPIA ERASURE FEATURE
 BUILT, same session as the architecture/compliance review below (which
 was documentation-only at the time it was written — this entry
@@ -351,6 +528,12 @@ OUTSTANDING (unchanged from CURRENT STATE further up in this file):
       actual client production deployment before go-live — currently
       off by default; DEMO_ENCRYPTION_KEY (unrotated env var) is what's
       actually protecting idNumber until this is switched on.
+   i. Reformat MedBroker-User-Guide.docx and MedBroker-GlobalAdmin-
+      Guide.docx as genuine OOXML .docx files — both are currently
+      plain UTF-8 text saved with a .docx extension (same defect
+      MedBroker_Security_Code_Review_Findings.docx had before it was
+      corrected earlier this session). Not compliance-critical, but a
+      real quality gap now that both are checked into the repo proper.
 
 1. Vercel Pro upgrade — still an open business decision, required
    before commercial launch (higher function-count ceiling, Vercel's

@@ -12,6 +12,25 @@ Read this file alongside Status_Vercel.md — that one has current build
 state and full session history; this one is architecture and standing
 conventions.
 
+PROJECT DOCUMENTS, added 20 Aug 2026: this repo now has a docs/ folder
+holding the formal deliverables that used to live only in project
+knowledge and were never actually part of the codebase — a gap
+discovered when Mark asked to update "the Technical Specification" and
+it turned out no such file had ever reached GitHub.
+  docs/technical/MedBroker_Technical_Specification.docx — architecture,
+    data model (6 diagrams, generated from the live schema, not
+    approximated), security design, POPIA/FAIS compliance.
+  docs/security/MedBroker_Security_Code_Review_Findings.docx — the
+    living security audit record, updated each review session.
+  docs/guides/MedBroker-User-Guide.docx, MedBroker-GlobalAdmin-Guide.docx
+    — end-user and deployment/provisioning references. Known issue,
+    not yet fixed: both are plain UTF-8 text saved with a .docx
+    extension, not real OOXML packages — see Status_Vercel.md's
+    Outstanding item 0i.
+Going forward, any new formal document deliverable belongs in this
+docs/ tree from the point it's first built, not left to live only in
+project knowledge until someone notices it never made it into the repo.
+
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. WHAT THE SYSTEM IS
@@ -895,10 +914,56 @@ EDGE / TRANSPORT
         something this delivery can complete on its own (it's a
         dashboard action against a real Vercel account, not a code
         change) — do this before go-live.
-  ⬜ Browser security headers (CSP, X-Content-Type-Options, Referrer-
-     Policy, Permissions-Policy, HSTS) — vercel.json currently only sets
-     Cache-Control on /assets, nothing else. Configure via vercel.json's
-     headers array.
+  ✅ Browser security headers — CLOSED 20 Aug 2026 (F3, security audit).
+     vercel.json now sets CSP, HSTS, X-Content-Type-Options, X-Frame-
+     Options, Referrer-Policy, and Permissions-Policy on every route
+     (a second headers-array entry, source "/(.*)", alongside the
+     existing /assets Cache-Control rule — both apply cumulatively on
+     asset responses, which is harmless).
+       - style-src deliberately includes 'unsafe-inline': this app
+         styles almost entirely via React's inline style={{}} prop —
+         thousands of call sites, not a few. A strict style-src without
+         this breaks the UI's appearance immediately; there's no build-
+         time CSP-nonce injection in this Vite setup to do it properly,
+         so this is a documented, deliberate trade-off, not an
+         oversight to "fix later."
+       - script-src is 'self' only, and dist/index.html was checked
+         directly (not assumed) before writing this: one same-origin
+         module script, one same-origin stylesheet, zero inline
+         <script> blocks. Lazy-loaded route chunks (AppAdmin, Reports,
+         etc.) are same-origin dynamic imports, governed by script-src
+         same as the entry bundle — no separate allowance needed.
+       - frame-src/frame-ancestors are both 'none'. Checked both
+         external-navigation paths this could plausibly affect before
+         locking that down:
+           · Paystack/Stripe checkout — AppointmentList.jsx does
+             `window.location.href = url`, a full top-level page
+             redirect, not a form POST or an iframe. No CSP directive
+             restricts top-level navigation, so neither provider's
+             domain needs to appear anywhere in this policy.
+           · Entra SSO — msalAuth.js calls loginPopup() (a genuine
+             popup window via window.open, not an iframe), and this
+             codebase has no acquireTokenSilent / hidden-iframe silent-
+             refresh call anywhere — grepped for it, found none. CSP's
+             frame-src does not govern window.open() popups at all, so
+             frame-src 'none' does not block the SSO login flow.
+             Flagged regardless: this reasoning wasn't exercised
+             against a real Entra tenant in the build sandbox — smoke-
+             test the actual login popup once this is live before
+             fully trusting it.
+       - Permissions-Policy disables camera/microphone/geolocation/
+         payment/usb/magnetometer/gyroscope, none of which this app
+         uses, plus interest-cohort (opts out of FLoC/Topics — a small,
+         free, POPIA-aligned privacy gesture, not a functional
+         requirement).
+       - HSTS is max-age=31536000; includeSubDomains, WITHOUT preload.
+         Preload submission is a much harder-to-reverse commitment on
+         the customer's actual domain (removal from browsers' built-in
+         preload lists can take months) — deliberately left as a
+         separate decision for whoever owns the production domain, not
+         defaulted on here.
+     See MedBroker_Security_Code_Review_Findings.docx for the original
+     finding this closes.
   ✅ HTTPS — Vercel auto-provisions TLS for every deployment; nothing to
      configure.
 
@@ -1144,10 +1209,13 @@ STILL OPEN, logged as follow-ups rather than built this session:
     on this one point specifically. Correct it the next time that
     document is touched, rather than treating the gap as still real.
 
-GAP 2 — FIELD-LEVEL ENCRYPTION SCOPED TO idNumber ONLY.
-  Carried forward from the Jun 2026 code review (finding E4,
-  MedBroker_Security_Code_Review_Findings.docx) — confirmed unchanged
-  by reading encryption.js directly this session. idNumberEncrypted/
+GAP 2 — FIELD-LEVEL ENCRYPTION SCOPED TO idNumber ONLY. CLOSED 20 Aug
+2026 (F1, security audit) — description below is the original finding,
+kept intact for the record; resolution follows it.
+
+  Originally found: carried forward from the Jun 2026 code review
+  (finding E4, MedBroker_Security_Code_Review_Findings.docx) — confirmed
+  unchanged by reading encryption.js directly this session. idNumberEncrypted/
   idNumberHash use genuinely solid envelope encryption (AES-256-GCM,
   random per-value data key, KMS- or DEMO_ENCRYPTION_KEY-wrapped,
   format-versioned for clean key-scheme migration) — this is not the
@@ -1162,13 +1230,43 @@ GAP 2 — FIELD-LEVEL ENCRYPTION SCOPED TO idNumber ONLY.
   foothold, reads the table," which is the more realistic exposure for
   a hosted Postgres deployment and the actual reason idNumber got
   field-level treatment in the first place.
-  RECOMMENDATION: extend field-level encryption to the health/insurance
-  fields at minimum (medicalAid, medicalAidProvider, existingCover,
-  currentInsurer, policies) — closest to s26 and to FAIS advice-record
-  sensitivity. dateOfBirth/contact fields are lower priority: genuinely
-  useful in plaintext for search/matching, less damaging in isolation.
-  This is a Mark decision to make explicitly, not a default to drift
-  into — matches finding E4's own original framing.
+
+  FIXED, 20 Aug 2026 — Mark's decision: extend field-level encryption to
+  exactly the five fields recommended (medicalAid, medicalAidProvider,
+  existingCover, currentInsurer, policies), not dateOfBirth/contact
+  fields (kept plaintext deliberately — genuinely useful for search/
+  matching, lower risk in isolation). Migration 036 adds five
+  *Encrypted columns; the five old plaintext columns are kept, not
+  dropped, same "deprecated, unused going forward" treatment as Lead.
+  portfolioId elsewhere in this schema. encryption.js gained two small
+  wrappers (encryptBoolean/decryptBoolean) since medicalAid/
+  existingCover are booleans and there's no encrypted-boolean column
+  type — encrypted as 'true'/'false' text, parsed back on decrypt.
+  Every read/write path updated: createLead(), updateLead(), getLeadById()
+  (leadService.js), the Lead-join query in getAppointmentById()
+  (appointmentService.js), compileSubjectData() (sarService.js), and the
+  bulk export (dataExportService.js) — all decrypt for their existing
+  legitimate use, none newly masked (unlike idNumber's export masking —
+  these five don't carry idNumber's unique-identifier correlation risk,
+  and F1 closes an at-rest encryption gap, not an export-policy
+  question). listLeads() DROPS these fields entirely rather than
+  decrypting them — checked LeadList.jsx first: it never rendered them,
+  so decrypting per-row on every list page load would have been pure
+  cost with no UI benefit. scripts/backfill-encrypt-lead-fields.js
+  migrates any pre-existing plaintext data into the new columns; not
+  run automatically, see that script's own header for why and how.
+
+  DISCOVERED WHILE BUILDING THIS, NOT RELATED TO F1 ITSELF: Lead.
+  currentInsurer had a working input on LeadDetail.jsx that sent a
+  value on every save, but the field was never in CreateLeadShape
+  (models/lead.js) at all — Zod silently stripped it before the request
+  ever reached the service layer, so it never actually persisted, on
+  any Lead, ever. Not a regression from this session's work; a
+  pre-existing gap this work happened to touch every call site needed
+  to fix (same shape of finding as the FLAG_META gap and the
+  LeadUpdated audit-gate gap earlier in this project's history). Fixed
+  as part of this change, since encrypting a field that couldn't be
+  saved in the first place would have made no functional sense.
 
 GAP 3 — BROWSER SECURITY HEADERS (repeated from the control list above
 for POPIA s19 "appropriate technical measures" framing specifically).
@@ -1191,10 +1289,12 @@ framing as the ⬜ list above):
      a new requestType (Access | Deletion) on the SAR workflow. The
      scheduled purge-after-retention-window job remains open — see Gap
      1's "STILL OPEN" note above.
-  2. Decide and implement field-level encryption scope beyond idNumber
-     (Gap 2) — Mark's decision, recommend the five health/insurance
-     fields listed above as the minimum bar.
-  3. vercel.json security headers (Gap 3).
+  2. CLOSED 20 Aug 2026 — field-level encryption extended to
+     medicalAid/medicalAidProvider/existingCover/currentInsurer/policies
+     (Gap 2/F1), migration 036. Full detail in Gap 2 above, including
+     the pre-existing currentInsurer save bug fixed alongside it.
+  3. CLOSED 20 Aug 2026 — vercel.json security headers (Gap 3/F3). Full
+     detail in the SECURITY POSTURE control list above.
   4. Confirm Neon's provisioning region; complete the cross-border
      transfer assessment if it isn't South Africa.
   5. Operator agreements: Vercel, Neon, Paystack, SMTP provider.

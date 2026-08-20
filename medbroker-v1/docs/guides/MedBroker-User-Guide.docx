@@ -1,0 +1,394 @@
+**MedBroker**
+
+**User Guide**
+
+*Agent, Broker, Supervisor **&** Administrator Reference*
+
+Author: Mark du Toit
+
+Date: 31 July 2026
+
+Version 0.1 — Draft
+
+# Document Control
+
+| **Field** | **Value** |
+| --- | --- |
+| Version | 0.1 |
+| Status | Draft |
+| Author | Mark du Toit |
+| Date | 31 July 2026 |
+| Reviewers | — |
+| Approved by | — |
+
+This guide covers the Agent, Broker, Supervisor, and Administrator roles in MedBroker.
+
+# Table of Contents
+
+	Document Control	2
+
+	Table of Contents	3
+
+	1. Introduction	4
+
+	1.1 Logging In	4
+
+	1.2 Finding Your Way Around	4
+
+	2. Common Tasks — Every Role	5
+
+	2.1 Notifications	5
+
+	2.2 Settings	5
+
+	3. Agent Guide	6
+
+	3.1 Your Leads List	6
+
+	3.2 Working a Lead	6
+
+	3.3 Booking an Appointment	6
+
+	3.4 Tasks	7
+
+	3.5 Your Reports	7
+
+	4. Broker Guide	8
+
+	4.1 Your Appointments	8
+
+	4.2 Recording an Appointment Outcome	8
+
+	4.3 Tasks	9
+
+	4.4 Your Reports	9
+
+	5. Supervisor Guide	10
+
+	5.1 Team Visibility	10
+
+	5.2 Reassigning Work	10
+
+	5.3 Team Reports	10
+
+	6. Administrator Guide	11
+
+	6.1 User Admin	11
+
+	6.2 App Admin	11
+
+	6.3 Importing Leads	12
+
+	6.4 Events	12
+
+	6.5 Reports	12
+
+	6.6 Settings & Security	12
+
+	6.7 Single Sign-On	13
+
+	Appendix A: Notification Types	14
+
+	Appendix B: Task Types	14
+
+# 1. Introduction
+
+MedBroker is a lead management and broker-matching platform built for South African medical insurance brokerages. Leads are worked through a call pipeline by Agents, converted into appointments, matched to Brokers, and tracked through to a recorded outcome — all while maintaining the record-keeping expected under the FAIS Act and POPIA.
+
+This guide covers the four roles a member of your organisation may hold in MedBroker: Agent, Broker, Supervisor, and Administrator. A fifth role, GlobalAdmin, exists purely for system configuration and is never assigned to a member of your organisation — it is covered in a separate, internal-use guide.
+
+## 1.1 Logging In
+
+MedBroker uses a username (your email address) and password. Your Administrator will create your account and provide you with a temporary password.
+
+- Go to the MedBroker login page and enter your email address and temporary password.
+
+- On first login, you will be required to set your own password before you can continue. This is a security requirement and applies to every new account.
+
+- Choose a password of at least twelve characters, including a mix of uppercase and lowercase letters, a digit, and a symbol.
+
+| **NOTE:** Your organisation’s Administrator can configure how often you are asked to change your password (e.g. every 90 days), and may prevent you from reusing a password you have already used earlier in the same calendar year. If you are ever prompted to change your password unexpectedly, this is why. |
+| --- |
+
+## 1.2 Finding Your Way Around
+
+The left-hand sidebar is your main navigation. What you see there depends on your role:
+
+| **Sidebar Item** | **Agent** | **Broker** | **Supervisor** | **Administrator** |
+| --- | --- | --- | --- | --- |
+| Leads | Yes | No | Yes (team) | Yes (all) |
+| Appointments | No | Yes | Yes (team) | Yes (all) |
+| Events | If enabled | If enabled | If enabled | If enabled |
+| Notifications | Yes | Yes | Yes | Yes |
+| Tasks | If enabled | If enabled | If enabled | If enabled |
+| Reports | Own performance | Own performance | Team | Organisation-wide |
+| Settings | Yes | Yes | Yes | Yes |
+| User and  App Admin | No | No | No | Yes |
+
+*"Events" and "Tasks" only appear if your Administrator has switched them on for your organisation.*
+
+# 2. Common Tasks — Every Role
+
+## 2.1 Notifications
+
+The Notifications page shows a running list of things relevant to you: a lead assigned to you, an appointment you have been assigned to, a same-day appointment reminder, a callback due today, or a lead that has been automatically returned to the unassigned pool due to inactivity. Unread notifications are marked; you can mark an individual notification as read, or mark all as read at once. A badge on the Notifications sidebar item shows your current unread count.
+
+## 2.2 Settings
+
+### 2.2.1 Appearance
+
+MedBroker offers four visual themes. Choose one under Settings → Appearance; it applies immediately and is remembered the next time you log in.
+
+### 2.2.2 Your Profile
+
+Update your display name, avatar colour, and timezone under Settings → Profile. Your email address is shown but cannot be changed here — contact your Administrator if it needs to change.
+
+### 2.2.3 Changing Your Password
+
+Under Settings → Security, select "Change password". You will need to enter your current password along with the new one.
+
+# 3. Agent Guide
+
+As an Agent, your work centres on the Leads list: contacting leads assigned to you, recording the outcome of each call, and booking appointments when a lead is ready to move forward.
+
+## 3.1 Your Leads List
+
+The Leads page shows every lead assigned to you. Each lead moves through a pipeline as you work it:
+
+| **Status** | **Meaning** |
+| --- | --- |
+| Unassigned | Not yet assigned to an Agent. |
+| Assigned | Assigned to you, not yet contacted. |
+| In Progress | You have made at least one call attempt. |
+| Appointment Scheduled | An appointment has been booked for this lead. |
+| Closed | The lead has been closed out (won or lost, recorded at appointment stage). |
+
+*You can search and filter the list, and use the column headers to sort — for example, by name or by how long a lead has been sitting unworked.*
+
+An occupation filter may also appear above the list — this is a feature that may or may not be switched on for your organisation.
+
+## 3.2 Working a Lead
+
+- Open a lead to see its full detail: contact information, occupation, any linked medical aid or portfolio interest, and its full call history.
+
+- From the lead’s detail page, select "Log Call Attempt".
+
+- Choose the outcome that matches the call:
+
+| **Outcome** | **When to use it** |
+| --- | --- |
+| No Answer | The lead did not answer. |
+| Voicemail | You left a voicemail. |
+| Wrong Number | The number on file is incorrect. |
+| Callback Requested | The lead asked to be called back at a specific date and time. |
+| Client Contacted | You spoke to the lead but there is no appointment or decision yet. |
+| Not Interested | The lead has declined. |
+| Appointment Scheduled | The lead is ready to book — this outcome opens the appointment booking flow. |
+
+- If you chose "Callback Requested", enter the date and time the lead asked to be called back. A reminder task will automatically appear on your Tasks list, and you will receive a same-day notification when the callback is due.
+
+- Add any relevant notes, then save the call attempt. It is added to the lead’s permanent call history.
+
+## 3.3 Booking an Appointment
+
+When a lead is ready to move forward, log a call attempt with the outcome "Appointment Scheduled". This opens the broker matching screen.
+
+- MedBroker suggests Brokers based on region and the products the lead is interested in.
+
+- Select a Broker and confirm the appointment date and time.
+
+- The lead moves to "Appointment Scheduled" status, and the selected Broker receives a notification.
+
+| **NOTE:** A lead can accumulate more than one appointment over time — for example, if a first appointment falls through and the lead is reopened. Every past appointment for a lead remains visible in that lead’s Appointment History. |
+| --- |
+
+## 3.4 Tasks
+
+Tasks is a feature that may or may not be switched on for your organisation. When it is, your Tasks list shows callback reminders generated automatically from the callbacks you have booked, alongside anything a Supervisor or Administrator has assigned to you directly. Tick a task off once it is done.
+
+## 3.5 Your Reports
+
+The Reports page shows your own call activity and conversion performance — calls logged, appointments booked, and how your pipeline is progressing.
+
+A detailed drill-down view of your own activity may also be available from this page — this is a feature that may or may not be switched on for your organisation.
+
+# 4. Broker Guide
+
+As a Broker, your work centres on the Appointments list: attending meetings with leads, and recording the outcome of each appointment.
+
+## 4.1 Your Appointments
+
+How appointments reach you depends on how your organisation has configured MedBroker:
+
+- Assign model — an Administrator or Supervisor assigns you directly to an appointment. It appears on your list and you receive a notification.
+
+- Claim model — appointments appear in an "Available to Claim" queue, and you select the ones you want. Once claimed, an appointment is yours immediately — no approval step.
+
+In the claim model, your organisation may also use a token system: Brokers receive a monthly free allocation of appointment claims (set by your Administrator), and additional tokens can be purchased if that allocation runs out. Ask your Administrator whether token top-ups are self-service for you or handled on request — this depends on how your organisation has configured payment for token top-ups.
+
+An appointment moves through these statuses:
+
+| **Status** | **Meaning** |
+| --- | --- |
+| Unassigned/Assigned | Waiting for or assigned to a Broker. |
+| In Progress | The first meeting has taken place but the appointment has not yet been concluded. |
+| Closed Won | The appointment concluded with the customer signing. |
+| Closed Lost | The appointment concluded without a sale. |
+
+| **NOTE: **You will only receive a same-day reminder notification for an appointment that is still in Assigned status on the day it is due — this is intentional, so reminders only fire for meetings that genuinely still need to happen. |
+| --- |
+
+## 4.2 Recording an Appointment Outcome
+
+Open an appointment to record what happened at the meeting.
+
+- Mark the meeting as Seen, Rescheduled, or Cancelled.
+
+- If Rescheduled, a task is automatically created to remind you of the new date. The appointment can have more than one meeting recorded against it over time.
+
+- Once the appointment reaches a conclusion, record whether the customer signed, and which products were sold.
+
+Save the outcome. The appointment moves to Closed Won or Closed Lost accordingly, and this is reflected immediately in your own performance reports and your Supervisor’s team reports.
+
+| **Note** Some organisations allow a third meeting on an appointment, for sales processes that need more than two sit-downs before a decision. This is a feature that may or may not be switched on for your organisation — where it is, a third meeting section appears on the appointment automatically once needed, using the same process described above. |
+| --- |
+
+## 4.3 Tasks
+
+Tasks is a feature that may or may not be switched on for your organisation. When it is, your Tasks list automatically shows a reminder whenever a meeting you are attending is marked Rescheduled, and an outcome-recording reminder once a meeting has been marked Seen but the appointment has not yet been closed out.
+
+## 4.4 Your Reports
+
+The Reports page shows your own appointment activity — meetings held, conversion rate, and products sold.
+
+A detailed drill-down view of your own activity may also be available from this page — this is a feature that may or may not be switched on for your organisation.
+
+# 5. Supervisor Guide
+
+As a Supervisor, you see everything your direct reports see, plus your own — Leads, Appointments, and Tasks are automatically scoped to you and your team. You do not need to be added to each team member individually; this is based on who reports to you in User Admin.
+
+## 5.1 Team Visibility
+
+- Leads and Appointments lists show every record assigned to you or to one of your direct reports.
+
+- Tasks shows every task assigned to you or a direct report, plus any task you have personally created — even one assigned to someone outside your direct reporting line, if you have ever created one. A "Created by me" filter lets you narrow the list to only your own creations.
+
+- Reports shows your team’s combined performance, not just your own.
+
+## 5.2 Reassigning Work
+
+From a Lead or Appointment’s detail page, you can reassign it to a different Agent or Broker within your organisation. This is useful when a team member is out, or when rebalancing workload.
+
+## 5.3 Team Reports
+
+The Reports page gives you a team-level view: pipeline status across all your team’s leads, and broker activity across your team’s appointments.
+
+# 6. Administrator Guide
+
+As an Administrator, you see and manage the whole organisation: every lead and appointment, all users, portfolio and product configuration, system-wide settings, and the compliance audit trail.
+
+## 6.1 User Admin
+
+User Admin (sidebar → User Admin) is where you create and manage accounts.
+
+- Select "Add User" and complete the required fields: name, email, role, region, and portfolio.
+
+- For an Agent or Broker, assign a Supervisor if applicable.
+
+- Set an initial password, or leave it blank if the account will use single sign-on (not available in this deployment — see Section 6.7).
+
+- Save. The new user is required to set their own password the first time they log in, regardless of who set the initial one.
+
+The user list can be sorted by clicking any column header — Name, Email, Role, Region, Supervisor, or Status — and defaults to alphabetical order by name. Click a column a second time to reverse the sort order.
+
+## 6.2 App Admin
+
+App Admin (sidebar → App Admin) has five tabs.
+
+### 6.2.1 Portfolios & Products
+
+View the portfolios (Discovery; Money and Medicine) and their associated products. These are fixed to match your organisation’s licensing and are not user-editable.
+
+### 6.2.2 Medical Subscriptions
+
+Lists the external lead-source subscriptions your organisation has configured. This is a reference list only in the current release.
+
+### 6.2.3 System Settings
+
+Organisation-wide configuration, effective immediately on save:
+
+| **Setting** | **Controls** |
+| --- | --- |
+| Max call attempts | How many logged call attempts before a lead is flagged for review. |
+| Lead auto-return period | How many months of inactivity before an unworked lead is automatically returned to the unassigned pool. |
+| Broker free appointments / month | Used where the token/claim economy is active. |
+| Password rotation | How often (30 / 60 / 90 / 180 days, or a custom value, or never) a user is prompted to set a new password. |
+| Account lockout | How many failed login attempts lock an account. A locked account must be unlocked by an Administrator. |
+| Prevent password reuse | When switched on, a user cannot reuse a password they have already used earlier in the same calendar year. |
+
+### 6.2.4 Audit Log
+
+An immutable, organisation-wide record of significant actions — lead and appointment changes, user creation, feature flag changes, and more — kept for FAIS Act and POPIA compliance. Entries cannot be edited or deleted by any user.
+
+- Filter by date range, entity type, action, or the person who performed it.
+
+- Export the currently filtered view to CSV or JSON using the buttons above the table — useful for compliance reporting or handing records to an auditor.
+
+## 6.3 Importing Leads
+
+From the Leads page, select "Import Leads" to bring in a batch of leads from a file.
+
+| **Note** Lead importing is a feature that may or may not be switched on for your organisation — where it is off, the "Import Leads" button described here will not appear. A separate "Medical Subscription" tab may also appear alongside CSV/Excel/JSON import on this page; it lists connected external lead sources but does not yet run an automatic import from them. |
+| --- |
+
+- Choose a CSV, Excel (.xlsx), or JSON file. Required columns: title, first name, last name, date of birth, occupation, mobile number, and email.
+
+- MedBroker checks every row against existing leads by email and ID number, and shows you how many are new versus how many already exist before anything is imported.
+
+- Give the batch a source name, then confirm the import. Duplicates are skipped automatically — they are never created twice.
+
+Leads can also be entered one at a time via the "Manual Entry" tab on the same page.
+
+## 6.4 Events
+
+Events is a feature that may or may not be switched on for your organisation. When it is, Administrators and Supervisors can create marketing or information events and track attendance.
+
+- Create an event with a name, date, and location.
+
+- MedBroker generates two separate QR codes for the event: one for prospects to self-register their interest ahead of time, and a second, different code used purely for checking people in on the day. The two are not interchangeable.
+
+- On the day, a walk-in who never pre-registered can still be checked in on the spot — a MedBroker account is not required for a prospect to register or check in.
+
+## 6.5 Reports
+
+The Reports page gives you full visibility across the organisation: pipeline status across every lead, and broker activity across every appointment, with no team or individual scoping applied.
+
+## 6.6 Settings & Security
+
+Administrators have access to the same Settings page described in Section 2, plus the ability to reset another user’s account from User Admin.
+
+## 6.7 Single Sign-On
+
+The Single Sign-On page confirms that your organisation signs in with a MedBroker email address and password, as described in Section 1.1. No further setup or action is needed here.
+
+# Appendix A: Notification Types
+
+| **Notification** | **When it fires** | **Sent to** |
+| --- | --- | --- |
+| Lead Assigned | A lead is assigned to an Agent. | The Agent |
+| Appointment Assigned | A Broker is assigned to an appointment. | The Broker |
+| Appointment Reminder | The morning of an appointment date. | The Broker |
+| Callback Reminder | The morning a booked callback is due. | The Agent |
+| Lead Auto-Returned | A lead is automatically returned to the unassigned pool after prolonged inactivity. | The Agent it was taken from |
+
+# Appendix B: Task Types
+
+| **Task type** | **Created when** |
+| --- | --- |
+| Callback | A call is logged with the "Callback Requested" outcome. |
+| Appointment | An appointment is booked with a Broker already assigned. |
+| Reschedule | A meeting is marked "Rescheduled". |
+| Outcome | A meeting is marked "Seen" but the appointment has not yet been closed out. |
+| Manual | Created directly by an Administrator or Supervisor. |
+
+	MedBroker User Guide	v0.1 | Draft | Page 1 of 2

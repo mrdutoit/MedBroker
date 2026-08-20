@@ -1,0 +1,168 @@
+**MedBroker**
+
+**GlobalAdmin ****&**** System Configuration Guide**
+
+**INTERNAL USE ONLY — Not for Customer Distribution**
+
+Author: Mark du Toit
+
+Date: 31 July 2026
+
+Version 0.1 — Draft
+
+# Document Control
+
+| **Field** | **Value** |
+| --- | --- |
+| Version | 0.1 |
+| Status | Draft — Internal |
+| Author | Mark du Toit |
+| Date | 31 July 2026 |
+| Distribution | Internal delivery team only — do not send to customers |
+
+This guide covers the GlobalAdmin role and deployment-level configuration tasks that no in-app role can perform — MedBroker’s GlobalAdmin role is internal-staff-only and is never assigned to a customer user. Day-to-day functionality for Agent, Broker, Supervisor, and Administrator is covered separately in the MedBroker User Guide, which is safe to hand to a customer.
+
+# Table of Contents
+
+# 1. Introduction
+
+GlobalAdmin is a role that exists purely for system configuration across MedBroker deployments. It is never assigned to a customer user, and a customer’s own Administrator cannot see or reach the pages this guide describes. This document is for the internal delivery team, or a technically-authorised customer IT contact if one has been explicitly given deployment-level access.
+
+Two distinct things are covered here, and they require different levels of access:
+
+- The Feature Flags page — reachable inside MedBroker itself, by anyone holding the GlobalAdmin role.
+
+- Deployment-level configuration (environment variables, the email provider) — not reachable from within MedBroker at all, regardless of role. This requires access to the Vercel project the deployment runs on.
+
+# 2. Feature Flags
+
+The Feature Flags page (sidebar → Feature Flags, GlobalAdmin only) controls which parts of MedBroker are switched on for a given deployment. Changes take effect immediately, with no redeployment required.
+
+## 2.1 Flag Tiers
+
+| **Tier** | **Meaning** |
+| --- | --- |
+| Core | Fundamental to how the deployment behaves — typically set once during onboarding and rarely changed afterwards. |
+| Operational | Safe to change at any time as the customer’s needs evolve. |
+| Phase2 | Not yet built. Toggling these has no effect — they exist as a visible roadmap marker, not a working switch. |
+
+## 2.2 Flag Reference
+
+| **Flag** | **Tier** | **What it controls** |
+| --- | --- | --- |
+| auth.sso.enabled | Core | Single sign-on. Off by default — MedBroker uses local email/password authentication unless a customer’s deployment has SSO specifically built and configured. |
+| auth.sso.provider | Core | Which SSO provider, only relevant when auth.sso.enabled is on. |
+| appointments.claimModel | Core | "assign" (Admin/Supervisor assigns brokers) or "claim" (brokers self-select from a queue). Selecting "claim" also activates the token economy. |
+| appointments.tokens.paymentProvider | Core | Only relevant when claimModel is "claim". "none" means an Admin manually tops up broker tokens; "stripe" is not yet wired to a live payment provider. |
+| events.enabled | Core | Shows the Events section. Switch off for a customer who does not run events. |
+| leads.autoUnassign.enabled | Core | On by default. Automatically returns inactive leads to the unassigned pool after the period set in System Settings. |
+| tasks.enabled | Core | Off by default. Switches on the Tasks page and automatic task generation. |
+| leads.importCsv.enabled | Operational | Shows the CSV/Excel/JSON import tab on Lead Import. |
+| leads.importSubscription.enabled | Operational | Shows the Medical Subscription import tab — this channel is a visual placeholder only; it has no working backend yet. |
+| leads.occupationFilter.enabled | Operational | Shows the occupation filter dropdown on the Leads list. |
+| reports.agentDetail.enabled | Operational | Enables the individual agent drill-down report. |
+| reports.brokerDetail.enabled | Operational | Enables the individual broker drill-down report. |
+| notifications.email.enabled | Operational | Off by default. Dispatches email notifications alongside in-app ones — see Section 4 for the full setup this actually requires. |
+| appointments.thirdMeeting.enabled | Operational | Off by default. Shows a third-meeting section on Appointment Detail, for organisations whose sales process sometimes needs more than two meetings. |
+| broker.tokenIncentives.enabled | Phase2 | Not built. Roadmap marker only. |
+| popia.subjectAccessRequest.enabled | Phase2 | Not built. Roadmap marker only. |
+
+| **Note** The flag reference above reflects the state of this deployment as at the date of this document. If a flag has since been built out, added, or removed, this table may be out of date — check the Status_Vercel.md project tracking document for the current, authoritative state before relying on this table for a live deployment decision. |
+| --- |
+
+# 3. Environment Variables
+
+MedBroker’s configuration lives entirely in Vercel project environment variables, never committed to the code repository. Set these under the Vercel project → Settings → Environment Variables. Every one of these is read from a single, authoritative file in the codebase (api-lib/config.js), so this table should always match reality — but if in doubt, that file is the source of truth, not this document.
+
+## 3.1 Required — the Application Will Not Function Without These
+
+| **Variable** | **Purpose** |
+| --- | --- |
+| DATABASE_URL | Neon Postgres connection string. The application fails to start without this. |
+| JWT_SIGNING_SECRET | Signs staff login tokens. Without this, no one can log in. |
+| PORTAL_JWT_SIGNING_SECRET | Signs Lead Portal (public self-registration) tokens. Deliberately a separate secret from JWT_SIGNING_SECRET above — never reuse the same value for both. |
+
+## 3.2 Required for Specific Features
+
+| **Variable** | **Purpose** |
+| --- | --- |
+| CRON_SECRET | Authenticates Vercel’s daily scheduled job (appointment reminders, callback reminders, lead auto-return). Without this set, those three notification types silently never fire — nothing breaks, they simply never run. |
+| SMTP_HOST / SMTP_PORT / SMTP_USER / SMTP_PASSWORD / SMTP_FROM | Email notifications. See Section 4 for the full setup walkthrough. |
+| DEMO_ENCRYPTION_KEY | Field-level encryption key for special personal information (e.g. ID numbers). Required before any real customer data is entered. |
+| ID_NUMBER_INDEX_KEY | Enables exact-match lookup on encrypted ID numbers without decrypting every row. Required alongside DEMO_ENCRYPTION_KEY. |
+| BOOTSTRAP_SECRET | One-time secret gating the initial GlobalAdmin account creation endpoint. Needed only once, when a deployment is first stood up. |
+
+## 3.3 Optional
+
+| **Variable** | **Purpose** |
+| --- | --- |
+| ORG_ID | Overrides the default organisation id. Only relevant if multi-tenancy is ever activated — leave unset for a standard single-tenant deployment. |
+| CALENDLY_API_TOKEN / CALENDLY_BASE_URL | Live Calendly availability for broker matching. Broker matching works correctly without this — it simply ranks brokers by fewest upcoming appointments instead of live slot confirmation. |
+| MAX_CALL_ATTEMPTS | Fallback default if System Settings has never been saved. In practice, always overridden by the real value in System Settings once an Admin has saved it once. |
+| FRONTEND_ORIGIN | Used for CORS. Defaults to a local development URL — set this to the deployment’s real domain in production. |
+
+# 4. Setting Up Email Notifications
+
+Email notifications are built on standard SMTP, deliberately — not any provider’s proprietary API. This means the steps below use Resend as the email provider (a generous free tier, well-suited to getting a deployment working quickly), but any SMTP-capable provider works identically: a customer’s own mail server, or Microsoft 365 via SMTP AUTH client submission. Switching providers later is purely a configuration change — repeat Section 4.1 with a different provider’s details, nothing in MedBroker itself needs to change.
+
+## 4.1 Create a Resend Account and Verify a Domain
+
+**1. **Go to resend.com and create an account.
+
+**2. **Under Domains, add the domain you want notification emails to be sent from (e.g. notifications.customerdomain.co.za — a subdomain is often simplest, so it doesn’t interfere with the customer’s main mail flow).
+
+**3. **Resend will provide DNS records (typically SPF, DKIM, and sometimes a tracking CNAME) to add at the domain’s DNS provider. Add these and wait for Resend to confirm the domain as verified — this can take anywhere from a few minutes to a few hours depending on DNS propagation.
+
+| **Note** Do not proceed to send real notifications until the domain shows as fully verified in Resend. Sending from an unverified domain is likely to be rejected or land in spam. |
+| --- |
+
+## 4.2 Get SMTP Credentials
+
+**1. **In Resend, go to Settings → SMTP.
+
+**2. **Note the host and port shown (typically smtp.resend.com, port 587).
+
+**3. **Generate an API key if you don’t already have one — this is used as the SMTP password. Copy it immediately; Resend will not show it again.
+
+## 4.3 Set Environment Variables in Vercel
+
+In the Vercel project → Settings → Environment Variables, add each of the following. Apply them to the Production environment (and Preview, if notification testing is needed there too).
+
+| **Variable** | **Value** |
+| --- | --- |
+| SMTP_HOST | smtp.resend.com |
+| SMTP_PORT | 587 |
+| SMTP_USER | resend — literally the word "resend", not an email address |
+| SMTP_PASSWORD | The API key generated in Section 4.2 |
+| SMTP_FROM | An address on the domain verified in Section 4.1, e.g. notifications@notifications.customerdomain.co.za |
+
+**1. **After adding all five, trigger a new deployment (Vercel → Deployments → Redeploy) so the running application picks up the new environment variables — they do not apply retroactively to an already-running deployment.
+
+## 4.4 Switch On the Feature Flag
+
+**1. **Log in to MedBroker as GlobalAdmin.
+
+**2. **Go to Feature Flags and switch notifications.email.enabled to on.
+
+This takes effect immediately — no further redeployment needed for this step specifically.
+
+## 4.5 Test It
+
+**1. **Trigger any real notification — for example, assign a lead to an Agent, or wait for the next scheduled reminder run.
+
+**2. **Confirm the recipient receives both the in-app notification and the email.
+
+**3. **If the email does not arrive, check Resend’s own dashboard (Logs) first — a rejected or bounced send will show there with a reason. Confirm the environment variables were actually applied by checking Vercel’s deployment logs for the deployment that ran after Section 4.3, step 4.
+
+| **Note** A missing or incorrect SMTP configuration never breaks the in-app notification — by design, email sending is wrapped so a failure there can never prevent the underlying notification from being created. If in-app notifications are working but email is not, the fault is isolated to the SMTP configuration specifically, not the notification system as a whole. |
+| --- |
+
+## 4.6 Switching Providers Later
+
+If a customer wants notification email routed through their own mail server or Microsoft 365 instead of Resend, repeat Section 4.3 with that provider’s SMTP details in place of Resend’s. No code change is needed.
+
+- Microsoft 365: SMTP AUTH client submission, typically smtp.office365.com, port 587. Note that Microsoft has been progressively disabling SMTP AUTH by default across tenants — the customer’s IT admin may need to explicitly enable it for the sending mailbox first.
+
+- A customer’s own mail server: use whatever host, port, and credentials their mail administrator provides.
+
+	MedBroker GlobalAdmin Guide — INTERNAL ONLY	v0.1 | Draft | Page  of
