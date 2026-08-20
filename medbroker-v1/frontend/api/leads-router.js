@@ -35,6 +35,7 @@
  *   GET    /api/leads/sar-requests/:id/comments  (§125)
  *   POST   /api/leads/sar-requests/:id/comments  (§125)
  *   GET    /api/leads/sar-requests/:id/audit     (§125)
+ *   POST   /api/leads/sar-requests/:id/execute-deletion (§12a, 20 Aug 2026)
  */
 
 import {
@@ -45,6 +46,7 @@ import {
 import {
   handleSarRequestsCollection, handleSarRequestById, handleSarRequestExport,
   handleSarAssign, handleSarComments, handleSarAuditLog, handleSarAssignableUsers,
+  handleSarExecuteDeletion,
 } from '../api-lib/handlers/sarHandlers.js';
 import {
   handlePortfoliosCollection, handlePortfolioProducts, handlePortfolioById, handleProductById,
@@ -100,6 +102,7 @@ export default async function handler(req, res) {
     if (segments.length === 3 && segments[2] === 'assign') return handleSarAssign(req, res, segments[1]);
     if (segments.length === 3 && segments[2] === 'comments') return handleSarComments(req, res, segments[1]);
     if (segments.length === 3 && segments[2] === 'audit') return handleSarAuditLog(req, res, segments[1]);
+    if (segments.length === 3 && segments[2] === 'execute-deletion') return handleSarExecuteDeletion(req, res, segments[1]);
     return res.status(404).json({ error: 'Not found' });
   }
 

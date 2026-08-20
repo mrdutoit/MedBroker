@@ -401,6 +401,19 @@ CREATE TABLE IF NOT EXISTS Lead (
     createdAt               TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     updatedAt               TIMESTAMPTZ     NOT NULL DEFAULT NOW(),
     deletedAt               TIMESTAMPTZ     NULL,
+    -- Migration 035 (20 Aug 2026) — POPIA erasure / FAIS restrict-and-
+    -- retain. erasedAt: set when eraseLeadPII() has actually anonymised
+    -- this row (deletedAt is also set at that point — an erased Lead is
+    -- always excluded from active views, same mechanism every other
+    -- soft-delete already uses). restrictedAt/retentionExpiresAt: set
+    -- when restrictLead() applies instead, because a live FAIS record-
+    -- keeping obligation still exists (deletedAt is set here too, to
+    -- stop active processing per POPIA s14(6), but PII is left intact
+    -- until retentionExpiresAt lapses). A row is never both erased and
+    -- restricted — see leadService.js's eraseLeadPII()/restrictLead().
+    erasedAt                TIMESTAMPTZ     NULL,
+    restrictedAt            TIMESTAMPTZ     NULL,
+    retentionExpiresAt      TIMESTAMPTZ     NULL,
 
     CONSTRAINT PK_Lead              PRIMARY KEY (id),
     CONSTRAINT FK_Lead_Org          FOREIGN KEY (organisationId)       REFERENCES Organisation(id),
@@ -470,6 +483,13 @@ CREATE INDEX IF NOT EXISTS IX_Lead_LinkedEventId
 
 CREATE INDEX IF NOT EXISTS IX_Lead_Occupation
     ON Lead (occupation) WHERE deletedAt IS NULL;
+
+-- Migration 035 — "which restricted Leads have crossed their FAIS
+-- retention window and are now eligible for erasure" (currently a
+-- manual query; the scheduled purge job is a logged follow-up, not
+-- built this session).
+CREATE INDEX IF NOT EXISTS IX_Lead_RetentionExpiry
+    ON Lead (retentionExpiresAt) WHERE restrictedAt IS NOT NULL AND erasedAt IS NULL;
 
 CREATE INDEX IF NOT EXISTS IX_Lead_AutoUnassign
     ON Lead (autoUnassignAfter)
@@ -927,6 +947,13 @@ CREATE TABLE IF NOT EXISTS SubjectAccessRequest (
     receivedAt     DATE          NOT NULL,
     dueDate        DATE          NULL,
     status         VARCHAR(20)   NOT NULL DEFAULT 'Received',
+    -- Migration 035 (20 Aug 2026) — POPIA distinguishes the right of
+    -- ACCESS (s23) from the right to request destruction/deletion
+    -- (s24(1)(b)) — this table previously modelled access requests only.
+    -- 'Deletion' requests are fulfilled via executeSarDeletion()
+    -- (sarService.js), which erases or restricts the linked Lead
+    -- depending on whether a live FAIS record-keeping obligation exists.
+    requestType    VARCHAR(20)   NOT NULL DEFAULT 'Access',
     notes          VARCHAR(2000) NULL,
     fulfilledAt    TIMESTAMPTZ   NULL,
     fulfilledById  UUID          NULL,
@@ -944,7 +971,8 @@ CREATE TABLE IF NOT EXISTS SubjectAccessRequest (
     CONSTRAINT FK_SubjectAccessRequest_Creator FOREIGN KEY (createdById) REFERENCES "User"(id),
     CONSTRAINT FK_SubjectAccessRequest_Fulfiller FOREIGN KEY (fulfilledById) REFERENCES "User"(id),
     CONSTRAINT FK_SubjectAccessRequest_Assignee FOREIGN KEY (assignedToId) REFERENCES "User"(id),
-    CONSTRAINT CK_SubjectAccessRequest_Status  CHECK (status IN ('Received', 'InProgress', 'Fulfilled', 'Rejected'))
+    CONSTRAINT CK_SubjectAccessRequest_Status  CHECK (status IN ('Received', 'InProgress', 'Fulfilled', 'Rejected')),
+    CONSTRAINT CK_SubjectAccessRequest_RequestType CHECK (requestType IN ('Access', 'Deletion'))
 );
 
 CREATE INDEX IF NOT EXISTS IX_SubjectAccessRequest_Lead ON SubjectAccessRequest (leadId);

@@ -267,6 +267,13 @@ export const sarApi = {
   addComment: (id, body) =>
     request(`/leads/sar-requests/${id}/comments`, { method: 'POST', body: JSON.stringify({ body }) }),
   auditLog: (id) => request(`/leads/sar-requests/${id}/audit`),
+  // §12a (20 Aug 2026) — fulfils a 'Deletion'-type request. Returns
+  // { outcome: 'Erased'|'Restricted', retentionExpiresAt }, not just a
+  // bare success — the caller needs the outcome to show the right
+  // confirmation, same reasoning export()'s filename/blob handling gets
+  // its own care rather than a generic "done" toast.
+  executeDeletion: (id) =>
+    request(`/leads/sar-requests/${id}/execute-deletion`, { method: 'POST' }),
   // §128 — every Admin + GlobalAdmin, for both the create-time and
   // after-the-fact assignment pickers. Deliberately a dedicated
   // endpoint, not usersApi.list({ role: ... }) called twice — see

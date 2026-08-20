@@ -135,6 +135,85 @@ hydration, 18 Aug 2026.
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+SESSION 20 AUG 2026 (CONTINUED) — FAIS HOLD / POPIA ERASURE FEATURE
+BUILT, same session as the architecture/compliance review below (which
+was documentation-only at the time it was written — this entry
+supersedes that "no code touched" framing for the session as a whole,
+not a correction to what was true when it was written). Closes backlog
+item 0a from the review below. Fresh hydration was already in place
+from earlier this session; no re-hydration needed since nothing external
+changed underneath it.
+
+DESIGN DECISION CONFIRMED WITH MARK BEFORE BUILDING: true erasure
+anonymises the Lead row in place rather than a hard/cascading delete —
+preserves referential integrity (CallAttempt/Appointment/Task/AuditLog
+rows pointing at the Lead) and historical reporting counts, which a
+physical DELETE would have silently corrupted. De-identification is an
+explicitly valid alternative to physical deletion under POPIA s14(4),
+not a compromise.
+
+BUILT:
+  - Migration 035 (frontend/db/migrations/035_popia_erasure_and_restriction.sql)
+    — SubjectAccessRequest.requestType (Access|Deletion), Lead.erasedAt/
+    restrictedAt/retentionExpiresAt, a partial index for the future
+    purge query. schema.postgres.sql updated to match.
+  - leadService.js — getLeadRetentionPosition() (FAIS obligation check:
+    live if the Lead has a ClosedWon/ClosedLost Appointment, retention
+    running 5 years from the most recent one; ReturnedToLeads correctly
+    excluded, matching the standing "never counts as Lost" rule),
+    eraseLeadPII() (true erasure — anonymise in place), restrictLead()
+    (restrict-and-retain — deletedAt set, PII left intact).
+  - sarService.js — executeSarDeletion() orchestrates the above,
+    reusing the existing markInProgressOnFirstExport auto-transition and
+    the established single-audit-write convention (§131).
+  - sarHandlers.js / leads-router.js — new POST /api/leads/sar-requests/
+    :id/execute-deletion, Admin/GlobalAdmin gated.
+  - src/services/api.js — sarApi.executeDeletion().
+  - AppAdmin.jsx — request-type toggle on the Data Requests create form,
+    a Type column on the list, and an "Execute Deletion" control on the
+    expanded row for Deletion-type requests (window.confirm-gated,
+    matching every other irreversible action in this app), showing the
+    Erased/Restricted outcome — sourced from the just-returned API
+    result, falling back to the already-loaded audit trail so the
+    outcome still displays correctly after a reload.
+  - AuditLogList.jsx — SarDeletionExecuted formatting, distinguishing
+    the two outcomes in the message text (mirrors the existing
+    LeadAssigned/AppointmentBrokerAssigned pattern).
+
+BUG CAUGHT AND FIXED DURING BUILD, BEFORE DELIVERY — worth naming, same
+"verified delivery over claimed delivery" principle as every other entry
+in this file: migration 035's own idempotency guard for the new CHECK
+constraint compared pg_constraint.conname against the CamelCase spelling
+used in the ADD CONSTRAINT statement. Postgres folds unquoted identifiers
+to lowercase, so that comparison never matched — the guard was silently
+a no-op, and running the migration a second time (the exact real-world
+scenario it exists to protect against) failed on a duplicate constraint.
+Caught by actually running it twice against a real local Postgres 16
+instance, not by re-reading the SQL — the same standing rule
+("Raw SQL in template literals must be verified... AND tested against a
+real Postgres instance") catching a real bug it was written to catch.
+
+VERIFICATION: fresh npm install, clean npm run build, 48/48 vitest (no
+regressions). node --check clean on all five touched backend files.
+ESM import smoke test on all five — confirmed no circular-dependency
+issue from sarService.js's new import of leadService.js (a real risk
+worth checking explicitly, not assumed safe) — failures without
+DATABASE_URL set are pre-existing db.js behaviour, confirmed against an
+untouched file failing identically, not something this delivery
+introduced. Full logic exercise against real Postgres with three seeded
+Leads (no service rendered / ClosedWon 2 years ago / ReturnedToLeads
+only) — every outcome matched the design exactly, including the
+ReturnedToLeads exclusion, which was the trickiest part of the rule.
+Scratch test file removed before packaging, not shipped.
+
+NOT BUILT THIS SESSION, logged as follow-ups: the scheduled purge job
+once a restriction's retentionExpiresAt lapses (currently marks-only);
+CallAttempt/MeetingAttempt free-text redaction (deliberately not
+attempted — see Project_Context_Vercel.md §12a for why). MedBroker_
+Security_Code_Review_Findings.docx's F2/6.4 status is now stale
+(still shows Open) — not regenerated this session, flagged for the next
+one that touches security docs.
+
 SESSION 20 AUG 2026 — ARCHITECTURE/COMPLIANCE/SECURITY REVIEW, DOCUMENTATION
 ONLY, NO CODE TOUCHED. Requested by Mark ahead of the client parking this
 project until Feb 2027 — wants the record straight before the gap.
@@ -247,12 +326,14 @@ OUTSTANDING (unchanged from CURRENT STATE further up in this file):
 0. COMPLIANCE-CRITICAL, added 20 Aug 2026 (full gap analysis in
    Project_Context_Vercel.md §12a) — close before commercial go-live,
    client is picking this project back up Feb 2027:
-   a. Lead erasure/anonymisation capability — deleteLead() is soft-
-      delete only, doesn't destroy PII (POPIA s14(5) gap). Needs both a
-      true-erasure path and a restrict-and-retain path (FAIS's 5-year
-      record-keeping obligation is a lawful retention basis under
-      s14(6)), wired to a new requestType (Access|Deletion) on the
-      existing SAR model.
+   a. CLOSED 20 Aug 2026, same session — Lead erasure/anonymisation
+      capability built: true-erasure and restrict-and-retain paths
+      (leadService.js), orchestrated via a new requestType
+      (Access|Deletion) on the SAR model and executeSarDeletion()
+      (sarService.js). Full detail in the session entry above. Still
+      open as a separate follow-up: the scheduled purge job for a
+      restricted Lead once its retentionExpiresAt actually lapses —
+      see Project_Context_Vercel.md §12a's "STILL OPEN" note.
    b. Field-level encryption scope decision — idNumber only today;
       recommend extending to medicalAid/medicalAidProvider/
       existingCover/currentInsurer/policies (closest to POPIA s26

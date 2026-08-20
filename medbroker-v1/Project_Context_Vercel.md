@@ -1040,10 +1040,14 @@ gaps Mark flagged going in are both confirmed real; a third
 above and is repeated here only because it's genuinely POPIA/FAIS-
 relevant, not edge hygiene for its own sake.
 
-GAP 1 — RIGHT TO ERASURE (POPIA s14(5), s24(1)(b)): SOFT-DELETE ONLY,
-DOES NOT ACTUALLY DESTROY DATA.
-  deleteLead() (leadService.js) sets Lead.deletedAt = NOW() and removes
-  the Lead's incomplete Tasks. Nothing else changes. Every other
+GAP 1 — RIGHT TO ERASURE (POPIA s14(5), s24(1)(b)): CLOSED 20 Aug 2026,
+SAME SESSION, FOR THE MANUAL PATH — SEE BELOW FOR WHAT'S STILL OPEN.
+The description immediately below is the ORIGINAL finding, left intact
+for the record; the fix is documented after it rather than silently
+editing the finding away.
+
+Originally found: deleteLead() (leadService.js) set only Lead.deletedAt = NOW() and removed
+  the Lead's incomplete Tasks. Nothing else changed. Every other
   column — idNumberEncrypted, idNumberHash, dateOfBirth, medicalAid/
   medicalAidProvider/existingCover/currentInsurer/policies, email,
   mobile/whatsapp numbers, university/degree, hospitalOrPractice —
@@ -1078,6 +1082,67 @@ DOES NOT ACTUALLY DESTROY DATA.
       export; the transactional/compliance skeleton (that advice was
       given, when, appointment outcome) kept for the statutory window,
       then purged on schedule.
+
+FIXED, 20 Aug 2026 (same session as this gap analysis — Mark asked for
+it as a companion build before the client parking break): both
+capabilities above are now built, wired to a new SAR requestType
+(Access | Deletion) on the existing POPIA request workflow.
+  - getLeadRetentionPosition() (leadService.js) determines the FAIS
+    position: a Lead with at least one Appointment reaching ClosedWon
+    or ClosedLost has a live obligation, retention running 5 years from
+    the most recent such closedAt. ReturnedToLeads is explicitly
+    excluded — same reasoning as the standing "ReturnedToLeads must
+    never count as Lost" reporting rule; verified directly against a
+    real Postgres instance with a ReturnedToLeads-only Lead to confirm
+    it correctly returns no obligation, not just read from the code.
+  - eraseLeadPII() (leadService.js) — the true-erasure path. Anonymises
+    in place (Mark's explicit choice over a hard/cascading delete —
+    de-identification is an equally valid alternative to physical
+    deletion under s14(4)): every PII/special-PI column nulled or
+    replaced with a placeholder, deletedAt + erasedAt set. Referential
+    integrity and historical reporting counts are preserved by design —
+    nothing about pipelineStatus, assignedAgentId, region, or the
+    CallAttempt/Appointment/Task/AuditLog rows pointing at this Lead is
+    touched.
+  - restrictLead() (leadService.js) — the restrict-and-retain path.
+    Sets deletedAt (stops active processing, reusing the exact
+    "excluded from every active-view query" mechanism every other
+    soft-delete already relies on) + restrictedAt + retentionExpiresAt.
+    PII is deliberately left fully intact — restriction is not early
+    erasure.
+  - executeSarDeletion() (sarService.js) orchestrates both, exposed as
+    POST /api/leads/sar-requests/:id/execute-deletion (Admin/GlobalAdmin,
+    §12a). AppAdmin.jsx's Data Requests tab has a request-type toggle
+    at creation and an "Execute Deletion" control on Deletion-type
+    requests, with a window.confirm gate (matches every other
+    irreversible action in this app) and an outcome banner showing
+    which path was taken.
+  - Migration 035 (frontend/db/migrations/035_popia_erasure_and_restriction.sql)
+    adds SubjectAccessRequest.requestType and Lead.erasedAt/
+    restrictedAt/retentionExpiresAt. Verified idempotent by actually
+    running it twice against a real Postgres instance — the first
+    version's constraint-existence guard compared against the CamelCase
+    constraint name, which Postgres never stores that way (identifiers
+    fold to lowercase unless quoted), so the guard was silently a no-op
+    and the second run failed. Fixed before delivery, not after Mark
+    hit it against Neon.
+
+STILL OPEN, logged as follow-ups rather than built this session:
+  - The scheduled purge once a restricted Lead's retentionExpiresAt
+    actually lapses — today this only marks the row; nothing yet
+    automatically erases it once the FAIS window closes. IX_Lead_
+    RetentionExpiry (migration 035) exists specifically to support this
+    query cheaply once it's built — a cron mirroring the existing
+    notifications/scheduled-tick job is the natural shape.
+  - CallAttempt.notes / MeetingAttempt.notes free text can incidentally
+    contain PII a staff member typed in. Deliberately NOT auto-redacted
+    — the risk of either destroying genuinely useful records or leaving
+    PII behind on a missed pattern is worse than leaving this flagged.
+  - MedBroker_Security_Code_Review_Findings.docx's Section 6 (F2, and
+    the "before go-live" list in 6.4) still shows this as Open/High —
+    that file was not regenerated this session; its text is now stale
+    on this one point specifically. Correct it the next time that
+    document is touched, rather than treating the gap as still real.
 
 GAP 2 — FIELD-LEVEL ENCRYPTION SCOPED TO idNumber ONLY.
   Carried forward from the Jun 2026 code review (finding E4,
@@ -1121,13 +1186,11 @@ breach-notification process, and Information Officer registration.
 BACKLOG — ADD TO Status_Vercel.md OUTSTANDING ITEMS, COMPLIANCE-CRITICAL,
 CLOSE BEFORE COMMERCIAL GO-LIVE (none are live exposure today — same
 framing as the ⬜ list above):
-  1. Lead erasure/anonymisation capability — both the true-erasure and
-     restrict-and-retain paths from Gap 1. Wire to the SAR workflow: a
-     SAR currently models only an access request (SarStatus has no
-     request-type distinction) — needs a requestType field
-     (Access | Deletion) and deletion-specific fulfilment logic that
-     checks the Lead's live FAIS retention position before choosing
-     erase vs. restrict.
+  1. CLOSED 20 Aug 2026 — Lead erasure/anonymisation capability, both
+     the true-erasure and restrict-and-retain paths from Gap 1, wired to
+     a new requestType (Access | Deletion) on the SAR workflow. The
+     scheduled purge-after-retention-window job remains open — see Gap
+     1's "STILL OPEN" note above.
   2. Decide and implement field-level encryption scope beyond idNumber
      (Gap 2) — Mark's decision, recommend the five health/insurance
      fields listed above as the minimum bar.
@@ -1147,6 +1210,23 @@ framing as the ⬜ list above):
      means DEMO_ENCRYPTION_KEY — an unrotated Vercel env var — is what
      actually protects idNumber in practice until this flag is switched
      on and AWS KMS is configured.
+  9. Scheduled purge job for restricted Leads whose retentionExpiresAt
+     has lapsed — currently a manual future action; IX_Lead_
+     RetentionExpiry (migration 035) exists to support it cheaply. Not
+     urgent until the first restricted Lead's five-year window is
+     actually close to running out.
+
+DEFERRED, NOT COMPLIANCE-CRITICAL — revisit only when a live prospect
+requires it, not proactively:
+  10. Cosmetic rebrand (name + logo + login/email copy) and the bigger
+      decision behind it — generalising the Lead data model for non-
+      medical lead-management verticals (custom-fields/vertical-config
+      layer vs. forking per vertical). Both discussed with Mark 20 Aug
+      2026: the rebrand is cheap but pointless in isolation — it only
+      matters alongside making this sellable to a second brokerage or
+      vertical, which is the real, much bigger decision. Do not build
+      either speculatively; revisit when a second vertical is a live
+      prospect, not before.
 
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

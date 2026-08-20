@@ -27,6 +27,7 @@ import { validateToken, requireRole, authErrorResponse } from '../middleware/aut
 import {
   listSarRequests, getSarRequestById, createSarRequest, updateSarStatus, compileSubjectData,
   markInProgressOnFirstExport, assignSarRequest, listSarComments, addSarComment,
+  executeSarDeletion,
 } from '../services/sarService.js';
 import { listSarAssignableUsers } from '../services/userService.js';
 import { writeAuditLog, listAuditLog } from '../services/auditService.js';
@@ -260,6 +261,40 @@ export async function handleSarRequestExport(req, res, id) {
       return res.status(status).json(body);
     }
     console.error('leads/sar-requests/[id]/export error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * POST /api/leads/sar-requests/:id/execute-deletion — §12a (20 Aug 2026).
+ * Fulfils a 'Deletion'-type SAR: erases or restricts the linked Lead,
+ * per executeSarDeletion()'s own retention-position logic. Returns the
+ * outcome so the UI can show the right confirmation (erased vs.
+ * retained-until-date) rather than a generic success message — this is
+ * a materially different result for the person clicking the button to
+ * understand, not an implementation detail to hide.
+ */
+export async function handleSarExecuteDeletion(req, res, id) {
+  if (req.method !== 'POST') {
+    res.setHeader('Allow', 'POST, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Admin', 'GlobalAdmin']);
+
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid id format' });
+
+    const result = await executeSarDeletion(id, claims.oid);
+    return res.status(200).json(result);
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('leads/sar-requests/[id]/execute-deletion error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

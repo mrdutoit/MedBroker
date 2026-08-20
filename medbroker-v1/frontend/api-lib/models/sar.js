@@ -7,6 +7,12 @@ import { z } from 'zod';
 
 export const SarStatus = z.enum(['Received', 'InProgress', 'Fulfilled', 'Rejected']);
 
+// Migration 035 (20 Aug 2026) — POPIA's right of access (s23) and right
+// to request destruction/deletion (s24(1)(b)) are distinct rights; this
+// model previously covered access requests only. 'Deletion' is fulfilled
+// via executeSarDeletion() (sarService.js), not updateSarStatus() alone.
+export const SarRequestType = z.enum(['Access', 'Deletion']);
+
 export const CreateSarRequestSchema = z.object({
   leadId:         z.string().uuid(),
   requestorName:  z.string().min(1).max(200),
@@ -14,6 +20,7 @@ export const CreateSarRequestSchema = z.object({
   receivedAt:     z.string(), // YYYY-MM-DD, matches every other date-only field in this codebase
   dueDate:        z.string().optional(),
   notes:          z.string().max(2000).optional(),
+  requestType:    SarRequestType.default('Access'),
   // §128 (5 Aug 2026) — assign at creation time, not only afterward
   // (Mark's own request). Validated server-side (sarService.
   // getValidSarAssignee) against the same Admin/GlobalAdmin rule

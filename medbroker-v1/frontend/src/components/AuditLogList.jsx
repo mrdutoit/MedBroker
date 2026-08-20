@@ -40,6 +40,10 @@ const ACTION_LABELS = {
   // key — same defensive symmetry LeadUpdated's own fallback above has,
   // for the identical reason.
   AppointmentUpdated:          'Appointment details updated',
+  // §12a (20 Aug 2026) — fallback only; describeEntry() below builds the
+  // real message from changeDetail.outcome/retentionExpiresAt, same
+  // pattern as LeadAssigned/AppointmentBrokerAssigned above.
+  SarDeletionExecuted:         'POPIA deletion request executed',
 };
 
 const FIELD_LABELS = {
@@ -91,6 +95,21 @@ function describeEntry(entry) {
     }
     if (detail.agentName) parts.push(`Agent reassigned to ${detail.agentName}`);
     return parts.length ? parts.join('; ') : label;
+  }
+
+  // §12a (20 Aug 2026) — one action, two materially different outcomes;
+  // distinguished by changeDetail.outcome rather than two action names,
+  // same reasoning executeSarDeletion() (sarService.js) gives for
+  // keeping this a single write.
+  if (entry.action === 'SarDeletionExecuted') {
+    if (detail.outcome === 'Erased') return 'POPIA deletion executed — personal information erased';
+    if (detail.outcome === 'Restricted') {
+      const until = detail.retentionExpiresAt
+        ? format(new Date(detail.retentionExpiresAt), 'd MMM yyyy')
+        : 'the FAIS retention date';
+      return `POPIA deletion executed — retained under restriction until ${until} (FAIS record-keeping)`;
+    }
+    return label;
   }
 
   if (entry.action === 'LeadUpdated') {

@@ -716,7 +716,15 @@ export async function logCallAttempt(leadId, agentId, attemptData) {
 }
 
 /**
- * Soft-delete a lead (POPIA right to erasure).
+ * Soft-delete a lead. NOTE (corrected 20 Aug 2026): despite this
+ * function's original comment, this alone is NOT POPIA erasure — it
+ * only hides the Lead from active views (deletedAt), every PII column
+ * stays fully intact. This is the general-purpose "remove a duplicate/
+ * junk Lead from the pipeline" action (Admin/GlobalAdmin, unrelated to
+ * a data subject's own request). For an actual POPIA deletion request,
+ * use eraseLeadPII() or restrictLead() below via
+ * sarService.executeSarDeletion() — see Project_Context_Vercel.md §12a
+ * for why the two are genuinely different operations.
  * @param {string} leadId
  */
 export async function deleteLead(leadId) {
@@ -731,6 +739,171 @@ export async function deleteLead(leadId) {
 
   // TASK CLEANUP (§58) — nothing needs calling this lead back once it's
   // gone. Only incomplete tasks; a completed one is just history.
+  await deleteTasksForEntity({ entityType: 'Lead', entityId: leadId });
+}
+
+/**
+ * §12a (20 Aug 2026) — determines whether a Lead has a live FAIS
+ * record-keeping obligation, which is what decides erase vs. restrict
+ * for a POPIA deletion request (POPIA s14(6)(a): retention required or
+ * authorised by law is a valid restriction ground). Rule: FAIS's
+ * record-keeping obligation attaches once "a financial service was
+ * rendered" — modelled here as the Lead having at least one Appointment
+ * that actually reached a real outcome (ClosedWon or ClosedLost).
+ * ReturnedToLeads is deliberately excluded — same reasoning as the
+ * standing "ReturnedToLeads must never be counted as Lost" reporting
+ * rule (Project_Context_Vercel.md): an appointment returned to the pool
+ * without a meeting outcome never rendered a financial service, so it
+ * creates no FAIS obligation on its own. If more than one Appointment
+ * reached a real outcome, the retention window runs from the MOST
+ * RECENT one — the obligation resets with each fresh service rendered.
+ * @param {string} leadId
+ * @returns {Promise<{hasFaisObligation: boolean, retentionExpiresAt: string|null, lastServiceAt: string|null}>}
+ */
+export async function getLeadRetentionPosition(leadId) {
+  const organisationId = resolveOrganisationId();
+  const row = await executeQueryOne(
+    `SELECT MAX(closedAt) AS "lastServiceAt"
+     FROM Appointment
+     WHERE leadId = @leadId AND organisationId = @organisationId
+       AND status IN ('ClosedWon', 'ClosedLost')`,
+    {
+      leadId: { type: sql.UniqueIdentifier, value: leadId },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+    }
+  );
+
+  const lastServiceAt = row?.lastServiceAt ?? null;
+  if (!lastServiceAt) {
+    return { hasFaisObligation: false, retentionExpiresAt: null, lastServiceAt: null };
+  }
+
+  // FAIS General Code of Conduct: client records kept a minimum of five
+  // years from termination of the financial service. Five full calendar
+  // years from the closing date, not a day-count approximation.
+  const lastServiceDate = lastServiceAt instanceof Date ? lastServiceAt : new Date(lastServiceAt);
+  const retentionExpiresAt = new Date(lastServiceDate);
+  retentionExpiresAt.setFullYear(retentionExpiresAt.getFullYear() + 5);
+
+  return {
+    hasFaisObligation: true,
+    retentionExpiresAt: retentionExpiresAt.toISOString().slice(0, 10),
+    lastServiceAt: lastServiceDate.toISOString().slice(0, 10),
+  };
+}
+
+// PII columns wiped by eraseLeadPII() below — every column on Lead that
+// identifies the data subject or describes them, per Project_Context_
+// Vercel.md §12a's Gap 1/Gap 2 inventory. Deliberately excludes columns
+// that describe MedBroker's own internal process rather than the data
+// subject (pipelineStatus, assignedAgentId, region, linkedEventId,
+// portfolioId, csvImportBatchId) — Mark's explicit "preserve referential
+// integrity and reporting counts" instruction. LeadPortfolio/LeadProduct
+// link rows are left in place for the same reason — they record which
+// products were of interest, not who the person was.
+//
+// KNOWN LIMITATION, deliberately not addressed here: CallAttempt.notes
+// and MeetingAttempt.notes are free text and can incidentally contain
+// PII a staff member typed in ("mentioned he has diabetes"). Automated
+// redaction of free text risks either destroying genuinely useful
+// records or leaving PII behind on a false negative — neither is
+// acceptable for a POPIA-facing feature, so this is flagged as a real,
+// known gap rather than papered over with a naive find-and-replace.
+// Logged in Status_Vercel.md as a follow-up item, not fixed here.
+async function anonymiseLeadRow(leadId, organisationId) {
+  await executeQuery(
+    `UPDATE Lead SET
+       title = NULL,
+       firstName = '[Erased]',
+       lastName = '',
+       dateOfBirth = NULL,
+       idNumberEncrypted = NULL,
+       idNumberHash = NULL,
+       email = CONCAT('erased-', id::text, '@erased.invalid'),
+       mobileNumber = NULL,
+       whatsappNumber = NULL,
+       universityAttended = NULL,
+       yearOfAttendance = NULL,
+       degreeAttained = NULL,
+       occupation = NULL,
+       hospitalOrPractice = NULL,
+       existingCover = NULL,
+       currentInsurer = NULL,
+       policies = NULL,
+       medicalAid = NULL,
+       medicalAidProvider = NULL,
+       manualSourceName = NULL,
+       deletedAt = NOW(),
+       erasedAt = NOW(),
+       updatedAt = NOW()
+     WHERE id = @leadId AND organisationId = @organisationId`,
+    {
+      leadId: { type: sql.UniqueIdentifier, value: leadId },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+    }
+  );
+}
+
+/**
+ * §12a (20 Aug 2026) — TRUE erasure path: no live FAIS obligation, so
+ * POPIA s14(5)'s "destroy/delete in a manner that prevents reconstruction
+ * in an intelligible form" applies immediately. Anonymises in place
+ * (de-identification is an explicitly equal alternative to physical
+ * deletion under s14(4)) rather than a hard DELETE — preserves
+ * referential integrity for CallAttempt/Appointment/Task/AuditLog rows
+ * and historical reporting counts, which a cascading physical delete
+ * would silently corrupt. deletedAt is also set, reusing the exact same
+ * "excluded from every active-view query" mechanism every other soft-
+ * delete in this schema already relies on — no active-list query needed
+ * changing for this to take effect.
+ *
+ * No performedById parameter — matches deleteLead()'s own signature
+ * exactly; the caller (sarService.executeSarDeletion) writes the audit
+ * entry, same "the function does the work, the caller records who asked
+ * for it" split deleteLead()/leadHandlers.js already uses.
+ * @param {string} leadId
+ */
+export async function eraseLeadPII(leadId) {
+  const organisationId = resolveOrganisationId();
+  await anonymiseLeadRow(leadId, organisationId);
+  // Mirrors deleteLead()'s own task cleanup — nothing needs calling an
+  // erased lead back.
+  await deleteTasksForEntity({ entityType: 'Lead', entityId: leadId });
+}
+
+/**
+ * §12a (20 Aug 2026) — RESTRICT-AND-RETAIN path: a live FAIS record-
+ * keeping obligation exists (POPIA s14(6)(a) — retention required or
+ * authorised by law), so the record is locked out of active processing
+ * but NOT destroyed. PII columns are left fully intact deliberately —
+ * restriction is "stop processing," not "erase early and hope FAIS
+ * doesn't notice." deletedAt is set for the same reason as erasure
+ * (excluded from active pipeline/claim-pool/reporting views), but
+ * erasedAt is NOT — restrictedAt/retentionExpiresAt mark this row as
+ * pending, not done. Genuine erasure once retentionExpiresAt lapses is
+ * a logged follow-up (a scheduled purge job, mirroring the existing
+ * notifications/scheduled-tick cron), not built this session — see
+ * Status_Vercel.md.
+ *
+ * No performedById parameter — same reasoning as eraseLeadPII() above.
+ * @param {string} leadId
+ * @param {string} retentionExpiresAt - YYYY-MM-DD, from getLeadRetentionPosition()
+ */
+export async function restrictLead(leadId, retentionExpiresAt) {
+  const organisationId = resolveOrganisationId();
+  await executeQuery(
+    `UPDATE Lead SET
+       deletedAt = NOW(),
+       restrictedAt = NOW(),
+       retentionExpiresAt = @retentionExpiresAt,
+       updatedAt = NOW()
+     WHERE id = @leadId AND organisationId = @organisationId`,
+    {
+      leadId:             { type: sql.UniqueIdentifier, value: leadId },
+      organisationId:     { type: sql.UniqueIdentifier, value: organisationId },
+      retentionExpiresAt: { type: sql.Date,             value: retentionExpiresAt },
+    }
+  );
   await deleteTasksForEntity({ entityType: 'Lead', entityId: leadId });
 }
 

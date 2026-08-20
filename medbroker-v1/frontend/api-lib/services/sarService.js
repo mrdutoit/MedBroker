@@ -39,11 +39,17 @@ import { resolveOrganisationId } from '../context/tenant.js';
 import { decrypt } from './encryption.js';
 import { writeAuditLog, listAuditLogForLead } from './auditService.js';
 import { createNotification } from './notificationService.js';
+// §12a (20 Aug 2026) — the actual Lead-side effects of a Deletion
+// request live in leadService.js (that's where the Lead's own PII
+// columns and retention logic belong); this file only orchestrates
+// WHICH of the two happens and records that it did. One-directional
+// import — leadService.js has no dependency back on this file.
+import { getLeadRetentionPosition, eraseLeadPII, restrictLead } from './leadService.js';
 
 const SAR_SELECT = `
   sar.id, sar.leadId AS "leadId", sar.requestorName AS "requestorName",
   sar.requestorEmail AS "requestorEmail", sar.receivedAt AS "receivedAt",
-  sar.dueDate AS "dueDate", sar.status, sar.notes,
+  sar.dueDate AS "dueDate", sar.status, sar.requestType AS "requestType", sar.notes,
   sar.fulfilledAt AS "fulfilledAt", sar.fulfilledById AS "fulfilledById",
   sar.assignedToId AS "assignedToId",
   sar.createdById AS "createdById", sar.createdAt AS "createdAt", sar.updatedAt AS "updatedAt",
@@ -159,10 +165,10 @@ export async function createSarRequest(data, createdById) {
   await executeQuery(
     `INSERT INTO SubjectAccessRequest (
        id, organisationId, leadId, requestorName, requestorEmail,
-       receivedAt, dueDate, notes, assignedToId, createdById, createdAt, updatedAt
+       receivedAt, dueDate, requestType, notes, assignedToId, createdById, createdAt, updatedAt
      ) VALUES (
        @id, @organisationId, @leadId, @requestorName, @requestorEmail,
-       @receivedAt, @dueDate, @notes, @assignedToId, @createdById, NOW(), NOW()
+       @receivedAt, @dueDate, @requestType, @notes, @assignedToId, @createdById, NOW(), NOW()
      )`,
     {
       id:             { type: sql.UniqueIdentifier, value: newId },
@@ -172,13 +178,17 @@ export async function createSarRequest(data, createdById) {
       requestorEmail: { type: sql.NVarChar(255),    value: data.requestorEmail },
       receivedAt:     { type: sql.Date,             value: data.receivedAt },
       dueDate:        { type: sql.Date,             value: data.dueDate ?? null },
+      requestType:    { type: sql.NVarChar(20),     value: data.requestType ?? 'Access' },
       notes:          { type: sql.NVarChar(2000),   value: data.notes ?? null },
       assignedToId:   { type: sql.UniqueIdentifier, value: data.assignedToId ?? null },
       createdById:    { type: sql.UniqueIdentifier, value: createdById },
     }
   );
 
-  const changeDetail = { sarId: newId, requestorEmail: data.requestorEmail, assignedToId: data.assignedToId ?? null };
+  const changeDetail = {
+    sarId: newId, requestorEmail: data.requestorEmail,
+    requestType: data.requestType ?? 'Access', assignedToId: data.assignedToId ?? null,
+  };
   // §131 (5 Aug 2026) — CORRECTED: this used to ALSO write an
   // entityType: 'Lead' twin of this exact entry, a real duplicate row in
   // a compliance-facing audit table — see auditService.listAuditLogForLead()'s
@@ -274,6 +284,67 @@ export async function markInProgressOnFirstExport(id, performedById) {
   const existing = await getSarRequestById(id);
   if (!existing || existing.status !== 'Received') return;
   await updateSarStatus(id, { status: 'InProgress' }, performedById);
+}
+
+/**
+ * §12a (20 Aug 2026) — fulfils a 'Deletion'-type SAR. This is the actual
+ * POPIA s24(1)(b)/s14 implementation, not just a status change: it
+ * decides, per Lead, whether a live FAIS record-keeping obligation
+ * exists (getLeadRetentionPosition, leadService.js) and either erases
+ * the Lead's PII immediately (no obligation) or restricts it — locks it
+ * out of active processing but leaves the data intact until the FAIS
+ * five-year window lapses (an obligation is running).
+ *
+ * Deliberately NOT gated on the SAR's own status reaching 'Fulfilled'
+ * first — mirrors handleSarRequestExport's own reasoning exactly
+ * (markInProgressOnFirstExport below): an Admin should be able to
+ * execute the actual deletion, see the outcome, and only then mark the
+ * request Fulfilled, the same "do the work, then close the ticket"
+ * order every other SAR action in this file already follows. Only
+ * blocked once the request is genuinely locked (Fulfilled/Rejected —
+ * assertNotLocked) or isn't a Deletion request at all.
+ *
+ * @param {string} id - the SAR id
+ * @param {string} performedById
+ * @returns {Promise<{outcome: 'Erased'|'Restricted', retentionExpiresAt: string|null}>}
+ */
+export async function executeSarDeletion(id, performedById) {
+  const existing = await assertNotLocked(id);
+
+  if (existing.requestType !== 'Deletion') {
+    throw { status: 400, message: 'This action only applies to Deletion-type requests. This request is Access-type — use Export instead.' };
+  }
+
+  const position = await getLeadRetentionPosition(existing.leadId);
+
+  let outcome;
+  if (position.hasFaisObligation) {
+    await restrictLead(existing.leadId, position.retentionExpiresAt);
+    outcome = { outcome: 'Restricted', retentionExpiresAt: position.retentionExpiresAt };
+  } else {
+    await eraseLeadPII(existing.leadId);
+    outcome = { outcome: 'Erased', retentionExpiresAt: null };
+  }
+
+  // Same auto-transition every other first-real-action-on-a-Received-
+  // request gets (handleSarRequestExport's own export call does the
+  // identical thing) — the system reflects that work has actually
+  // started, without requiring a separate manual click first.
+  await markInProgressOnFirstExport(id, performedById);
+
+  const changeDetail = {
+    sarId: id, leadId: existing.leadId, leadName: existing.leadName,
+    ...outcome,
+  };
+  // §131 — single write; see createSarRequest's own comment above for
+  // why (listAuditLogForLead's UNION surfaces this on the Lead's own
+  // Change Log without a duplicate Lead-scoped twin).
+  await writeAuditLog({
+    entityType: 'SubjectAccessRequest', entityId: id, action: 'SarDeletionExecuted',
+    performedById, changeDetail,
+  });
+
+  return outcome;
 }
 
 /**

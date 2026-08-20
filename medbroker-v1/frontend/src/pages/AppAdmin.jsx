@@ -298,6 +298,13 @@ export default function AppAdmin() {
   const [sarSelectedLead, setSarSelectedLead] = useState(null);
   const [sarRequestorName, setSarRequestorName] = useState('');
   const [sarRequestorEmail, setSarRequestorEmail] = useState('');
+  // §12a (20 Aug 2026) — Access (see what we hold) vs. Deletion (erase/
+  // restrict it) are genuinely different rights under POPIA; 'Access'
+  // matches the schema default and every request logged before this
+  // existed.
+  const [sarRequestType, setSarRequestType] = useState('Access');
+  const [sarExecutingDeletion, setSarExecutingDeletion] = useState(null);
+  const [sarDeletionResult, setSarDeletionResult] = useState({}); // { [sarId]: { outcome, retentionExpiresAt } }
   const [sarReceivedAt, setSarReceivedAt] = useState(todayLocalDateString);
   const [sarDueDate, setSarDueDate] = useState('');
   const [sarNotes, setSarNotes] = useState('');
@@ -393,6 +400,7 @@ export default function AppAdmin() {
         requestorEmail: sarRequestorEmail.trim(),
         receivedAt: sarReceivedAt,
         dueDate: sarDueDate || undefined,
+        requestType: sarRequestType,
         notes: sarNotes || undefined,
         assignedToId: sarAssignedToId || undefined,
       });
@@ -400,7 +408,7 @@ export default function AppAdmin() {
       setSarShowCreate(false);
       setSarSelectedLead(null); setSarLeadSearch(''); setSarLeadResults([]);
       setSarRequestorName(''); setSarRequestorEmail(''); setSarDueDate(''); setSarNotes('');
-      setSarAssignedToId('');
+      setSarAssignedToId(''); setSarRequestType('Access');
       setSarReceivedAt(todayLocalDateString());
     } catch (err) {
       setSarError(err.message || 'Could not log the request');
@@ -416,6 +424,32 @@ export default function AppAdmin() {
       await refreshSarAuditIfExpanded(id);
     } catch (err) {
       setSarError(err.message || 'Could not update status');
+    }
+  }
+
+  // §12a (20 Aug 2026) — fulfils a Deletion-type request. window.confirm
+  // gate matches every other irreversible action in this app (AppAdmin's
+  // own Delete buttons, Tasks.jsx, UserAdmin.jsx's Sign out everywhere)
+  // — this one is genuinely irreversible for the Erased outcome
+  // specifically, so it gets the same treatment, not a lighter one.
+  async function handleSarExecuteDeletion(id, leadName) {
+    if (!window.confirm(
+      `Execute this deletion request for ${leadName}? MedBroker will automatically decide whether to erase the ` +
+      `record now or retain it under restriction (if a FAIS record-keeping obligation is still running) — this ` +
+      `cannot be undone once erasure happens.`
+    )) return;
+
+    setSarExecutingDeletion(id);
+    setSarError(null);
+    try {
+      const result = await sarApi.executeDeletion(id);
+      setSarDeletionResult(prev => ({ ...prev, [id]: result }));
+      await refetchSar();
+      await refreshSarAuditIfExpanded(id);
+    } catch (err) {
+      setSarError(err.message || 'Could not execute the deletion');
+    } finally {
+      setSarExecutingDeletion(null);
     }
   }
 
@@ -1419,6 +1453,35 @@ export default function AppAdmin() {
                 </div>
               </div>
 
+              <div style={s.formGroup}>
+                <label style={s.formLabel}>Request type *</label>
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {[
+                    ['Access', 'Access — see what we hold'],
+                    ['Deletion', 'Deletion — erase or restrict'],
+                  ].map(([value, labelText]) => (
+                    <button
+                      key={value}
+                      type="button"
+                      onClick={() => setSarRequestType(value)}
+                      style={{
+                        ...s.secondaryBtn, flex: 1, fontSize: '0.8125rem',
+                        ...(sarRequestType === value ? { background: 'var(--accent)', color: '#fff' } : {}),
+                      }}
+                    >
+                      {labelText}
+                    </button>
+                  ))}
+                </div>
+                {sarRequestType === 'Deletion' && (
+                  <p style={{ fontSize: '0.75rem', color: 'var(--mut)', margin: '8px 0 0' }}>
+                    On fulfilment, MedBroker checks whether this Lead has a closed (Won or Lost) Appointment — if
+                    so, a FAIS record-keeping obligation is still running and the record is retained under
+                    restriction until that five-year window lapses, rather than erased immediately.
+                  </p>
+                )}
+              </div>
+
               <div style={{ display: 'flex', gap: '12px' }}>
                 <div style={{ ...s.formGroup, flex: 1 }}>
                   <label style={s.formLabel}>Date received *</label>
@@ -1470,6 +1533,7 @@ export default function AppAdmin() {
                 <th style={s.th}>Received</th>
                 <th style={s.th}>Lead</th>
                 <th style={s.th}>Requestor</th>
+                <th style={s.th}>Type</th>
                 <th style={s.th}>Status</th>
                 <th style={s.th}>Assigned</th>
                 <th style={s.th}>Due</th>
@@ -1490,6 +1554,15 @@ export default function AppAdmin() {
                       <td style={s.td}>{r.leadName}</td>
                       <td style={s.td}>{r.requestorName}</td>
                       <td style={s.td}>
+                        <span style={{
+                          ...s.badge, fontSize: '0.688rem',
+                          background: r.requestType === 'Deletion' ? 'color-mix(in srgb, var(--danger) 16%, transparent)' : 'var(--panel2)',
+                          color: r.requestType === 'Deletion' ? 'var(--danger)' : undefined,
+                        }}>
+                          {r.requestType}
+                        </span>
+                      </td>
+                      <td style={s.td}>
                         <span style={{ ...s.badge, fontSize: '0.688rem', background:'var(--panel2)' }}>{r.status}</span>
                         {sarLocked && <span style={{ marginLeft: '6px', fontSize: '0.688rem', color:'var(--mut)' }}>🔒</span>}
                       </td>
@@ -1500,7 +1573,7 @@ export default function AppAdmin() {
                       <td style={s.td}>{sarExpandedId === r.id ? '▲' : '▼'}</td>
                     </tr>
                     {sarExpandedId === r.id && (
-                      <tr><td colSpan={7} style={{ ...s.td, background: 'var(--panel2)' }}>
+                      <tr><td colSpan={8} style={{ ...s.td, background: 'var(--panel2)' }}>
                         {r.notes && <p style={{ fontSize: '0.8125rem', margin: '0 0 10px' }}>{r.notes}</p>}
 
                         {sarLocked && (
@@ -1509,6 +1582,64 @@ export default function AppAdmin() {
                             can no longer be changed. Exports remain available below.
                           </div>
                         )}
+
+                        {/* §12a (20 Aug 2026) — Deletion-type requests get their own
+                            execute control, separate from the Status buttons below:
+                            fulfilling the ticket (Status -> Fulfilled) and actually
+                            erasing/restricting the data are two different actions,
+                            same "do the work, then close the ticket" order every
+                            other SAR action in this app already follows (see
+                            sarService.executeSarDeletion's own header comment).
+                            Outcome source: prefer the just-returned API result
+                            (sarDeletionResult) for immediate feedback; fall back to
+                            the audit trail (already loaded for this row) so the
+                            outcome still shows correctly after a page reload. */}
+                        {r.requestType === 'Deletion' && (() => {
+                          const deletionAudit = (sarAuditEntries[r.id] || []).find(e => e.action === 'SarDeletionExecuted');
+                          const result = sarDeletionResult[r.id] ?? deletionAudit?.changeDetail ?? null;
+                          return (
+                            <div style={{
+                              ...s.card, marginBottom: '14px', padding: '12px 14px',
+                              borderColor: 'color-mix(in srgb, var(--danger) 40%, var(--line))',
+                            }}>
+                              <div style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--danger)', marginBottom: '6px' }}>
+                                POPIA Deletion Request
+                              </div>
+                              {!result && (
+                                <>
+                                  <p style={{ fontSize: '0.8125rem', margin: '0 0 10px', color: 'var(--mut)' }}>
+                                    Not yet executed. MedBroker will check this Lead's Appointment history and
+                                    automatically erase the record now, or retain it under restriction if a FAIS
+                                    record-keeping obligation is still running.
+                                  </p>
+                                  <button
+                                    style={{
+                                      ...s.primaryBtn, fontSize: '0.75rem', background: 'var(--danger)',
+                                      opacity: (sarLocked || sarExecutingDeletion === r.id) ? 0.5 : 1,
+                                    }}
+                                    disabled={sarLocked || sarExecutingDeletion === r.id}
+                                    onClick={e => { e.stopPropagation(); handleSarExecuteDeletion(r.id, r.leadName); }}
+                                  >
+                                    {sarExecutingDeletion === r.id ? 'Executing…' : 'Execute Deletion'}
+                                  </button>
+                                </>
+                              )}
+                              {result?.outcome === 'Erased' && (
+                                <div style={{ ...s.noticeSuccess, fontSize: '0.8125rem' }}>
+                                  ✓ Erased — this Lead's personal information has been anonymised and it is now
+                                  excluded from every active view. This cannot be undone.
+                                </div>
+                              )}
+                              {result?.outcome === 'Restricted' && (
+                                <div style={{ ...s.noticeWarn, fontSize: '0.8125rem' }}>
+                                  ⏳ Restricted — a FAIS record-keeping obligation is still running on this Lead.
+                                  Processing has stopped (excluded from every active view), but the record is
+                                  retained intact until {formatDate(result.retentionExpiresAt)}, per POPIA s14(6).
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })()}
 
                         {/* Assignment — §125, GlobalAdmin+Admin users only */}
                         <div style={{ marginBottom: '12px' }}>
@@ -1667,7 +1798,7 @@ export default function AppAdmin() {
                   );
                 })}
                 {!sarLoading && sarRequests.length === 0 && (
-                  <tr><td colSpan={7} style={{ ...s.td, textAlign: 'center', color:'var(--mut)' }}>No requests logged yet.</td></tr>
+                  <tr><td colSpan={8} style={{ ...s.td, textAlign: 'center', color:'var(--mut)' }}>No requests logged yet.</td></tr>
                 )}
               </tbody>
             </table>
