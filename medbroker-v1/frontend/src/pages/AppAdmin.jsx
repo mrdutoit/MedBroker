@@ -1566,6 +1566,17 @@ export default function AppAdmin() {
                   // exact rule client-side purely for disabling controls;
                   // the server-side check is what actually enforces it.
                   const sarLocked = r.status === 'Fulfilled' || r.status === 'Rejected';
+                  // §12a (21 Aug 2026) — deliberately separate from
+                  // sarLocked above: since Fix 1 above, an Erased outcome
+                  // auto-fulfils (so sarLocked already catches it), but a
+                  // Restricted outcome stays at InProgress (real work is
+                  // still pending — see executeSarDeletion's own comment)
+                  // and sarLocked alone would miss it entirely. Needed as
+                  // its own signal to gate Export below for BOTH outcomes,
+                  // not just the one sarLocked happens to also cover.
+                  const sarDeletionOutcome = r.requestType === 'Deletion'
+                    ? (sarDeletionResult[r.id] ?? (sarAuditEntries[r.id] || []).find(e => e.action === 'SarDeletionExecuted')?.changeDetail ?? null)
+                    : null;
                   return (
                   <Fragment key={r.id}>
                     <tr style={{ ...s.tr, cursor: 'pointer' }} onClick={() => handleSarExpand(r.id)}>
@@ -1614,8 +1625,7 @@ export default function AppAdmin() {
                             the audit trail (already loaded for this row) so the
                             outcome still shows correctly after a page reload. */}
                         {r.requestType === 'Deletion' && (() => {
-                          const deletionAudit = (sarAuditEntries[r.id] || []).find(e => e.action === 'SarDeletionExecuted');
-                          const result = sarDeletionResult[r.id] ?? deletionAudit?.changeDetail ?? null;
+                          const result = sarDeletionOutcome;
                           return (
                             <div style={{
                               ...s.card, marginBottom: '14px', padding: '12px 14px',
@@ -1731,6 +1741,23 @@ export default function AppAdmin() {
                             </button>
                             );
                           })}
+                          {/* §12a (21 Aug 2026) — hidden once a Deletion
+                              request has actually executed (Erased or
+                              Restricted), not just for Deletion requests
+                              generally: an Access request's export IS the
+                              point, and a not-yet-executed Deletion
+                              request might legitimately want a pre-
+                              erasure snapshot for the org's own records
+                              before the data is gone for good. But once
+                              executed, exporting is either pointless
+                              (Erased — the Lead is now literally named
+                              "[Erased]" with everything else nulled, not
+                              a real snapshot of anything) or works
+                              against the point of a restriction (POPIA
+                              s14(6) is "stop processing," and pulling a
+                              full export is itself a form of processing
+                              this Lead was just locked out of). */}
+                          {!(r.requestType === 'Deletion' && sarDeletionOutcome) && (
                           <div style={{ marginLeft: 'auto', display: 'flex', gap: '8px' }}>
                             <button
                               style={{ ...s.secondaryBtn, fontSize: '0.75rem', opacity: sarExporting ? 0.5 : 1 }}
@@ -1747,6 +1774,7 @@ export default function AppAdmin() {
                               {sarExporting === `${r.id}-csv` ? '…' : 'Export CSV'}
                             </button>
                           </div>
+                          )}
                         </div>
 
                         {sarDetailLoading && !sarComments[r.id] && (

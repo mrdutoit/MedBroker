@@ -295,14 +295,14 @@ export async function markInProgressOnFirstExport(id, performedById) {
  * out of active processing but leaves the data intact until the FAIS
  * five-year window lapses (an obligation is running).
  *
- * Deliberately NOT gated on the SAR's own status reaching 'Fulfilled'
- * first — mirrors handleSarRequestExport's own reasoning exactly
- * (markInProgressOnFirstExport below): an Admin should be able to
- * execute the actual deletion, see the outcome, and only then mark the
- * request Fulfilled, the same "do the work, then close the ticket"
- * order every other SAR action in this file already follows. Only
- * blocked once the request is genuinely locked (Fulfilled/Rejected —
- * assertNotLocked) or isn't a Deletion request at all.
+ * Status outcome, UPDATED 21 Aug 2026 (see the "Erased vs Restricted"
+ * comment further down for the full reasoning): a genuinely Erased
+ * outcome moves the request straight to Fulfilled — there's no
+ * meaningful "close the ticket" step left to do manually once the data
+ * is actually gone. Restricted keeps the original behaviour, only
+ * reaching InProgress: retained-but-locked isn't the same as done.
+ * Only blocked once the request is genuinely locked (Fulfilled/Rejected
+ * — assertNotLocked) or isn't a Deletion request at all.
  *
  * @param {string} id - the SAR id
  * @param {string} performedById
@@ -326,11 +326,31 @@ export async function executeSarDeletion(id, performedById) {
     outcome = { outcome: 'Erased', retentionExpiresAt: null };
   }
 
-  // Same auto-transition every other first-real-action-on-a-Received-
-  // request gets (handleSarRequestExport's own export call does the
-  // identical thing) — the system reflects that work has actually
-  // started, without requiring a separate manual click first.
-  await markInProgressOnFirstExport(id, performedById);
+  // Erased vs Restricted get genuinely different status treatment, not
+  // the same auto-transition applied uniformly — found and fixed 21 Aug
+  // 2026 (Mark, live testing): a Deletion request whose outcome was
+  // Erased sat at InProgress forever, requiring a manual "Fulfilled"
+  // click that added no real information (there's no further action
+  // pending on this Lead once it's actually erased). But the SAME
+  // reasoning does NOT apply to Restricted — the record isn't gone, it's
+  // retained under a live FAIS obligation pending a future scheduled
+  // purge (not yet built — see eraseLeadPII()'s own header). Auto-
+  // marking a still-fully-intact, still-retained record "Fulfilled"
+  // would misrepresent to anyone checking later whether this deletion
+  // request was actually completed. So: Erased jumps straight to
+  // Fulfilled (Received rank 0 -> Fulfilled rank 2 is a valid forward
+  // move per updateSarStatus()'s own rank check); Restricted keeps the
+  // original InProgress-only behaviour, since work genuinely remains
+  // outstanding.
+  if (outcome.outcome === 'Erased') {
+    await updateSarStatus(id, { status: 'Fulfilled' }, performedById);
+  } else {
+    // Same auto-transition every other first-real-action-on-a-Received-
+    // request gets (handleSarRequestExport's own export call does the
+    // identical thing) — the system reflects that work has actually
+    // started, without requiring a separate manual click first.
+    await markInProgressOnFirstExport(id, performedById);
+  }
 
   const changeDetail = {
     sarId: id, leadId: existing.leadId, leadName: existing.leadName,

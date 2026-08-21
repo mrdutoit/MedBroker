@@ -135,7 +135,69 @@ hydration, 18 Aug 2026.
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-SESSION 21 AUG 2026 (CONTINUED) — PRODUCTION ERROR ON EXECUTE DELETION,
+SESSION 21 AUG 2026 (CONTINUED, SECOND ROUND) — TWO UX/DESIGN GAPS FROM
+MARK'S LIVE TESTING AFTER A SUCCESSFUL ERASE, BOTH FIXED. Not bugs in
+the sense of broken code — the erasure itself worked correctly — but
+genuine gaps in what the workflow did afterward.
+
+GAP 1 — SAR STUCK AT INPROGRESS AFTER A SUCCESSFUL ERASURE. Previously,
+executeSarDeletion() always only auto-transitioned Received -> InProgress
+(reusing markInProgressOnFirstExport, mirroring the Export flow), for
+BOTH outcomes, requiring a manual "Fulfilled" click regardless. Mark's
+question ("should this not be Fulfilled?") exposed a real design gap,
+not just a missing convenience: the two outcomes genuinely deserve
+DIFFERENT treatment, not the same one applied uniformly.
+  - Erased: nothing further is pending on this Lead — the data is
+    genuinely gone. Auto-jumps straight to Fulfilled now (Received rank
+    0 -> Fulfilled rank 2 is a valid forward move per updateSarStatus()'s
+    own rank check, verified against real Postgres, including that
+    fulfilledAt/fulfilledById now get populated correctly — they never
+    were before, since the request never actually reached Fulfilled).
+  - Restricted: deliberately UNCHANGED, still only reaches InProgress.
+    The record isn't gone — it's retained under a live FAIS obligation,
+    pending a future scheduled purge that isn't built yet (logged
+    separately as a follow-up). Auto-marking a still-fully-intact,
+    still-retained record "Fulfilled" would misrepresent to anyone
+    checking later whether the deletion was actually completed — this
+    is a compliance-accuracy point, not just a UI nicety, so the
+    distinction was worth getting right rather than picking the simpler
+    "always auto-fulfil" option.
+
+GAP 2 — EXPORT JSON/CSV STILL AVAILABLE AFTER A DELETION REQUEST HAD
+EXECUTED. Confirmed in the code the buttons rendered unconditionally
+for every request, regardless of type or state. Deliberately did NOT
+just hide Export for every Deletion-type request, though — a not-yet-
+executed Deletion request has a real, legitimate reason to want Export
+available: a pre-erasure snapshot for the organisation's own records,
+since once eraseLeadPII() runs there is no way to recover what was
+held. So Export now hides specifically once a Deletion request has
+already executed (Erased OR Restricted), not for Deletion requests as a
+category:
+  - Erased: exporting afterward would return a Lead literally named
+    "[Erased]" with everything else nulled — not a real snapshot of
+    anything, just noise.
+  - Restricted: the PII is still intact, but POPIA s14(6) restriction
+    means "stop processing" — pulling a full export is itself a form of
+    processing this Lead was just locked out of, so allowing it would
+    work against the point of the restriction.
+Implementation: hoisted the existing "has this deletion executed"
+lookup (previously computed inline inside the outcome-panel IIFE) up to
+where sarLocked is already computed once per row, as a new
+sarDeletionOutcome value, and reused it in both places rather than
+duplicating the audit-lookup logic. Genuinely needed as its own signal,
+not reducible to sarLocked alone — sarLocked now catches Erased
+(post-Gap-1-fix, since Erased auto-fulfils), but Restricted stays
+InProgress and sarLocked would miss it entirely.
+
+VERIFICATION: node --check and ESM import smoke test clean on
+sarService.js, npm run build clean (validates the AppAdmin.jsx JSX
+changes), 48/48 vitest, no regressions. The Received -> Fulfilled status
+jump verified against real Postgres using the actual updateSarStatus()
+UPDATE statement run through the real @name-to-positional rewriting
+logic (same discipline as the previous entry's hotfix, not hand-
+substituted literals) — confirmed status, fulfilledAt, and
+fulfilledById all land correctly.
+
 FIXED. Mark hit this live testing the erasure feature after applying
 both prior deliveries correctly — genuine production bug, not a
 deployment-ordering issue this time.
