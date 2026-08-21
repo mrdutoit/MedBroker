@@ -363,6 +363,21 @@ CREATE TABLE IF NOT EXISTS Lead (
     policies                VARCHAR(500)    NULL,
     medicalAid              BOOLEAN         NULL,
     medicalAidProvider      VARCHAR(200)    NULL,
+    -- Migration 036 (20 Aug 2026, F1) — the five plaintext columns
+    -- immediately above are DEPRECATED, kept in place only for
+    -- historical rows not yet run through scripts/backfill-encrypt-
+    -- lead-fields.js (same "kept, unused going forward" pattern as
+    -- Lead.portfolioId/User.portfolioId elsewhere in this schema).
+    -- createLead()/updateLead()/getLeadById() read and write the
+    -- *Encrypted columns below exclusively as of this migration —
+    -- envelope-encrypted the same way idNumberEncrypted is (encryption.js).
+    -- The two boolean fields are stored as encrypted 'true'/'false' text;
+    -- there is no encrypted-boolean column type.
+    medicalAidEncrypted          TEXT            NULL,
+    medicalAidProviderEncrypted  TEXT            NULL,
+    existingCoverEncrypted        TEXT            NULL,
+    currentInsurerEncrypted       TEXT            NULL,
+    policiesEncrypted              TEXT            NULL,
 
     linkedEventId           UUID            NULL,
     linkedSubscriptionId    UUID            NULL,

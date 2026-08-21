@@ -12,25 +12,6 @@ Read this file alongside Status_Vercel.md — that one has current build
 state and full session history; this one is architecture and standing
 conventions.
 
-PROJECT DOCUMENTS, added 20 Aug 2026: this repo now has a docs/ folder
-holding the formal deliverables that used to live only in project
-knowledge and were never actually part of the codebase — a gap
-discovered when Mark asked to update "the Technical Specification" and
-it turned out no such file had ever reached GitHub.
-  docs/technical/MedBroker_Technical_Specification.docx — architecture,
-    data model (6 diagrams, generated from the live schema, not
-    approximated), security design, POPIA/FAIS compliance.
-  docs/security/MedBroker_Security_Code_Review_Findings.docx — the
-    living security audit record, updated each review session.
-  docs/guides/MedBroker-User-Guide.docx, MedBroker-GlobalAdmin-Guide.docx
-    — end-user and deployment/provisioning references. Known issue,
-    not yet fixed: both are plain UTF-8 text saved with a .docx
-    extension, not real OOXML packages — see Status_Vercel.md's
-    Outstanding item 0i.
-Going forward, any new formal document deliverable belongs in this
-docs/ tree from the point it's first built, not left to live only in
-project knowledge until someone notices it never made it into the repo.
-
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 1. WHAT THE SYSTEM IS

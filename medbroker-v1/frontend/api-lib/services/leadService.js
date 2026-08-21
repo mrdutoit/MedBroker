@@ -38,7 +38,7 @@
  */
 
 import { executeQuery, executeQueryOne, sql } from './db.js';
-import { encrypt, decrypt, blindIndex } from './encryption.js';
+import { encrypt, decrypt, blindIndex, encryptBoolean, decryptBoolean } from './encryption.js';
 import { computeLeadStatus } from './leadStatusService.js';
 import { getActiveUserById, resolvePortfolioIds, resolveProductIds } from './userService.js';
 import { createTask, deleteTasksForEntity, reassignTasksForEntity, completeOpenCallbackTasksForLead } from './taskService.js';
@@ -182,6 +182,17 @@ export async function listLeads({ status, excludeStatuses, agentId, brokerId, ev
   );
   const total = Number(countResult[0]?.total ?? 0);
 
+  // §12a/F1 (20 Aug 2026) — existingCover/policies/medicalAid/
+  // medicalAidProvider deliberately dropped from this list query.
+  // Checked first, not assumed: LeadList.jsx never rendered any of
+  // them (grepped for it, found nothing), so this SELECT was fetching
+  // and decrypting-cost-free plaintext for every row on every page load
+  // with zero UI use. Now that these fields are encrypted (see
+  // getLeadById() below), pulling them here would mean an extra
+  // decrypt() call per row per list page for data nobody displays —
+  // real, avoidable cost and exposure. Same "not exposed on the list
+  // view" treatment idNumber already got from day one; this just
+  // catches these fields up to that existing convention.
   const leads = await executeQuery(
     `SELECT
        l.id, l.title, l.firstName AS "firstName", l.lastName AS "lastName",
@@ -189,8 +200,6 @@ export async function listLeads({ status, excludeStatuses, agentId, brokerId, ev
        l.mobileNumber AS "mobileNumber", l.whatsappNumber AS "whatsappNumber",
        l.universityAttended AS "universityAttended", l.yearOfAttendance AS "yearOfAttendance",
        l.degreeAttained AS "degreeAttained", l.occupation, l.hospitalOrPractice AS "hospitalOrPractice",
-       l.existingCover AS "existingCover", l.policies, l.medicalAid AS "medicalAid",
-       l.medicalAidProvider AS "medicalAidProvider",
        ${SOURCE_LABEL_SELECT} AS "sourceLabel",
        l.linkedEventId AS "linkedEventId", l.pipelineStatus AS "pipelineStatus",
        l.assignedAgentId AS "assignedAgentId",
@@ -226,8 +235,11 @@ export async function getLeadById(id) {
        l.mobileNumber AS "mobileNumber", l.whatsappNumber AS "whatsappNumber",
        l.universityAttended AS "universityAttended", l.yearOfAttendance AS "yearOfAttendance",
        l.degreeAttained AS "degreeAttained", l.occupation, l.hospitalOrPractice AS "hospitalOrPractice",
-       l.existingCover AS "existingCover", l.policies, l.medicalAid AS "medicalAid",
-       l.medicalAidProvider AS "medicalAidProvider",
+       l.existingCoverEncrypted AS "existingCoverEncrypted",
+       l.currentInsurerEncrypted AS "currentInsurerEncrypted",
+       l.policiesEncrypted AS "policiesEncrypted",
+       l.medicalAidEncrypted AS "medicalAidEncrypted",
+       l.medicalAidProviderEncrypted AS "medicalAidProviderEncrypted",
        ${SOURCE_LABEL_SELECT} AS "sourceLabel",
        l.linkedEventId AS "linkedEventId", l.pipelineStatus AS "pipelineStatus",
        l.assignedAgentId AS "assignedAgentId", a.displayName AS "agentName",
@@ -283,6 +295,27 @@ export async function getLeadById(id) {
   // regression of that earlier reasoning.
   lead.idNumber = lead.idNumberEncrypted ? await decrypt(lead.idNumberEncrypted) : null;
   delete lead.idNumberEncrypted;
+
+  // §12a/F1 (20 Aug 2026) — same decrypt-for-display treatment as
+  // idNumber immediately above, extended to the five medical/insurance
+  // fields (Project_Context_Vercel.md §12a Gap 2 / security audit F1).
+  // Field names on the returned object are UNCHANGED from before this
+  // migration (lead.medicalAid is still a boolean, lead.policies still
+  // a string, etc.) — every caller of getLeadById() (leadHandlers.js's
+  // audit diff, LeadDetail.jsx) keeps working against plain decrypted
+  // values exactly as it did against plaintext columns before, with no
+  // changes needed on their side.
+  lead.existingCover = await decryptBoolean(lead.existingCoverEncrypted);
+  lead.currentInsurer = lead.currentInsurerEncrypted ? await decrypt(lead.currentInsurerEncrypted) : null;
+  lead.policies = lead.policiesEncrypted ? await decrypt(lead.policiesEncrypted) : null;
+  lead.medicalAid = await decryptBoolean(lead.medicalAidEncrypted);
+  lead.medicalAidProvider = lead.medicalAidProviderEncrypted ? await decrypt(lead.medicalAidProviderEncrypted) : null;
+  delete lead.existingCoverEncrypted;
+  delete lead.currentInsurerEncrypted;
+  delete lead.policiesEncrypted;
+  delete lead.medicalAidEncrypted;
+  delete lead.medicalAidProviderEncrypted;
+
   return lead;
 }
 
@@ -379,21 +412,30 @@ export async function createLead(data, createdById) {
 
   const encryptedIdNumber = data.idNumber ? await encrypt(data.idNumber) : null;
   const idNumberHash = data.idNumber ? blindIndex(data.idNumber) : null;
+  // §12a/F1 (20 Aug 2026) — same pattern as idNumber immediately above,
+  // for the five medical/insurance fields. Encrypted before the INSERT
+  // params object is built since encrypt()/encryptBoolean() are async
+  // and can't be awaited inline inside an object literal.
+  const encryptedExistingCover = await encryptBoolean(data.existingCover ?? null);
+  const encryptedCurrentInsurer = data.currentInsurer ? await encrypt(data.currentInsurer) : null;
+  const encryptedPolicies = data.policies ? await encrypt(data.policies) : null;
+  const encryptedMedicalAid = await encryptBoolean(data.medicalAid ?? null);
+  const encryptedMedicalAidProvider = data.medicalAidProvider ? await encrypt(data.medicalAidProvider) : null;
   const newId = crypto.randomUUID();
 
   await executeQuery(
     `INSERT INTO Lead (
        id, organisationId, title, firstName, lastName, dateOfBirth, idNumberEncrypted, idNumberHash, email,
        mobileNumber, whatsappNumber, universityAttended, yearOfAttendance,
-       degreeAttained, occupation, hospitalOrPractice, existingCover, policies,
-       medicalAid, medicalAidProvider, linkedEventId, linkedSubscriptionId,
+       degreeAttained, occupation, hospitalOrPractice, existingCoverEncrypted, currentInsurerEncrypted, policiesEncrypted,
+       medicalAidEncrypted, medicalAidProviderEncrypted, linkedEventId, linkedSubscriptionId,
        csvImportBatchId, manualSourceName, pipelineStatus,
        region, createdById, createdAt, updatedAt
      ) VALUES (
        @id, @organisationId, @title, @firstName, @lastName, @dateOfBirth, @idNumberEncrypted, @idNumberHash, @email,
        @mobileNumber, @whatsappNumber, @universityAttended, @yearOfAttendance,
-       @degreeAttained, @occupation, @hospitalOrPractice, @existingCover, @policies,
-       @medicalAid, @medicalAidProvider, @linkedEventId, @linkedSubscriptionId,
+       @degreeAttained, @occupation, @hospitalOrPractice, @existingCoverEncrypted, @currentInsurerEncrypted, @policiesEncrypted,
+       @medicalAidEncrypted, @medicalAidProviderEncrypted, @linkedEventId, @linkedSubscriptionId,
        @csvImportBatchId, @manualSourceName, 'Unassigned',
        @region, @createdById, NOW(), NOW()
      )`,
@@ -414,10 +456,11 @@ export async function createLead(data, createdById) {
       degreeAttained:       { type: sql.NVarChar(200),      value: data.degreeAttained ?? null },
       occupation:           { type: sql.NVarChar(200),      value: data.occupation ?? null },
       hospitalOrPractice:   { type: sql.NVarChar(300),      value: data.hospitalOrPractice ?? null },
-      existingCover:        { type: sql.Bit,                value: data.existingCover ?? null },
-      policies:             { type: sql.NVarChar(500),      value: data.policies ?? null },
-      medicalAid:           { type: sql.Bit,                value: data.medicalAid ?? null },
-      medicalAidProvider:   { type: sql.NVarChar(200),      value: data.medicalAidProvider ?? null },
+      existingCoverEncrypted:      { type: sql.NVarChar(sql.MAX), value: encryptedExistingCover },
+      currentInsurerEncrypted:     { type: sql.NVarChar(sql.MAX), value: encryptedCurrentInsurer },
+      policiesEncrypted:           { type: sql.NVarChar(sql.MAX), value: encryptedPolicies },
+      medicalAidEncrypted:         { type: sql.NVarChar(sql.MAX), value: encryptedMedicalAid },
+      medicalAidProviderEncrypted: { type: sql.NVarChar(sql.MAX), value: encryptedMedicalAidProvider },
       linkedEventId:        { type: sql.UniqueIdentifier,   value: data.linkedEventId ?? null },
       linkedSubscriptionId: { type: sql.UniqueIdentifier,   value: data.linkedSubscriptionId ?? null },
       csvImportBatchId:     { type: sql.UniqueIdentifier,   value: data.csvImportBatchId ?? null },
@@ -456,6 +499,14 @@ export async function createLead(data, createdById) {
 // (idNumberEncrypted + idNumberHash), the same encrypt()/blindIndex() pair
 // createLead() already uses, not something the generic col/type loop below
 // can express.
+// existingCover/currentInsurer/policies/medicalAid/medicalAidProvider
+// REMOVED 20 Aug 2026 (§12a/F1) — same reasoning as idNumber immediately
+// above, now that these five are also field-level encrypted (one input
+// field, one *Encrypted stored column, needs an async encrypt() call
+// this synchronous col/type loop can't express). Handled explicitly in
+// updateLead() below instead. currentInsurer specifically was NEVER in
+// this map before this change — see models/lead.js's CreateLeadShape
+// comment for the pre-existing gap that left it silently unsaved.
 const UPDATE_LEAD_COLUMNS = {
   dateOfBirth:        { col: 'dateOfBirth',        type: sql.Date },
   email:               { col: 'email',               type: sql.NVarChar(255) },
@@ -466,10 +517,6 @@ const UPDATE_LEAD_COLUMNS = {
   degreeAttained:      { col: 'degreeAttained',      type: sql.NVarChar(200) },
   occupation:          { col: 'occupation',          type: sql.NVarChar(200) },
   hospitalOrPractice:  { col: 'hospitalOrPractice',  type: sql.NVarChar(300) },
-  existingCover:       { col: 'existingCover',       type: sql.Bit },
-  policies:            { col: 'policies',            type: sql.NVarChar(500) },
-  medicalAid:          { col: 'medicalAid',          type: sql.Bit },
-  medicalAidProvider:  { col: 'medicalAidProvider',  type: sql.NVarChar(200) },
   // 14 Aug 2026 (§166) — editable after creation, same as every other
   // field in this list; mandatory-on-ManualEntry only applies to the
   // Zod layer at CREATE time (models/lead.js), not to later edits.
@@ -507,6 +554,32 @@ export async function updateLead(leadId, data) {
     setClauses.push('idNumberEncrypted = @idNumberEncrypted', 'idNumberHash = @idNumberHash');
     params.idNumberEncrypted = { type: sql.NVarChar(sql.MAX), value: data.idNumber ? await encrypt(data.idNumber) : null };
     params.idNumberHash = { type: sql.NVarChar(64), value: data.idNumber ? blindIndex(data.idNumber) : null };
+  }
+
+  // §12a/F1 (20 Aug 2026) — same "outside the generic loop, one field-
+  // level-encrypted column each" treatment as idNumber immediately
+  // above, for the five medical/insurance fields. currentInsurer is
+  // included here for the first time ever — see models/lead.js's
+  // CreateLeadShape comment for why it silently never saved before.
+  if (data.existingCover !== undefined) {
+    setClauses.push('existingCoverEncrypted = @existingCoverEncrypted');
+    params.existingCoverEncrypted = { type: sql.NVarChar(sql.MAX), value: await encryptBoolean(data.existingCover) };
+  }
+  if (data.currentInsurer !== undefined) {
+    setClauses.push('currentInsurerEncrypted = @currentInsurerEncrypted');
+    params.currentInsurerEncrypted = { type: sql.NVarChar(sql.MAX), value: data.currentInsurer ? await encrypt(data.currentInsurer) : null };
+  }
+  if (data.policies !== undefined) {
+    setClauses.push('policiesEncrypted = @policiesEncrypted');
+    params.policiesEncrypted = { type: sql.NVarChar(sql.MAX), value: data.policies ? await encrypt(data.policies) : null };
+  }
+  if (data.medicalAid !== undefined) {
+    setClauses.push('medicalAidEncrypted = @medicalAidEncrypted');
+    params.medicalAidEncrypted = { type: sql.NVarChar(sql.MAX), value: await encryptBoolean(data.medicalAid) };
+  }
+  if (data.medicalAidProvider !== undefined) {
+    setClauses.push('medicalAidProviderEncrypted = @medicalAidProviderEncrypted');
+    params.medicalAidProviderEncrypted = { type: sql.NVarChar(sql.MAX), value: data.medicalAidProvider ? await encrypt(data.medicalAidProvider) : null };
   }
 
   let changed = false;
@@ -832,6 +905,20 @@ async function anonymiseLeadRow(leadId, organisationId) {
        policies = NULL,
        medicalAid = NULL,
        medicalAidProvider = NULL,
+       -- §12a/F1 (20 Aug 2026) — these five fields are now also field-
+       -- level encrypted (migration 036); the plaintext columns
+       -- immediately above are deprecated but a given row may still
+       -- hold real data in either generation depending on whether it's
+       -- been through scripts/backfill-encrypt-lead-fields.js or a
+       -- post-migration create/update yet. Nulling only one generation
+       -- would leave real PII behind on whichever rows happen to be in
+       -- the other state — both must be cleared for this to actually
+       -- be an erasure.
+       existingCoverEncrypted = NULL,
+       currentInsurerEncrypted = NULL,
+       policiesEncrypted = NULL,
+       medicalAidEncrypted = NULL,
+       medicalAidProviderEncrypted = NULL,
        manualSourceName = NULL,
        deletedAt = NOW(),
        erasedAt = NOW(),

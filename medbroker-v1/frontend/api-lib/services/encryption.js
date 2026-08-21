@@ -246,3 +246,29 @@ export function blindIndex(value) {
     .update(value.trim())
     .digest('hex');
 }
+
+/**
+ * §12a/F1 (20 Aug 2026) — thin boolean wrappers around encrypt()/
+ * decrypt() above, for medicalAid/existingCover (leadService.js and
+ * every other file that reads them). There is no encrypted-boolean
+ * column type; a boolean is encrypted as the string 'true'/'false' and
+ * parsed back on the way out. Deliberately NOT `Boolean(str)` on decrypt
+ * — that coerces any non-empty string (including the literal text
+ * 'false') to true, which would silently invert every stored false.
+ * @param {boolean|null|undefined} value
+ * @returns {Promise<string|null>}
+ */
+export async function encryptBoolean(value) {
+  if (value === null || value === undefined) return null;
+  return encrypt(String(value));
+}
+
+/**
+ * @param {string|null} encryptedBase64
+ * @returns {Promise<boolean|null>}
+ */
+export async function decryptBoolean(encryptedBase64) {
+  if (!encryptedBase64) return null;
+  const decrypted = await decrypt(encryptedBase64);
+  return decrypted === 'true';
+}

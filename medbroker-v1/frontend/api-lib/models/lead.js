@@ -102,6 +102,16 @@ const CreateLeadShape = z.object({
   policies:             z.string().max(500).optional(),
   medicalAid:           z.boolean().optional(),
   medicalAidProvider:   z.string().max(200).optional(),
+  // §12a/F1 follow-up (20 Aug 2026) — discovered while wiring up field-
+  // level encryption for this field: currentInsurer was NEVER part of
+  // this shape at all, despite Lead.currentInsurer existing as a real
+  // column and LeadDetail.jsx already having a working input for it
+  // that sends this key on save. Zod strips unknown keys by default, so
+  // every save silently dropped it — not a regression introduced by the
+  // encryption work, a pre-existing gap the encryption work exposed
+  // (same shape of finding as the FLAG_META gap and the LeadUpdated
+  // audit-gate gap earlier in this project's history). Fixed here.
+  currentInsurer:       z.string().max(200).optional(),
   // Portfolio names (e.g. ['Discovery', 'Money and Medicine']) — resolved
   // to portfolioIds server-side via resolvePortfolioIds(), same helper
   // userService.js already uses for User's multi-portfolio support.

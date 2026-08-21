@@ -36,7 +36,7 @@
  */
 import { executeQuery, executeQueryOne, sql } from './db.js';
 import { resolveOrganisationId } from '../context/tenant.js';
-import { decrypt } from './encryption.js';
+import { decrypt, decryptBoolean } from './encryption.js';
 import { writeAuditLog, listAuditLogForLead } from './auditService.js';
 import { createNotification } from './notificationService.js';
 // §12a (20 Aug 2026) — the actual Lead-side effects of a Deletion
@@ -471,8 +471,11 @@ export async function compileSubjectData(leadId) {
             email, mobileNumber AS "mobileNumber", whatsappNumber AS "whatsappNumber",
             universityAttended AS "universityAttended", yearOfAttendance AS "yearOfAttendance",
             degreeAttained AS "degreeAttained", occupation, hospitalOrPractice AS "hospitalOrPractice",
-            existingCover AS "existingCover", currentInsurer AS "currentInsurer", policies,
-            medicalAid AS "medicalAid", medicalAidProvider AS "medicalAidProvider",
+            existingCoverEncrypted AS "existingCoverEncrypted",
+            currentInsurerEncrypted AS "currentInsurerEncrypted",
+            policiesEncrypted AS "policiesEncrypted",
+            medicalAidEncrypted AS "medicalAidEncrypted",
+            medicalAidProviderEncrypted AS "medicalAidProviderEncrypted",
             pipelineStatus AS "pipelineStatus", createdAt AS "createdAt"
      FROM Lead WHERE id = @leadId AND organisationId = @organisationId`,
     { ...leadParam, ...orgParam }
@@ -490,6 +493,22 @@ export async function compileSubjectData(leadId) {
   // getLeadById's.
   lead.idNumber = lead.idNumberEncrypted ? await decrypt(lead.idNumberEncrypted) : null;
   delete lead.idNumberEncrypted;
+
+  // §12a/F1 (20 Aug 2026) — same treatment, extended to the five
+  // medical/insurance fields (migration 036). A POPIA access request
+  // export is exactly the kind of view that should show the subject
+  // their own real data decrypted, same reasoning idNumber's decrypt
+  // above already has.
+  lead.existingCover = await decryptBoolean(lead.existingCoverEncrypted);
+  lead.currentInsurer = lead.currentInsurerEncrypted ? await decrypt(lead.currentInsurerEncrypted) : null;
+  lead.policies = lead.policiesEncrypted ? await decrypt(lead.policiesEncrypted) : null;
+  lead.medicalAid = await decryptBoolean(lead.medicalAidEncrypted);
+  lead.medicalAidProvider = lead.medicalAidProviderEncrypted ? await decrypt(lead.medicalAidProviderEncrypted) : null;
+  delete lead.existingCoverEncrypted;
+  delete lead.currentInsurerEncrypted;
+  delete lead.policiesEncrypted;
+  delete lead.medicalAidEncrypted;
+  delete lead.medicalAidProviderEncrypted;
 
   const [callAttempts, appointments, appointmentMeetingRows, tasks, auditTrailRaw] = await Promise.all([
     executeQuery(

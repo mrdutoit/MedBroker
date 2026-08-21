@@ -19,7 +19,7 @@
  */
 
 import { executeQuery, executeQueryOne, sql } from './db.js';
-import { decrypt } from './encryption.js';
+import { decrypt, decryptBoolean } from './encryption.js';
 import { computeAppointmentStatus } from './appointmentStatusService.js';
 import { getActiveUserById, resolvePortfolioIds, findLeastLoadedSupervisorForRegion } from './userService.js';
 import { createTask, deleteTasksForEntity, reassignTasksForEntity } from './taskService.js';
@@ -326,8 +326,11 @@ export async function getAppointmentById(id) {
     `SELECT dateOfBirth AS "dateOfBirth", idNumberEncrypted AS "idNumberEncrypted",
             whatsappNumber AS "whatsappNumber", universityAttended AS "universityAttended",
             yearOfAttendance AS "yearOfAttendance", degreeAttained AS "degreeAttained",
-            hospitalOrPractice AS "hospitalOrPractice", existingCover AS "existingCover",
-            policies, medicalAid AS "medicalAid", medicalAidProvider AS "medicalAidProvider"
+            hospitalOrPractice AS "hospitalOrPractice",
+            existingCoverEncrypted AS "existingCoverEncrypted",
+            policiesEncrypted AS "policiesEncrypted",
+            medicalAidEncrypted AS "medicalAidEncrypted",
+            medicalAidProviderEncrypted AS "medicalAidProviderEncrypted"
      FROM Lead WHERE id = @leadId`,
     { leadId: { type: sql.UniqueIdentifier, value: appt.leadId } }
   );
@@ -338,10 +341,17 @@ export async function getAppointmentById(id) {
   appt.yearOfAttendance    = leadDetail?.yearOfAttendance ?? null;
   appt.degreeAttained      = leadDetail?.degreeAttained ?? null;
   appt.hospitalOrPractice  = leadDetail?.hospitalOrPractice ?? null;
-  appt.existingCover       = leadDetail?.existingCover ?? null;
-  appt.policies             = leadDetail?.policies ?? null;
-  appt.medicalAid           = leadDetail?.medicalAid ?? null;
-  appt.medicalAidProvider  = leadDetail?.medicalAidProvider ?? null;
+  // §12a/F1 (20 Aug 2026) — same decrypt-for-display treatment as
+  // idNumber immediately above, extended to the four medical/insurance
+  // fields this card already showed (currentInsurer is deliberately NOT
+  // among them — the "Current insurer" AppointmentDetail.jsx shows
+  // elsewhere on the page is Appointment.currentInsurer, a separate,
+  // Appointment-native, independently-editable field; Lead.currentInsurer
+  // was never part of this card and this change doesn't add it).
+  appt.existingCover       = await decryptBoolean(leadDetail?.existingCoverEncrypted);
+  appt.policies             = leadDetail?.policiesEncrypted ? await decrypt(leadDetail.policiesEncrypted) : null;
+  appt.medicalAid           = await decryptBoolean(leadDetail?.medicalAidEncrypted);
+  appt.medicalAidProvider  = leadDetail?.medicalAidProviderEncrypted ? await decrypt(leadDetail.medicalAidProviderEncrypted) : null;
 
   return appt;
 }

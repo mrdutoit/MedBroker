@@ -30,7 +30,7 @@
  */
 
 import { executeQuery, sql } from './db.js';
-import { decrypt } from './encryption.js';
+import { decrypt, decryptBoolean } from './encryption.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
 // Same "show enough to confirm identity, not enough to be useful to a
@@ -51,8 +51,11 @@ const LEAD_EXPORT_SELECT = `
     l.occupation, l.hospitalOrPractice AS "hospitalOrPractice",
     l.universityAttended AS "universityAttended", l.yearOfAttendance AS "yearOfAttendance",
     l.degreeAttained AS "degreeAttained",
-    l.existingCover AS "existingCover", l.policies, l.medicalAid AS "medicalAid",
-    l.medicalAidProvider AS "medicalAidProvider",
+    l.existingCoverEncrypted AS "existingCoverEncrypted",
+    l.currentInsurerEncrypted AS "currentInsurerEncrypted",
+    l.policiesEncrypted AS "policiesEncrypted",
+    l.medicalAidEncrypted AS "medicalAidEncrypted",
+    l.medicalAidProviderEncrypted AS "medicalAidProviderEncrypted",
     l.pipelineStatus AS "pipelineStatus", l.region,
     COALESCE(ev.name, ms.name, l.manualSourceName) AS "source",
     l.createdAt AS "createdAt",
@@ -74,8 +77,36 @@ export async function getLeadsForExport() {
   });
   return Promise.all(rows.map(async row => {
     const idNumber = row.idNumberEncrypted ? await decrypt(row.idNumberEncrypted) : null;
+    // §12a/F1 (20 Aug 2026) — decrypted, NOT masked, unlike idNumber
+    // above. idNumber's masking is specifically about a unique
+    // government identifier's extreme correlation/fraud risk in a bulk
+    // downloadable file; these five fields don't carry that same risk
+    // tier (a boolean, or which medical aid someone uses, isn't
+    // uniquely identifying the way an ID number is) and this export
+    // already legitimately included them in plaintext before this
+    // change — F1 closes the at-rest encryption gap, it doesn't change
+    // what this export is allowed to show. currentInsurer is new here:
+    // it was never in this export before because it was never actually
+    // saveable on a Lead at all — see models/lead.js's CreateLeadShape
+    // comment for that pre-existing gap, fixed alongside this change.
+    const existingCover = await decryptBoolean(row.existingCoverEncrypted);
+    const currentInsurer = row.currentInsurerEncrypted ? await decrypt(row.currentInsurerEncrypted) : null;
+    const policies = row.policiesEncrypted ? await decrypt(row.policiesEncrypted) : null;
+    const medicalAid = await decryptBoolean(row.medicalAidEncrypted);
+    const medicalAidProvider = row.medicalAidProviderEncrypted ? await decrypt(row.medicalAidProviderEncrypted) : null;
+
     delete row.idNumberEncrypted;
-    return { ...row, idNumber: maskIdNumber(idNumber) };
+    delete row.existingCoverEncrypted;
+    delete row.currentInsurerEncrypted;
+    delete row.policiesEncrypted;
+    delete row.medicalAidEncrypted;
+    delete row.medicalAidProviderEncrypted;
+
+    return {
+      ...row,
+      idNumber: maskIdNumber(idNumber),
+      existingCover, currentInsurer, policies, medicalAid, medicalAidProvider,
+    };
   }));
 }
 
