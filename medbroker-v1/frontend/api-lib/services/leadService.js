@@ -132,7 +132,19 @@ export async function listLeads({ status, excludeStatuses, agentId, brokerId, ev
     params.occupation = { type: sql.NVarChar(200), value: occupation };
   }
   if (search) {
-    whereClause += ' AND (l.firstName ILIKE @search OR l.lastName ILIKE @search OR l.email ILIKE @search)';
+    // Bug found 21 Aug 2026 (Mark, live testing): searching a lead's full
+    // name ("Kaveer Singh") returned zero results, while a partial name
+    // ("Kaveer") worked. Root cause: this clause only ever compared the
+    // search term against firstName and lastName SEPARATELY — neither
+    // column alone contains a space-joined full name, so a two-word
+    // search could never match either one. Added the concatenated
+    // "firstName lastName" comparison as a fourth OR branch rather than
+    // replacing the existing three — a search for just "Kaveer" or just
+    // an email fragment still needs to keep working exactly as before.
+    whereClause += ` AND (
+      l.firstName ILIKE @search OR l.lastName ILIKE @search OR l.email ILIKE @search
+      OR (l.firstName || ' ' || l.lastName) ILIKE @search
+    )`;
     params.search = { type: sql.NVarChar(100), value: `%${search}%` };
   }
   if (source) {

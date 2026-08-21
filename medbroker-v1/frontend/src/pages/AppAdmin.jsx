@@ -68,6 +68,25 @@ function todayLocalDateString() {
 }
 
 /**
+ * Bug found 21 Aug 2026 (Mark, live testing) — the SAR requestor-email
+ * field is `type="email"`, which looks like it validates format, but
+ * this form has no <form onSubmit> wrapper (this app's established
+ * pattern is button onClick, not native submission — see the artifact
+ * conventions this codebase already follows), so the browser's native
+ * type="email" constraint checking never actually fires. The old guard
+ * only checked `.trim()` (non-empty), so a malformed address sailed
+ * straight through to the server and got a 400 from CreateSarRequest
+ * Schema's `z.string().email()` — the exact, most likely explanation for
+ * the 400 Mark hit on his first Deletion-request attempt. Deliberately
+ * not exhaustively RFC 5322-compliant — matching Zod's own `.email()`
+ * strictness is the goal, not building a stricter gate than the server
+ * actually enforces.
+ */
+function isValidEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((value || '').trim());
+}
+
+/**
  * Formats an AuditLog entry's changeDetail object into a short, readable
  * summary — e.g. {value: '1'} -> "value: Yes". FIXED 2 Aug 2026 (Mark
  * asked why enabling and disabling a flag looked identical in the log):
@@ -390,7 +409,7 @@ export default function AppAdmin() {
   }
 
   async function handleSarCreate() {
-    if (!sarSelectedLead || !sarRequestorName.trim() || !sarRequestorEmail.trim() || !sarReceivedAt) return;
+    if (!sarSelectedLead || !sarRequestorName.trim() || !isValidEmail(sarRequestorEmail) || !sarReceivedAt) return;
     setSarSaving(true);
     setSarError(null);
     try {
@@ -1516,8 +1535,8 @@ export default function AppAdmin() {
               </div>
 
               <button
-                style={{ ...s.primaryBtn, opacity: (!sarSelectedLead || !sarRequestorName.trim() || !sarRequestorEmail.trim() || sarSaving) ? 0.5 : 1 }}
-                disabled={!sarSelectedLead || !sarRequestorName.trim() || !sarRequestorEmail.trim() || sarSaving}
+                style={{ ...s.primaryBtn, opacity: (!sarSelectedLead || !sarRequestorName.trim() || !isValidEmail(sarRequestorEmail) || sarSaving) ? 0.5 : 1 }}
+                disabled={!sarSelectedLead || !sarRequestorName.trim() || !isValidEmail(sarRequestorEmail) || sarSaving}
                 onClick={handleSarCreate}
               >
                 {sarSaving ? 'Saving…' : 'Log Request'}

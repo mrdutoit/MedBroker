@@ -51,7 +51,18 @@ export async function handleSarRequestsCollection(req, res) {
 
     if (req.method === 'POST') {
       const parsed = CreateSarRequestSchema.safeParse(req.body);
-      if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+      if (!parsed.success) {
+        // Bug found 21 Aug 2026 (Mark, live testing) — a 400 here
+        // previously left no trace at all in Vercel's Logs panel: this
+        // branch returns before the catch block's console.error, so a
+        // validation failure was genuinely unfindable after the fact,
+        // exactly what Mark ran into. Logging the actual field(s) that
+        // failed, not just the code path — a bare "SAR create validation
+        // failed" would tell a future reader nothing more than the 400
+        // itself already did.
+        console.warn('leads/sar-requests validation failed:', JSON.stringify(parsed.error.flatten()));
+        return res.status(400).json({ error: parsed.error.flatten() });
+      }
 
       const newId = await createSarRequest(parsed.data, claims.oid);
       return res.status(201).json({ id: newId });

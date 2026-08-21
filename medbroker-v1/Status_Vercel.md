@@ -135,6 +135,142 @@ hydration, 18 Aug 2026.
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+SESSION 21 AUG 2026 — TWO BUGS FROM MARK'S LIVE TESTING, BOTH FIXED.
+Reported against the deployed SAR/Deletion feature from the 20 Aug
+sessions below, with screenshots.
+
+BUG 1 — LEAD SEARCH: full name ("Kaveer Singh") returned zero results,
+a partial name ("Kaveer") found the lead. Root cause confirmed by
+reading listLeads()'s WHERE clause directly, not guessed: the search
+only ever compared the term against firstName and lastName SEPARATELY
+— "Kaveer Singh" (with a space) can never be a substring of "Kaveer"
+alone or "Singh" alone, so a two-word search matched nothing. Fixed by
+adding a fourth OR branch comparing against the concatenated
+firstName || ' ' || lastName, alongside the existing three (not
+replacing them — a single-word or email-fragment search still needs to
+keep working). Verified against real Postgres with the exact reported
+case plus three regression checks (partial name, lastname-only, email
+fragment) — all four returned the correct row count. This is the same
+`search` parameter behind both the general Leads list page and the SAR
+form's "Find the Lead" box (leadsApi.list()) — one fix closes it
+everywhere this search box appears, not just in Data Requests.
+
+BUG 2 — 400 ON FIRST DELETION-REQUEST ATTEMPT: Mark's screenshot showed
+the failing request in Vercel's Logs panel, but "No logs found for this
+request" — nothing to trace. Read handleSarRequestsCollection()
+directly: the ONLY 400 source on this route is CreateSarRequestSchema.
+safeParse() failing — there is no other validation or business-logic
+400 anywhere in that handler. Most likely specific cause, well-
+evidenced rather than certain: the requestor-email field is
+type="email", which looks like it enforces format, but this form (like
+every other form in this app) submits via a button onClick, not a
+native <form onSubmit> — so the browser's native email constraint
+checking never actually fires. The old client-side guard only checked
+`.trim()` (non-empty), while the server's Zod schema requires
+`.email()` (valid format) — a genuine gap between what the button's
+disabled state allowed through and what the server actually required.
+A malformed address would pass the client check, reach the server, and
+get rejected with a 400 — matching exactly "first attempt failed,
+retry (presumably corrected) succeeded."
+Two fixes, addressing both the specific bug and the general complaint
+("not sure how to trace the error"):
+  - AppAdmin.jsx: new isValidEmail() helper (a practical format check,
+    deliberately matching Zod's .email() strictness rather than
+    building something stricter than the server enforces), now gating
+    both the Log Request button's disabled state and handleSarCreate()'s
+    guard clause. A malformed email can no longer be submitted at all.
+  - sarHandlers.js: the safeParse failure branch now calls console.warn
+    with the actual field(s) and reason from parsed.error.flatten()
+    before returning the 400. Previously this branch returned before
+    ever reaching the catch block's console.error, so a validation
+    failure was genuinely invisible in Vercel's Logs panel — exactly
+    what Mark ran into. Any future 400 on this route, from any field,
+    is now traceable without needing to reverse-engineer it from a
+    screenshot.
+Worth telling Mark directly, not just noting here: the on-screen error
+banner on the SAR form (sarError, rendered via s.errorBox) was already
+wired to show the specific field+reason via formatErrorBody() — which
+already correctly unpacks Zod's fieldErrors shape into a readable
+message. He likely did see something like "requestorEmail: Invalid
+email" in the moment; it just wasn't anywhere he could go back and find
+after the fact, which the console.warn now fixes going forward.
+
+VERIFICATION: npm run build clean, 48/48 vitest, no regressions.
+node --check clean on both touched backend files (AppAdmin.jsx is JSX —
+validated via the production build instead, which compiled clean).
+isValidEmail() tested against 9 cases (valid addresses, no-@, no-TLD,
+empty, whitespace-only, plus-tags, subdomains) — all correct, including
+the two malformed shapes ("kaveer", "kaveer@chartres") that would have
+slipped past the old check specifically. Search fix verified against
+real Postgres with the exact reported input plus three regression
+cases, not just read.
+
+REBUILT AND REPO DOCUMENT STRUCTURE ESTABLISHED. Mark asked for the
+Technical Specification updated with POPIA/FAIS content, then clarified
+it was a document Claude built in a past session (9-11 Aug 2026, v1.0,
+19 pages, 6 diagrams) that never reached this repo or project
+knowledge — found via conversation_search, confirmed genuinely absent
+from a fresh GitHub hydration. Not recoverable (lived only in that
+session's now-closed sandbox) and, separately, already ten days stale
+regardless (SAR, the erasure feature, KMS, F1/F3 all postdate it) — so
+rebuilt fresh (v2.0) rather than attempting to patch a version that no
+longer existed anywhere accessible.
+
+Diagrams (6, same count as v1.0): extracted 32 tables and 75 foreign-
+key relationships programmatically from the current schema.postgres.sql,
+same rigor the original build used, not approximated. All Mermaid
+(erDiagram \u00d7 4, flowchart, sequenceDiagram), rendered via mmdc per the
+solution-architecture skill. One flagged deviation: that skill specifies
+Draw.io XML with UML stencils for the component/deployment diagram — no
+Draw.io renderer was available in this build environment, so Mermaid
+flowchart notation was used instead and stated plainly in the
+document's own Document Control section, not silently substituted.
+
+REAL BUG FOUND AND FIXED DURING THE BUILD, WORTH RECORDING: every
+embedded diagram initially rendered as a tiny, unreadable sliver.
+Traced to a single line — a document-wide default paragraph style
+(spacing.line = 276, meant for body-text line height) was being applied
+to image-containing paragraphs too, and LibreOffice's renderer clips an
+inline image's paragraph to that line height instead of letting it grow
+to fit the image, unlike Word's more forgiving behaviour. Isolated with
+a minimal one-image test case before touching the real document, to
+confirm root cause rather than guessing. Fixed by moving that spacing
+into the body-text helper specifically rather than the document-wide
+default. Same "verified against real output before delivery" discipline
+this project already applies to SQL — applied here to a rendering
+pipeline instead.
+
+Also fixed: a duplicate consecutive PageBreak left over from an earlier
+edit, which produced one wasted blank page between Document Control and
+the Table of Contents. And: replaced a dynamic Word TOC field with a
+static section list after confirming (via LibreOffice's headless
+conversion) that the dynamic field renders blank unless a real Word
+session explicitly updates it — correctness across whatever Mark
+actually opens this in was judged more valuable than a clickable,
+auto-updating list.
+
+REPO STRUCTURE: Mark separately pointed out the User Guide and
+GlobalAdmin Guide were in the same situation as the Technical
+Specification — built by Claude, never actually in the GitHub repo,
+living only in project knowledge. Confirmed via fresh hydration. Both
+now added, alongside the new Technical Specification, under a proper
+docs/ structure:
+  docs/technical/MedBroker_Technical_Specification.docx (new)
+  docs/guides/MedBroker-User-Guide.docx
+  docs/guides/MedBroker-GlobalAdmin-Guide.docx
+  docs/security/MedBroker_Security_Code_Review_Findings.docx (already
+    in repo from an earlier delivery this session, unchanged, not
+    re-copied)
+
+FLAGGED, NOT FIXED THIS SESSION: both MedBroker-User-Guide.docx and
+MedBroker-GlobalAdmin-Guide.docx are plain UTF-8 text saved with a
+.docx extension, not real OOXML packages — the exact same defect the
+Security Findings document had before it was corrected earlier this
+session. Committed to the repo as-is per Mark's literal request (repo
+inclusion), not silently propagated without mention — this needs the
+same docx-js rebuild treatment the Security Findings document already
+got, as a follow-up, not attempted in this already-large session.
+
 SESSION 20 AUG 2026 (CONTINUED, SECOND ROUND) — F1/F3 SECURITY FIXES
 APPLIED, at Mark's explicit request ("I want these resolved"). Same
 session as the two entries below.
@@ -461,6 +597,12 @@ OUTSTANDING (unchanged from CURRENT STATE further up in this file):
       actual client production deployment before go-live — currently
       off by default; DEMO_ENCRYPTION_KEY (unrotated env var) is what's
       actually protecting idNumber until this is switched on.
+   i. Reformat MedBroker-User-Guide.docx and MedBroker-GlobalAdmin-
+      Guide.docx as genuine OOXML .docx files — both are currently
+      plain UTF-8 text saved with a .docx extension (same defect
+      MedBroker_Security_Code_Review_Findings.docx had before it was
+      corrected earlier this session). Not compliance-critical, but a
+      real quality gap now that both are checked into the repo proper.
 
 1. Vercel Pro upgrade — still an open business decision, required
    before commercial launch (higher function-count ceiling, Vercel's
