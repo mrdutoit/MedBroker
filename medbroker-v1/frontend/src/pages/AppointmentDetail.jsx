@@ -987,6 +987,12 @@ export default function AppointmentDetail() {
   // Lead column names for the Lead-owned half (leadsApi.update expects
   // exactly what LeadDetail.jsx's own startEditing() sends).
   function startEditingDetails() {
+    // Defense-in-depth, matching this file's own established pattern of
+    // checking at both the trigger and the action (the isLocked-gated
+    // Outcome card below does the same) — the button that calls this is
+    // already hidden when isClosed, but this guard means the function
+    // itself is also safe if anything else ever calls it.
+    if (isClosed) return;
     setDetailsForm({
       // Lead-owned — Lead Details card
       occupation:          appt.occupation ?? '',
@@ -1108,7 +1114,24 @@ export default function AppointmentDetail() {
         </div>
         {canManage && (
           <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
-            {!editingDetails && (
+            {/* Bug found 21 Aug 2026 (Mark, live testing): this button was
+                gated on canManage only — zero check for isClosed, entirely
+                separate from the isLocked-gated fields in the Appointment
+                Outcome card below. The backend PUT lock (appointmentHandlers.js)
+                already correctly rejected a save on a closed appointment, but
+                nothing stopped anyone from entering edit mode and interacting
+                with the fields first, which is exactly what "still editable"
+                means from where Mark's sitting, regardless of what the save
+                attempt would eventually do. Deliberately !isClosed here, not
+                !isLocked — isLocked also covers ReturnedToLeads, a status the
+                backend lock deliberately does NOT block (see that check's own
+                comment); gating on the broader isLocked would have hidden this
+                button for a status the server would still accept a save for,
+                the same class of frontend/backend mismatch in the other
+                direction. startEditingDetails() is this button's only caller
+                (setEditingDetails(true) has no other call site in this file)
+                — checked before assuming this one fix is sufficient. */}
+            {!editingDetails && !isClosed && (
               <button style={s.secondaryBtn} onClick={startEditingDetails}>
                 Edit Details
               </button>

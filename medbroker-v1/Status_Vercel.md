@@ -135,7 +135,65 @@ hydration, 18 Aug 2026.
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-SESSION 21 AUG 2026 (CONTINUED, SIXTH ROUND) — CLOSED LEADS/APPOINTMENTS
+SESSION 21 AUG 2026 (CONTINUED, SEVENTH ROUND) — CLOSED-APPOINTMENT LOCK
+HAD A REAL FRONTEND GAP, FOUND BY MARK, FIXED.
+
+Mark tested a ClosedWon appointment (John Wellington) and found the
+"Edit Details" button still fully clickable. Traced it precisely rather
+than assuming the previous entry's fix was simply incomplete in some
+vague way: AppointmentDetail.jsx has TWO entirely separate edit
+surfaces — the isLocked-gated fields inside the "Appointment Outcome"
+card (verified correctly disabled last entry), and a completely
+different editingDetails flow (Lead Details/Appointment Details/
+Personal Details/Education/Insurance cards) triggered by a top-level
+"Edit Details" button that was gated on canManage ONLY — zero isClosed
+check, never touched by the previous fix at all. Checked for other
+entry points into editingDetails before fixing anything — setEditingDetails(true)
+has exactly one call site (startEditingDetails, called only from this
+one button) — so a single fix at this point is genuinely sufficient,
+not a guess.
+
+WORTH BEING PRECISE ABOUT THE ACTUAL RISK HERE, NOT JUST THE SYMPTOM:
+checked what handleSaveDetails actually does on save — it calls BOTH
+leadsApi.update() (for Lead-owned fields this same form edits:
+occupation, DOB, ID number, education, insurance info) AND
+appointmentsApi.update() (for the Appointment-native fields). Both of
+those server-side calls were ALREADY correctly rejected by the previous
+entry's backend locks — Wellington's Lead is pipelineStatus = 'Closed'
+(cascaded from his own appointment closing), so leadHandlers.js's PUT
+lock already covered it independently. No data was ever actually at
+risk of changing; the button being present was a misleading-UI bug —
+looked editable, would have failed (confusingly, with two separate
+errors) on save — not a data-integrity bug. Still a real bug worth
+fixing at the entry point, not just relying on the backend to catch it
+after the fact with a confusing double failure.
+
+FIXED: the "Edit Details" button is now also gated on !isClosed,
+deliberately NOT the broader !isLocked (which also covers
+ReturnedToLeads — a status the backend PUT lock deliberately does NOT
+block, per that check's own comment) — using isLocked here would have
+hidden the button for a status the server would still accept a save
+for, the identical class of frontend/backend mismatch in the opposite
+direction. Also added the same isClosed check inside
+startEditingDetails() itself as a defense-in-depth guard, matching this
+file's own established pattern (the isLocked-gated Outcome card already
+checks at both the trigger and the field level, not just one).
+
+SWEPT BOTH files for any other edit-trigger button with the same class
+of gap — grepped every onClick calling an edit-mode setter in both
+AppointmentDetail.jsx and LeadDetail.jsx. LeadDetail.jsx's own "Edit
+Details" button was already correctly gated on canEdit (which already
+included !isClosed from the earlier entry) — confirmed, not assumed.
+This was the only remaining gap.
+
+VERIFICATION: npm run build clean, npm run lint shows the identical 145
+problems as before this fix (144 pre-existing unused-var warnings, one
+unrelated cosmetic notice) — zero new no-undef errors, confirming
+isClosed is correctly in scope where referenced. 48/48 vitest, no
+regressions. Replicated the exact fixed JSX condition against
+Wellington's real values (status: 'ClosedWon') directly — button
+correctly does not render.
+
 NOW LOCKED FOR EVERYONE, WITH A REOPEN ESCAPE HATCH. Mark's explicit
 request: "when a Lead or an Appointment is closed, it should be
 uneditable... nobody should be allowed to change either whilst in a
