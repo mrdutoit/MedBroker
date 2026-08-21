@@ -640,7 +640,7 @@ export default function LeadDetail() {
               <span style={{ color:'var(--mut)', flexShrink: 0 }}>Products</span>
               <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 {editForm.portfolios.length === 0
-                  ? <span style={{ color: colors.ink400, fontSize: '0.75rem' }}>Select a portfolio first</span>
+                  ? <span style={{ color: 'var(--mut)', fontSize: '0.75rem' }}>Select a portfolio first</span>
                   : editForm.portfolios.flatMap(name => productsByPortfolio[name] ?? []).map(prod => {
                       const checked = editForm.products.includes(prod);
                       return (

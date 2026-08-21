@@ -135,7 +135,66 @@ hydration, 18 Aug 2026.
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-SESSION 21 AUG 2026 (CONTINUED, FOURTH ROUND) — SERIOUS REGRESSION FROM
+SESSION 21 AUG 2026 (CONTINUED, FIFTH ROUND) — LEADDETAIL.JSX CRASH ON
+EDIT, FIXED, PLUS NEW LINT INFRASTRUCTURE TO CATCH THIS CLASS OF BUG
+GOING FORWARD.
+
+Mark hit a blank white page clicking "Edit Details" on a Lead — browser
+console showed "Uncaught ReferenceError: colors is not defined" in the
+LeadDetail chunk, crashing the whole page render. Confirmed NOT
+introduced by any of this session's work — never touched LeadDetail.jsx
+before this — a pre-existing, dormant bug that had simply never been
+triggered before, because Mark had been testing via direct Neon-console
+edits rather than the app's own Edit UI up to this point. First time
+this exact code path (the "Select a portfolio first" hint, shown when
+editing with zero portfolios selected) actually rendered.
+
+ROOT CAUSE: LeadDetail.jsx line 643 referenced colors.ink400, but this
+file's imports only pull in `s` and `APPT_STATUS_META` from tokens.js —
+`colors` itself was never imported at all. colors.ink400 does exist in
+tokens.js (resolves to var(--mut)) — this was a real, simple oversight,
+not a deeper design problem.
+
+FIXED: replaced colors.ink400 with 'var(--mut)' directly — the exact
+same CSS variable, and the identical pattern already used two lines
+above for the sibling "Products" label in the same block. No new
+import needed; minimal, matches the surrounding code exactly.
+
+SWEPT THE REST OF THE FRONTEND for the same class of mistake (a
+colors.X reference without importing colors) — this was the only
+occurrence anywhere in src/. Confirmed via the new lint tooling below,
+not just this one manual grep.
+
+NEW: eslint.config.js — didn't exist before this. package.json already
+had an npm run lint script, but with zero config behind it, so it
+errored out immediately rather than checking anything; exactly why
+this class of bug (a plain JS ReferenceError, invisible to npm run
+build's transpile-only checking) went undetected. Deliberately narrow:
+only no-undef and no-unused-vars enabled — not ESLint's full
+recommended set, and no React-specific plugin (eslint-plugin-react,
+Hooks rules), none of which are installed. Turning on a full ruleset in
+one step risked surfacing a wave of unrelated pre-existing warnings
+across the whole codebase as a surprise side effect of a bug-fix
+delivery — a fuller lint setup (React Hooks rules especially, genuinely
+worth having) is a separate, bigger decision for Mark to make
+deliberately, not bundled in here. Added the `globals` package
+explicitly to devDependencies (package.json) rather than relying on it
+silently as an undeclared transitive dependency of eslint itself.
+
+RUNNING THE NEW LINTER FOR THE FIRST TIME found exactly one real issue
+across the whole src/api/api-lib tree — the LeadDetail.jsx bug already
+being fixed in this same entry. Everything else was no-unused-vars
+noise (144 warnings, mostly unused imports) and one harmless "rule not
+found" notice from a leftover eslint-disable comment referencing a
+Hooks-lint rule that isn't configured (cosmetic, not a code problem).
+Zero other no-undef violations anywhere — real, useful confirmation
+that this specific class of crash isn't lurking elsewhere.
+
+VERIFICATION: npm run build clean, 48/48 vitest, no regressions. npm
+run lint now actually runs (previously errored out unconditionally) and
+confirms the fix — the ReferenceError-class issue it exists to catch is
+gone.
+
 THE PREVIOUS ENTRY, FOUND AND FIXED: "CLOSED WON" APPOINTMENTS WERE
 BEING DOUBLE-COUNTED AS AN ADDITIONAL, SPURIOUS "CLOSED LOST."
 
