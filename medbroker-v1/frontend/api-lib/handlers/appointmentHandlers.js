@@ -8,7 +8,7 @@
 import { validateToken, requireRole, authErrorResponse } from '../middleware/auth.js';
 import {
   listAppointments, createAppointment, getAppointmentById, assignBroker,
-  reassignAppointment, returnToLeads, saveOutcome, claimAppointment, listAvailableToClaim,
+  reassignAppointment, returnToLeads, reopenAppointment, saveOutcome, claimAppointment, listAvailableToClaim,
   saveMeetingAttemptOutcome, updateAppointment,
 } from '../services/appointmentService.js';
 import { findMatchingBrokers } from '../services/brokerMatchingService.js';
@@ -192,6 +192,21 @@ export async function handleAppointmentById(req, res, id) {
     // editing the same category of information from the Appointment
     // side should be more permissive.
     requireRole(claims, ['Supervisor', 'Admin', 'GlobalAdmin']);
+
+    // Added 21 Aug 2026, Mark's explicit request ("nobody should be
+    // allowed to change [a Lead or Appointment] whilst in a closed
+    // state") — no role exemption, matches the equivalent Lead check
+    // (leadHandlers.js). The frontend (AppointmentDetail.jsx's own
+    // isLocked) already disabled these fields visually — this is the
+    // server-side enforcement that was actually missing; a disabled
+    // input is a UI hint, not a guarantee, and updateAppointment() had
+    // no status check of its own before this. ReturnedToLeads is
+    // deliberately NOT included here — that status already has its own
+    // separate re-assignment path back into the claim pool and isn't
+    // "closed" in the sense this lock means.
+    if (appt.status === 'ClosedWon' || appt.status === 'ClosedLost') {
+      return res.status(400).json({ error: 'This appointment is closed and locked. Reopen it before editing.' });
+    }
 
     const parsed = UpdateAppointmentSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -424,6 +439,47 @@ export async function handleAppointmentReturn(req, res, id) {
       return res.status(status).json(body);
     }
     console.error('appointments/[id]/return error:', err);
+    return res.status(500).json({ error: 'Internal server error' });
+  }
+}
+
+/**
+ * PUT /api/appointments/:id/reopen — §12b (21 Aug 2026), the escape
+ * hatch for the new Closed-appointment lock above. Same role gate and
+ * same handler shape as handleAppointmentReturn immediately above,
+ * deliberately mirrored rather than invented fresh.
+ */
+export async function handleAppointmentReopen(req, res, id) {
+  if (req.method !== 'PUT') {
+    res.setHeader('Allow', 'PUT, OPTIONS');
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const claims = await validateToken(req);
+    requireRole(claims, ['Admin', 'Supervisor', 'GlobalAdmin']);
+
+    if (!isUuid(id)) return res.status(400).json({ error: 'Invalid appointment ID format' });
+
+    await reopenAppointment(id);
+
+    await writeAuditLog({
+      entityType: 'Appointment',
+      entityId: id,
+      action: 'AppointmentReopened',
+      performedById: claims.oid,
+      changeDetail: { from: 'ClosedLost', to: 'InProgress' },
+      ipAddress: clientIp(req),
+    });
+
+    return res.status(200).json({ success: true });
+
+  } catch (err) {
+    if (err.status) {
+      const { status, body } = authErrorResponse(err);
+      return res.status(status).json(body);
+    }
+    console.error('appointments/[id]/reopen error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
 }

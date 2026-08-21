@@ -250,13 +250,24 @@ export default function LeadDetail() {
   // (this is a UX gate only; the real enforcement is server-side). Locked
   // once Converted (23 Jul 2026, Mark's request) — stays locked through
   // ClosedWon permanently, and through ClosedLost until reopened.
+  // EXTENDED 21 Aug 2026, Mark's explicit request ("nobody should be
+  // allowed to change [a Lead or Appointment] whilst in a closed
+  // state") — !isClosed added to canEdit, covering the OTHER terminal
+  // path (a direct call-outcome loss, or the newer appointment-cascade
+  // case) this check never covered before. Real enforcement is still
+  // server-side (leadHandlers.js's PUT handler) — this stays a UX gate
+  // only, matching the file's own existing convention exactly.
   const isAdminRole = role === 'Admin' || role === 'GlobalAdmin';
-  const canEdit    = (isAdminRole || role === 'Supervisor' || (role === 'Agent' && baseLead.assignedAgentId === persona.id)) && !isConverted;
+  const canEdit    = (isAdminRole || role === 'Supervisor' || (role === 'Agent' && baseLead.assignedAgentId === persona.id)) && !isConverted && !isClosed;
   // Reopen is Admin/Supervisor only, manual (Mark's explicit choice over
-  // an automatic unlock) — only meaningful once Converted AND the most
-  // recent appointment is genuinely Closed Lost.
+  // an automatic unlock) — meaningful once Converted (with the most
+  // recent appointment genuinely Closed Lost) OR, added 21 Aug 2026,
+  // plain Closed (either a genuine no-appointment call-stage loss, or
+  // the appointment-cascade case) — see reopenLead()'s own comment
+  // (leadService.js) for the full reasoning. ClosedWon still excluded
+  // either way — reversing a won deal isn't what this button is for.
   const canManage  = isAdminRole || role === 'Supervisor';
-  const canReopen  = canManage && isConverted && baseLead.appointmentStatus === 'ClosedLost';
+  const canReopen  = canManage && (isConverted || isClosed) && baseLead.appointmentStatus !== 'ClosedWon';
 
   async function handleReopenLead() {
     setReopening(true);
@@ -477,19 +488,25 @@ export default function LeadDetail() {
       {/* Conversion notice — wording and actions depend on the current
           appointment's own status, not just "converted or not" (23 Jul
           2026, Mark's request: Closed Won stays locked permanently, Closed
-          Lost stays locked until an Admin/Supervisor reopens it). */}
-      {isConverted && (
+          Lost stays locked until an Admin/Supervisor reopens it).
+          EXTENDED 21 Aug 2026 — also shows for isClosed now (a lead
+          closed directly at the call stage, no appointment ever booked),
+          not just isConverted. baseLead.appointmentStatus is falsy for
+          that specific case (no appointment exists to have a status),
+          which is what the new branch below keys off. */}
+      {(isConverted || isClosed) && (
         <div style={{
-          background: baseLead.appointmentStatus === 'ClosedLost' ? 'color-mix(in srgb, #dc2626 14%, var(--panel))' : 'color-mix(in srgb, #15803d 14%, var(--panel))',
-          border: `1px solid ${baseLead.appointmentStatus === 'ClosedLost' ? 'color-mix(in srgb, #dc2626 30%, var(--panel))' : 'color-mix(in srgb, #15803d 30%, var(--panel))'}`,
+          background: (baseLead.appointmentStatus === 'ClosedLost' || (isClosed && !baseLead.appointmentStatus)) ? 'color-mix(in srgb, #dc2626 14%, var(--panel))' : 'color-mix(in srgb, #15803d 14%, var(--panel))',
+          border: `1px solid ${(baseLead.appointmentStatus === 'ClosedLost' || (isClosed && !baseLead.appointmentStatus)) ? 'color-mix(in srgb, #dc2626 30%, var(--panel))' : 'color-mix(in srgb, #15803d 30%, var(--panel))'}`,
           borderRadius: '6px', padding: '10px 14px', marginBottom: '16px',
           display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px',
-          fontSize: '0.875rem', color: baseLead.appointmentStatus === 'ClosedLost' ? '#dc2626' : '#15803d', flexWrap: 'wrap',
+          fontSize: '0.875rem', color: (baseLead.appointmentStatus === 'ClosedLost' || (isClosed && !baseLead.appointmentStatus)) ? '#dc2626' : '#15803d', flexWrap: 'wrap',
         }}>
           <span>
             {baseLead.appointmentStatus === 'ClosedWon' && <>🏆 <strong>Closed Won.</strong> This lead is locked — the deal is done.</>}
             {baseLead.appointmentStatus === 'ClosedLost' && <>🔒 <strong>Closed Lost.</strong> This lead is locked until reopened.</>}
-            {baseLead.appointmentStatus !== 'ClosedWon' && baseLead.appointmentStatus !== 'ClosedLost' && <>✅ <strong>Appointment booked.</strong> This lead is now Converted and locked while it's active.</>}
+            {isClosed && !baseLead.appointmentStatus && <>🔒 <strong>Closed.</strong> This lead was marked lost at the call stage — no appointment was ever booked — and is locked until reopened.</>}
+            {isConverted && baseLead.appointmentStatus !== 'ClosedWon' && baseLead.appointmentStatus !== 'ClosedLost' && <>✅ <strong>Appointment booked.</strong> This lead is now Converted and locked while it's active.</>}
           </span>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             {canReopen && (

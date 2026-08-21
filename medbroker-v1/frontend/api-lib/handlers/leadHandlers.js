@@ -268,6 +268,22 @@ export async function handleLeadById(req, res, id) {
         return res.status(400).json({ error: 'This lead is converted and locked. Reopen it before editing.' });
       }
 
+      // Added 21 Aug 2026, Mark's explicit request ("nobody should be
+      // allowed to change [a Lead or Appointment] whilst in a closed
+      // state") — deliberately no role exemption, unlike the
+      // AppointmentScheduled check immediately above this one (which
+      // only blocks Agent). Covers both ways a Lead reaches 'Closed':
+      // a direct WrongNumber/NotInterested call outcome with no
+      // appointment ever booked, or the cascade from an Appointment's
+      // own ClosedWon/ClosedLost (appointmentService.js). Reopen it
+      // via PUT /leads/:id/reopen (Supervisor/Admin/GlobalAdmin) —
+      // reopenLead() was fixed in the same delivery as this check to
+      // actually accept the 'Closed' state, not just the narrower
+      // 'AppointmentScheduled' case it was originally built for.
+      if (existing.pipelineStatus === 'Closed') {
+        return res.status(400).json({ error: 'This lead is closed and locked. Reopen it before editing.' });
+      }
+
       const parsed = UpdateLeadSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
@@ -526,7 +542,12 @@ export async function handleLeadReopen(req, res, id) {
       entityId: id,
       action: 'LeadReopened',
       performedById: claims.oid,
-      changeDetail: { from: 'AppointmentScheduled', to: 'InProgress' },
+      // Was hardcoded to { from: 'AppointmentScheduled', to: 'InProgress' }
+      // — wrong as of this same delivery, since reopenLead() now also
+      // accepts a Lead whose status is 'Closed' (see that function's own
+      // comment). Using the actual pre-reopen status already fetched
+      // above (existing), not re-deriving or guessing it.
+      changeDetail: { from: existing.pipelineStatus, to: 'InProgress' },
       ipAddress: clientIp(req),
     });
 

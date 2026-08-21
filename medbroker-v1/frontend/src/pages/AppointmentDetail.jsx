@@ -660,6 +660,26 @@ export default function AppointmentDetail() {
   const [detailsSaveError,  setDetailsSaveError]  = useState('');
   const [showReassign,      setShowReassign]      = useState(false);
   const [showReturnConfirm, setShowReturnConfirm] = useState(false);
+  // §12b (21 Aug 2026) — mirrors LeadDetail.jsx's handleReopenLead
+  // exactly: a direct button + loading state, no confirmation modal,
+  // consistent with how that equivalent action is already handled for
+  // Leads rather than inventing a different pattern here.
+  const [reopening,         setReopening]         = useState(false);
+  const [reopenError,       setReopenError]       = useState('');
+
+  async function handleReopenAppointment() {
+    setReopening(true);
+    setReopenError('');
+    try {
+      await appointmentsApi.reopen(appt.id);
+      refetchAudit();
+      await refetchAppt();
+    } catch (err) {
+      setReopenError(err instanceof ApiError ? err.message : 'Could not reopen this appointment. Please try again.');
+    } finally {
+      setReopening(false);
+    }
+  }
   const [outcomeSaved,      setOutcomeSaved]      = useState(false);
   const [savingOutcome,     setSavingOutcome]     = useState(false);
   const [outcomeError,      setOutcomeError]      = useState(null);
@@ -1295,9 +1315,29 @@ export default function AppointmentDetail() {
           )}
         </div>
         {isClosed && (
-          <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>
-            This appointment is closed ({appt.status === 'ClosedWon' ? 'Closed Won' : 'Closed Lost'}) and can no longer be edited.
+          <div style={{ ...s.noticeInfo, marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+            <span>This appointment is closed ({appt.status === 'ClosedWon' ? 'Closed Won' : 'Closed Lost'}) and can no longer be edited.</span>
+            {/* §12b (21 Aug 2026), Mark's explicit request — the escape
+                hatch for the new server-side lock (appointmentHandlers.js).
+                ClosedLost only, Admin/Supervisor only — matches
+                reopenAppointment()'s own precondition (appointmentService.js)
+                exactly: reversing a Closed Won outcome is a bigger, separate
+                decision than fixing a mistaken loss, not what this button is
+                for, so it doesn't render at all for a won appointment rather
+                than rendering disabled with no explanation. */}
+            {canManage && appt.status === 'ClosedLost' && (
+              <button
+                onClick={handleReopenAppointment}
+                disabled={reopening}
+                style={{ background: 'none', color: '#dc2626', border: '1px solid #dc2626', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap', opacity: reopening ? 0.6 : 1 }}
+              >
+                {reopening ? 'Reopening…' : '↺ Reopen Appointment'}
+              </button>
+            )}
           </div>
+        )}
+        {reopenError && (
+          <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.8125rem', marginBottom: '14px' }}>{reopenError}</div>
         )}
         {appt.status === 'ReturnedToLeads' && (
           <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>

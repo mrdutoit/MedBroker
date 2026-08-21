@@ -356,11 +356,33 @@ export async function reopenLead(leadId) {
     { leadId: { type: sql.UniqueIdentifier, value: leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
   if (!lead) throw { status: 404, message: 'Lead not found' };
-  if (lead.pipelineStatus !== 'AppointmentScheduled') {
-    throw { status: 400, message: 'This lead is not in a converted state.' };
+
+  // Bug found 21 Aug 2026, surfaced while adding the new Closed-lead
+  // lock (Mark's explicit request): this precondition originally only
+  // accepted pipelineStatus === 'AppointmentScheduled', which
+  // appointmentService.js's own cascade (sets Lead.pipelineStatus =
+  // 'Closed' once an Appointment reaches ClosedWon/ClosedLost with
+  // nothing else open) makes unreachable for the common single-
+  // appointment case this action was actually built for — by the time
+  // an appointment shows ClosedLost, the Lead's own status has usually
+  // already moved to 'Closed', not stayed at 'AppointmentScheduled'.
+  // Both are accepted now. 'AppointmentScheduled' is kept, not
+  // replaced — genuinely still reachable for a Lead with more than one
+  // Appointment, where an older one is still open even though the
+  // most recent (what this query's own subquery checks) closed Lost.
+  if (lead.pipelineStatus !== 'Closed' && lead.pipelineStatus !== 'AppointmentScheduled') {
+    throw { status: 400, message: 'This lead is not in a closed or converted state.' };
   }
-  if (lead.appointmentStatus !== 'ClosedLost') {
-    throw { status: 400, message: 'This lead\'s most recent appointment is not Closed Lost.' };
+  // A Lead can reach pipelineStatus = 'Closed' with NO appointment at
+  // all (a WrongNumber/NotInterested call outcome) — appointmentStatus
+  // is null here in that case, which is fine to reopen; there's no
+  // appointment to have an opinion about. Only a genuine ClosedWon
+  // appointment blocks reopening — reversing a won deal is a bigger,
+  // separate decision than fixing a mistaken loss or closure, not what
+  // this action is for. Matches the same Won/Lost asymmetry applied to
+  // the new Appointment reopen action built alongside this fix.
+  if (lead.appointmentStatus === 'ClosedWon') {
+    throw { status: 400, message: 'This lead\'s most recent appointment is Closed Won — reopening a won deal isn\'t supported here.' };
   }
 
   await executeQuery(

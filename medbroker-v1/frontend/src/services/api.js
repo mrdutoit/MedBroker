@@ -313,6 +313,13 @@ export const appointmentsApi = {
   //   archives the Appointment, writes AuditLog entry with action='AppointmentReturnedToLeads'.
   returnToLeads: (id) =>
     request(`/appointments/${id}/return`, { method: 'PUT' }),
+  // reopen — §12b (21 Aug 2026). Admin/Supervisor only, Closed Lost
+  //   appointments only. Server-side: sets status back to InProgress,
+  //   clears closedAt, cascades the linked Lead back to InProgress too
+  //   if it was locked by this same closure (reopenAppointment(),
+  //   appointmentService.js).
+  reopen: (id) =>
+    request(`/appointments/${id}/reopen`, { method: 'PUT' }),
   // saveOutcome — records the Won/Lost decision. The server computes the
   //   resulting Appointment.status via computeAppointmentStatus() — never
   //   sent from the client.

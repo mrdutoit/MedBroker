@@ -135,7 +135,106 @@ hydration, 18 Aug 2026.
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-SESSION 21 AUG 2026 (CONTINUED, FIFTH ROUND) — LEADDETAIL.JSX CRASH ON
+SESSION 21 AUG 2026 (CONTINUED, SIXTH ROUND) — CLOSED LEADS/APPOINTMENTS
+NOW LOCKED FOR EVERYONE, WITH A REOPEN ESCAPE HATCH. Mark's explicit
+request: "when a Lead or an Appointment is closed, it should be
+uneditable... nobody should be allowed to change either whilst in a
+closed state."
+
+INVESTIGATED BEFORE BUILDING, SURFACED A REAL DESIGN QUESTION: a strict
+permanent lock, read literally, means a mistake (a mis-logged call
+outcome, a wrongly-closed appointment) becomes unfixable by anyone,
+forever. Confirmed with Mark before writing anything — lock with an
+Admin/Supervisor reopen escape hatch, not a permanent one-way door.
+
+ALSO SURFACED WHILE INVESTIGATING: Lead already had a partial lock
+(pipelineStatus === 'AppointmentScheduled', Agent-only — Supervisor/
+Admin could already edit through it) but nothing at all for
+pipelineStatus === 'Closed'. Appointment had NO lock of any kind at the
+backend, for any status — AppointmentDetail.jsx's own frontend isLocked
+already greyed out the fields, but updateAppointment() had zero status
+checks, meaning the actual guarantee didn't exist, only the UI hint did
+— exactly the "server-side enforcement, not just hidden UI" principle
+this project already holds everywhere else.
+
+ALSO FOUND A SEPARATE, PRE-EXISTING BUG directly relevant to the reopen
+escape hatch: reopenLead()'s precondition only ever accepted
+pipelineStatus === 'AppointmentScheduled' — but appointmentService.js's
+own cascade moves a Lead to pipelineStatus = 'Closed' the moment its
+Appointment reaches ClosedWon/ClosedLost, which made the existing
+Reopen button already unusable for the single-appointment case it was
+built for. Fixed as part of this delivery, not a separate one — the new
+lock needed a working reopen path to actually be safe to ship.
+
+BUILT:
+  - leadHandlers.js — new lock: pipelineStatus === 'Closed' blocks the
+    PUT edit endpoint for everyone, no role exemption (deliberately
+    stricter than the existing AppointmentScheduled/Agent-only check
+    right above it — Mark's own word was "nobody").
+  - leadService.js — reopenLead() now accepts pipelineStatus === 'Closed'
+    OR 'AppointmentScheduled' (previously only the latter); rejects only
+    when the most recent appointment is genuinely ClosedWon — reversing
+    a won deal is a bigger, separate decision than fixing a mistaken
+    loss, not what this action is for.
+  - leadHandlers.js — the reopen handler's audit log was hardcoding
+    { from: 'AppointmentScheduled', ... } — now uses the actual
+    pre-reopen status already fetched, not a stale assumption.
+  - appointmentHandlers.js — new lock: ClosedWon/ClosedLost blocks the
+    PUT edit endpoint for everyone. ReturnedToLeads deliberately NOT
+    included — that already has its own separate re-assignment path
+    and isn't "closed" in the sense this lock means.
+  - appointmentService.js — new reopenAppointment(): ClosedLost only
+    (same Won/Lost asymmetry as Lead, applied consistently), resets to
+    InProgress, clears closedAt, deliberately preserves
+    claimedByBrokerId/agentId/brokerId (this is about un-freezing the
+    record, not un-claiming it), and cascades the linked Lead back to
+    InProgress too if it's still 'Closed' — otherwise reopening the
+    Appointment would leave the Lead locked and orphaned by the new
+    Lead lock, with no obvious way back.
+  - appointmentHandlers.js / api/appointments-router.js — new
+    PUT /api/appointments/:id/reopen, Admin/Supervisor/GlobalAdmin only,
+    mirrors handleAppointmentReturn's exact shape.
+  - src/services/api.js — appointmentsApi.reopen() added.
+  - LeadDetail.jsx — canEdit now excludes isClosed too (previously only
+    isConverted); the existing Reopen banner and canReopen logic
+    extended to cover the no-appointment call-stage-loss case, with new
+    messaging for it specifically (baseLead.appointmentStatus is falsy
+    for that case, which the new branch keys off).
+  - AppointmentDetail.jsx — new Reopen button added to the existing
+    "closed and can no longer be edited" notice, Admin/Supervisor only,
+    ClosedLost only (doesn't render at all for ClosedWon rather than
+    rendering disabled with no explanation) — mirrors LeadDetail.jsx's
+    own handleReopenLead pattern exactly (direct button + loading
+    state, no confirmation modal).
+
+BUG CAUGHT DURING THE BUILD, BEFORE DELIVERY: handleReopenAppointment
+was first written referencing `appointment.id` — the actual state
+variable in this file is `appt`, not `appointment`. Caught by checking
+the real declaration (line 649) before assuming, not by trusting the
+name that felt natural to write.
+
+BUG CAUGHT DURING VERIFICATION, IN MY OWN TEST SCRIPT NOT THE APP: the
+first pass at testing reopenLead()'s precondition against real Postgres
+used lead.pipelinestatus (lowercase) instead of the actual camelCase
+alias the query returns (pipelineStatus) — produced a false "REJECT" on
+two scenarios that should have passed. Fixed the test script itself
+before trusting its output, not the other way around — a reminder that
+verification code needs the same scrutiny as the thing it's verifying.
+
+VERIFICATION: node --check and ESM import smoke test clean on all five
+touched backend files (confirmed the new reopenAppointment import chain
+resolves correctly too). npm run build clean, 48/48 vitest, npm run
+lint shows the identical 145 problems as before this round (144 pre-
+existing unused-var warnings, one unrelated cosmetic notice) — zero new
+no-undef errors from any of this session's frontend changes. All four
+reopenLead precondition scenarios (Closed/no-appointment,
+Closed/cascaded-from-ClosedLost, Closed/cascaded-from-ClosedWon,
+InProgress/never-closed) verified against real Postgres with the exact
+query and logic from the file, all four correct. reopenAppointment()'s
+actual UPDATE statements run against real seeded data — status,
+closedAt, claimedByBrokerId/agentId all landed correctly, and the Lead
+cascade correctly moved the linked Lead back to InProgress too.
+
 EDIT, FIXED, PLUS NEW LINT INFRASTRUCTURE TO CATCH THIS CLASS OF BUG
 GOING FORWARD.
 

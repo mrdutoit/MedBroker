@@ -44,7 +44,7 @@
 
 import {
   handleAppointmentsCollection, handleAppointmentById, handleAppointmentAssign,
-  handleAppointmentReassign, handleAppointmentReturn, handleAppointmentOutcome,
+  handleAppointmentReassign, handleAppointmentReturn, handleAppointmentReopen, handleAppointmentOutcome,
   handleAppointmentAudit, handleBrokerMatching, handleAppointmentClaim,
   handleAvailableToClaim, handleTokenLedgerMe, handleTokenLedgerByBroker, handleTokenTopUp,
   handleTokenCheckout, handleTokenWebhook, handleTokenWebhookPaystack,
@@ -58,6 +58,7 @@ const SUB_ROUTES = {
   assign:   handleAppointmentAssign,
   reassign: handleAppointmentReassign,
   return:   handleAppointmentReturn,
+  reopen:   handleAppointmentReopen, // §12b, 21 Aug 2026
   outcome:  handleAppointmentOutcome,
   audit:    handleAppointmentAudit,
   claim:    handleAppointmentClaim, // §117

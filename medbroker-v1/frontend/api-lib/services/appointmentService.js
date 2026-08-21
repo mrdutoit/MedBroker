@@ -963,6 +963,60 @@ export async function reassignAppointment(id, data) {
  * returns.
  * @param {string} id
  */
+/**
+ * §12b (21 Aug 2026) — reopen a closed Appointment, the escape hatch for
+ * the new server-side lock in appointmentHandlers.js (Mark's explicit
+ * request: closed records must be uneditable, but that means someone
+ * needs a documented way to actually fix a mistake, not a permanent
+ * dead end). Supervisor/Admin/GlobalAdmin only — role check lives in
+ * the handler, matching every other action in this file.
+ *
+ * ClosedLost only — deliberately does NOT accept ClosedWon. Reversing a
+ * won deal is a bigger, separate decision than fixing a mistaken loss
+ * or closure; not what this action is for. Matches the identical
+ * asymmetry applied to reopenLead() (leadService.js) in the same
+ * delivery, for the same reason, kept consistent between the two.
+ *
+ * Sets status back to 'InProgress' and clears closedAt — deliberately
+ * preserves claimedByBrokerId/agentId/brokerId untouched: the broker
+ * who claimed and worked this appointment keeps it, this action is
+ * about un-freezing the record for correction, not un-claiming it.
+ *
+ * Cascades the linked Lead back too, mirroring returnToLeads()'s own
+ * Lead-cascade immediately below — the Lead's pipelineStatus = 'Closed'
+ * exists BECAUSE this Appointment closed (appointmentService.js's own
+ * closure cascade); reopening the Appointment without also reopening
+ * the Lead would leave it locked and orphaned by the new Lead-closed
+ * lock (leadHandlers.js), with no way back short of a second, separate
+ * Lead reopen action nobody would think to take. Only touches the Lead
+ * if it's actually still 'Closed' — doesn't stomp on some other
+ * legitimate status if the Lead has since moved on for an unrelated
+ * reason.
+ * @param {string} id
+ */
+export async function reopenAppointment(id) {
+  const organisationId = resolveOrganisationId();
+  const appt = await executeQueryOne(
+    `SELECT id, leadId AS "leadId", status FROM Appointment WHERE id = @id AND organisationId = @organisationId`,
+    { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  if (!appt) throw { status: 404, message: 'Appointment not found' };
+  if (appt.status !== 'ClosedLost') {
+    throw { status: 400, message: 'Only a Closed Lost appointment can be reopened here.' };
+  }
+
+  await executeQuery(
+    `UPDATE Appointment SET status = 'InProgress', closedAt = NULL, updatedAt = NOW()
+     WHERE id = @id AND organisationId = @organisationId`,
+    { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  await executeQuery(
+    `UPDATE Lead SET pipelineStatus = 'InProgress', updatedAt = NOW()
+     WHERE id = @leadId AND pipelineStatus = 'Closed' AND organisationId = @organisationId`,
+    { leadId: { type: sql.UniqueIdentifier, value: appt.leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+}
+
 export async function returnToLeads(id) {
   const organisationId = resolveOrganisationId();
   const appt = await executeQueryOne(
