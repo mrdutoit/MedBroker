@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status (VERCEL VERSION)
 ==================================================
-Last updated: 20 August 2026
+Last updated: 21 August 2026
 Scope: this file tracks ONLY the Vercel + Neon Postgres deployment —
 frontend/api/ + frontend/api-lib/ + frontend/src/. It does NOT cover the
 separate Azure Functions/Azure SQL codebase (api/src/, infra/), which is
@@ -135,7 +135,56 @@ hydration, 18 Aug 2026.
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-SESSION 21 AUG 2026 — TWO BUGS FROM MARK'S LIVE TESTING, BOTH FIXED.
+SESSION 21 AUG 2026 (CONTINUED) — PRODUCTION ERROR ON EXECUTE DELETION,
+FIXED. Mark hit this live testing the erasure feature after applying
+both prior deliveries correctly — genuine production bug, not a
+deployment-ordering issue this time.
+
+Error: "db.js: query references @erased but no matching parameter was
+supplied", thrown from anonymiseLeadRow() (leadService.js), inside
+eraseLeadPII(), inside executeSarDeletion() (sarService.js). Root cause
+found by reading db.js's toPositional() directly, not guessed: it
+rewrites @name placeholders with a single regex pass over the WHOLE raw
+query text (query.replace(/@(\w+)/g, ...)) — no awareness of SQL
+string-literal boundaries. anonymiseLeadRow()'s email column was set via
+`CONCAT('erased-', id::text, '@erased.invalid')` — the literal
+'@erased.invalid' string contains the substring '@erased', which the
+regex can't distinguish from a real parameter reference. No "erased" key
+existed in the params object, so it threw.
+
+REPRODUCED EXACTLY, NOT JUST THEORISED: copied toPositional() verbatim
+into an isolated test and ran it against the old SQL — produced the
+identical error message character-for-character, confirming root cause
+with certainty before touching anything.
+
+FIXED: the erased-email value is now built in JavaScript
+(`erased-${leadId}@erased.invalid`) and bound as a proper @erasedEmail
+parameter, rather than constructed with a literal '@' anywhere in the
+raw SQL text — the only reliable fix given how the rewriter works, not
+a one-off patch for this specific string. Swept the rest of api-lib/
+for the same pattern (a literal '@' inside a SQL string literal,
+outside an intended @paramName) — this was the only occurrence.
+
+TESTING GAP THIS EXPOSED, WORTH RECORDING HONESTLY: when eraseLeadPII()
+was originally built and verified against real Postgres, that
+verification ran the SQL with literal values hand-substituted in via
+psql — it never actually exercised db.js's own @name-to-positional
+rewriting logic, because that requires a live Neon connection this
+sandbox can't reach. The SQL's LOGIC was genuinely tested; the
+MECHANICAL process of how the app actually assembles the query at
+runtime was not, and that's exactly where this bug lived. Closed that
+gap this time: copied toPositional() verbatim and ran the fixed SQL
+through it for real, then executed the resulting positional query
+($1/$2/$3) against real Postgres via a direct pg client — as close to
+the actual production path as achievable without Neon itself. Row
+result confirmed correct: firstName '[Erased]', lastName empty, email
+correctly synthesised, existingCover/medicalAid both null, deletedAt
+and erasedAt both set.
+
+VERIFICATION: node --check clean, ESM import smoke test clean (both
+leadService.js and sarService.js, which imports from it), npm run build
+clean, 48/48 vitest, no regressions.
+
 Reported against the deployed SAR/Deletion feature from the 20 Aug
 sessions below, with screenshots.
 

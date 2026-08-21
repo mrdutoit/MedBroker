@@ -904,7 +904,7 @@ async function anonymiseLeadRow(leadId, organisationId) {
        dateOfBirth = NULL,
        idNumberEncrypted = NULL,
        idNumberHash = NULL,
-       email = CONCAT('erased-', id::text, '@erased.invalid'),
+       email = @erasedEmail,
        mobileNumber = NULL,
        whatsappNumber = NULL,
        universityAttended = NULL,
@@ -939,6 +939,22 @@ async function anonymiseLeadRow(leadId, organisationId) {
     {
       leadId: { type: sql.UniqueIdentifier, value: leadId },
       organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+      // Bug found 21 Aug 2026, live testing (Mark): this was previously
+      // built in SQL as email = CONCAT('erased-', id::text,
+      // '@erased.invalid') — the literal '@erased.invalid' string
+      // contains the substring '@erased', and db.js's toPositional()
+      // rewrites @name placeholders with a single regex pass over the
+      // WHOLE raw query text (query.replace(/@(\w+)/g, ...)), with no
+      // awareness of SQL string-literal boundaries. It can't tell that
+      // '@erased' sits inside quotes rather than being a real parameter
+      // reference, so it tried to bind a non-existent "erased" param and
+      // threw. Fixed by building the value in JS and binding it properly
+      // instead of embedding a literal '@' anywhere in the raw SQL text
+      // — the only reliable fix given how the rewriter works, not a
+      // one-off patch for this string specifically. Grepped the rest of
+      // this codebase for the same pattern (a literal '@' inside a SQL
+      // string literal) — this was the only occurrence.
+      erasedEmail: { type: sql.NVarChar(255), value: `erased-${leadId}@erased.invalid` },
     }
   );
 }
