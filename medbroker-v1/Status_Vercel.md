@@ -135,7 +135,72 @@ hydration, 18 Aug 2026.
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-SESSION 21 AUG 2026 (CONTINUED, THIRD ROUND) — REPORTS BUG: WON/LOST
+SESSION 21 AUG 2026 (CONTINUED, FOURTH ROUND) — SERIOUS REGRESSION FROM
+THE PREVIOUS ENTRY, FOUND AND FIXED: "CLOSED WON" APPOINTMENTS WERE
+BEING DOUBLE-COUNTED AS AN ADDITIONAL, SPURIOUS "CLOSED LOST."
+
+Mark caught this live testing — a Lead (John Wellington) with a real,
+genuine ClosedWon Appointment was showing up in the Region/Portfolio
+Lost breakdowns too. Confirmed serious immediately, not minimised.
+
+ROOT CAUSE: the previous entry's fix (and, it turned out, five
+PRE-EXISTING report queries elsewhere in this same file) all assumed
+Lead.pipelineStatus = 'Closed' meant "closed at the call stage, no
+appointment ever booked." That assumption was wrong, proven wrong by
+reading appointmentService.js directly: once ANY Appointment reaches
+ClosedWon or ClosedLost and nothing else is left open for that Lead,
+the Lead's own pipelineStatus gets set to 'Closed' too — for BOTH
+outcomes equally, not just losses. A Lead whose appointment WON still
+ends up with pipelineStatus = 'Closed'. The "no-appointment" branches
+had no way to tell the two cases apart, so every Lead whose real
+appointment had already closed — win or lose — was counted a second
+time as a phantom "Lost, no appointment."
+
+THIS BUG PREDATES THE PREVIOUS ENTRY'S FIX. Found the exact same flawed
+condition in FIVE other places while searching the file properly this
+time (a full grep for the pattern, not a single spot-check) — the
+Dashboard pipeline overview (its own comment already flagged this exact
+imprecision, unresolved until now), getLeadsBySourceReport,
+getLeadsByPortfolioReport (a separate, pre-existing standalone report,
+not the one touched two entries ago), and the Won-vs-Lost function's own
+top-level Overall count and Lead Source breakdown. All five were wrong
+before this session touched anything — this session's own Region/
+Portfolio addition just extended an already-broken pattern rather than
+introducing a new one from nothing. Worth being honest about the
+verification gap that let it through: before shipping the Region/
+Portfolio fix, only ONE invariant was checked (that a Lead reaching
+'Closed' via the call-outcome path can't later book an appointment) —
+correct, but too narrow. It didn't rule out the OTHER path that also
+sets pipelineStatus = 'Closed', because that path was never searched
+for. A full grep across the file for every place setting this status
+would have caught it before shipping; a single spot-check didn't.
+
+FIXED — all seven occurrences, one consistent condition added
+everywhere: AND NOT EXISTS (SELECT 1 FROM Appointment ax WHERE
+ax.leadId = l.id). Unambiguous regardless of why pipelineStatus happens
+to say 'Closed' — checks directly whether the Lead has ever had an
+Appointment at all, not what its own status field currently claims.
+
+PROVEN WITH REAL DATA, NOT JUST READ: seeded a Lead exactly matching
+Wellington's real situation (pipelineStatus = 'Closed', a genuine
+ClosedWon Appointment) alongside one exactly matching Kaveer's (same
+pipelineStatus, genuinely zero Appointments) and ran all three versions
+side by side against real Postgres — the appointment-scoped query, the
+FIXED no-appointment query, and the OLD buggy query kept unmodified for
+comparison. The old query reproduced Mark's exact symptom precisely:
+ClosedLost = 2 (both leads, Wellington wrongly included). The fixed
+query correctly returns ClosedLost = 1 (Kaveer only). Re-verified
+specifically for the Region breakdown too, the one in Mark's own
+screenshot — Wellington no longer appears on the Lost side at all.
+
+VERIFICATION: node --check clean, ESM import smoke test clean, npm run
+build clean, 48/48 vitest, no regressions.
+
+FOLLOW-UP AGREED WITH MARK: once this delivery is applied and verified,
+move to deliberate seed data rather than continuing to layer fixes onto
+the accumulated ad-hoc test records from this extended testing session
+— not a substitute for this fix, a separate step after it.
+
 BREAKDOWNS MISSED LEADS CLOSED WITHOUT AN APPOINTMENT, FIXED.
 
 Mark noticed "By Region · Lost" and "By Portfolio · Lost" both showed

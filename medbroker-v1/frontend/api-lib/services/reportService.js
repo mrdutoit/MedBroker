@@ -172,9 +172,17 @@ export async function getReportSummary(period, referenceDate) {
     // without ever having an appointment at all (pipelineStatus =
     // 'Closed', a direct call-outcome close) — no equivalent closedAt
     // exists for that path (there's no Appointment row to hang one off),
-    // so this one sub-case still approximates via Lead.updatedAt, same
-    // imprecision as before this fix, not silently resolved — flagged
-    // to Mark, not decided unilaterally.
+    // so this one sub-case still approximates via Lead.updatedAt.
+    // CORRECTED 21 Aug 2026 (Mark, live testing — a real Closed WON
+    // appointment was showing up as an EXTRA Closed Lost, not just an
+    // imprecise date): pipelineStatus = 'Closed' is NOT specific to "lost
+    // at the call stage" — appointmentService.js sets it identically once
+    // ANY Appointment reaches ClosedWon or ClosedLost with nothing else
+    // left open for that Lead. Without the NOT EXISTS guard below, this
+    // branch double-counted every Lead whose real appointment had already
+    // closed (Won included) as an additional, spurious "Lost, no
+    // appointment" — this was a genuine correctness bug, not the
+    // "flagged imprecision" this comment previously described it as.
     executeQuery(
       `SELECT 'ClosedWon' AS bucket, COUNT(*) AS count FROM Appointment
        WHERE status = 'ClosedWon' AND closedAt >= @start AND closedAt <= @end AND organisationId = @organisationId
@@ -184,7 +192,8 @@ export async function getReportSummary(period, referenceDate) {
        UNION ALL
        SELECT 'ClosedLost' AS bucket, COUNT(*) AS count FROM Lead
        WHERE pipelineStatus = 'Closed' AND updatedAt >= @start AND updatedAt <= @end
-         AND deletedAt IS NULL AND organisationId = @organisationId`,
+         AND deletedAt IS NULL AND organisationId = @organisationId
+         AND NOT EXISTS (SELECT 1 FROM Appointment apx WHERE apx.leadId = Lead.id)`,
       {
         start: { type: sql.DateTimeOffset, value: start },
         end: { type: sql.DateTimeOffset, value: end },
@@ -903,6 +912,7 @@ export async function getLeadsBySourceReport(period, referenceDate) {
     executeQuery(
       `SELECT ${originExpr} AS "groupKey", COUNT(*) AS count FROM Lead l
        WHERE l.pipelineStatus = 'Closed' AND l.updatedAt >= @start AND l.updatedAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId
+         AND NOT EXISTS (SELECT 1 FROM Appointment ax WHERE ax.leadId = l.id)
        GROUP BY ${originExpr}`, params
     ),
     executeQuery(
@@ -963,6 +973,7 @@ export async function getLeadsByPortfolioReport(period, referenceDate) {
       `SELECT p.name AS "groupKey", COUNT(DISTINCT l.id) AS count
        FROM Lead l JOIN LeadPortfolio lp ON lp.leadId = l.id JOIN Portfolio p ON p.id = lp.portfolioId
        WHERE l.pipelineStatus = 'Closed' AND l.updatedAt >= @start AND l.updatedAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId
+         AND NOT EXISTS (SELECT 1 FROM Appointment ax WHERE ax.leadId = l.id)
        GROUP BY p.name`, params
     ),
     executeQuery(
@@ -1501,7 +1512,8 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
      UNION ALL
      SELECT 'ClosedLost' AS bucket, COUNT(*) AS count FROM Lead l
      WHERE l.pipelineStatus = 'Closed' AND l.updatedAt >= @start AND l.updatedAt <= @end
-       AND l.deletedAt IS NULL AND l.organisationId = @organisationId${leadF2.sqlFragment}`;
+       AND l.deletedAt IS NULL AND l.organisationId = @organisationId
+       AND NOT EXISTS (SELECT 1 FROM Appointment ax WHERE ax.leadId = l.id)${leadF2.sqlFragment}`;
   const [cohortRows, closedRowsPipeline] = await Promise.all([
     executeQuery(
       `SELECT
@@ -1561,7 +1573,7 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
   const [srcLeadsRows, srcClosedCountRows, srcNoApptClosedRows, srcAvgDaysRows, srcApptsRows, srcPolicyRows] = await Promise.all([
     executeQuery(`SELECT ${originExprL} AS "groupKey", COUNT(*) AS count FROM Lead l WHERE l.createdAt >= @start AND l.createdAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId${leadF3.sqlFragment} GROUP BY ${originExprL}`, { ...srcParams, ...leadF3.params }),
     executeQuery(`SELECT ${originExprL} AS "groupKey", a.status, COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF3.sqlFragment} GROUP BY ${originExprL}, a.status`, { ...srcParams, ...apptF3.params }),
-    f.brokerId ? Promise.resolve([]) : executeQuery(`SELECT ${originExprL} AS "groupKey", COUNT(*) AS count FROM Lead l WHERE l.pipelineStatus = 'Closed' AND l.updatedAt >= @start AND l.updatedAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId${leadF3.sqlFragment} GROUP BY ${originExprL}`, { ...srcParams, ...leadF3.params }),
+    f.brokerId ? Promise.resolve([]) : executeQuery(`SELECT ${originExprL} AS "groupKey", COUNT(*) AS count FROM Lead l WHERE l.pipelineStatus = 'Closed' AND l.updatedAt >= @start AND l.updatedAt <= @end AND l.deletedAt IS NULL AND l.organisationId = @organisationId AND NOT EXISTS (SELECT 1 FROM Appointment ax WHERE ax.leadId = l.id)${leadF3.sqlFragment} GROUP BY ${originExprL}`, { ...srcParams, ...leadF3.params }),
     executeQuery(`SELECT ${originExprL} AS "groupKey", a.status, AVG(EXTRACT(EPOCH FROM (a.closedAt - l.createdAt)) / 86400.0) AS "avgDays" FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.status IN ('ClosedWon', 'ClosedLost') AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF3.sqlFragment} GROUP BY ${originExprL}, a.status`, { ...srcParams, ...apptF3.params }),
     executeQuery(`SELECT ${originExprL} AS "groupKey", COUNT(*) AS count FROM Appointment a JOIN Lead l ON l.id = a.leadId WHERE a.createdAt >= @start AND a.createdAt <= @end AND a.organisationId = @organisationId${apptF3.sqlFragment} GROUP BY ${originExprL}`, { ...srcParams, ...apptF3.params }),
     executeQuery(`SELECT ${originExprL} AS "groupKey", COALESCE(SUM(ap.policyValue), 0) AS total FROM AppointmentProduct ap JOIN Appointment a ON a.id = ap.appointmentId JOIN Lead l ON l.id = a.leadId WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF3.sqlFragment} GROUP BY ${originExprL}`, { ...srcParams, ...apptF3.params }),
@@ -1618,7 +1630,8 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
      LEFT JOIN LeadPortfolio lp ON lp.leadId = l.id
      LEFT JOIN Portfolio p ON p.id = lp.portfolioId
      WHERE l.pipelineStatus = 'Closed' AND l.updatedAt >= @start AND l.updatedAt <= @end
-       AND l.deletedAt IS NULL AND l.organisationId = @organisationId${leadF6.sqlFragment}
+       AND l.deletedAt IS NULL AND l.organisationId = @organisationId
+       AND NOT EXISTS (SELECT 1 FROM Appointment ax WHERE ax.leadId = l.id)${leadF6.sqlFragment}
      GROUP BY p.name`,
     { ...portParams, ...leadF6.params }
   );
@@ -1735,7 +1748,8 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
     `SELECT COALESCE(l.region, 'Not captured') AS "groupKey", COUNT(*) AS count
      FROM Lead l
      WHERE l.pipelineStatus = 'Closed' AND l.updatedAt >= @start AND l.updatedAt <= @end
-       AND l.deletedAt IS NULL AND l.organisationId = @organisationId${leadF5.sqlFragment}
+       AND l.deletedAt IS NULL AND l.organisationId = @organisationId
+       AND NOT EXISTS (SELECT 1 FROM Appointment ax WHERE ax.leadId = l.id)${leadF5.sqlFragment}
      GROUP BY "groupKey"`,
     { ...lossReasonParams, ...leadF5.params }
   );
