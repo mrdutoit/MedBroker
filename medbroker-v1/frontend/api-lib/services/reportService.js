@@ -1595,7 +1595,37 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
     executeQuery(`SELECT p.name AS "groupKey", AVG(prodTotals.total) AS "avgValue" FROM Portfolio p JOIN AppointmentPortfolio ap2 ON ap2.portfolioId = p.id JOIN Appointment a ON a.id = ap2.appointmentId JOIN Lead l ON l.id = a.leadId JOIN LATERAL (SELECT COALESCE(SUM(ap3.policyValue), 0) AS total FROM AppointmentProduct ap3 WHERE ap3.appointmentId = a.id) prodTotals ON true WHERE a.status = 'ClosedWon' AND a.closedAt >= @start AND a.closedAt <= @end AND a.organisationId = @organisationId${apptF4.sqlFragment} GROUP BY p.name`, { ...portParams, ...apptF4.params }),
   ]);
   const portBooked = Object.fromEntries(portBookedRows.map(r => [r.groupKey, Number(r.count)]));
-  const portClosed = mergeClosedMetrics(portClosedCountRows, portAvgDaysRows);
+  // Bug found 21 Aug 2026 (Mark, live testing), same root cause and same
+  // fix shape as regionNoApptRows above — see that comment for the full
+  // account. Portfolio-specific design point: a Lead closed this way was
+  // never linked to a portfolio via AppointmentPortfolio (there's no
+  // Appointment), but may still carry portfolio INTEREST via LeadPortfolio
+  // (captured at Lead creation, independent of ever booking anything).
+  // LEFT JOIN so a Lead with zero LeadPortfolio rows falls into 'Not
+  // captured' (p.name is NULL), same honest-labelling convention as
+  // region; a Lead with MULTIPLE portfolio interests fans out to
+  // contribute to each one's count. That fan-out is a deliberate
+  // extension of the exact same behaviour portClosedCountRows above
+  // already has for real closed appointments spanning multiple
+  // portfolios (COUNT(DISTINCT a.id), GROUP BY p.name — the same
+  // appointment legitimately appears in more than one portfolio's row) —
+  // not a new inconsistency, matching an existing, accepted precedent in
+  // this exact function.
+  const leadF6 = leadFilterSql(f);
+  const portNoApptRows = f.brokerId ? [] : await executeQuery(
+    `SELECT COALESCE(p.name, 'Not captured') AS "groupKey", COUNT(DISTINCT l.id) AS count
+     FROM Lead l
+     LEFT JOIN LeadPortfolio lp ON lp.leadId = l.id
+     LEFT JOIN Portfolio p ON p.id = lp.portfolioId
+     WHERE l.pipelineStatus = 'Closed' AND l.updatedAt >= @start AND l.updatedAt <= @end
+       AND l.deletedAt IS NULL AND l.organisationId = @organisationId${leadF6.sqlFragment}
+     GROUP BY p.name`,
+    { ...portParams, ...leadF6.params }
+  );
+  const portClosed = mergeClosedMetrics(
+    [...portClosedCountRows, ...portNoApptRows.map(r => ({ groupKey: r.groupKey, status: 'ClosedLost', count: r.count }))],
+    portAvgDaysRows
+  );
   const portAvgPolicy = Object.fromEntries(portAvgPolicyRows.map(r => [r.groupKey, r.avgValue === null ? null : Number(r.avgValue)]));
   const portAllKeys = new Set([...Object.keys(portBooked), ...Object.keys(portClosed)]);
   const portfolioTable = [...portAllKeys].sort().map(portfolioName => {
@@ -1677,7 +1707,42 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
      GROUP BY "groupKey", a.status`,
     { ...lossReasonParams, ...apptF5.params }
   );
-  const regionClosed = mergeClosedMetrics(regionRows, []);
+  // Bug found 21 Aug 2026 (Mark, live testing): a Lead closed lost
+  // directly — pipelineStatus = 'Closed' via a WrongNumber/NotInterested
+  // call outcome (leadStatusService.computeLeadStatus), never having
+  // reached AppointmentScheduled at all — is counted in the top-level
+  // Overall Lost figure (via noApptClosedBranch further up this
+  // function) but was invisible here, since this query only ever scanned
+  // Appointment. Not a "missing region field" situation: the COALESCE
+  // above already handles a captured Appointment with no region set,
+  // which would show as its own "Not captured" bucket, not an empty
+  // breakdown — the symptom Mark actually saw (a real Closed Lost count
+  // with zero rows in this breakdown) only happens when the row isn't in
+  // the Appointment table's result set at all. Same fix shape as
+  // srcNoApptClosedRows (Leads-by-Source breakdown, above this function)
+  // already uses for the identical situation — that breakdown got it
+  // right when it was built; this one and the Portfolio one below it did
+  // not. Confirmed no double-counting risk against regionRows above:
+  // computeLeadStatus's own TERMINAL_STATUSES makes 'AppointmentScheduled'
+  // and 'Closed' mutually exclusive — a Lead reaching 'Closed' this way
+  // can never also have gone on to book (and later close) an Appointment.
+  // pulled from Lead.region, not Appointment.region — there is no
+  // Appointment row for this branch, and Lead.region is the field
+  // Appointment.region is itself copied from at booking time anyway
+  // (schema.postgres.sql's own comment on that column).
+  const leadF5 = leadFilterSql(f);
+  const regionNoApptRows = f.brokerId ? [] : await executeQuery(
+    `SELECT COALESCE(l.region, 'Not captured') AS "groupKey", COUNT(*) AS count
+     FROM Lead l
+     WHERE l.pipelineStatus = 'Closed' AND l.updatedAt >= @start AND l.updatedAt <= @end
+       AND l.deletedAt IS NULL AND l.organisationId = @organisationId${leadF5.sqlFragment}
+     GROUP BY "groupKey"`,
+    { ...lossReasonParams, ...leadF5.params }
+  );
+  const regionClosed = mergeClosedMetrics(
+    [...regionRows, ...regionNoApptRows.map(r => ({ groupKey: r.groupKey, status: 'ClosedLost', count: r.count }))],
+    []
+  );
   const wonByRegion  = Object.entries(regionClosed).filter(([, v]) => v.closedWon  > 0).map(([region, v]) => ({ region, count: v.closedWon }));
   const lostByRegion = Object.entries(regionClosed).filter(([, v]) => v.closedLost > 0).map(([region, v]) => ({ region, count: v.closedLost }));
   const wonVsLost = {

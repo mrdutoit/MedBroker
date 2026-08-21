@@ -135,7 +135,86 @@ hydration, 18 Aug 2026.
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-SESSION 21 AUG 2026 (CONTINUED, SECOND ROUND) — TWO UX/DESIGN GAPS FROM
+SESSION 21 AUG 2026 (CONTINUED, THIRD ROUND) — REPORTS BUG: WON/LOST
+BREAKDOWNS MISSED LEADS CLOSED WITHOUT AN APPOINTMENT, FIXED.
+
+Mark noticed "By Region · Lost" and "By Portfolio · Lost" both showed
+"No losses this period" while the Overall KPI card correctly showed
+Lost: 1, and asked whether it was a data-capture gap. It wasn't — traced
+to a genuine structural bug, confirmed by reading the actual queries,
+not assumed:
+
+ROOT CAUSE: the top-level Overall Lost count (closedLostCount, sourced
+from `pipeline`) counts TWO different things as "Closed Lost" — a real
+Appointment reaching ClosedLost, AND a Lead whose pipelineStatus went
+straight to 'Closed' via a WrongNumber/NotInterested call outcome
+(computeLeadStatus, leadStatusService.js), never having booked an
+Appointment at all. The Region and Portfolio breakdown queries only
+ever scanned the Appointment table — a Lead closed the second way is
+structurally invisible to both, even though it's correctly counted in
+the Overall total. Ruled out a simpler "region field just wasn't set"
+explanation using the UI's own behaviour: the existing COALESCE(a.region,
+'Not captured') already handles a captured-Appointment-with-no-region
+case by showing a "Not captured" bucket — an empty breakdown specifically
+only happens when the row isn't in the Appointment-scoped result set at
+all, which is what Mark's screenshot actually showed.
+
+Confirmed no double-counting risk before writing anything: computeLeadStatus's
+own TERMINAL_STATUSES makes 'AppointmentScheduled' and 'Closed' mutually
+exclusive — a Lead reaching 'Closed' this way can never also go on to
+book and later close an Appointment, so adding a "no-appointment" branch
+to these queries cannot double-count a Lead that already has a real
+closed Appointment.
+
+Worth noting the codebase already got this right once: the Leads-by-
+Source breakdown (same file) already merges in an equivalent
+srcNoApptClosedRows query for the identical situation. Region and
+Portfolio were just never given the same treatment when built.
+
+FIXED — Region: added regionNoApptRows, a Lead-scoped query mirroring
+srcNoApptClosedRows's pattern exactly, grouped by Lead.region (COALESCE
+to 'Not captured') rather than Appointment.region — there's no
+Appointment row for this branch, and Lead.region is the field
+Appointment.region is itself copied from at booking time anyway
+(schema.postgres.sql's own comment on that column).
+
+FIXED — Portfolio: this one had a genuine design question first
+(flagged to Mark before touching it, not decided unilaterally) — an
+appointment-less Lead was never linked to a portfolio via
+AppointmentPortfolio, but may still carry portfolio INTEREST via the
+separate LeadPortfolio table (captured independent of ever booking
+anything). Used a LEFT JOIN through LeadPortfolio so a Lead with no
+portfolio interest falls into "Not captured," and a Lead with MULTIPLE
+portfolio interests fans out to contribute to each one — a deliberate
+extension of the exact same fan-out behaviour portClosedCountRows
+already has for real closed appointments spanning multiple portfolios
+(COUNT(DISTINCT a.id), GROUP BY p.name), not a new inconsistency.
+
+BUG CAUGHT DURING THE BUILD, BEFORE DELIVERY: the Portfolio fix's first
+draft referenced lossReasonParams for its query parameters — that
+variable isn't actually defined until later in the function (line 1662
+vs. the new query at line ~1615), which would have thrown a
+ReferenceError at runtime. Caught by checking the actual line numbers
+of both definitions, not assumed from proximity in the diff. Fixed by
+using portParams instead — already in scope one line earlier, identical
+shape.
+
+VERIFICATION: node --check and ESM import smoke test clean on
+reportService.js, npm run build clean, 48/48 vitest, no regressions.
+Both new queries run verbatim through the real @name-to-positional
+rewriting logic against real Postgres, seeded with three Leads matching
+the actual scenarios (closed-without-appointment + region captured;
+closed-without-appointment + two portfolio interests + no region; and a
+control Lead still InProgress, to confirm it's correctly excluded from
+both breakdowns). Every result matched expectation exactly: region
+breakdown correctly split Gauteng/Not captured; portfolio breakdown
+correctly fanned out across both of the two-portfolio Lead's interests
+plus a Not captured entry for the single-portfolio-less Lead, with the
+breakdown's total (3) correctly exceeding the raw lost-lead count (2) by
+exactly the expected fan-out amount — matching the pre-existing,
+accepted AppointmentPortfolio precedent, not a new form of
+inconsistency.
+
 MARK'S LIVE TESTING AFTER A SUCCESSFUL ERASE, BOTH FIXED. Not bugs in
 the sense of broken code — the erasure itself worked correctly — but
 genuine gaps in what the workflow did afterward.
