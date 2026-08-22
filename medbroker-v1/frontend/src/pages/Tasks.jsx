@@ -530,7 +530,7 @@ function TaskRow({ task, onToggle, onDelete, onReassign, isAdmin, canDelete, ass
 }
 
 // ─── Main page ──────────────────────────────────────────────────────────────────
-export default function Tasks() {
+export default function Tasks({ onTaskChange }) {
   const { role, persona } = useRole();
   const { isMobile }  = useWindowSize();
 
@@ -605,6 +605,7 @@ export default function Tasks() {
     try {
       await tasksApi.update(id, { isComplete: !task.done });
       refetchTasks();
+      onTaskChange?.(); // §12b (21 Aug 2026) — see App.jsx's own comment for why this exists
     } catch (err) {
       console.error('Could not update task:', err);
     }
@@ -620,6 +621,7 @@ export default function Tasks() {
     try {
       await tasksApi.remove(id);
       refetchTasks();
+      onTaskChange?.();
     } catch (err) {
       console.error('Could not delete task:', err);
     }
@@ -634,6 +636,7 @@ export default function Tasks() {
   async function reassignTask(id, assignedToId) {
     await tasksApi.update(id, { assignedToId });
     refetchTasks();
+    onTaskChange?.();
   }
 
   async function addTask(form) {
@@ -647,6 +650,7 @@ export default function Tasks() {
         dueDate:      form.dueDate || undefined,
       });
       refetchTasks();
+      onTaskChange?.();
     } catch (err) {
       console.error('Could not create task:', err);
     }

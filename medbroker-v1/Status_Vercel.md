@@ -135,7 +135,62 @@ hydration, 18 Aug 2026.
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-SESSION 21 AUG 2026 (CONTINUED, SEVENTH ROUND) — CLOSED-APPOINTMENT LOCK
+SESSION 21 AUG 2026 (CONTINUED, EIGHTH ROUND) — NOTIFICATION/TASK BADGE
+STALENESS, FOUND AND FIXED, INCLUDING A REAL SCOPING BUG CAUGHT BY THE
+LINT TOOLING BEFORE IT SHIPPED.
+
+Mark: clearing/reading a notification updates the Notifications page
+itself correctly, but the sidebar badge count doesn't resolve until a
+full page refresh.
+
+ROOT CAUSE: App.jsx's sidebar badge count is a completely separate
+useFetch from whatever Notifications.jsx itself uses — it only
+refetches on route change ([location.pathname] as its sole dependency).
+Notifications.jsx's own handlers (markAllRead, markRead, dismiss,
+clearRead) all correctly refetch() their OWN local list, but had no way
+to signal the sidebar's independent fetch instance that anything had
+changed. Checked whether Tasks had the identical issue before fixing
+just the one reported — same fetch pattern, same
+[location.pathname]-only trigger, same four mutating handlers
+(toggleDone, deleteTaskHandler, reassignTask, addTask) each correctly
+refetching their own list with no cross-component signal. Fixed both
+consistently, not just the one Mark happened to test.
+
+FIRST ATTEMPT WAS WRONG, CAUGHT BY THE LINT TOOLING BEFORE SHIPPING:
+tried passing refetchNotifCount/refetchTaskCount down through the
+<Route> elements directly from AppLayout, where the badge state
+originally lived. npm run lint immediately flagged both as
+'not defined' — no-undef, real errors, not warnings. Investigated
+before assuming a typo: AppLayout and AppLayoutWrapper are SIBLING
+components, not parent/child in the way that matters here — AppLayout
+only ever receives {children}, which is CONSTRUCTED in
+AppLayoutWrapper's own scope (where the <Routes> actually live) before
+being passed in. A function declared inside AppLayout was never
+reachable from a <Route>'s element prop, regardless of how the JSX
+visually nests — confirmed by reading both component boundaries
+directly, not guessed from the error message alone. This is exactly
+the class of bug the lint infrastructure (added earlier this session,
+after the LeadDetail.jsx colors crash) exists to catch, and it worked
+on the very next thing built after it went in.
+
+FIXED PROPERLY: moved the notifData/myTaskData useFetch calls (and
+their refetch functions) from AppLayout to AppLayoutWrapper — the
+component that actually owns the <Route> elements needing them.
+AppLayout's signature changed from computing unreadCount/
+pendingTaskCount itself to receiving them as plain props
+({ children, unreadCount, pendingTaskCount }), same as everything else
+it already receives from its parent. refetchNotifCount/refetchTaskCount
+now correctly passed to <Notifications onNotificationChange={...}> and
+<Tasks onTaskChange={...}>, called by those pages after every one of
+their own mutating actions (4 in Notifications.jsx, 4 in Tasks.jsx),
+on top of the existing route-change refetch — additive, not a
+replacement for it.
+
+VERIFICATION: npm run build clean. npm run lint — zero no-undef issues
+after the fix (was 2 real errors after the first, wrong attempt;
+correctly caught, correctly diagnosed, correctly fixed before this
+delivery, not shipped and found later). 48/48 vitest, no regressions.
+
 HAD A REAL FRONTEND GAP, FOUND BY MARK, FIXED.
 
 Mark tested a ClosedWon appointment (John Wellington) and found the

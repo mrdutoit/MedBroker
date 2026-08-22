@@ -112,7 +112,7 @@ function ReportDrillGuard({ selfId, fallback, children }) {
 }
 
 // ─── AppLayout ─────────────────────────────────────────────────────────────────
-function AppLayout({ children }) {
+function AppLayout({ children, unreadCount, pendingTaskCount }) {
   const { role, persona }          = useRole();
   const { flag }                   = useFlags();
   const { theme, setTheme, themes } = useTheme();
@@ -136,33 +136,18 @@ function AppLayout({ children }) {
   // Section labels only rendered when at least one item beneath them is visible
   const showAdminSection = isAdminOrAbove;
 
-  // Unread notification count — real fetch, own notifications only
-  // (recipientId = self is the only scope notificationHandlers.js has —
-  // no admin/supervisor distinction the way Tasks needed). Refetched on
-  // every route change, same trade-off as the Tasks badge below: the
-  // query is cheap enough that refetching on navigation beats adding
-  // polling/websocket infrastructure this app doesn't have.
-  const { data: notifData } = useFetch(
-    () => notificationsApi.list(),
-    [location.pathname]
-  );
-  const unreadCount = (notifData?.notifications ?? []).filter(n => !n.isRead).length;
-
-  // Real pending-task count (§60) — scoped to the current user
-  // specifically (assignedToId), not the role-scoped list GET
-  // /api/tasks would otherwise return for a Supervisor/Admin — this
-  // badge means "tasks assigned to YOU", not "tasks you can see".
-  // Skipped entirely when the flag is off. Refetched on every route
-  // change rather than left to go stale after completing a task on the
-  // Tasks page and navigating elsewhere — the query is cheap (indexed
-  // on assignedToId, personal-scale row counts), so refetching on
-  // navigation is a reasonable trade for staying accurate without
-  // adding polling/websocket infrastructure this app doesn't have.
-  const { data: myTaskData } = useFetch(
-    () => (showTasks && persona.id) ? tasksApi.list({ assignedToId: persona.id }) : Promise.resolve(null),
-    [showTasks, persona.id, location.pathname]
-  );
-  const pendingTaskCount = (myTaskData?.tasks ?? []).filter(t => !t.done).length;
+  // unreadCount/pendingTaskCount, and the refetch functions that fix
+  // them going stale (see App.jsx's AppLayoutWrapper for the full
+  // history), moved OUT of this component 21 Aug 2026. Root cause of
+  // the original bug wasn't just "no refetch trigger" — it was that
+  // this whole useFetch lived in the WRONG component to begin with:
+  // AppLayout only ever receives {children} (the routed page content
+  // is constructed in AppLayoutWrapper, a sibling, and passed in) so a
+  // refetch function declared here could never actually be reachable
+  // from a <Route>'s element prop — confirmed by ESLint's no-undef
+  // catching exactly this the first time this fix was attempted here.
+  // Now purely a display prop, same as everything else AppLayout
+  // already receives.
 
   function closeNav() { if (isMobile) setSidebarOpen(false); }
 
@@ -363,8 +348,36 @@ function AppLayoutWrapper() {
     : isBroker ? `/reports/broker/${persona.id}`
     :            null;
 
+  // Unread notification count and pending-task count (§60), moved here
+  // 21 Aug 2026 from AppLayout — this is where the <Route> elements
+  // that need to trigger a refetch after a mutating action actually
+  // live (AppLayout only ever receives {children}, constructed here and
+  // passed in — a refetch function declared inside AppLayout itself is
+  // never in scope for a <Route>'s element prop, which is exactly the
+  // no-undef error that caught this on the first attempt). Refetched on
+  // every route change either way — the query is cheap enough that
+  // refetching on navigation beats adding polling/websocket
+  // infrastructure this app doesn't have — PLUS an explicit refetch
+  // passed down to the Notifications/Tasks pages themselves, called
+  // after their own mutating actions, so the badge doesn't wait for a
+  // route change to catch up while the user stays on that same page.
+  const location = useLocation();
+  const showTasks = flag('tasks.enabled');
+
+  const { data: notifData, refetch: refetchNotifCount } = useFetch(
+    () => notificationsApi.list(),
+    [location.pathname]
+  );
+  const unreadCount = (notifData?.notifications ?? []).filter(n => !n.isRead).length;
+
+  const { data: myTaskData, refetch: refetchTaskCount } = useFetch(
+    () => (showTasks && persona.id) ? tasksApi.list({ assignedToId: persona.id }) : Promise.resolve(null),
+    [showTasks, persona.id, location.pathname]
+  );
+  const pendingTaskCount = (myTaskData?.tasks ?? []).filter(t => !t.done).length;
+
   return (
-    <AppLayout>
+    <AppLayout unreadCount={unreadCount} pendingTaskCount={pendingTaskCount}>
       <Routes>
         <Route path="/" element={<Navigate to={defaultPath} replace />} />
 
@@ -386,8 +399,8 @@ function AppLayoutWrapper() {
         <Route path="/events/:id" element={flag('events.enabled') ? <EventDetail /> : <Navigate to={defaultPath} replace />} />
 
         {/* Productivity */}
-        <Route path="/notifications" element={<Notifications />} />
-        <Route path="/tasks"         element={flag('tasks.enabled') ? <Tasks /> : <Navigate to={defaultPath} replace />} />
+        <Route path="/notifications" element={<Notifications onNotificationChange={refetchNotifCount} />} />
+        <Route path="/tasks"         element={flag('tasks.enabled') ? <Tasks onTaskChange={refetchTaskCount} /> : <Navigate to={defaultPath} replace />} />
 
         {/* Account — all roles */}
         <Route path="/settings"      element={<Settings />} />

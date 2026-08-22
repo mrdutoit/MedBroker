@@ -48,7 +48,7 @@ const TYPE_ICON = {
   AppointmentUnassignedWarning: '⚠️',
 };
 
-export default function Notifications() {
+export default function Notifications({ onNotificationChange }) {
   // Always self-scoped server-side (see notificationHandlers.js) — no
   // role/identity filtering needed here.
   const { data, refetch } = useFetch(() => notificationsApi.list(), []);
@@ -74,6 +74,7 @@ export default function Notifications() {
     try {
       await notificationsApi.markAllRead();
       refetch();
+      onNotificationChange?.(); // §12b (21 Aug 2026) — see App.jsx's own comment for why this exists
     } catch (err) {
       console.error('Could not mark all notifications read:', err);
     }
@@ -85,6 +86,7 @@ export default function Notifications() {
     try {
       await notificationsApi.markRead(id);
       refetch();
+      onNotificationChange?.();
     } catch (err) {
       console.error('Could not mark notification read:', err);
     }
@@ -95,6 +97,7 @@ export default function Notifications() {
     try {
       await notificationsApi.dismiss(id);
       refetch();
+      onNotificationChange?.();
     } catch (err) {
       console.error('Could not dismiss notification:', err);
     }
@@ -104,6 +107,7 @@ export default function Notifications() {
     try {
       await notificationsApi.clearRead();
       refetch();
+      onNotificationChange?.();
     } catch (err) {
       console.error('Could not clear read notifications:', err);
     }
