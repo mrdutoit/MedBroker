@@ -135,7 +135,78 @@ hydration, 18 Aug 2026.
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-SESSION 21 AUG 2026 (CONTINUED, EIGHTH ROUND) — NOTIFICATION/TASK BADGE
+SESSION 21 AUG 2026 (CONTINUED, NINTH ROUND) — SAR REQUIRED ASSIGNMENT,
+AUTO-COMPUTED DUE DATE, AND A LINKED TASK MATCHING LEAD/APPOINTMENT
+BEHAVIOUR. CORRECTED AFTER A REAL DELIVERY MISTAKE, NOT JUST BUILT.
+
+Full audit performed first, per Mark's explicit request — see that
+entry for the sweep details, nothing new found there worth repeating
+here.
+
+THE FEATURE, per Mark's request: SAR assignment required, Target due
+date auto-set to POPIA's response window rather than manually entered,
+and the request creates a linked Task, editable only from the request
+itself, mirroring Callback/Appointment tasks exactly. Full build
+detail, the 30-day POPIA/PAIA sourcing, and the new migration are all
+covered fully in this entry's original write-up two rounds back — not
+repeated here, only what changed on correction.
+
+A REAL DELIVERY MISTAKE, OWNED DIRECTLY: the SAR feature was built and
+first delivered from a GitHub hydration that predated Mark applying the
+previous entry's notification/task badge fix. Never re-checked before
+packaging. The delivered ZIP's App.jsx and Tasks.jsx were therefore
+STALE — applying it as given would have REVERTED Mark's already-working
+badge fix. Confirmed via fresh hydration that no actual regression
+reached his live environment (he hadn't applied the stale ZIP before
+catching it), but the ZIP itself was wrong and needed rebuilding
+properly, not just re-explaining.
+
+FIXED PROPERLY, not by re-copying the old files: re-hydrated fresh,
+confirmed exactly which files the badge fix touched (App.jsx,
+Notifications.jsx, Tasks.jsx) versus which SAR-feature files never
+overlapped with it (sar.js, task.js, sarService.js, taskService.js,
+migration 037, schema.postgres.sql, AppAdmin.jsx — verified safe to
+copy directly, not assumed). Tasks.jsx was the one genuine overlap —
+manually re-applied the SAR-specific edits onto the CURRENT,
+badge-fix-included file rather than letting either version clobber the
+other. App.jsx and Notifications.jsx need zero changes from the SAR
+work and are excluded from this delivery entirely — including them
+again would just be re-litigating a file that's already correct.
+
+CAUGHT AND ACTUALLY FIXED WHILE RE-VERIFYING (Mark's explicit
+instruction: fix issues found, don't just flag and defer them) — two
+real gaps, neither caught in the original build:
+  - Tasks.jsx's linkTarget referenced task.linkedAppointment, which
+    never matched taskService.js's TASK_SELECT (actually named
+    linkedAppointmentId) — flagged only, not fixed, two rounds ago.
+    Fixed properly this time, in the same edit that added the SAR
+    branch, rather than left noted for later.
+  - CATEGORIES — a SEPARATE, hardcoded array driving the Tasks page's
+    own tab bar, entirely distinct from CATEGORY_META (which only
+    controls a task row's styling/label) — had no 'sar' entry at all.
+    Missed in the original build; SAR tasks would have displayed
+    correctly inside "All tasks" but had no dedicated filter tab the
+    way every other category does. Added, plus the matching role-
+    visibility rule (hidden from Agent AND Broker — a SAR task can only
+    ever be assigned to Admin/GlobalAdmin, so extending the exact
+    reasoning this file already applies to hiding Callbacks from Broker
+    and Appointments from Agent).
+
+VERIFICATION, redone on the correctly-merged codebase, not assumed
+carried over from the discarded delivery: npm run build clean, npm run
+lint back to the stable 146-problem/1-error baseline (verified the one
+extra warning above that baseline was pre-existing noise unrelated to
+any of this session's changes, not new), 48/48 vitest. schema.postgres.sql
+reloaded clean from scratch on this codebase specifically, confirming
+migration 037's constraint changes are present and correct here too,
+not just on the discarded working copy.
+
+STILL OPEN, NAMED EXPLICITLY RATHER THAN LEFT IMPLICIT: the
+MedBroker-User-Guide.docx / MedBroker-GlobalAdmin-Guide.docx format
+issue (Outstanding item 0i, logged 20 Aug) has not been addressed —
+raised again with Mark directly this round rather than left to keep
+aging silently on the list.
+
 STALENESS, FOUND AND FIXED, INCLUDING A REAL SCOPING BUG CAUGHT BY THE
 LINT TOOLING BEFORE IT SHIPPED.
 

@@ -1,14 +1,17 @@
 /**
  * services/taskService.js — NEW (§56).
  * Data access for the Task entity. Task.entityType/entityId is a
- * polymorphic reference (Lead OR Appointment OR neither, for a manually
- * created task) — TASK_SELECT below resolves whichever applies via two
- * mutually-exclusive LEFT JOINs (only one of entityType='Lead' /
- * entityType='Appointment' can ever match a given row) plus a third hop
- * from Appointment to its own Lead, so a task linked to an Appointment
- * still surfaces the underlying Lead's name for display — exactly what
+ * polymorphic reference (Lead OR Appointment OR SubjectAccessRequest OR
+ * neither, for a manually created task) — TASK_SELECT below resolves
+ * whichever applies via mutually-exclusive LEFT JOINs (only one
+ * entityType can ever match a given row) plus a fourth hop from
+ * Appointment to its own Lead, so a task linked to an Appointment still
+ * surfaces the underlying Lead's name for display — exactly what
  * Tasks.jsx's linkedLead field expects for appointment/rescheduling/
- * outcome category tasks, not just callback ones.
+ * outcome category tasks, not just callback ones. SubjectAccessRequest
+ * (§12b, 21 Aug 2026) needs no equivalent second hop — entityId IS the
+ * SAR's own id directly, nothing further to resolve for the redirect
+ * link Tasks.jsx builds from it.
  */
 
 import { executeQuery, executeQueryOne, sql } from './db.js';
@@ -24,6 +27,12 @@ const TASK_SELECT = `
   t.createdById AS "createdById", cu.displayName AS "createdByName",
   t.entityType AS "entityType", t.entityId AS "entityId",
   CASE WHEN t.entityType = 'Appointment' THEN t.entityId ELSE NULL END AS "linkedAppointmentId",
+  -- §12b (21 Aug 2026) — third polymorphic case, same shape as
+  -- linkedAppointmentId above: a Sar-type task's entityId IS the
+  -- SubjectAccessRequest id directly (no intermediate hop needed, unlike
+  -- Lead-via-Appointment above), Tasks.jsx uses this to build the
+  -- redirect-only link target for POPIA request tasks.
+  CASE WHEN t.entityType = 'SubjectAccessRequest' THEN t.entityId ELSE NULL END AS "linkedSarId",
   COALESCE(l_direct.id, l_via_appt.id) AS "linkedLeadId",
   COALESCE(l_direct.title, l_via_appt.title) AS "linkedLeadTitle",
   COALESCE(l_direct.firstName, l_via_appt.firstName) AS "linkedLeadFirstName",
@@ -213,6 +222,63 @@ export async function completeOpenCallbackTasksForLead(leadId, callAttemptId) {
       action: 'TaskAutoCompleted',
       performedById: null, // system-driven, not a person acting on the task itself
       changeDetail: { closedByCallAttemptId: callAttemptId, leadId },
+    });
+  }
+
+  return openTasks.length;
+}
+
+/**
+ * §12b (21 Aug 2026) — mirrors completeOpenCallbackTasksForLead directly
+ * above almost exactly; see that function's own comment for the fuller
+ * reasoning behind the pattern itself. Called from sarService.
+ * updateSarStatus() whenever a request reaches Fulfilled or Rejected —
+ * the SAR-linked task is a redirect-only Tasks.jsx entry (isRedirectOnly,
+ * category 'sar') with no checkbox of its own, so this is the ONLY path
+ * that can ever complete it, exactly matching how a Callback task can
+ * only complete via a real call being logged, never a direct tick.
+ *
+ * No resolvedByCallAttemptId equivalent needed here — that column is
+ * specifically for linking back to the CallAttempt that closed a
+ * Callback task; there's no analogous "what closed this" row to point
+ * to for a SAR completion beyond the SAR itself, which entityId already
+ * identifies.
+ *
+ * Scoped by entityType='SubjectAccessRequest' + entityId + type='Sar' —
+ * a SAR task is always created this way (see sarService.createSarRequest),
+ * so this can't accidentally reach into a Callback/Manual/Appointment task.
+ * @param {string} sarId
+ * @returns {Promise<number>} how many tasks were auto-completed (0 or 1
+ *   in the ordinary case — createSarRequest() creates exactly one)
+ */
+export async function completeOpenSarTask(sarId) {
+  const organisationId = resolveOrganisationId();
+  const openTasks = await executeQuery(
+    `SELECT id FROM Task
+     WHERE entityType = 'SubjectAccessRequest' AND entityId = @sarId AND type = 'Sar'
+       AND isComplete = FALSE AND organisationId = @organisationId`,
+    {
+      sarId:          { type: sql.UniqueIdentifier, value: sarId },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+    }
+  );
+  if (openTasks.length === 0) return 0;
+
+  for (const task of openTasks) {
+    await executeQuery(
+      `UPDATE Task SET isComplete = TRUE, completedAt = NOW(), updatedAt = NOW()
+       WHERE id = @id AND organisationId = @organisationId`,
+      {
+        id:             { type: sql.UniqueIdentifier, value: task.id },
+        organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+      }
+    );
+    await writeAuditLog({
+      entityType: 'Task',
+      entityId: task.id,
+      action: 'TaskAutoCompleted',
+      performedById: null,
+      changeDetail: { closedBySarId: sarId },
     });
   }
 

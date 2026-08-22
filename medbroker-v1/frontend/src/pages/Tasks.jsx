@@ -56,6 +56,14 @@ const CATEGORIES = [
   { key: 'callback',     label: 'Callbacks'    },
   { key: 'appointment',  label: 'Appointments' },
   { key: 'manual',       label: 'Manual'       },
+  // §12b (21 Aug 2026) — found missing during verification, not caught
+  // when the category itself was added: this array drives the tab bar
+  // specifically and is entirely separate from CATEGORY_META (which
+  // only controls a task row's own styling/label) — without an entry
+  // here, SAR tasks would still display correctly inside "All tasks"
+  // but there'd be no way to filter down to just them, unlike every
+  // other category.
+  { key: 'sar',          label: 'POPIA Requests' },
 ];
 
 const PRIORITIES = ['High', 'Medium', 'Low'];
@@ -64,6 +72,13 @@ const CATEGORY_META = {
   callback:     { label: 'Callback',     colour: '#d97706', bg: 'color-mix(in srgb, #d97706 14%, var(--panel))' },
   appointment:  { label: 'Appointment',  colour: 'var(--accent)', bg: 'color-mix(in srgb, #1d4ed8 14%, var(--panel))' },
   manual:       { label: 'Manual',       colour: 'var(--ink)', bg: 'var(--panel2)' },
+  // §12b (21 Aug 2026) — new system-generated category (models/task.js's
+  // TYPE_TO_CATEGORY: Sar -> 'sar'). Distinct colour from Callback/
+  // Appointment — red/danger-adjacent, matching how a POPIA compliance
+  // deadline is treated elsewhere in this app (the Data Requests tab's
+  // own Closed Lost/restriction banners use the same family), not
+  // reusing an existing colour that would make it visually blend in.
+  sar:          { label: 'POPIA Request', colour: '#dc2626', bg: 'color-mix(in srgb, #dc2626 14%, var(--panel))' },
 };
 
 const PRIORITY_META = {
@@ -265,12 +280,28 @@ function TaskRow({ task, onToggle, onDelete, onReassign, isAdmin, canDelete, ass
   // always has entityType/entityId = NULL (no entity-linking UI there),
   // so it correctly falls through to the checkbox below regardless of
   // which category was picked.
+  //
+  // FIXED 21 Aug 2026 (previously flagged only, not fixed — task.
+  // linkedAppointment never matched taskService.js's TASK_SELECT, which
+  // names that field linkedAppointmentId; harmless in practice since
+  // linkedLeadId is already populated for an Appointment-category task
+  // too via the join's second hop, so it always resolved first and this
+  // branch was dead code, but a real bug regardless and worth actually
+  // correcting rather than leaving noted for later).
   const linkTarget = task.linkedLeadId
     ? `/leads/${task.linkedLeadId}`
-    : task.linkedAppointment
-      ? `/appointments/${task.linkedAppointment}`
-      : null;
-  const isRedirectOnly = linkTarget !== null && (task.category === 'callback' || task.category === 'appointment');
+    : task.linkedAppointmentId
+      ? `/appointments/${task.linkedAppointmentId}`
+      // §12b (21 Aug 2026) — new branch for the SAR-linked redirect-only
+      // task. No dedicated /admin/app/:id page exists for a single SAR
+      // the way Lead/Appointment each have their own — Data Requests
+      // lives inside AppAdmin.jsx as a tab — so this points there with
+      // the deep-link query params that page reads on mount instead of
+      // a clean resource URL.
+      : task.linkedSarId
+        ? `/admin/app?tab=sar&sarId=${task.linkedSarId}`
+        : null;
+  const isRedirectOnly = linkTarget !== null && (task.category === 'callback' || task.category === 'appointment' || task.category === 'sar');
 
   return (
     <div style={{
@@ -555,6 +586,17 @@ export default function Tasks({ onTaskChange }) {
   const visibleCategories = CATEGORIES.filter(({ key }) => {
     if (key === 'callback' && isBroker) return false;
     if (key === 'appointment' && isAgent) return false;
+    // §12b (21 Aug 2026) — same reasoning as the two lines above, applied
+    // to the new category: a SAR task can only ever be assigned to
+    // Admin/GlobalAdmin (getValidSarAssignee, sarService.js — Supervisor
+    // is deliberately not eligible either), so unlike Callback/Appointment
+    // which are each hidden from exactly one role, this hides from BOTH
+    // Agent and Broker — neither could ever have a task show up here.
+    // Supervisor keeps seeing it, matching this function's own existing
+    // "managers need visibility into every task type" principle just
+    // above, even though a Supervisor's direct reports won't typically
+    // include an Admin in practice either.
+    if (key === 'sar' && (isAgent || isBroker)) return false;
     return true;
   });
 

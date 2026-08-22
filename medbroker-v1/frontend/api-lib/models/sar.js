@@ -18,7 +18,14 @@ export const CreateSarRequestSchema = z.object({
   requestorName:  z.string().min(1).max(200),
   requestorEmail: z.string().email(),
   receivedAt:     z.string(), // YYYY-MM-DD, matches every other date-only field in this codebase
-  dueDate:        z.string().optional(),
+  // dueDate REMOVED 21 Aug 2026, Mark's explicit request — was
+  // optional/client-supplied before; now always computed server-side as
+  // receivedAt + 30 days (the standard POPIA/PAIA access-request response
+  // window — see createSarRequest()'s own comment for the full sourcing)
+  // and never editable afterward. Any dueDate a stale client still sends
+  // is silently dropped by Zod (unrecognised keys are stripped by
+  // default), not an error — deliberate, so an old cached frontend build
+  // fails soft here rather than 400ing.
   notes:          z.string().max(2000).optional(),
   requestType:    SarRequestType.default('Access'),
   // §128 (5 Aug 2026) — assign at creation time, not only afterward
@@ -28,7 +35,17 @@ export const CreateSarRequestSchema = z.object({
   // stricter type, since the same "must actually be a real, active
   // Admin/GlobalAdmin" check can't be expressed in Zod alone anyway
   // (it needs a database lookup).
-  assignedToId:   z.string().uuid().optional(),
+  // Made REQUIRED 21 Aug 2026 (was .optional()) — Mark's explicit
+  // request: an SAR created with nobody assigned meant nobody was ever
+  // notified it existed (createSarRequest()'s notification block was
+  // entirely conditional on an assignee being present) — the request
+  // could sit invisible indefinitely with no automated way to surface
+  // it, given no reminder/scheduler infrastructure exists for SAR. The
+  // .uuid() constraint alone doesn't confirm the id is a real, active
+  // Admin/GlobalAdmin — getValidSarAssignee() still does that lookup and
+  // createSarRequest() still throws a real error (not a silent no-op)
+  // if it doesn't resolve to one.
+  assignedToId:   z.string().uuid(),
 });
 
 export const UpdateSarStatusSchema = z.object({

@@ -5,6 +5,7 @@
  */
 
 import { useState, useEffect, Fragment } from 'react';
+import { useSearchParams } from 'react-router'; // §12b (21 Aug 2026) — SAR deep-linking, see below
 import { s } from '../styles/tokens.js';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
@@ -84,6 +85,22 @@ function todayLocalDateString() {
  */
 function isValidEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test((value || '').trim());
+}
+
+/**
+ * §12b (21 Aug 2026) — frontend-only PREVIEW of the same computation
+ * sarService.createSarRequest() does authoritatively server-side; this
+ * value is never actually submitted (dueDate was removed from
+ * CreateSarRequestSchema entirely) — purely so the person filling in the
+ * form can see what the due date will be before saving. Deliberately
+ * mirrors sarService.js's own addDaysToDateString() exactly (same
+ * explicit-UTC approach, same reasoning) rather than drifting into a
+ * different, looser date-math implementation on this side.
+ */
+function addDaysToDateStringLocal(dateStr, days) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
 }
 
 /**
@@ -314,6 +331,26 @@ export default function AppAdmin() {
   const [sarShowCreate, setSarShowCreate] = useState(false);
   const [sarLeadSearch, setSarLeadSearch] = useState('');
   const [sarLeadResults, setSarLeadResults] = useState([]);
+
+  // §12b (21 Aug 2026) — deep-linking for the new SAR-linked Task's
+  // redirect-only entry point (Tasks.jsx's linkedSarId): AppAdmin had no
+  // way to open directly onto a specific tab, let alone a specific SAR
+  // row, before this — the Callback/Appointment equivalents redirect to
+  // a real page (/leads/:id, /appointments/:id) with an actual URL
+  // param; the Data Requests "page" is a tab inside this one, with
+  // everything managed by in-memory state, so there was nothing to link
+  // to. Runs once on mount only ([] deps) — deliberately doesn't keep
+  // re-syncing from the URL after that, matching how a normal navigation
+  // works (arrive somewhere, then that page owns its own state).
+  const [searchParams] = useSearchParams();
+  useEffect(() => {
+    const wantTab = searchParams.get('tab');
+    const wantSarId = searchParams.get('sarId');
+    if (wantTab === 'sar') {
+      setTab('sar');
+      if (wantSarId) setSarExpandedId(wantSarId);
+    }
+  }, []);
   const [sarSelectedLead, setSarSelectedLead] = useState(null);
   const [sarRequestorName, setSarRequestorName] = useState('');
   const [sarRequestorEmail, setSarRequestorEmail] = useState('');
@@ -325,7 +362,10 @@ export default function AppAdmin() {
   const [sarExecutingDeletion, setSarExecutingDeletion] = useState(null);
   const [sarDeletionResult, setSarDeletionResult] = useState({}); // { [sarId]: { outcome, retentionExpiresAt } }
   const [sarReceivedAt, setSarReceivedAt] = useState(todayLocalDateString);
-  const [sarDueDate, setSarDueDate] = useState('');
+  // sarDueDate removed 21 Aug 2026 — Target due date is server-computed
+  // now (createSarRequest(), sarService.js), never client-entered or
+  // client-submitted; see the "Target due date" form field's own comment
+  // for the live preview that replaced this input.
   const [sarNotes, setSarNotes] = useState('');
   const [sarAssignedToId, setSarAssignedToId] = useState(''); // §128 — assign at creation time
   const [sarSaving, setSarSaving] = useState(false);
@@ -409,7 +449,11 @@ export default function AppAdmin() {
   }
 
   async function handleSarCreate() {
-    if (!sarSelectedLead || !sarRequestorName.trim() || !isValidEmail(sarRequestorEmail) || !sarReceivedAt) return;
+    // §12b (21 Aug 2026) — sarAssignedToId now required (was optional),
+    // matching the Log Request button's own disabled condition below and
+    // the server-side schema, which now rejects a missing assignedToId
+    // outright rather than defaulting to unassigned.
+    if (!sarSelectedLead || !sarRequestorName.trim() || !isValidEmail(sarRequestorEmail) || !sarReceivedAt || !sarAssignedToId) return;
     setSarSaving(true);
     setSarError(null);
     try {
@@ -418,15 +462,16 @@ export default function AppAdmin() {
         requestorName: sarRequestorName.trim(),
         requestorEmail: sarRequestorEmail.trim(),
         receivedAt: sarReceivedAt,
-        dueDate: sarDueDate || undefined,
+        // dueDate REMOVED 21 Aug 2026 — no longer sent at all; the server
+        // computes it unconditionally now (createSarRequest(), sarService.js).
         requestType: sarRequestType,
         notes: sarNotes || undefined,
-        assignedToId: sarAssignedToId || undefined,
+        assignedToId: sarAssignedToId,
       });
       await refetchSar();
       setSarShowCreate(false);
       setSarSelectedLead(null); setSarLeadSearch(''); setSarLeadResults([]);
-      setSarRequestorName(''); setSarRequestorEmail(''); setSarDueDate(''); setSarNotes('');
+      setSarRequestorName(''); setSarRequestorEmail(''); setSarNotes('');
       setSarAssignedToId(''); setSarRequestType('Access');
       setSarReceivedAt(todayLocalDateString());
     } catch (err) {
@@ -1508,7 +1553,17 @@ export default function AppAdmin() {
                 </div>
                 <div style={{ ...s.formGroup, flex: 1 }}>
                   <label style={s.formLabel}>Target due date</label>
-                  <input type="date" style={s.formInput} value={sarDueDate} onChange={e => setSarDueDate(e.target.value)} />
+                  {/* §12b (21 Aug 2026), Mark's explicit request — no
+                      longer a manual input. Always the standard POPIA/PAIA
+                      30-day response window from Date received, and never
+                      editable afterward (see createSarRequest()'s own
+                      comment, sarService.js, for the full reasoning) —
+                      shown here as a computed preview only, updating live
+                      as Date received changes, not something the person
+                      filling this in can override. */}
+                  <div style={{ ...s.formInput, display: 'flex', alignItems: 'center', color: 'var(--mut)', background: 'var(--panel2)' }}>
+                    {sarReceivedAt ? formatDate(addDaysToDateStringLocal(sarReceivedAt, 30)) : '— 30 days from receipt'}
+                  </div>
                 </div>
               </div>
 
@@ -1519,15 +1574,24 @@ export default function AppAdmin() {
 
               {/* §128 — assign at creation time, not only afterward
                   (Mark's own request). Same pool as the after-the-fact
-                  assign control — Admin + GlobalAdmin, sarAdminUsers. */}
+                  assign control — Admin + GlobalAdmin, sarAdminUsers.
+                  Made REQUIRED 21 Aug 2026 (was "Assign to (optional)",
+                  with an "Unassigned" default) — Mark's explicit request:
+                  an unassigned SAR meant nobody was ever notified it
+                  existed at all (createSarRequest()'s notification was
+                  entirely conditional on an assignee), which could leave
+                  a POPIA-obligated request invisible indefinitely. No
+                  "Unassigned" option in the list below any more, and
+                  nothing is pre-selected — the person filling this in has
+                  to make an active choice. */}
               <div style={s.formGroup}>
-                <label style={s.formLabel}>Assign to (optional)</label>
+                <label style={s.formLabel}>Assign to *</label>
                 <select
                   value={sarAssignedToId}
                   onChange={e => setSarAssignedToId(e.target.value)}
                   style={s.formInput}
                 >
-                  <option value="">Unassigned</option>
+                  <option value="" disabled>Select who this is assigned to…</option>
                   {sarAdminUsers.map(u => (
                     <option key={u.id} value={u.id}>{u.displayName}</option>
                   ))}
@@ -1535,8 +1599,8 @@ export default function AppAdmin() {
               </div>
 
               <button
-                style={{ ...s.primaryBtn, opacity: (!sarSelectedLead || !sarRequestorName.trim() || !isValidEmail(sarRequestorEmail) || sarSaving) ? 0.5 : 1 }}
-                disabled={!sarSelectedLead || !sarRequestorName.trim() || !isValidEmail(sarRequestorEmail) || sarSaving}
+                style={{ ...s.primaryBtn, opacity: (!sarSelectedLead || !sarRequestorName.trim() || !isValidEmail(sarRequestorEmail) || !sarAssignedToId || sarSaving) ? 0.5 : 1 }}
+                disabled={!sarSelectedLead || !sarRequestorName.trim() || !isValidEmail(sarRequestorEmail) || !sarAssignedToId || sarSaving}
                 onClick={handleSarCreate}
               >
                 {sarSaving ? 'Saving…' : 'Log Request'}

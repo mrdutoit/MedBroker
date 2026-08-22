@@ -42,6 +42,14 @@ export const TYPE_TO_CATEGORY = {
   // included so a future Reminder-type task still round-trips sensibly
   // instead of falling through to `?? 'manual'` at the call site.
   Reminder:    'reminder',
+  // §12b (21 Aug 2026) — new system-generated category, same treatment
+  // as Reschedule/Outcome/Reminder above: present here (so an existing
+  // row always labels correctly) but deliberately absent from the
+  // creatable TaskCategory enum below — a manually created task has no
+  // business claiming to be a POPIA request task, matching exactly the
+  // reasoning already documented above for why 'rescheduling'/'outcome'
+  // were dropped from the creatable set.
+  Sar:         'sar',
 };
 
 // POST /api/tasks — manual creation only (NewTaskModal). Always ends up

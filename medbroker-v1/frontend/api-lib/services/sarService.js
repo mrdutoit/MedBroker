@@ -39,6 +39,7 @@ import { resolveOrganisationId } from '../context/tenant.js';
 import { decrypt, decryptBoolean } from './encryption.js';
 import { writeAuditLog, listAuditLogForLead } from './auditService.js';
 import { createNotification } from './notificationService.js';
+import { createTask, completeOpenSarTask } from './taskService.js'; // §12b, 21 Aug 2026
 // §12a (20 Aug 2026) — the actual Lead-side effects of a Deletion
 // request live in leadService.js (that's where the Lead's own PII
 // columns and retention logic belong); this file only orchestrates
@@ -73,6 +74,28 @@ const SAR_JOINS = `
  * @param {string} id
  * @returns {Promise<Object>} the existing SAR row (callers need it anyway)
  */
+/**
+ * §12b (21 Aug 2026) — explicit UTC arithmetic, not new Date(str).setDate()
+ * with local getters/setters: this app's own established caution around
+ * date/timezone handling (see todayLocalDateString() elsewhere in this
+ * codebase for the mirror-image version of the same lesson) applies here
+ * too — a date-only string like '2026-08-21' parses as UTC midnight, and
+ * mixing that with LOCAL getDate()/setDate() risks landing on the wrong
+ * calendar day depending on the server's own timezone. Vercel Functions
+ * run in UTC by default, so this would likely be safe either way in
+ * practice, but a POPIA response deadline is exactly the kind of value
+ * worth being explicit about rather than relying on an assumption that
+ * happens to hold today.
+ * @param {string} dateStr - YYYY-MM-DD
+ * @param {number} days
+ * @returns {string} YYYY-MM-DD, days later
+ */
+function addDaysToDateString(dateStr, days) {
+  const d = new Date(`${dateStr}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
 async function assertNotLocked(id) {
   const existing = await getSarRequestById(id);
   if (!existing) throw { status: 404, message: 'Request not found' };
@@ -155,11 +178,32 @@ export async function createSarRequest(data, createdById) {
   // §128 — assignment at creation time, not only afterward (Mark's own
   // request). Validated the same way assignSarRequest validates it —
   // shared helper above, not a second copy of the same check.
-  let assignee = null;
-  if (data.assignedToId) {
-    assignee = await getValidSarAssignee(data.assignedToId, organisationId);
-    if (!assignee) throw { status: 400, message: 'SAR requests can only be assigned to an Admin or GlobalAdmin user' };
-  }
+  // Unconditional now (21 Aug 2026, Mark's explicit request) — assignedToId
+  // is required by CreateSarRequestSchema, so this always runs; the
+  // `if (data.assignedToId)` guard that used to wrap this is gone, along
+  // with the "was it even assigned" question it used to answer. A real,
+  // active Admin/GlobalAdmin id is now a hard precondition of a SAR
+  // existing at all, not an afterthought.
+  const assignee = await getValidSarAssignee(data.assignedToId, organisationId);
+  if (!assignee) throw { status: 400, message: 'SAR requests can only be assigned to an Admin or GlobalAdmin user' };
+
+  // §12b (21 Aug 2026), Mark's explicit request — dueDate is no longer
+  // client-supplied at all (removed from CreateSarRequestSchema entirely);
+  // always computed here as receivedAt + 30 days, never editable
+  // afterward (no UPDATE path anywhere touches this column). 30 days is
+  // the standard POPIA/PAIA access-request response window — POPIA's own
+  // s23 doesn't state an exact figure directly, but s23(6) applies PAIA's
+  // ss18/53 to s23 requests, and PAIA's own 30-day response period is the
+  // widely-adopted practical standard South African organisations publish
+  // in their own PAIA/POPIA manuals for this exact request type. Applied
+  // uniformly to both Access and Deletion requests here, not just Access
+  // — deliberate simplification for a single due-date field, flagged
+  // rather than silently assumed; POPIA's deletion right (s24(1)(b))
+  // doesn't state its own explicit figure as clearly as PAIA's does for
+  // access, so treating them the same is this codebase's own reasonable
+  // interpretation, not a directly cited statutory number for the
+  // Deletion path specifically.
+  const dueDate = addDaysToDateString(data.receivedAt, 30);
 
   const newId = crypto.randomUUID();
   await executeQuery(
@@ -177,17 +221,17 @@ export async function createSarRequest(data, createdById) {
       requestorName:  { type: sql.NVarChar(200),    value: data.requestorName },
       requestorEmail: { type: sql.NVarChar(255),    value: data.requestorEmail },
       receivedAt:     { type: sql.Date,             value: data.receivedAt },
-      dueDate:        { type: sql.Date,             value: data.dueDate ?? null },
+      dueDate:        { type: sql.Date,             value: dueDate },
       requestType:    { type: sql.NVarChar(20),     value: data.requestType ?? 'Access' },
       notes:          { type: sql.NVarChar(2000),   value: data.notes ?? null },
-      assignedToId:   { type: sql.UniqueIdentifier, value: data.assignedToId ?? null },
+      assignedToId:   { type: sql.UniqueIdentifier, value: data.assignedToId },
       createdById:    { type: sql.UniqueIdentifier, value: createdById },
     }
   );
 
   const changeDetail = {
     sarId: newId, requestorEmail: data.requestorEmail,
-    requestType: data.requestType ?? 'Access', assignedToId: data.assignedToId ?? null,
+    requestType: data.requestType ?? 'Access', assignedToId: data.assignedToId,
   };
   // §131 (5 Aug 2026) — CORRECTED: this used to ALSO write an
   // entityType: 'Lead' twin of this exact entry, a real duplicate row in
@@ -197,23 +241,49 @@ export async function createSarRequest(data, createdById) {
   // subject's own compiled export.
   await writeAuditLog({
     entityType: 'SubjectAccessRequest', entityId: newId, action: 'SarRequestCreated',
-    performedById: createdById, changeDetail: { ...changeDetail, leadId: data.leadId, requestorName: data.requestorName },
+    performedById: createdById, changeDetail: { ...changeDetail, leadId: data.leadId, requestorName: data.requestorName, dueDate },
   });
 
-  if (assignee) {
-    const leadName = await executeQueryOne(
-      `SELECT CONCAT_WS(' ', title, firstName, lastName) AS "leadName" FROM Lead WHERE id = @leadId AND organisationId = @organisationId`,
-      { leadId: { type: sql.UniqueIdentifier, value: data.leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
-    );
-    await createNotification({
-      recipientId: assignee.id,
-      type:        'SarAssigned',
-      title:       `SAR assigned — ${leadName?.leadName ?? 'a lead'}`,
-      body:        `You've been assigned a POPIA Subject Access Request for ${leadName?.leadName ?? 'a lead'}, due ${data.dueDate ?? 'no date set'}.`,
-      entityType:  'SubjectAccessRequest',
-      entityId:    newId,
-    });
-  }
+  const leadName = await executeQueryOne(
+    `SELECT CONCAT_WS(' ', title, firstName, lastName) AS "leadName" FROM Lead WHERE id = @leadId AND organisationId = @organisationId`,
+    { leadId: { type: sql.UniqueIdentifier, value: data.leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  const resolvedLeadName = leadName?.leadName ?? 'a lead';
+
+  await createNotification({
+    recipientId: assignee.id,
+    type:        'SarAssigned',
+    title:       `SAR assigned — ${resolvedLeadName}`,
+    body:        `You've been assigned a POPIA Subject Access Request for ${resolvedLeadName}, due ${dueDate}.`,
+    entityType:  'SubjectAccessRequest',
+    entityId:    newId,
+  });
+
+  // §12b (21 Aug 2026), Mark's explicit request — a Task alongside the
+  // notification, not instead of it: the notification tells the assignee
+  // once, up front; the Task keeps it visible on their own list until
+  // it's actually resolved, the same durability a Callback task gives an
+  // agent versus a one-off notification alone. createdById deliberately
+  // null (system-generated, matching the existing convention every other
+  // auto-created task type already follows — see Task.createdById's own
+  // schema comment) — the human action here was "create the SAR request",
+  // not "create a task"; the task itself is a side effect, not something
+  // createdById staff member directly authored.
+  // Redirect-only in Tasks.jsx (category 'sar', via type: 'Sar' below) —
+  // completed only by completeOpenSarTask(), called from updateSarStatus()
+  // when this request reaches Fulfilled or Rejected, never by a direct
+  // checkbox tick. Mirrors exactly how a Callback task can only complete
+  // via a real logged call, never a direct tick either.
+  await createTask({
+    assignedToId: data.assignedToId,
+    type:         'Sar',
+    entityType:   'SubjectAccessRequest',
+    entityId:     newId,
+    title:        `POPIA ${data.requestType === 'Deletion' ? 'deletion' : 'access'} request — ${resolvedLeadName}`,
+    detail:       `Requested by ${data.requestorName}. Due ${dueDate}.`,
+    dueAt:        dueDate,
+    priority:     'High', // every SAR carries a statutory response deadline — never "Medium" by default
+  });
 
   return newId;
 }
@@ -267,6 +337,21 @@ export async function updateSarStatus(id, data, performedById) {
     entityType: 'SubjectAccessRequest', entityId: id, action: 'SarStatusChanged',
     performedById, changeDetail,
   });
+
+  // §12b (21 Aug 2026) — completes the linked Task (createSarRequest's
+  // own createTask() call) the moment this request reaches either
+  // terminal state. Both Fulfilled and Rejected trigger it — they're
+  // equal rank in STATUS_RANK above precisely because either one means
+  // the request is genuinely done, matching the same "either terminal
+  // outcome closes the obligation" reasoning already applied to
+  // STATUS_RANK itself. This is the single chokepoint every status
+  // transition already goes through (manual status changes here,
+  // markInProgressOnFirstExport below, executeSarDeletion's own
+  // Fulfilled transition) — the task can only ever complete via this
+  // path, never a direct checkbox tick (Tasks.jsx's isRedirectOnly).
+  if (data.status === 'Fulfilled' || data.status === 'Rejected') {
+    await completeOpenSarTask(id);
+  }
 }
 
 /**
