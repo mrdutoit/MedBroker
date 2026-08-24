@@ -1032,6 +1032,72 @@ export async function reopenAppointment(id) {
   );
 }
 
+/**
+ * 24 Aug 2026 — closes out every non-terminal Appointment belonging to a
+ * Lead, for the POPIA erasure/restriction path (sarService.executeSarDeletion,
+ * both the Erased and Restricted outcomes — s14(6) requires processing to
+ * STOP on restriction too, not only on true erasure). Real gap Mark found
+ * live-testing: eraseLeadPII()/restrictLead() only ever touched the Lead
+ * row; an open Appointment kept its live status and kept showing in every
+ * Active view indefinitely, for a subject who'd withdrawn consent.
+ *
+ * ClosedLost, not ReturnedToLeads — deliberately. Return to Leads re-queues
+ * the Lead into 'Unassigned' for the next available agent, which is exactly
+ * wrong here; ClosedLost is the only existing status that both locks the
+ * appointment AND doesn't attempt to hand the lead back into active work.
+ *
+ * lostReason = 'ConsentWithdrawn' (migration 038) — a NEW, distinct
+ * category, not reused from the existing six. Deliberately excluded from
+ * every user-facing "Reason for loss" dropdown (AppointmentDetail.jsx,
+ * CloseAsLostModal) — this is the only code path that ever writes it.
+ * Mark's explicit decision (24 Aug 2026): these DO count as genuine Lost
+ * appointments in Reports — win rate, conversion, Loss Reason breakdown —
+ * same as any other ClosedLost row, no query-level exclusion added. The
+ * distinct reason value exists purely so the Loss Reason breakdown can
+ * show "Consent withdrawn (POPIA)" as its own line rather than silently
+ * blending into 'Other' or a real sales-loss category.
+ *
+ * A Lead can have more than one open Appointment (rare, but the schema
+ * allows it — see this file's own header) — every one still open is
+ * closed here, not just the most recent.
+ *
+ * Lead.pipelineStatus is deliberately NOT touched — same restraint
+ * anonymiseLeadRow() already applies (Project_Context_Vercel.md §12a,
+ * 20 Aug 2026): it's operational metadata, not PII, and Lead.deletedAt
+ * (set separately by eraseLeadPII()/restrictLead()) already excludes the
+ * Lead from every report query in this codebase — confirmed by reading
+ * reportService.js's own WHERE clauses before deciding this, not assumed;
+ * every one of them already filters l.deletedAt IS NULL. Nothing left for
+ * pipelineStatus itself to do.
+ *
+ * @param {string} leadId
+ * @returns {Promise<string[]>} ids of the appointments that were closed —
+ *   the caller (sarService.executeSarDeletion) writes one AuditLog entry
+ *   per id, same "function does the work, caller records who asked" split
+ *   this file already uses for eraseLeadPII()/restrictLead() themselves.
+ */
+export async function closeOpenAppointmentsForErasure(leadId) {
+  const organisationId = resolveOrganisationId();
+  const result = await executeQuery(
+    `UPDATE Appointment
+     SET status = 'ClosedLost', customerSigned = false, lostReason = 'ConsentWithdrawn',
+         closedAt = NOW(), updatedAt = NOW()
+     WHERE leadId = @leadId AND organisationId = @organisationId
+       AND status NOT IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads')
+     RETURNING id`,
+    { leadId: { type: sql.UniqueIdentifier, value: leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+  );
+  // Same cleanup returnToLeads() already applies — a locked/terminal
+  // appointment has nothing left to confirm/reschedule/record, and the
+  // Lead itself is either erased or locked out of active processing
+  // either way, so a Callback/Assign-broker task tied to it is equally
+  // moot. Per-appointment (not per-lead) since more than one may exist.
+  for (const row of result) {
+    await deleteTasksForEntity({ entityType: 'Appointment', entityId: row.id });
+  }
+  return result.map(row => row.id);
+}
+
 export async function returnToLeads(id) {
   const organisationId = resolveOrganisationId();
   const appt = await executeQueryOne(

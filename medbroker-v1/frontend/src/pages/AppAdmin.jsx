@@ -46,6 +46,16 @@ const AUDIT_ACTIONS = [
   'AppointmentClaimed', 'TokenManualTopUp', 'SystemConfigUpdated',
   'IntegrationCredentialUpdated', 'TokenStripeCredited', 'TokenPaystackCredited',
   'TaskAutoCompleted',
+  // 24 Aug 2026 — SarDeletionExecuted was already live on the backend
+  // (writeAuditLog call site in sarService.js, its own describeEntry()
+  // case in AuditLogList.jsx) but missing from this list AND from
+  // auditHandlers.js's matching VALID_ACTIONS — same pre-existing gap on
+  // both sides, found while adding AppointmentClosedForErasure alongside
+  // it, fixed in both places together rather than just here.
+  'SarDeletionExecuted',
+  // 24 Aug 2026 (migration 038) — see closeOpenAppointmentsForErasure()'s
+  // own header comment (appointmentService.js) for the full reasoning.
+  'AppointmentClosedForErasure',
 ];
 
 // §128 (5 Aug 2026) — mirrors sarService.js's own STATUS_RANK exactly

@@ -46,6 +46,12 @@ import { createTask, completeOpenSarTask } from './taskService.js'; // §12b, 21
 // WHICH of the two happens and records that it did. One-directional
 // import — leadService.js has no dependency back on this file.
 import { getLeadRetentionPosition, eraseLeadPII, restrictLead } from './leadService.js';
+// 24 Aug 2026 — real gap Mark found live-testing: eraseLeadPII()/
+// restrictLead() only ever touched the Lead row; an open Appointment kept
+// its live status and kept showing in every Active view indefinitely.
+// See closeOpenAppointmentsForErasure()'s own header comment
+// (appointmentService.js) for the full reasoning.
+import { closeOpenAppointmentsForErasure } from './appointmentService.js';
 
 const SAR_SELECT = `
   sar.id, sar.leadId AS "leadId", sar.requestorName AS "requestorName",
@@ -409,6 +415,34 @@ export async function executeSarDeletion(id, performedById) {
   } else {
     await eraseLeadPII(existing.leadId);
     outcome = { outcome: 'Erased', retentionExpiresAt: null };
+  }
+
+  // 24 Aug 2026 — applies to BOTH outcomes, not just Erased: Restricted
+  // means a live FAIS retention obligation exists (there's already a
+  // past closed Appointment behind it), but POPIA s14(6) still requires
+  // processing to STOP — an open Appointment on this Lead (the schema
+  // allows more than one over time) has no business staying active just
+  // because an OLDER appointment is what triggered the retention
+  // obligation. See closeOpenAppointmentsForErasure()'s own header
+  // comment (appointmentService.js) for the full reasoning, including
+  // why ClosedLost and not ReturnedToLeads.
+  //
+  // AUDITED per-appointment, not left to the SAR's own single audit
+  // entry below to imply it — a genuine gap caught while building this,
+  // not part of the original request: every other status-changing
+  // action on Appointment (saveOutcome, returnToLeads, reassign, claim)
+  // writes its own AuditLog entry scoped to that Appointment, and this
+  // one is exactly the kind of event that most needs to be independently
+  // auditable. Written here, not inside closeOpenAppointmentsForErasure()
+  // itself — same "function does the work, caller records who asked"
+  // split this file already uses for eraseLeadPII()/restrictLead().
+  const closedAppointmentIds = await closeOpenAppointmentsForErasure(existing.leadId);
+  for (const appointmentId of closedAppointmentIds) {
+    await writeAuditLog({
+      entityType: 'Appointment', entityId: appointmentId,
+      action: 'AppointmentClosedForErasure', performedById,
+      changeDetail: { newStatus: 'ClosedLost', lostReason: 'ConsentWithdrawn', sarId: id },
+    });
   }
 
   // Erased vs Restricted get genuinely different status treatment, not

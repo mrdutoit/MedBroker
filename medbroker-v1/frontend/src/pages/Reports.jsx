@@ -82,6 +82,14 @@ const LOST_REASON_LABELS = {
   Uncontactable: 'Uncontactable',
   NotEligible: 'Not eligible',
   Other: 'Other',
+  // 24 Aug 2026 (migration 038) — written only by appointmentService.
+  // closeOpenAppointmentsForErasure() (POPIA erasure/restriction), never
+  // selectable from the "Reason for loss" dropdown itself. Included as
+  // its own line here on Mark's explicit decision, 24 Aug 2026: these
+  // DO count as genuine Lost appointments throughout Reports — this
+  // label is what stops them silently reading as 'ConsentWithdrawn'
+  // (the raw enum value) in the Loss Reason breakdown.
+  ConsentWithdrawn: 'Consent withdrawn (POPIA)',
   'Not captured': 'Not captured',
 };
 

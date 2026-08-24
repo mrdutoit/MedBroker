@@ -1579,6 +1579,21 @@ export default function AppointmentDetail() {
                 <option value="Uncontactable">Uncontactable</option>
                 <option value="NotEligible">Not eligible</option>
                 <option value="Other">Other</option>
+                {/* 24 Aug 2026 (migration 038) — deliberately NOT a normal
+                    selectable option alongside the six above: this value
+                    is written only by appointmentService.
+                    closeOpenAppointmentsForErasure() (POPIA erasure/
+                    restriction), never by a person choosing it here. This
+                    appointment is already isLocked (disabled) by the time
+                    it could ever show, so rendering it conditionally,
+                    only when it's already the current value, is purely so
+                    the <select> displays the real reason instead of
+                    falling back to a blank "Please select" — not an
+                    invitation to pick it on some other, still-open
+                    appointment. */}
+                {appt.lostReason === 'ConsentWithdrawn' && (
+                  <option value="ConsentWithdrawn">Consent withdrawn (POPIA)</option>
+                )}
               </select>
             </div>
           )}

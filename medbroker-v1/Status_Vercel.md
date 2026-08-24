@@ -58,6 +58,15 @@ saveOutcome() call, zero backend changes. Not yet deployed (no
 migration required, so "deployed" here just means Mark applying the
 delta ZIP).
 
+POPIA ERASURE NOW CLOSES OPEN APPOINTMENTS — BUILT AND VERIFIED, 24 Aug
+2026 (same session, continued). Full detail in OUTSTANDING ITEMS
+immediately below. Short version: eraseLeadPII()/restrictLead() only
+ever touched the Lead row; an open Appointment kept showing in every
+Active view indefinitely for a subject who'd withdrawn consent. Now
+closes to ClosedLost with a new, distinct lostReason ('ConsentWithdrawn',
+migration 038) — counts as a genuine Lost in Reports, Mark's explicit
+call. NOT YET DEPLOYED — migration 038 needs to run against Neon.
+
 §192 — INDEPENDENT SECURITY AUDIT, 22 Aug 2026, AND FOUR FIXES CLOSED
 SAME DAY. code-audit skill (independent-reviewer role, no fixes made
 during the audit itself) ran a security/build/known-defect-regression/
@@ -190,6 +199,135 @@ hydration, 18 Aug 2026.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 24 AUG 2026 (CONTINUED) — POPIA ERASURE/RESTRICTION NOW CLOSES
+OPEN APPOINTMENTS. Mark found this live-testing (screenshot: an erased
+Lead's Appointment still showing "Assigned" under the Appointments Active
+tab) and asked, correctly, whether it should be Closed Lost.
+
+THE GAP: eraseLeadPII()/restrictLead() (leadService.js) only ever touched
+the Lead row — deletedAt correctly excludes the Lead from every list/
+report query in this codebase (confirmed by reading reportService.js's
+own WHERE clauses directly, every one already filters l.deletedAt IS
+NULL), but nothing anywhere ever looked at that Lead's Appointment(s).
+An open Appointment kept its live status and kept showing in every
+Active view indefinitely, for a subject who'd withdrawn consent — or,
+on the Restrict-and-retain path, for a subject whose processing must
+have stopped under POPIA s14(6) even though their data is retained
+intact for the FAIS window.
+
+DESIGN QUESTION PUT TO MARK BEFORE BUILDING, per his own front-load-
+scoping-questions preference: should an appointment closed this way
+count as a genuine "Lost" in Reports (win rate, conversion, Loss Reason
+breakdown), same as any other ClosedLost row, or be excluded the way
+ReturnedToLeads already is? Mark's answer: include it, same treatment
+as any other Closed Lost. Simplified the build considerably — zero
+changes needed to reportService.js's query logic, which already defines
+"Lost" strictly as status = 'ClosedLost' throughout.
+
+BUILT:
+  - Migration 038 — Appointment.lostReason's CHECK constraint gains a
+    SEVENTH category, 'ConsentWithdrawn' — new and distinct, not reused
+    from the existing six (PriceTooHigh/ChoseCompetitor/
+    NoLongerInterested/Uncontactable/NotEligible/Other). Deliberately
+    excluded from every user-facing "Reason for loss" dropdown
+    (AppointmentDetail.jsx's own Outcome card, last session's new
+    CloseAsLostModal) — this feature is the only code path that ever
+    writes it. DROP CONSTRAINT IF EXISTS + a plain re-ADD, not a
+    pg_constraint existence guard — sidesteps the exact conname-casing
+    bug migration 035 hit (21 Aug 2026 entry, this file): Postgres folds
+    unquoted identifiers to lowercase on storage, so a guard comparing
+    against the CamelCase spelling used in the ADD CONSTRAINT statement
+    silently never matches. Verified by actually running the migration
+    TWICE in a row against a real local Postgres 16 instance freshly
+    loaded from schema.postgres.sql (installed in-sandbox specifically
+    for this) — confirmed genuinely idempotent, not assumed from reading
+    the SQL. schema.postgres.sql updated to match, reloaded clean from
+    scratch afterward to confirm it's still internally consistent.
+  - New appointmentService.closeOpenAppointmentsForErasure(leadId) —
+    closes every non-terminal Appointment for a Lead to ClosedLost,
+    customerSigned = false, lostReason = 'ConsentWithdrawn', closedAt =
+    NOW(). ClosedLost, not ReturnedToLeads, deliberately: Return to
+    Leads re-queues the Lead into 'Unassigned' for the next available
+    agent, which is exactly wrong for a subject who's withdrawn consent.
+    A Lead can have more than one open Appointment over its life (this
+    file's own header) — every one still open is closed, not just the
+    most recent. Also runs the same Task cleanup returnToLeads() already
+    applies (a locked/terminal appointment has nothing left to confirm/
+    reschedule/record). Lead.pipelineStatus deliberately NOT touched —
+    same restraint anonymiseLeadRow() already applies (§12a, 20 Aug
+    2026); deletedAt already does the only job that mattered.
+    FUNCTIONALLY TESTED against real fixture data on the same local
+    Postgres instance — an open (Assigned) appointment closed correctly;
+    sibling ReturnedToLeads and ClosedWon appointments on the same Lead
+    were confirmed left untouched by the same query.
+  - Wired into sarService.executeSarDeletion() for BOTH outcomes, not
+    just Erased — Restricted still requires processing to stop under
+    s14(6), even though the data itself stays intact for the FAIS
+    window.
+  - Reports.jsx / AuditLogList.jsx — LOST_REASON_LABELS in both gains
+    ConsentWithdrawn: 'Consent withdrawn (POPIA)'. Confirmed
+    reportService.js's Loss Reason query has no hardcoded reason list
+    (GROUP BY a.lostReason, COALESCE'd to 'Not captured') — the new
+    category surfaces in the Loss Reasons donut automatically, no
+    backend query change needed.
+  - AppointmentDetail.jsx's "Reason for loss" dropdown — the new value
+    renders as a conditional, display-only <option>, present ONLY when
+    it's already the appointment's current lostReason. Never a normal
+    selectable choice alongside the six real ones.
+
+A REAL GAP CAUGHT MID-BUILD, FIXED IN THE SAME DELIVERY, not part of
+what Mark asked for: closeOpenAppointmentsForErasure() was originally
+written to just silently UPDATE the Appointment row with zero audit
+trail — every other status-changing action on Appointment (saveOutcome,
+returnToLeads, reassign, claim) writes its own AuditLog entry, and this
+is exactly the kind of event that most needs to be independently
+auditable. Fixed: the function now returns the closed appointment ids
+(same "function does the work, caller records who asked" split this
+file already uses for eraseLeadPII()/restrictLead() themselves,
+appointmentService.js's own header), and executeSarDeletion() writes a
+new AppointmentClosedForErasure entry per closed appointment
+(changeDetail: newStatus, lostReason, sarId — the SAR that triggered
+it). New describeEntry() case in AuditLogList.jsx renders it as "Closed
+Lost — Consent withdrawn (POPIA), following a POPIA data subject
+request".
+
+ALSO FOUND WHILE REGISTERING THE NEW ACTION, FIXED ALONGSIDE IT:
+SarDeletionExecuted itself — already live on the backend since §12a
+(20 Aug 2026), with its own ACTION_LABELS entry and describeEntry()
+case in AuditLogList.jsx — was missing from BOTH auditHandlers.js's
+VALID_ACTIONS and AppAdmin.jsx's matching AUDIT_ACTIONS filter list.
+Same pre-existing gap on both sides; only effect was that filtering the
+audit log by action=SarDeletionExecuted silently fell through to
+"return everything" instead of erroring, per parseFilters()'s own
+defensive design. Not part of this feature's own scope, fixed here
+rather than left to keep aging on the list.
+
+VERIFIED: node --check clean on all three touched backend files
+(appointmentService.js, sarService.js, auditHandlers.js). npm run build
+clean. npx vitest run — 57/57, no regressions. npm run lint diffed
+directly against a freshly-hydrated, untouched baseline run — IDENTICAL
+149 problems (1 error, 148 warnings) before and after; every line-level
+diff between the two lint runs is a path-prefix or line-number shift
+from added comments, zero new warning text. diff -rq against the same
+baseline tree confirmed the change is isolated to exactly the intended
+files, nothing else drifted: appointmentService.js, sarService.js,
+auditHandlers.js, schema.postgres.sql, the new migration file,
+AuditLogList.jsx, AppAdmin.jsx, Reports.jsx.
+
+NOT YET DEPLOYED. Migration 038 needs to run against Neon before this
+is live — same standing rule as every migration.
+
+FILES: frontend/db/migrations/038_add_consent_withdrawn_lost_reason.sql
+(new), frontend/db/schema.postgres.sql,
+frontend/api-lib/services/appointmentService.js,
+frontend/api-lib/services/sarService.js,
+frontend/api-lib/handlers/auditHandlers.js,
+frontend/src/components/AuditLogList.jsx,
+frontend/src/pages/AppAdmin.jsx, frontend/src/pages/Reports.jsx,
+frontend/src/pages/AppointmentDetail.jsx.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 24 AUG 2026 — CLOSE AS LOST, BUILT AND VERIFIED. Mark found this

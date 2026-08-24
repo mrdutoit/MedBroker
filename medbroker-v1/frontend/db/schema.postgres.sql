@@ -666,8 +666,13 @@ CREATE TABLE IF NOT EXISTS Appointment (
     -- design choice (see the column's own comment above), not an
     -- exhaustive industry taxonomy; 'Other' is the deliberate escape
     -- hatch rather than leaving this open-ended free text.
+    -- 'ConsentWithdrawn' ADDED 24 Aug 2026 (migration 038) — a seventh,
+    -- distinct category, written ONLY by appointmentService.
+    -- closeOpenAppointmentsForErasure() (POPIA erasure/restriction),
+    -- never selectable from any user-facing dropdown.
     CONSTRAINT CK_Appointment_LostReason CHECK (lostReason IS NULL OR lostReason IN (
-        'PriceTooHigh', 'ChoseCompetitor', 'NoLongerInterested', 'Uncontactable', 'NotEligible', 'Other'
+        'PriceTooHigh', 'ChoseCompetitor', 'NoLongerInterested', 'Uncontactable', 'NotEligible', 'Other',
+        'ConsentWithdrawn'
     )),
     CONSTRAINT CK_Appointment_MeetingType CHECK (meetingType IN ('InPerson', 'Virtual')),
     CONSTRAINT CK_Appointment_M1Status  CHECK (meeting1Status IS NULL OR meeting1Status IN ('Seen', 'Rescheduled', 'Cancelled')),

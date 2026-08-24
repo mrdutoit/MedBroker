@@ -29,6 +29,9 @@ const LOST_REASON_LABELS = {
   Uncontactable:      'Uncontactable',
   NotEligible:        'Not eligible',
   Other:              'Other',
+  // 24 Aug 2026 (migration 038) — see Reports.jsx's own copy of this map
+  // for the full reasoning; same label, kept in sync manually.
+  ConsentWithdrawn:   'Consent withdrawn (POPIA)',
 };
 
 const ACTION_LABELS = {
@@ -58,6 +61,10 @@ const ACTION_LABELS = {
   // real message from changeDetail.outcome/retentionExpiresAt, same
   // pattern as LeadAssigned/AppointmentBrokerAssigned above.
   SarDeletionExecuted:         'POPIA deletion request executed',
+  // 24 Aug 2026 (migration 038) — fallback only; describeEntry() below
+  // builds the real message from changeDetail.lostReason, same pattern
+  // as the entries immediately above.
+  AppointmentClosedForErasure: 'Closed — POPIA request',
 };
 
 const FIELD_LABELS = {
@@ -124,6 +131,16 @@ function describeEntry(entry) {
       return `POPIA deletion executed — retained under restriction until ${until} (FAIS record-keeping)`;
     }
     return label;
+  }
+
+  // 24 Aug 2026 (migration 038) — written from Appointment's own audit
+  // trail, not the SAR's (this appears on the Appointment's Change Log,
+  // SarDeletionExecuted immediately above appears on the SAR's/Lead's).
+  // sarId isn't rendered here — the SAR request itself is one click away
+  // from AppAdmin's own Data Requests list, and duplicating its id inline
+  // here would just be noise for what this entry needs to communicate.
+  if (entry.action === 'AppointmentClosedForErasure') {
+    return `Closed Lost — ${LOST_REASON_LABELS[detail.lostReason] ?? detail.lostReason}, following a POPIA data subject request`;
   }
 
   if (entry.action === 'LeadUpdated') {

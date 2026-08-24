@@ -67,6 +67,20 @@ const VALID_ACTIONS = [
   'AppointmentClaimed', 'TokenManualTopUp', 'SystemConfigUpdated',
   'IntegrationCredentialUpdated', 'TokenStripeCredited', 'TokenPaystackCredited',
   'TaskAutoCompleted',
+  // 24 Aug 2026 — SarDeletionExecuted was already live (writeAuditLog
+  // call site in sarService.js, ACTION_LABELS entry and its own
+  // describeEntry() branch in AuditLogList.jsx, referenced in
+  // AppAdmin.jsx) but missing from THIS list — a pre-existing gap found
+  // while adding AppointmentClosedForErasure alongside it, not part of
+  // that feature itself. Its only effect: filtering the audit log by
+  // action=SarDeletionExecuted via the query string silently fell
+  // through parseFilters()'s own validation and returned every action
+  // instead, per this function's own defensive design. Fixed here rather
+  // than left to keep aging on the list.
+  'SarDeletionExecuted',
+  // 24 Aug 2026 (migration 038) — see closeOpenAppointmentsForErasure()'s
+  // own header comment (appointmentService.js) for the full reasoning.
+  'AppointmentClosedForErasure',
 ];
 
 /**

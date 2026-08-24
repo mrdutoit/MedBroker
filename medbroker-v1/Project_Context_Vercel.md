@@ -1377,6 +1377,49 @@ Close as Lost — built 24 Aug 2026, Mark's explicit request, following his
   (reopenAppointment() only checks status, not how it got there) — no new
   undo mechanism needed.
 
+POPIA erasure/restriction closes open Appointments — built 24 Aug 2026,
+  same session, following directly from Mark's own live testing (an
+  erased Lead's Appointment still showing under the Appointments Active
+  tab, still "Assigned"). eraseLeadPII()/restrictLead() (leadService.js)
+  only ever touched the Lead row; Lead.deletedAt already correctly
+  excludes the Lead from every list/report query in this codebase, but
+  nothing ever looked at that Lead's Appointment(s). New
+  appointmentService.closeOpenAppointmentsForErasure(leadId) closes
+  every non-terminal Appointment to ClosedLost (customerSigned: false,
+  closedAt: NOW()), called from sarService.executeSarDeletion() for
+  BOTH the Erased and Restricted outcomes — Restricted still requires
+  processing to stop under POPIA s14(6), even though the data itself is
+  retained intact for the FAIS window. ClosedLost, not ReturnedToLeads,
+  deliberately — Return to Leads re-queues the Lead into 'Unassigned'
+  for the next available agent, exactly wrong for a subject who's
+  withdrawn consent. New, distinct lostReason category,
+  'ConsentWithdrawn' (migration 038, CHECK constraint), not reused from
+  the existing six — deliberately excluded from every user-facing
+  "Reason for loss" dropdown, this is the only code path that ever
+  writes it; renders as a display-only conditional <option> on
+  AppointmentDetail.jsx's own dropdown, and as "Consent withdrawn
+  (POPIA)" via LOST_REASON_LABELS in both Reports.jsx and
+  AuditLogList.jsx. DESIGN QUESTION PUT TO MARK BEFORE BUILDING: should
+  these count as genuine Lost appointments in Reports (win rate,
+  conversion, Loss Reason breakdown), or be excluded like
+  ReturnedToLeads is? Mark's explicit answer: include them, same
+  treatment as any other Closed Lost — reportService.js already defines
+  "Lost" strictly as status = 'ClosedLost' throughout, with no
+  hardcoded lostReason list anywhere, so this needed zero report-query
+  changes. Lead.pipelineStatus deliberately NOT touched, matching
+  anonymiseLeadRow()'s own established restraint (§12a, 20 Aug 2026) —
+  it's operational metadata, not PII, and deletedAt already does the
+  only job that mattered. A real gap caught mid-build, fixed in the
+  same delivery: the closure function originally wrote no audit trail
+  at all; every other Appointment status change does, so it now returns
+  the closed appointment ids and executeSarDeletion() writes a new
+  AppointmentClosedForErasure entry per appointment (same "function
+  does the work, caller records who asked" split this file already
+  uses for eraseLeadPII()/restrictLead() themselves). Migration 038's
+  idempotency was verified by actually running it twice against a real
+  local Postgres 16 instance (installed in-sandbox for this), not
+  assumed — same standing rule this codebase already holds itself to.
+
 Products on Lead — built 14 Aug 2026 (§157/§158/§159, migration 028).
   Mandatory only on the manual Create Lead form (leadSource ===
   'ManualEntry'), exempt on CSV/subscription bulk import — Mark's
