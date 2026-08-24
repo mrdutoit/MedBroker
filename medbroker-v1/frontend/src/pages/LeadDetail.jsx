@@ -109,7 +109,7 @@ function Field({ label, value, children }) {
 // are editable on the Lead creation form. `type` selects the control:
 // 'text' | 'date' | 'number' | 'select' | 'textarea' | 'bool'.
 function EditableField({ label, editing, type = 'text', value, onChange, options }) {
-  const inputStyle = { border: '1px solid var(--line)', borderRadius: '6px', padding: '5px 8px', fontSize: '0.8125rem', fontFamily: 'inherit', textAlign: 'right', width: '60%', boxSizing: 'border-box' };
+  const inputStyle = { border: '1px solid var(--line)', borderRadius: '6px', padding: '5px 8px', fontSize: '0.8125rem', fontFamily: 'inherit', textAlign: 'right', width: '60%', boxSizing: 'border-box', color: 'var(--ink)' };
 
   if (!editing) {
     let display = value;
@@ -437,7 +437,7 @@ export default function LeadDetail() {
     ghost:     { background: 'none', color:'var(--mut)', border: '1px solid var(--line)', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
     back:      { background: 'none', border: 'none', color:'var(--mut)', cursor: 'pointer', fontSize: '0.813rem', padding: 0, fontFamily: 'inherit', marginBottom: '4px' },
   };
-  const inputStyle = { width: '100%', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box' };
+  const inputStyle = { width: '100%', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box', color: 'var(--ink)' };
   const labelStyle = { display: 'block', fontSize: '0.8125rem', fontWeight: 500, color:'var(--ink)', marginBottom: '5px' };
   const badge = (bg, text) => ({ display: 'inline-block', padding: '2px 9px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 500, background: bg, color: text });
 
@@ -939,7 +939,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
   const { flag } = useFlags();
   const isClaimModel = flag('appointments.claimModel', 'claim');
   const labelStyle = { display: 'block', fontSize: '0.8125rem', fontWeight: 500, color:'var(--ink)', marginBottom: '5px' };
-  const inputStyle = { width: '100%', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box' };
+  const inputStyle = { width: '100%', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box', color: 'var(--ink)' };
   const btn = {
     primary: { background:'var(--accent)', color:'white', border:'none', borderRadius:'var(--r-sm,8px)', padding:'8px 14px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' },
     ghost:   { background: 'none', color:'var(--mut)', border: '1px solid var(--line)', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },

@@ -273,9 +273,22 @@ export function toCsv(rows, columns) {
     // by reading his actual exported file, not assumed. Any CSV export
     // anywhere in this app passing a raw Date-typed column through this
     // function had the identical bug; fixed once, here, for all of them.
-    const str = value instanceof Date ? value.toISOString()
+    let str = value instanceof Date ? value.toISOString()
       : typeof value === 'object' ? JSON.stringify(value)
       : String(value);
+    // Security audit F-02 (22 Aug 2026) — CSV/formula injection. Both
+    // callers of this function (SAR export, audit-log export) can
+    // include values that trace back to unauthenticated input — most
+    // directly, a prospect's own name via the public Lead Portal
+    // registration form, which is validated only for length, not
+    // character content. A cell whose text begins with =, +, -, or @ is
+    // executed as a formula by Excel (and similar spreadsheet software)
+    // the moment the file is opened, not just displayed as text — the
+    // standard mitigation (OWASP CSV Injection) is a leading apostrophe,
+    // which forces the cell to be read as literal text. Applied before
+    // the comma/quote/newline check below so a value needing both kinds
+    // of escaping gets both, correctly.
+    if (/^[=+\-@]/.test(str)) str = `'${str}`;
     if (/[",\n]/.test(str)) return `"${str.replace(/"/g, '""')}"`;
     return str;
   }

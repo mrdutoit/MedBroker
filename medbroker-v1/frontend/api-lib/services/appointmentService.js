@@ -867,10 +867,25 @@ export async function listAvailableToClaim(brokerId) {
     const interested = appt.productsInterestedIn ? JSON.parse(appt.productsInterestedIn) : [];
     if (interested.length === 0) return true; // no product recorded — show to every region-matched broker, see header comment
     return interested.some((name) => brokerProductNames.has(name));
-  }).map((appt) => ({
-    ...appt,
-    productsInterestedIn: appt.productsInterestedIn ? JSON.parse(appt.productsInterestedIn) : [],
-  }));
+  }).map((appt) => {
+    // Security audit F-01 (22 Aug 2026) — leadEmail/leadMobile stripped
+    // here, not just left unrendered by AppointmentList.jsx's own
+    // availableAppointments mapping. APPOINTMENT_SELECT is shared with
+    // every OTHER appointment list (agent/admin views, where full Lead
+    // contact detail is correct and intended), so the fields can't be
+    // dropped from the SELECT itself without breaking those — this is
+    // the one call site where they must never leave the server. A
+    // Broker browsing the claim pool hasn't committed to this Lead yet;
+    // contact detail belongs to whichever Broker actually claims it, not
+    // to everyone eligible to. Name is kept (leadName is genuinely
+    // rendered, so the Broker can tell candidates apart) — only the two
+    // direct contact channels are removed.
+    const { leadEmail, leadMobile, ...safeAppt } = appt;
+    return {
+      ...safeAppt,
+      productsInterestedIn: appt.productsInterestedIn ? JSON.parse(appt.productsInterestedIn) : [],
+    };
+  });
 }
 
 /**

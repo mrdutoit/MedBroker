@@ -346,7 +346,7 @@ export default function EventDetail() {
   const nextActions = NEXT_STATUS_ACTIONS[event.status] ?? [];
 
   return (
-    <div style={{ padding: isMobile ? '12px' : '24px', maxWidth: '1000px' }}>
+    <div style={{ padding: isMobile ? '12px' : '24px' }}>
 
       {/* Header */}
       <button onClick={() => navigate('/events')} style={s.backBtn}>← Back to Events</button>

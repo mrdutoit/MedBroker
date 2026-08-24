@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status (VERCEL VERSION)
 ==================================================
-Last updated: 21 August 2026
+Last updated: 22 August 2026
 Scope: this file tracks ONLY the Vercel + Neon Postgres deployment —
 frontend/api/ + frontend/api-lib/ + frontend/src/. It does NOT cover the
 separate Azure Functions/Azure SQL codebase (api/src/, infra/), which is
@@ -48,6 +48,54 @@ current throughout — a session-log-shaped reconstruction of how it got
 there (§179-191, clearly marked as reconstructed rather than first-hand)
 lives in the archive, closing a gap this file's own §190 entry had
 already flagged honestly rather than silently.
+
+§192 — INDEPENDENT SECURITY AUDIT, 22 Aug 2026, AND FOUR FIXES CLOSED
+SAME DAY. code-audit skill (independent-reviewer role, no fixes made
+during the audit itself) ran a security/build/known-defect-regression/
+POPIA-FAIS pass against a fresh hydration, producing
+MedBroker_Security_Audit_Report_20260822.docx (Admin project knowledge).
+No Critical findings; core auth/IDOR/SQLi/encryption/POPIA-erasure
+posture confirmed sound. Two High and two Low findings were fixed in a
+same-day follow-up session (separate from the audit itself, per the
+skill's own independence rule):
+  - F-01 (High) — GET /api/appointments/available-to-claim was
+    returning Lead email/mobile to a Broker before they'd claimed the
+    appointment (APPOINTMENT_SELECT is shared with other, legitimate
+    full-detail views, so the fix strips leadEmail/leadMobile inside
+    listAvailableToClaim()'s own result mapping, not the shared select).
+  - F-02 (High) — toCsv() (SAR export, audit-log export) didn't
+    neutralise a leading =/+/-/@ before writing a cell, so a prospect-
+    submitted Lead name reaching a CSV opened later in Excel could
+    trigger formula/DDE execution. Fixed with the standard OWASP
+    leading-apostrophe guard in escapeCell(), applied before the
+    existing comma/quote/newline handling. helpers.js had zero test
+    coverage before this — helpers.test.js added (9 tests, including the
+    combined formula+comma case) so this doesn't silently regress.
+  - F-08 (Low) — four local inputStyle object literals (LeadDetail.jsx
+    x3, AppointmentDetail.jsx x1) used directly by native <select>
+    elements were missing color, the exact "invisible text on dark
+    themes" pattern this project's known-defect list already tracks.
+    Added color: 'var(--ink)' to each, matching what tokens.js's shared
+    s.select/s.formInput already do correctly. Re-checked every other
+    <select> in the app individually after fixing these four (not just
+    the ones sharing the inputStyle variable name) — all 60 remaining
+    instances route through s.formInput/s.select directly or via
+    spread, all of which already carry color. No further instances.
+  - F-09 (Low) — EventDetail.jsx's maxWidth: '1000px' had no
+    counterpart on EventList.jsx, so opening an event visibly narrowed
+    the page. Removed; EventDetail.jsx now matches EventList.jsx's
+    unconstrained width, consistent with every other list/detail pair.
+Verified via a second fresh GitHub hydration (confirmed zero upstream
+drift since the audit), `npm run build` (clean), `npx vitest run`
+(57/57, up from 48 — the 9 new helpers.test.js cases), `npm run lint`
+(same single pre-existing plugin-version error as the audit found, nothing
+new). Five findings remain open by design, not urgency — F-03 through
+F-07 either need a platform/contractual decision (KMS funding, Neon
+region confirmation, a commissioned pen test) or are low-cost follow-ups
+(rate limiting, CI pipeline) appropriate for the next working session,
+not this same-day patch. Full detail, evidence, and remediation guidance
+for all eleven findings — fixed and open alike — is in the audit report
+itself; this entry is a pointer, not a duplicate.
 
 MEETING/APPOINTMENT ATTEMPT HISTORY: built (§164), then partially
 reworked (§172, 15 Aug) — Cancelled and Missed/No-show split back out
@@ -1177,13 +1225,17 @@ OUTSTANDING (unchanged from CURRENT STATE further up in this file):
       open as a separate follow-up: the scheduled purge job for a
       restricted Lead once its retentionExpiresAt actually lapses —
       see Project_Context_Vercel.md §12a's "STILL OPEN" note.
-   b. Field-level encryption scope decision — idNumber only today;
-      recommend extending to medicalAid/medicalAidProvider/
-      existingCover/currentInsurer/policies (closest to POPIA s26
-      special personal information).
-   c. vercel.json security headers (CSP/HSTS/X-Content-Type-Options/
-      Referrer-Policy/Permissions-Policy) — none configured beyond
-      Cache-Control on /assets.
+   b. CLOSED — confirmed by the 22 Aug 2026 independent security audit
+      (§192) against the live code: field-level encryption already
+      extended to all five (medicalAid/medicalAidProvider/
+      existingCover/currentInsurer/policies), not idNumber alone. This
+      line had gone stale; the extension itself happened in an earlier
+      session (§12a) without this OUTSTANDING entry being updated to
+      match — corrected here rather than left contradicting the code.
+   c. CLOSED — same audit, same correction: vercel.json already carries
+      a full header set (CSP, HSTS, X-Content-Type-Options,
+      X-Frame-Options, Referrer-Policy, Permissions-Policy), not just
+      Cache-Control on /assets. This line was equally stale.
    d. Confirm Neon's provisioning region; cross-border transfer
       assessment if not South Africa.
    e. Operator agreements: Vercel, Neon, Paystack, SMTP provider.
@@ -1469,9 +1521,19 @@ fresh hydration):
     KMS_MASTER_KEY_ID/AWS_REGION/AWS_ACCESS_KEY_ID/AWS_SECRET_ACCESS_KEY
     all set before deploying.
   - Session token storage: httpOnly cookie (mb_session), SameSite=Strict,
-    Secure hardcoded on. No CSP header configured — no defense-in-depth
-    against XSS beyond React's own default JSX escaping, still an open
-    item if ever wanted.
+    Secure hardcoded on.
+  - Browser security headers: CORRECTED 22 Aug 2026 (§192) — this line
+    previously read "No CSP header configured," which was stale by the
+    time it was written, not current fact. vercel.json carries a full
+    set (CSP, HSTS, X-Content-Type-Options, X-Frame-Options,
+    Referrer-Policy, Permissions-Policy) — confirmed directly against
+    the live file during the independent security audit, not assumed
+    from this note's own prior wording.
+  - CSV/formula injection (F-02, §192): CLOSED. toCsv() now escapes a
+    leading =/+/-/@ before writing a cell (api-lib/http/helpers.js).
+  - Broker claim-pool PII exposure (F-01, §192): CLOSED.
+    listAvailableToClaim() no longer returns Lead email/mobile pre-claim
+    (api-lib/services/appointmentService.js).
   - Still queued, lowest priority: ESLint v10 + eslint.config.js; Vite
     v8 + Vitest v4 major bump.
 

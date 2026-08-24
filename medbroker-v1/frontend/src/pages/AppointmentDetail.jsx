@@ -137,7 +137,7 @@ function FieldRow({ label, children }) {
 // already share the identical row styling, so nothing visually changes
 // when editingDetails is false.
 function EditableFieldRow({ label, editing, type = 'text', value, onChange, options, displayValue }) {
-  const inputStyle = { border: '1px solid var(--line)', borderRadius: '6px', padding: '5px 8px', fontSize: '0.8125rem', fontFamily: 'inherit', textAlign: 'right', width: '60%', boxSizing: 'border-box' };
+  const inputStyle = { border: '1px solid var(--line)', borderRadius: '6px', padding: '5px 8px', fontSize: '0.8125rem', fontFamily: 'inherit', textAlign: 'right', width: '60%', boxSizing: 'border-box', color: 'var(--ink)' };
 
   if (!editing) {
     let display = displayValue !== undefined ? displayValue : value;
