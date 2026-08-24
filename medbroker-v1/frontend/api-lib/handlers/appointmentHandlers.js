@@ -559,6 +559,15 @@ export async function handleAppointmentOutcome(req, res, id) {
       changeDetail: {
         customerSigned: parsed.data.customerSigned ?? null,
         newStatus: result.status,
+        // lostReason ADDED 24 Aug 2026, while building Close as Lost — a
+        // real, pre-existing gap in this audit entry, not specific to the
+        // new feature: this endpoint has recorded a lostReason on the
+        // Appointment row since migration 030 (14 Aug 2026), but never
+        // once surfaced it in the change log itself, on ANY outcome save,
+        // held-meeting or otherwise. Worth fixing here rather than only
+        // for the new entry point — the change log should show WHY a
+        // deal was lost regardless of which UI path closed it.
+        lostReason: parsed.data.lostReason ?? null,
         // meetings dropped 14 Aug 2026 (§164) — SaveOutcomeSchema no
         // longer carries that field at all; meeting saves are audited
         // separately, in handleSaveMeetingAttempt below.

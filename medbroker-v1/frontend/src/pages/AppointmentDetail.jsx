@@ -26,10 +26,15 @@
  *   time and is never subsequently editable. The Reassign Broker modal mirrors the
  *   Assign Broker modal: agent is a read-only display field; only broker is editable.
  *
- * STATUS TRANSITIONS (server-side only — see leadStatusService.js):
+ * STATUS TRANSITIONS (server-side only — see appointmentStatusService.js):
  *   Saving outcome with customerSigned = true  → ClosedWon
  *   Saving outcome with customerSigned = false → ClosedLost
  *   First meeting marked Seen                  → InProgress
+ *
+ * CLOSE AS LOST (24 Aug 2026) — a second entry point into the exact same
+ * customerSigned = false save above, for a deal that never reached a held
+ * meeting at all (repeated cancellations/no-shows, lead gone quiet). See
+ * CloseAsLostModal's own header comment for full reasoning.
  *
  * ROW-LEVEL OWNERSHIP (production):
  *   Admin/Supervisor: all appointments
@@ -613,6 +618,128 @@ function ReturnToLeadsModal({ appointment, onClose, onReturned }) {
   );
 }
 
+// ─── Close as Lost confirmation modal ───────────────────────────────────────
+// 24 Aug 2026, Mark's explicit request — a genuine gap surfaced by his own
+// testing: outcomeDue (below, in the main component) only ever becomes true
+// once a meeting attempt actually resolves to a Held outcome, so a lead that
+// only ever cancels, reschedules, or is missed — never once held — had no
+// path to Closed Lost at all. Return to Leads was the only other closure
+// action available, and that's an administrative reset (Lead -> Unassigned,
+// see returnToLeads()'s own header comment in appointmentService.js), not a
+// sales-loss outcome — it doesn't record WHY the deal didn't happen, and it
+// hands the lead back into the pipeline rather than closing it out.
+//
+// Deliberately reuses appointmentsApi.saveOutcome() exactly as the Outcome
+// card below does (customerSigned: false + a required lostReason) rather
+// than introducing a new endpoint or status — this produces an identical
+// ClosedLost record, indistinguishable in Won/Lost reporting from one closed
+// via a held meeting. Confirmed against appointmentService.saveOutcome()
+// directly before building this: its only precondition is current.status
+// not already being ClosedWon/ClosedLost/ReturnedToLeads — it has never
+// required a held meeting or checked outcomeDue at all, that's purely a
+// frontend gate on the Outcome card's own visibility. So this needed no
+// backend change whatsoever, only a new entry point — no new migration, no
+// new API route, zero new Vercel functions (Hobby plan ceiling stays
+// untouched).
+//
+// Same reason list as the Outcome card's own "Reason for loss" dropdown a
+// few hundred lines down, kept in sync manually — both are short, static,
+// CHECK-constrained enums (Appointment.lostReason, migration 030); a shared
+// constant wasn't judged worth the indirection for two five-line lists.
+//
+// Undo path: reopenAppointment() (appointmentService.js) only checks
+// status === 'ClosedLost', with no dependency on how it got there, so the
+// existing Admin/Supervisor "Reopen Appointment" escape hatch already
+// covers an appointment closed this way — no new undo mechanism needed,
+// just the fix immediately below (outcomeDue || isLocked) that makes the
+// card carrying that button actually render for it.
+function CloseAsLostModal({ appointment, onClose, onClosed }) {
+  const [reason, setReason] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [done,   setDone]   = useState(false);
+  const [error,  setError]  = useState(null);
+
+  async function handleConfirm() {
+    if (!reason) {
+      setError('Please select a reason before closing this appointment as lost.');
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await appointmentsApi.saveOutcome(appointment.id, {
+        customerSigned: false,
+        lostReason: reason,
+        productsSold: [],
+      });
+      setDone(true);
+      setTimeout(onClosed, 900);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not close this appointment. Please try again.');
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+      <div style={{ ...s.modal, width: '400px' }}>
+        <div style={s.modalHeader}>
+          <h2 style={s.modalTitle}>Close as Lost?</h2>
+          <button style={s.closeBtn} onClick={onClose} aria-label="Close">
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" width="16" height="16">
+              <path d="M3 3l10 10M13 3L3 13"/>
+            </svg>
+          </button>
+        </div>
+        <p style={{ fontSize: '0.875rem', color:'var(--ink)', marginBottom: '10px' }}>
+          This appointment will be marked Closed Lost, with no meeting ever held.
+        </p>
+        <p style={{ fontSize: '0.8125rem', color:'var(--mut)', marginBottom: '16px', lineHeight: 1.5 }}>
+          This is permanent — the appointment locks immediately, the same as any
+          other Closed Lost outcome. An Admin or Supervisor can reopen it
+          afterwards if this was a mistake.
+        </p>
+        <div style={{ marginBottom: '16px' }}>
+          <label style={s.formLabel}>Reason for loss</label>
+          <select style={s.formInput} value={reason} disabled={saving || done} onChange={e => setReason(e.target.value)}>
+            <option value="">Please select</option>
+            <option value="PriceTooHigh">Price too high</option>
+            <option value="ChoseCompetitor">Chose a competitor</option>
+            <option value="NoLongerInterested">No longer interested</option>
+            <option value="Uncontactable">Uncontactable</option>
+            <option value="NotEligible">Not eligible</option>
+            <option value="Other">Other</option>
+          </select>
+        </div>
+        {error && (
+          <div style={{ ...s.noticeWarn, marginBottom: '12px' }}>{error}</div>
+        )}
+        {done && (
+          <div style={{ ...s.noticeSuccess, marginBottom: '12px' }}>
+            ✓ Closed as lost
+          </div>
+        )}
+        <div style={s.modalFooter}>
+          <button
+            style={{ ...s.secondaryBtn, background: 'none', border: 'none' }}
+            onClick={onClose}
+            disabled={saving}
+          >
+            Cancel
+          </button>
+          <button
+            style={{ ...s.primaryBtn, background: '#dc2626', opacity: saving || done ? 0.5 : 1 }}
+            onClick={handleConfirm}
+            disabled={saving || done}
+          >
+            {done ? 'Done ✓' : saving ? 'Closing…' : 'Close as Lost'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ─── Main page ─────────────────────────────────────────────────────────────────
 export default function AppointmentDetail() {
   const { id }          = useParams();
@@ -660,6 +787,8 @@ export default function AppointmentDetail() {
   const [detailsSaveError,  setDetailsSaveError]  = useState('');
   const [showReassign,      setShowReassign]      = useState(false);
   const [showReturnConfirm, setShowReturnConfirm] = useState(false);
+  // 24 Aug 2026 — Close as Lost, see CloseAsLostModal's own header comment.
+  const [showCloseLost,     setShowCloseLost]     = useState(false);
   // §12b (21 Aug 2026) — mirrors LeadDetail.jsx's handleReopenLead
   // exactly: a direct button + loading state, no confirmation modal,
   // consistent with how that equivalent action is already handled for
@@ -1319,6 +1448,30 @@ export default function AppointmentDetail() {
         );
       })}
 
+      {/* ── Close as Lost (no meeting ever held) ────────────────────────────── */}
+      {/* 24 Aug 2026, Mark's explicit request — see CloseAsLostModal's own
+          header comment for the full reasoning. Hidden once outcomeDue is
+          true — the Outcome card immediately below already covers closing
+          the deal at that point, so this would just be a redundant second
+          path to the same place. Hidden once isLocked, obviously — nothing
+          left to close. */}
+      {!isLocked && !outcomeDue && (
+        <div style={{ ...s.card, marginBottom: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+          <div>
+            <div style={{ fontSize: '0.875rem', fontWeight: 600, color: 'var(--ink)', marginBottom: '2px' }}>Not progressing?</div>
+            <div style={{ fontSize: '0.8125rem', color: 'var(--mut)' }}>
+              If this lead has stopped responding or repeatedly cancels, close the appointment as lost rather than leaving it open indefinitely.
+            </div>
+          </div>
+          <button
+            style={{ ...s.secondaryBtn, color: '#dc2626', borderColor: '#fca5a5', whiteSpace: 'nowrap' }}
+            onClick={() => setShowCloseLost(true)}
+          >
+            Close as Lost
+          </button>
+        </div>
+      )}
+
       {/* ── Appointment outcome ─────────────────────────────────────────────── */}
       {/* 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) —
           was gated on meetingHasData(appt.meetings[0]) (any data at all
@@ -1326,8 +1479,21 @@ export default function AppointmentDetail() {
           the spec's own routing table exactly: this section has no
           reason to appear while a Rescheduled or follow-up-pending
           meeting is still in play, only once a meeting attempt has
-          actually resolved to an outcome. */}
-      {outcomeDue && (
+          actually resolved to an outcome.
+          BROADENED 24 Aug 2026 to (outcomeDue || isLocked) — a real,
+          pre-existing gap found while building Close as Lost, not part of
+          that feature's own logic: this card is also what renders the
+          ReturnedToLeads "locked as history" notice and the ClosedLost
+          Reopen button (both further down, gated on appt.status directly,
+          not on outcomeDue) — so ANY appointment that reached a locked
+          status without ever having a meeting held (Return to Leads at any
+          point before a meeting, or now, Close as Lost) rendered neither
+          notice nor Reopen button at all, on the unbroadened gate. Every
+          field inside this card already disables correctly off
+          isLocked/isClosed independently of outcomeDue, so broadening the
+          outer gate is safe — confirmed by reading the full card before
+          making this change, not assumed. */}
+      {(outcomeDue || isLocked) && (
       <div style={{ ...s.card, opacity: isLocked ? 0.75 : 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', ...s.cardTitle }}>
           <span>Appointment Outcome</span>
@@ -1530,6 +1696,15 @@ export default function AppointmentDetail() {
           appointment={appt}
           onClose={() => setShowReturnConfirm(false)}
           onReturned={() => { refetchAppt(); refetchAudit(); setShowReturnConfirm(false); }}
+        />
+      )}
+
+      {/* ── Close as Lost modal ──────────────────────────────────────────────── */}
+      {showCloseLost && (
+        <CloseAsLostModal
+          appointment={appt}
+          onClose={() => setShowCloseLost(false)}
+          onClosed={() => { refetchAppt(); refetchAudit(); setShowCloseLost(false); }}
         />
       )}
     </div>

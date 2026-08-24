@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status (VERCEL VERSION)
 ==================================================
-Last updated: 22 August 2026
+Last updated: 24 August 2026
 Scope: this file tracks ONLY the Vercel + Neon Postgres deployment —
 frontend/api/ + frontend/api-lib/ + frontend/src/. It does NOT cover the
 separate Azure Functions/Azure SQL codebase (api/src/, infra/), which is
@@ -48,6 +48,15 @@ current throughout — a session-log-shaped reconstruction of how it got
 there (§179-191, clearly marked as reconstructed rather than first-hand)
 lives in the archive, closing a gap this file's own §190 entry had
 already flagged honestly rather than silently.
+
+CLOSE AS LOST — BUILT AND VERIFIED, 24 Aug 2026. Full detail in the
+OUTSTANDING ITEMS section immediately below (first entry). Short
+version: a genuine gap Mark found live-testing — no path to Closed Lost
+for a lead that only ever cancels/goes quiet, never once held a
+meeting — closed with a new frontend entry point into the existing
+saveOutcome() call, zero backend changes. Not yet deployed (no
+migration required, so "deployed" here just means Mark applying the
+delta ZIP).
 
 §192 — INDEPENDENT SECURITY AUDIT, 22 Aug 2026, AND FOUR FIXES CLOSED
 SAME DAY. code-audit skill (independent-reviewer role, no fixes made
@@ -183,6 +192,79 @@ hydration, 18 Aug 2026.
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+SESSION 24 AUG 2026 — CLOSE AS LOST, BUILT AND VERIFIED. Mark found this
+live-testing (screenshot: two Cancelled meeting attempts, no path
+forward to a sales-loss outcome) and asked for it built same-session.
+
+THE GAP: outcomeDue (AppointmentDetail.jsx) — which gates the whole
+Appointment Outcome card, Customer Signed Yes/No, Closed Won/Lost — only
+ever becomes true once a meeting attempt resolves to a Held outcome.
+Cancelled/Missed/Rescheduled all route to "new attempt, same meeting
+number, no outcome due" (§172's own routing table). A lead that only
+ever cancels or goes quiet, never once held, had no path to Closed Lost
+at all — Return to Leads was the only other closure action, and that's
+an administrative reset (Lead -> Unassigned), not a sales-loss outcome;
+it doesn't record why the deal didn't happen.
+
+BUILT: frontend-only. New "Not progressing? / Close as Lost" button on
+AppointmentDetail.jsx, visible whenever !isLocked && !outcomeDue, opens
+a confirmation modal (CloseAsLostModal, mirrors ReturnToLeadsModal's own
+structure) requiring a loss reason, then calls the exact same
+appointmentsApi.saveOutcome() the normal Outcome card uses
+(customerSigned: false + lostReason). Confirmed against
+appointmentService.saveOutcome() before building: its only precondition
+is current.status not already locked — it has never required a held
+meeting or checked outcomeDue, that's purely a frontend gate on the
+Outcome card's own visibility. So this needed ZERO backend changes — no
+new migration, no new route, no new Vercel function (Hobby plan
+12-function ceiling untouched).
+
+REAL ADJACENT GAP FOUND AND FIXED IN THE SAME DELIVERY, not scope creep:
+the Outcome card's render gate was outcomeDue alone, but that same card
+also carries the ReturnedToLeads "locked as history" notice and the
+ClosedLost Reopen button (both gated on appt.status directly, not
+outcomeDue) — so ANY appointment reaching a locked status without a
+held meeting (Return to Leads before a meeting, or now Close as Lost)
+rendered NEITHER notice nor Reopen button, no visible confirmation of
+the closed state and no undo path reachable. Broadened to
+(outcomeDue || isLocked) — checked every field inside the card first;
+all already disable correctly off isLocked/isClosed independently, so
+this was safe. Reopen itself needed no changes — reopenAppointment()
+only checks status === 'ClosedLost', not how it got there.
+
+ALSO FIXED, found while touching this: detail.lostReason was captured
+on the Appointment row (migration 030, 14 Aug 2026) but never once
+surfaced in the AppointmentOutcomeSaved audit changeDetail, on ANY
+outcome save, held-meeting or otherwise — added to
+appointmentHandlers.js's writeAuditLog() call and to AuditLogList.jsx's
+own rendering (new local LOST_REASON_LABELS map, same "short, static,
+manually synced" pattern this enum's other two copies already use).
+
+VERIFIED: fresh GitHub hydration taken at the start of this session,
+read before any code was written. A second, untouched hydration kept
+alongside as a baseline throughout. `npm run build` clean. `npx vitest
+run` — 57/57 passing, no regressions. `npm run lint` — 149 problems (1
+error, 148 warnings) vs the baseline's 148 (1 error, 147) — diffed the
+two lint runs directly, the one new warning is
+'CloseAsLostModal' is defined but never used, the same pre-existing
+false-positive this file already throws for every other modal
+component defined at module scope (ReturnToLeadsModal,
+ReassignBrokerModal, MeetingAttemptForm, etc. — all flagged identically
+in the baseline too), not a real issue. `diff -rq` against the baseline
+tree confirmed the change is isolated to exactly three files, nothing
+else drifted: AppointmentDetail.jsx, appointmentHandlers.js,
+AuditLogList.jsx.
+
+NOT YET DEPLOYED. No migration required — this is a pure application
+change (frontend entry point + one audit changeDetail field), nothing
+to run against Neon.
+
+FILES: frontend/src/pages/AppointmentDetail.jsx,
+frontend/api-lib/handlers/appointmentHandlers.js,
+frontend/src/components/AuditLogList.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 SESSION 21 AUG 2026 (CONTINUED, NINTH ROUND) — SAR REQUIRED ASSIGNMENT,
 AUTO-COMPUTED DUE DATE, AND A LINKED TASK MATCHING LEAD/APPOINTMENT
 BEHAVIOUR. CORRECTED AFTER A REAL DELIVERY MISTAKE, NOT JUST BUILT.
@@ -198,6 +280,7 @@ itself, mirroring Callback/Appointment tasks exactly. Full build
 detail, the 30-day POPIA/PAIA sourcing, and the new migration are all
 covered fully in this entry's original write-up two rounds back — not
 repeated here, only what changed on correction.
+
 
 A REAL DELIVERY MISTAKE, OWNED DIRECTLY: the SAR feature was built and
 first delivered from a GitHub hydration that predated Mark applying the

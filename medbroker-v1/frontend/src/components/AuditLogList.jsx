@@ -17,6 +17,20 @@
 
 import { format } from 'date-fns';
 
+// 24 Aug 2026 — mirrors the same enum's dropdown copies in
+// AppointmentDetail.jsx and Reports.jsx exactly (Appointment.lostReason,
+// migration 030, CHECK-constrained). Kept as its own small local map here
+// rather than imported from either — same "short, static, manually
+// synced" reasoning already established for this enum's other two copies.
+const LOST_REASON_LABELS = {
+  PriceTooHigh:       'Price too high',
+  ChoseCompetitor:    'Chose a competitor',
+  NoLongerInterested: 'No longer interested',
+  Uncontactable:      'Uncontactable',
+  NotEligible:        'Not eligible',
+  Other:              'Other',
+};
+
 const ACTION_LABELS = {
   LeadCreated:                 'Lead created',
   LeadAssigned:                'Lead assigned to an agent',
@@ -152,6 +166,11 @@ function describeEntry(entry) {
     const parts = [];
     if (detail.customerSigned === true)  parts.push('Customer signed: Yes');
     if (detail.customerSigned === false) parts.push('Customer signed: No');
+    // 24 Aug 2026 — detail.lostReason only started being written by the
+    // handler this same session (see appointmentHandlers.js's own
+    // comment); older entries simply won't have it, same graceful
+    // omission this function already applies to detail.meetings below.
+    if (detail.lostReason) parts.push(`Reason: ${LOST_REASON_LABELS[detail.lostReason] ?? detail.lostReason}`);
     for (const m of detail.meetings ?? []) {
       if (m.status) parts.push(`Meeting ${m.number}: ${m.status}`);
     }

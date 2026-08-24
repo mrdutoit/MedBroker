@@ -1348,6 +1348,35 @@ Claim model — no admin confirmation step: claiming is immediate. Broker
   clicks Claim -> appointment status = Assigned -> appears in My
   Appointments. No ClaimPending status, no admin confirmation queue.
 
+Close as Lost — built 24 Aug 2026, Mark's explicit request, following his
+  own live testing (Status_Vercel.md's outstanding-items log has the full
+  session). Real gap: the Outcome card (Customer Signed Yes/No) only ever
+  renders once outcomeDue is true, which only ever becomes true from a
+  meeting attempt actually resolving Held; a lead that only ever cancels,
+  reschedules, or is missed — never once held — had no path to Closed
+  Lost at all, only Return to Leads (an administrative reset, not a
+  sales-loss outcome). Frontend-only addition: a new "Not progressing? /
+  Close as Lost" button (AppointmentDetail.jsx), visible whenever
+  !isLocked && !outcomeDue, opening a modal that calls the SAME
+  appointmentsApi.saveOutcome() the Outcome card itself uses
+  (customerSigned: false + required lostReason). No backend change was
+  needed — saveOutcome()'s only precondition has always been
+  current.status, never outcomeDue or a held meeting — so this shipped
+  with zero new migrations, routes, or Vercel functions. One genuine
+  adjacent gap found and fixed in the same delivery, not scope creep: the
+  Outcome card's render gate broadened from outcomeDue alone to
+  (outcomeDue || isLocked) — it's also what carries the ReturnedToLeads
+  locked-notice and the ClosedLost Reopen button, both gated on
+  appt.status directly, so ANY appointment locked without a held meeting
+  (Return to Leads before a meeting, or now Close as Lost) previously
+  rendered neither. lostReason also added to the AppointmentOutcomeSaved
+  audit changeDetail (appointmentHandlers.js) and to AuditLogList.jsx's
+  own rendering — a pre-existing omission on ANY outcome save, not
+  specific to this feature, fixed here because this feature is what
+  surfaced it. Undo path is the existing ClosedLost Reopen button
+  (reopenAppointment() only checks status, not how it got there) — no new
+  undo mechanism needed.
+
 Products on Lead — built 14 Aug 2026 (§157/§158/§159, migration 028).
   Mandatory only on the manual Create Lead form (leadSource ===
   'ManualEntry'), exempt on CSV/subscription bulk import — Mark's
