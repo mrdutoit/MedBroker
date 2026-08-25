@@ -1490,6 +1490,25 @@ Custom date picker (DatePicker.jsx) — built 25 Aug 2026, same session,
   copying this component elsewhere rather than re-deriving the
   reasoning.
 
+SheetJS date-column parsing (LeadImport.jsx) — bug found and fixed
+  25 Aug 2026, while building Mark a test file, not reported by him. A
+  'YYYY-MM-DD' dateOfBirth column — CSV text OR a genuine Excel
+  date-typed cell — was being silently corrupted into an Excel serial
+  number by SheetJS's default parsing, failing every row with no
+  visible reason. THE RULE FOR ANY FUTURE SheetJS/xlsx PARSING WORK:
+  always pass `{ raw: true, cellDates: true }` to XLSX.read() when a
+  date-shaped column is expected, and never rely on plain String(cell)
+  for a value that could come back as a genuine JS Date instance —
+  format it explicitly via LOCAL date parts (getFullYear/getMonth/
+  getDate), matching the exact same DATE-only/timezone-safety reasoning
+  utils/dateFormat.js's own header comment already established for
+  read-only date DISPLAY (25 Aug 2026, earlier this session) — this is
+  the same class of bug on the way IN rather than the way out. Verified
+  by testing both failure cases (CSV text, genuine .xlsx date cell)
+  directly against the real @e965/xlsx-aliased package before writing
+  the fix, and testing the fix the same way afterward — not assumed
+  from reading SheetJS's own documentation.
+
 Products on Lead — built 14 Aug 2026 (§157/§158/§159, migration 028).
   Mandatory only on the manual Create Lead form (leadSource ===
   'ManualEntry'), exempt on CSV/subscription bulk import — Mark's

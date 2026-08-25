@@ -110,7 +110,53 @@ export default function LeadImport() {
    * (headers must match the Lead field names directly: title, firstName,
    * lastName, etc. — there's no column-mapping UI here, matching the
    * original design's assumption, just extended to more file formats).
+   *
+   * REAL BUG FOUND AND FIXED, 25 Aug 2026, while building Mark a genuine
+   * test file for this exact screen (Medical Subscription tab, "MedLeads
+   * SA — Monthly Bundle") — not something he reported, something a real
+   * test run would have hit immediately. Confirmed against the actual
+   * `xlsx` package this file imports (the @e965/xlsx-aliased build, same
+   * one Vite bundles for the browser — not a different environment's
+   * behaviour), not assumed:
+   *
+   *   1. A CSV's dateOfBirth column, formatted exactly as this screen's
+   *      own hint text asks ("YYYY-MM-DD") — SheetJS's default CSV
+   *      parsing auto-detects a date-shaped string and silently converts
+   *      it to an Excel serial number (e.g. "1978-03-14" -> 28563) before
+   *      this function ever sees it. String(28563) is "28563", nothing
+   *      like the original date, so dateOfBirth.date() validation on the
+   *      backend rejects EVERY row with a dateOfBirth column — a 100%
+   *      failure rate, silently, with no indication in the UI of why.
+   *   2. A genuine .xlsx file with dateOfBirth as a real Excel date-typed
+   *      cell (not text — extremely common in a real vendor export, and
+   *      not something a CSV can even represent) hit the same failure a
+   *      different way: SheetJS returns the bare serial number for a date
+   *      cell unless told otherwise, same wrong "28563"-shaped result.
+   *
+   * Fix: `raw: true` at XLSX.read() time stops SheetJS auto-detecting a
+   * date-shaped CSV/text string as a date at all — case 1, confirmed
+   * fixed by testing this exact change against a real generated CSV
+   * before writing it here. `cellDates: true` makes a GENUINE date cell
+   * (case 2) come back as an actual JS Date object instead of an
+   * ambiguous serial number — confirmed against a real generated .xlsx
+   * workbook with a true date-typed cell, not a text one. A Date object
+   * still isn't 'YYYY-MM-DD' through plain String() though (that gives a
+   * verbose locale string, not ISO), so the row-normalisation loop below
+   * formats a Date instance explicitly using its LOCAL date parts
+   * (getFullYear/getMonth/getDate) — not toISOString(), which is UTC-based
+   * and can shift the day depending on the browser's timezone, the exact
+   * class of bug utils/dateFormat.js's own header comment documents at
+   * length for read-only date DISPLAY; the same reasoning applies here on
+   * the way in, not just on the way out.
    */
+  function normaliseDateOfBirth(value) {
+    if (value instanceof Date) {
+      const pad2 = n => String(n).padStart(2, '0');
+      return `${value.getFullYear()}-${pad2(value.getMonth() + 1)}-${pad2(value.getDate())}`;
+    }
+    return value !== undefined ? String(value).trim() : '';
+  }
+
   function parseRows(fileName, rawData) {
     const ext = fileName.toLowerCase().split('.').pop();
     let rawRows;
@@ -121,8 +167,11 @@ export default function LeadImport() {
         if (!Array.isArray(parsed)) return { rows: [], errors: ['JSON file must contain an array of lead objects'] };
         rawRows = parsed;
       } else {
-        // csv, xlsx, xls — SheetJS handles all three from the same array buffer
-        const workbook = XLSX.read(rawData, { type: 'array' });
+        // csv, xlsx, xls — SheetJS handles all three from the same array
+        // buffer. raw:true + cellDates:true — see this function's own
+        // header comment for exactly what each option fixes and why
+        // both are needed together.
+        const workbook = XLSX.read(rawData, { type: 'array', raw: true, cellDates: true });
         const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
         rawRows = XLSX.utils.sheet_to_json(firstSheet, { defval: '' });
       }
@@ -141,8 +190,14 @@ export default function LeadImport() {
     rawRows.forEach((row, i) => {
       // String(...) — SheetJS parses numeric-looking cells (a mobile
       // number, an ID number) as JS numbers, not strings; every field
-      // downstream (regex validation, display) expects a string.
+      // downstream (regex validation, display) expects a string. This
+      // round-trips losslessly for idNumber (13 digits, well under
+      // Number.MAX_SAFE_INTEGER) — it was never actually broken, only
+      // dateOfBirth was, which is why that one field alone gets its own
+      // normaliseDateOfBirth() treatment instead of the same plain
+      // String() every other column here uses.
       const normalised = Object.fromEntries(REQUIRED_COLUMNS.map(h => [h, row[h] !== undefined ? String(row[h]).trim() : '']));
+      normalised.dateOfBirth = normaliseDateOfBirth(row.dateOfBirth);
       if (row.idNumber) normalised.idNumber = String(row.idNumber).trim();
       if (!normalised.email) { errors.push(`Row ${i + 2}: email is required`); return; }
       rows.push(normalised);
@@ -262,9 +317,18 @@ export default function LeadImport() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
             <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
-              CSV, Excel (.xlsx), or JSON. Required columns: <strong>title</strong>, <strong>firstName</strong>, <strong>lastName</strong>, <strong>dateOfBirth</strong> (YYYY-MM-DD), <strong>occupation</strong>, <strong>mobileNumber</strong>, <strong>email</strong>
+              CSV, Excel (.xlsx), or JSON. Required columns: <strong>title</strong>, <strong>firstName</strong>, <strong>lastName</strong>, <strong>dateOfBirth</strong> (YYYY-MM-DD), <strong>occupation</strong>, <strong>mobileNumber</strong>, <strong>email</strong>. Optional: <strong>idNumber</strong> (13 digits).
             </p>
-            <button onClick={() => { const c = 'title,firstName,lastName,dateOfBirth,occupation,mobileNumber,email\n'; const b = new Blob([c], {type:'text/csv'}); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href=u; a.download='template.csv'; a.click(); }} style={s.secondaryBtn}>
+            {/* 25 Aug 2026 — idNumber added to the downloadable template,
+                Mark's explicit request, following a test file that
+                included it (a real, optional field parseRows() already
+                reads via row.idNumber if present) while the in-app
+                template itself only ever offered the 7 required columns.
+                Same change duplicated below for the Subscription tab's
+                identical button — this file already duplicates this
+                hint/button pair between both tabs rather than sharing a
+                component, so both copies needed the same edit. */}
+            <button onClick={() => { const c = 'title,firstName,lastName,dateOfBirth,occupation,mobileNumber,email,idNumber\n'; const b = new Blob([c], {type:'text/csv'}); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href=u; a.download='template.csv'; a.click(); }} style={s.secondaryBtn}>
               Download CSV template
             </button>
           </div>
@@ -378,9 +442,12 @@ export default function LeadImport() {
         <div>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
             <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
-              CSV, Excel (.xlsx), or JSON. Required columns: <strong>title</strong>, <strong>firstName</strong>, <strong>lastName</strong>, <strong>dateOfBirth</strong> (YYYY-MM-DD), <strong>occupation</strong>, <strong>mobileNumber</strong>, <strong>email</strong>
+              CSV, Excel (.xlsx), or JSON. Required columns: <strong>title</strong>, <strong>firstName</strong>, <strong>lastName</strong>, <strong>dateOfBirth</strong> (YYYY-MM-DD), <strong>occupation</strong>, <strong>mobileNumber</strong>, <strong>email</strong>. Optional: <strong>idNumber</strong> (13 digits).
             </p>
-            <button onClick={() => { const c = 'title,firstName,lastName,dateOfBirth,occupation,mobileNumber,email\n'; const b = new Blob([c], {type:'text/csv'}); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href=u; a.download='template.csv'; a.click(); }} style={s.secondaryBtn}>
+            {/* 25 Aug 2026 — idNumber added here too, kept in sync with
+                the CSV tab's identical button above (this file's own
+                header comment has the full reasoning). */}
+            <button onClick={() => { const c = 'title,firstName,lastName,dateOfBirth,occupation,mobileNumber,email,idNumber\n'; const b = new Blob([c], {type:'text/csv'}); const u = URL.createObjectURL(b); const a = document.createElement('a'); a.href=u; a.download='template.csv'; a.click(); }} style={s.secondaryBtn}>
               Download CSV template
             </button>
           </div>

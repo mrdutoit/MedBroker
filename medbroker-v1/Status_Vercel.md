@@ -89,6 +89,23 @@ deliberately keep the native input for its mobile OS-picker advantage.
 NOT YET DEPLOYED — pure frontend change, applying the delta ZIP is the
 whole deployment.
 
+LEAD IMPORT DATEOFBIRTH BUG — FOUND AND FIXED, 25 Aug 2026 (same
+session, continued). Full detail in OUTSTANDING ITEMS immediately below
+(first entry). Short version: found while building Mark a test CSV, not
+reported by him — SheetJS silently corrupts a 'YYYY-MM-DD' dateOfBirth
+column (both plain CSV text and a genuine Excel date cell) into an
+unusable serial number, failing 100% of import rows silently. Fixed in
+parseRows() (LeadImport.jsx) before the test file was ever delivered.
+DEPLOY THIS BEFORE TESTING — the accompanying test CSV will fail on the
+currently-live version.
+
+CSV TEMPLATE GAINS idNumber — 25 Aug 2026 (same session, continued
+again). Full detail in OUTSTANDING ITEMS immediately below (first
+entry). Short version: Mark noticed his test file had an idNumber
+column the in-app "Download CSV template" button didn't offer, and
+asked for the template to include it too — both tabs' template buttons
+and hint text updated to match. Same delta ZIP as the entry below it.
+
 §192 — INDEPENDENT SECURITY AUDIT, 22 Aug 2026, AND FOUR FIXES CLOSED
 SAME DAY. code-audit skill (independent-reviewer role, no fixes made
 during the audit itself) ran a security/build/known-defect-regression/
@@ -221,6 +238,129 @@ hydration, 18 Aug 2026.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 25 AUG 2026 (CONTINUED, FOURTH ROUND) — DOWNLOADABLE CSV
+TEMPLATE GAINS idNumber. Mark asked, after being told the test file he
+was given had 8 columns (title..email + idNumber) while the in-app
+"Download CSV template" button only ever generated the 7 required
+ones — a genuine, small mismatch, not something either side was wrong
+about (idNumber has always been a real, optional column parseRows()
+reads via row.idNumber if present; the template just never offered it).
+Mark's call: add it to the in-app template too, so both match.
+
+BUILT: both copies of the template button (this file duplicates the
+hint text + button between the CSV tab and the Subscription tab rather
+than sharing a component — same pattern already established elsewhere
+in this file) updated identically:
+'title,firstName,lastName,dateOfBirth,occupation,mobileNumber,email,idNumber'.
+Hint text above each button gained "Optional: idNumber (13 digits)."
+alongside the existing "Required columns:" line, so the template's 8th
+column doesn't look unexplained next to text that only lists 7.
+
+VERIFIED: the exact new template header, with one filled-in sample row,
+run through the real SheetJS parse + REQUIRED_COLUMNS check + row
+normalisation (same code, same reasoning as the dateOfBirth fix
+immediately below — this entry landed right on top of that one, same
+file, same session) — headers correctly recognised, no missing-column
+error, idNumber correctly captured. npm run build clean. npx vitest
+run — 57/57. npm run lint diffed against the same fresh baseline used
+for the entry below — identical to that entry's own result, the one
+line that differs is the same pre-existing warning at a shifted line
+number. diff -rq confirmed still exactly one code file touched,
+LeadImport.jsx, on top of the entry below's own change.
+
+NOT YET DEPLOYED — same delta ZIP as the entry below, updated to
+include this on top of it; still pure frontend, no migration.
+
+FILES: frontend/src/pages/LeadImport.jsx.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 25 AUG 2026 (CONTINUED, THIRD ROUND) — LEAD IMPORT DATEOFBIRTH
+BUG, FOUND WHILE BUILDING MARK A TEST FILE, NOT REPORTED BY HIM.
+
+Mark asked for a 10-lead test CSV for the Import Leads screen's Medical
+Subscription tab, to test against "MedLeads SA — Monthly Bundle" (a
+seeded MedicalSubscription record — the subscription is just which
+dropdown option gets tagged onto the batch; the file format itself is
+identical regardless of vendor, no per-source column mapping exists).
+
+REAL BUG FOUND, NOT ASSUMED — before delivering a test file, tested it
+end-to-end against the actual `xlsx` package (@e965/xlsx, the exact
+alias this project's package.json resolves "xlsx" to — same code Vite
+bundles for the browser, not a different environment). A CSV's
+dateOfBirth column, formatted exactly as the screen's own hint text
+asks ("YYYY-MM-DD"), gets auto-detected by SheetJS's default CSV
+parsing as a date-shaped string and silently converted to an Excel
+serial number (e.g. "1978-03-14" -> 28563) before parseRows() ever sees
+it. String(28563) is "28563" — nothing like the original date — so the
+backend's dateOfBirth.date() validation rejects EVERY row with a
+dateOfBirth column. 100% failure rate, silently, no reason shown in the
+UI. A second, related case found in the same investigation: a genuine
+.xlsx file with dateOfBirth as a real Excel date-typed cell (not
+text — common in a real vendor export, and not something a CSV can
+even represent) hit the same failure a different way, same wrong
+result, independent of the CSV-specific cause.
+
+This would have hit Mark on his very first real test of a screen he'd
+never used — delivering a test file that fails 100% of rows for an
+undocumented reason would have been actively unhelpful, not just an
+imperfect test. Fixed before delivering anything.
+
+FIX, in parseRows() (LeadImport.jsx): `raw: true` at XLSX.read() time
+stops SheetJS auto-detecting a date-shaped CSV/text string as a date at
+all. `cellDates: true` makes a genuine Excel date cell come back as an
+actual JS Date object instead of an ambiguous serial number. A Date
+object still isn't 'YYYY-MM-DD' through plain String() (verbose locale
+string, not ISO), so a new normaliseDateOfBirth() helper formats a Date
+instance explicitly via its LOCAL date parts (getFullYear/getMonth/
+getDate) — not toISOString(), UTC-based and able to shift the day
+depending on the browser's timezone, the same class of bug
+utils/dateFormat.js's own header comment documents at length for
+read-only date DISPLAY (25 Aug 2026, earlier this session) — the same
+reasoning applies here on the way in, not just on the way out.
+idNumber was checked too and confirmed NOT actually broken — a 13-digit
+value round-trips losslessly through Number, well under
+Number.MAX_SAFE_INTEGER, unlike a date string which doesn't survive the
+round trip at all.
+
+VERIFIED, every step actually run, not assumed: the exact SheetJS
+behaviour (before AND after the fix) tested directly against a real
+generated CSV and a real generated .xlsx workbook with a genuine
+date-typed cell — confirmed the bug, then confirmed the fix, for both
+cases, before writing a line of the actual code change. Once the code
+was written: npm run build clean. npx vitest run — 57/57, no
+regressions. npm run lint diffed against a freshly-hydrated, untouched
+baseline — zero new problems, the one line that differs is the exact
+same pre-existing warning at a shifted line number from the added
+comments. diff -rq against the same baseline confirmed the change is
+isolated to exactly one file, nothing else touched.
+
+TEST FILE ITSELF, delivered separately (not zipped — a data file for
+direct upload to the running app's Import Leads screen, not a code
+delivery for github.dev): medleads-sa-monthly-bundle-test-10leads.csv,
+10 leads, full coverage of all ten JobTitle enum values (one row each:
+Cardiologist, Dermatologist, General Practitioner, Anaesthesiologist,
+Gynaecologist, Neurologist, Orthopaedic Surgeon, Paediatrician,
+Psychiatrist, Radiologist), @example.com emails (IANA-reserved domain,
+guaranteed non-deliverable, never risks looking like real PII), and
+plausible-but-fabricated SA ID numbers (YYMMDD prefix matching each
+row's own dateOfBirth, sequence/citizenship/checksum digits invented —
+the schema only validates \\d{13}, no real Luhn/checksum check exists to
+satisfy or fail). Every row validated directly against the actual Zod
+CreateLeadShape schema (title/occupation enums, dateOfBirth format,
+mobileNumber regex, idNumber regex, email format) before delivery, not
+just against the frontend parser — confirmed all 10 pass.
+
+NOT YET DEPLOYED. Pure frontend change, no migration — applying the
+delta ZIP is the whole deployment. Until it's applied, the test CSV
+itself will still fail on the currently-live version of Import Leads —
+worth flagging directly: deploy this fix BEFORE running the test, not
+after, or the test will reproduce the exact bug this entry documents.
+
+FILES: frontend/src/pages/LeadImport.jsx.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 25 AUG 2026 (CONTINUED) — CUSTOM DATE PICKER, THE FOLLOW-UP
