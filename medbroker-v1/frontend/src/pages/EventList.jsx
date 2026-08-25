@@ -11,8 +11,8 @@
 
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
-import { format } from 'date-fns';
 import { s } from '../styles/tokens.js';
+import { formatDate } from '../utils/dateFormat.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch } from '../hooks/useFetch.js';
 import { useRole } from '../context/RoleContext.jsx';
@@ -121,7 +121,10 @@ export default function EventList() {
                       {event.status}
                     </span>
                     <span style={{ fontSize: '0.8125rem', color:pastEvent ? 'var(--mut)' : 'var(--ink)', fontWeight: 500 }}>
-                      {format(new Date(event.eventDate), 'd MMM yyyy')}
+                      {/* 24 Aug 2026 — eventDate is a DATE column,
+                          switched to formatDate() (dateFormat.js's own
+                          header comment has the full reasoning). */}
+                      {formatDate(event.eventDate)}
                     </span>
                   </div>
 

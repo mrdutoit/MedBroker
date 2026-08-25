@@ -30,6 +30,7 @@ import { appointmentsApi, usersApi, ApiError } from '../services/api.js';
 import { useFetch } from '../hooks/useFetch.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { s, APPT_STATUS_META, MEETING_STATUS_META, MEETING_STATUS_LABELS, PORTFOLIO_META } from '../styles/tokens.js';
+import { formatDate } from '../utils/dateFormat.js';
 
 const PORTFOLIOS = ['Discovery', 'M&M'];
 
@@ -385,8 +386,19 @@ export default function AppointmentList() {
     brokerCode:  a.brokerId ?? '',   // repurposed to hold the real id — see note below
     brokerName:  a.brokerName ?? '—',
     agentName:   a.agentName ?? '—',
+    // 24 Aug 2026 — the 'Today' branch's own `new Date(…).toDateString()`
+    // comparison is left exactly as-is (see this file's own `today` const
+    // a few lines up) — MedBroker's whole user base is SAST (UTC+2, always
+    // ahead of UTC), so that comparison is safe for real usage even though
+    // it constructs a Date object; not touching a mechanism that isn't
+    // actually broken for anyone using this app today. Only the non-Today
+    // branch's FORMAT changed — was toLocaleDateString('en-ZA', {day,
+    // month, year}), same visual shape as the new standard already, but
+    // switched to formatDate() anyway for the same DATE-only/timezone
+    // safety reasoning as every other call site in this sweep (dateFormat.
+    // js's own header comment).
     firstDate:   a.firstAppointmentDate
-                   ? `${new Date(a.firstAppointmentDate).toDateString() === today ? 'Today' : new Date(a.firstAppointmentDate).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })} · ${(a.firstAppointmentTime ?? '').slice(0, 5)}`
+                   ? `${new Date(a.firstAppointmentDate).toDateString() === today ? 'Today' : formatDate(a.firstAppointmentDate)} · ${(a.firstAppointmentTime ?? '').slice(0, 5)}`
                    : '—',
     // 14 Aug 2026 — Mark's request: sortable columns. firstDate above is
     // already a pretty display string ("Today · 09:00" / "15 Aug 2026 ·
@@ -405,6 +417,14 @@ export default function AppointmentList() {
     // compares. Backend addition: leadCreatedAt now joined through from
     // Lead.createdAt in APPOINTMENT_SELECT (appointmentService.js) —
     // wasn't fetched by this query at all before.
+    // 24 Aug 2026 — leadCreatedAt is Lead.createdAt, a genuine TIMESTAMPTZ
+    // (confirmed against schema.postgres.sql), not a DATE-only column —
+    // left on toLocaleDateString() deliberately, not an oversight: it
+    // already renders the exact same visual shape as the new 'd MMM yyyy'
+    // standard (day/month/year, short month), and a real timestamp needs
+    // timezone-aware conversion, which formatDate() deliberately does NOT
+    // do (see dateFormat.js's own header comment) — formatDate() would be
+    // the wrong tool here, not a stricter one.
     leadCreatedAt:    a.leadCreatedAt ? new Date(a.leadCreatedAt).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' }) : '—',
     leadCreatedAtRaw: a.leadCreatedAt ?? null,
     m1:          a.meeting1Status || null,
@@ -423,8 +443,11 @@ export default function AppointmentList() {
     leadName:       `${a.title ?? ''} ${a.firstName} ${a.lastName}`.trim(),
     occupation:     a.occupation,
     portfolios:     (a.portfolios ?? [a.portfolio]).map(p => p === 'Money and Medicine' ? 'M&M' : p),
+    // 24 Aug 2026 — same treatment as firstDate above (this file's own
+    // Active Appointments mapping) — see that comment for the full
+    // reasoning.
     date:           a.firstAppointmentDate
-                      ? `${new Date(a.firstAppointmentDate).toDateString() === today ? 'Today' : new Date(a.firstAppointmentDate).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short', year: 'numeric' })} · ${(a.firstAppointmentTime ?? '').slice(0, 5)}`
+                      ? `${new Date(a.firstAppointmentDate).toDateString() === today ? 'Today' : formatDate(a.firstAppointmentDate)} · ${(a.firstAppointmentTime ?? '').slice(0, 5)}`
                       : '—',
     region:         a.agentRegion ?? '—',
     source:         a.sourceLabel ?? '—',

@@ -242,6 +242,19 @@ export default function AgentDetail() {
                     <span style={{ ...s.badge, background: sc.bg, color: sc.colour, fontSize: '0.6875rem' }}>{lead.status}</span>
                   </td>
                   <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>
+                    {/* 24 Aug 2026 — deliberately left out of this
+                        session's app-wide date-format sweep, not an
+                        oversight: this is a narrow performance-table
+                        column ("last call"), and dropping the year on
+                        purpose keeps it readable at that width — the
+                        year is rarely informative for a recency signal
+                        like this one. lastCallTime is a genuine
+                        timestamp (derived from CallLog.attemptedAt,
+                        TIMESTAMPTZ), so the mechanism itself isn't a
+                        DATE-only/timezone concern the way the sweep's
+                        other fixes were. Flagged explicitly rather than
+                        left silently different — worth a second look if
+                        Mark wants the year here too. */}
                     {lead.lastCallTime ? new Date(lead.lastCallTime).toLocaleDateString('en-ZA', { day: 'numeric', month: 'short' }) : '—'}
                   </td>
                   <td style={s.td}>

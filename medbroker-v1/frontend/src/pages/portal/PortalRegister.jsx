@@ -7,13 +7,13 @@
  */
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router';
-import { format } from 'date-fns';
 import { PortalCard } from '../../components/PortalCard.jsx';
 import { PasswordInput } from '../../components/PasswordInput.jsx';
 import { useProspectAuth } from '../../context/ProspectAuthContext.jsx';
 import { portalApi } from '../../services/portalApi.js';
 import { TITLES, JOB_TITLES } from '../../constants/leadOptions.js';
 import { s } from '../../styles/tokens.js';
+import { formatDate } from '../../utils/dateFormat.js';
 
 export default function PortalRegister() {
   const { qrToken } = useParams();
@@ -71,7 +71,11 @@ export default function PortalRegister() {
   return (
     <PortalCard
       title={`Register for ${event.name}`}
-      subtitle={[event.university, format(new Date(event.eventDate), 'd MMMM yyyy'), event.venue].filter(Boolean).join(' · ')}
+      // 24 Aug 2026 — was format(new Date(event.eventDate), 'd MMMM yyyy')
+      // (full month name, its own outlier format) — eventDate is a DATE
+      // column, switched to formatDate() (dateFormat.js's own header
+      // comment has the full reasoning).
+      subtitle={[event.university, formatDate(event.eventDate), event.venue].filter(Boolean).join(' · ')}
       width="440px"
     >
       <p style={{ fontSize: '0.8125rem', color: 'var(--mut)', textAlign: 'center', marginBottom: '16px' }}>

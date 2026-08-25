@@ -12,6 +12,7 @@ import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { systemConfigApi, auditApi, usersApi, sarApi, leadsApi, dataExportApi } from '../services/api.js';
+import { format } from 'date-fns';
 import { formatDate } from '../utils/dateFormat.js';
 
 // Mirrors auditHandlers.js's VALID_ENTITY_TYPES/VALID_ACTIONS exactly —
@@ -994,7 +995,18 @@ export default function AppAdmin() {
                     <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>{sub.providerName || '—'}</td>
                     <td style={s.td}>{sub.leadsImported}</td>
                     <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.8125rem' }}>
-                      {sub.lastImportAt ? new Date(sub.lastImportAt).toLocaleDateString('en-ZA') : 'Never'}
+                      {/* 24 Aug 2026 — was toLocaleDateString('en-ZA') with
+                          no options object, which falls back to the
+                          browser's own default locale formatting —
+                          genuinely uncontrolled, could render differently
+                          per browser/OS, same unpredictability problem as
+                          a native date input but with no excuse here since
+                          this is plain text. lastImportAt is a genuine
+                          timestamp (when an import batch ran), so this
+                          uses date-fns' format() directly, matching the
+                          'd MMM yyyy' standard (dateFormat.js's own header
+                          comment has the full app-wide reasoning). */}
+                      {sub.lastImportAt ? format(new Date(sub.lastImportAt), 'd MMM yyyy') : 'Never'}
                     </td>
                     <td style={s.td}>
                       <span style={{ ...s.badge,

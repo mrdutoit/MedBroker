@@ -32,6 +32,7 @@ import { useParams, useNavigate } from 'react-router';
 import { useFetch } from '../hooks/useFetch.js';
 import { leadsApi, appointmentsApi, brokerMatchingApi, ApiError } from '../services/api.js';
 import { formatDistanceToNow, format } from 'date-fns';
+import { formatDate } from '../utils/dateFormat.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
@@ -114,7 +115,11 @@ function EditableField({ label, editing, type = 'text', value, onChange, options
   if (!editing) {
     let display = value;
     if (type === 'bool') display = value === true ? 'Yes' : value === false ? 'No' : '—';
-    if (type === 'date' && value) display = format(new Date(value), 'd MMM yyyy');
+    // 24 Aug 2026 — was format(new Date(value), 'd MMM yyyy'); type='date'
+    // here is only ever dateOfBirth (a Postgres DATE column) — switched to
+    // formatDate() for both the app-wide format sweep and the underlying
+    // DATE-only/timezone-safety fix (see dateFormat.js's own header comment).
+    if (type === 'date' && value) display = formatDate(value);
     return <Field label={label} value={display} />;
   }
 
@@ -805,7 +810,10 @@ export default function LeadDetail() {
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
                     <span style={{ ...badge(meta.bg, meta.colour) }}>{meta.label}</span>
                     <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>
-                      {appt.firstAppointmentDate ? format(new Date(appt.firstAppointmentDate), 'd MMM yyyy') : '—'}
+                      {/* 24 Aug 2026 — firstAppointmentDate is a DATE
+                          column, switched to formatDate() (see
+                          dateFormat.js's own header comment). */}
+                      {appt.firstAppointmentDate ? formatDate(appt.firstAppointmentDate) : '—'}
                     </span>
                   </div>
                   <p style={{ fontSize: '0.813rem', color:'var(--mut)', marginTop: '4px' }}>

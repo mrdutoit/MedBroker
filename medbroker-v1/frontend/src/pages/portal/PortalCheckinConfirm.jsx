@@ -21,7 +21,6 @@
  */
 import { useState, useEffect, useRef } from 'react';
 import { useParams, Link } from 'react-router';
-import { format } from 'date-fns';
 import { PortalCard } from '../../components/PortalCard.jsx';
 import { PasswordInput } from '../../components/PasswordInput.jsx';
 import { useProspectAuth } from '../../context/ProspectAuthContext.jsx';
@@ -29,6 +28,7 @@ import { portalApi } from '../../services/portalApi.js';
 import { TITLES, JOB_TITLES } from '../../constants/leadOptions.js';
 import { ATTENDANCE_META } from '../../constants/portalAttendance.js';
 import { s } from '../../styles/tokens.js';
+import { formatDate } from '../../utils/dateFormat.js';
 
 function AttendanceBanner({ attendanceType, alreadyCheckedIn }) {
   const meta = ATTENDANCE_META[attendanceType] ?? ATTENDANCE_META.walkin;
@@ -110,7 +110,11 @@ export default function PortalCheckinConfirm() {
     </PortalCard>
   );
 
-  const subtitle = [event.university, format(new Date(event.eventDate), 'd MMMM yyyy'), event.venue].filter(Boolean).join(' · ');
+  // 24 Aug 2026 — was format(new Date(event.eventDate), 'd MMMM yyyy')
+  // (full month name, its own outlier format) — eventDate is a DATE
+  // column, switched to formatDate() (dateFormat.js's own header comment
+  // has the full reasoning).
+  const subtitle = [event.university, formatDate(event.eventDate), event.venue].filter(Boolean).join(' · ');
 
   // Logged in — auto-confirm path
   if (isAuthenticated) {

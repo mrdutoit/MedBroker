@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status (VERCEL VERSION)
 ==================================================
-Last updated: 24 August 2026
+Last updated: 25 August 2026
 Scope: this file tracks ONLY the Vercel + Neon Postgres deployment —
 frontend/api/ + frontend/api-lib/ + frontend/src/. It does NOT cover the
 separate Azure Functions/Azure SQL codebase (api/src/, infra/), which is
@@ -66,6 +66,18 @@ Active view indefinitely for a subject who'd withdrawn consent. Now
 closes to ClosedLost with a new, distinct lostReason ('ConsentWithdrawn',
 migration 038) — counts as a genuine Lost in Reports, Mark's explicit
 call. NOT YET DEPLOYED — migration 038 needs to run against Neon.
+
+DATE FORMAT CONSISTENCY SWEEP — BUILT AND VERIFIED, 25 Aug 2026. Full
+detail in OUTSTANDING ITEMS immediately below (first entry — session
+crossed midnight SAST, hence the date change from the entries above).
+Short version: Mark found the SAR form showing two different date
+formats side by side; audit turned up FOUR conventions in play
+app-wide, including raw unformatted ISO strings in two spots. Now one
+standard everywhere read-only ('d MMM yyyy', Mark's explicit choice) —
+twelve files. A genuine custom date-picker component, so editable
+native inputs can match too, is explicitly deferred as a separate
+follow-up, not forgotten. NOT YET DEPLOYED — pure frontend change, no
+migration, applying the delta ZIP is the whole deployment.
 
 §192 — INDEPENDENT SECURITY AUDIT, 22 Aug 2026, AND FOUR FIXES CLOSED
 SAME DAY. code-audit skill (independent-reviewer role, no fixes made
@@ -199,6 +211,161 @@ hydration, 18 Aug 2026.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 25 AUG 2026 — DATE FORMAT CONSISTENCY SWEEP, APP-WIDE. Mark found
+the SAR "Log a Subject Access Request" form showing two different date
+formats side by side — a native date input rendering "2026/08/24" next
+to a computed preview rendering "23-09-2026" — and asked to make date
+formats consistent across the application.
+
+AUDIT PERFORMED FIRST, not just the one form fixed: turned up FOUR
+different conventions already in play for read-only (non-editable) date
+display: this file's own dateFormat.js util (DD-MM-YYYY); date-fns
+`format(d, 'd MMM yyyy')`, already the majority pattern (LeadDetail,
+EventDetail, EventList, AuditLogList, Portal pages); `toLocaleDateString
+('en-ZA', …)` producing the same visual shape via a different mechanism
+(AppointmentList, AgentDetail); and, in three spots found only by
+reading the actual render code rather than grepping for "format" —
+Tasks.jsx's task.dueDate and task.createdAt, AppAdmin.jsx's
+sub.lastImportAt — no real formatting at all, either a raw ISO string
+shown straight to the user or an uncontrolled toLocaleDateString('en-ZA')
+call with no options object (same unpredictable-per-browser-locale
+problem as a native date input, but on plain text with no excuse).
+AppointmentDetail.jsx itself was mixing two of these conventions
+internally — a concrete, damning single-page example.
+
+TWO DECISIONS PUT TO MARK BEFORE BUILDING, per his own front-load-
+scoping-questions preference, since a global format choice reverses
+dateFormat.js's own originally-stated direction and a 9-file native-
+input replacement is a real scope call:
+  1. Which format becomes the one standard? Mark's answer: 'd MMM yyyy'
+     (e.g. "24 Aug 2026") — already the majority pattern, so this
+     reverses dateFormat.js's own 23 Jul 2026 header comment, which had
+     framed DD-MM-YYYY as the intended future-wide standard.
+  2. Editable native date inputs (`<input type="date">`, used
+     consistently for every editable date field app-wide — DOB, task
+     due dates, first appointment date, report filters) render in the
+     browser/OS locale, genuinely outside CSS/JS control without
+     replacing them. Is that acceptable as a known exception, or does
+     Mark want a custom date-picker component scoped as a follow-up?
+     Mark's answer: No — scope a custom picker as a SEPARATE follow-up.
+     Not built this session; noted here as a real, explicitly-deferred
+     item, not forgotten.
+
+BUILT — dateFormat.js's formatDate() changed from DD-MM-YYYY output to
+'d MMM yyyy' (un-padded day, matching date-fns' own 'd MMM yyyy' token
+exactly, so a formatDate() call and a `format(d, 'd MMM yyyy')` call are
+visually indistinguishable side by side — the entire point). Verified
+directly with a standalone node script before propagating anywhere:
+correct output for date-only and full-ISO input shapes, correct
+un-padded single-digit days, correct '—' fallback on null/empty/garbage
+input.
+
+Every DATE-only column's read-only display (confirmed against
+schema.postgres.sql's actual column types, not assumed) was switched to
+call formatDate() rather than just picking up the new format string —
+not cosmetic-only. `new Date('2026-08-24')` parses as UTC midnight;
+rendering that through the *viewer's local timezone* (as
+`format(new Date(v), …)` and `toLocaleDateString` both do) can roll a
+DATE-only value back a calendar day for anyone west of UTC.
+formatDate() never constructs a Date object — reads the calendar date
+straight out of the string — so every one of these switches fixes a
+latent timezone bug alongside the format. Doesn't currently bite
+anyone in practice (MedBroker's whole user base is SAST, UTC+2, always
+ahead of UTC) but it's a real bug waiting for the first user or browser
+in a negative offset, not a hypothetical one — AppointmentDetail.jsx's
+meeting-attempt history had already independently worked around this
+exact issue with a manual `T00:00:00` suffix before formatDate()
+existed; this sweep removed that workaround as unnecessary, not just
+reformatted around it. Files: dateFormat.js (formatDate() itself, +
+formatDateTime()'s comment), LeadDetail.jsx (dateOfBirth,
+firstAppointmentDate reference), EventDetail.jsx / EventList.jsx /
+PortalDashboard.jsx / PortalRegister.jsx / PortalCheckinConfirm.jsx
+(eventDate — three of these were on 'd MMMM yyyy', full month name, its
+own outlier format, now consistent too), AppointmentDetail.jsx
+(meeting-attempt history date, the T00:00:00 workaround removed; dead
+date-fns import removed), AppointmentList.jsx (firstDate/date in both
+the main table and the claim-pool table).
+
+Genuine TIMESTAMPTZ values (createdAt, performedAt, attemptedAt,
+callTime/followUpDateTime aliased as attemptedAt/callbackDateTime, and
+similar — every one individually confirmed against schema.postgres.sql,
+not assumed from the column name) were deliberately LEFT on date-fns'
+`format(new Date(value), …)` — those genuinely need timezone-aware
+conversion, formatDate() would be the wrong tool for them, not a
+stricter one. Their format string already matched 'd MMM yyyy' at every
+call site found except two:
+  - Tasks.jsx's task.createdAt — was rendered as a completely raw,
+    unformatted ISO string. Now `format(new Date(...), 'd MMM yyyy,
+    HH:mm')`, matching AuditLogList.jsx's own established full-timestamp
+    convention.
+  - AppAdmin.jsx's sub.lastImportAt — was `toLocaleDateString('en-ZA')`
+    with no options object, falling back to the browser's own default
+    locale formatting, genuinely uncontrolled. Now
+    `format(new Date(...), 'd MMM yyyy')`.
+  - Tasks.jsx's task.dueDate (a genuine DATE column, confirmed against
+    schema) — was also a raw, completely unformatted ISO string. Now
+    formatDate(task.dueDate).
+
+TWO DELIBERATE EXCEPTIONS, left as-is but explicitly flagged in-code
+rather than silently differing:
+  - AgentDetail.jsx's lastCallTime column — kept its shortened "d MMM"
+    (no year) format. A narrow performance-table column where the year
+    is rarely informative for a recency signal; not a DATE-only/
+    timezone concern (a genuine timestamp). Worth a second look if Mark
+    wants the year there too.
+  - AppointmentList.jsx's leadCreatedAt — left on toLocaleDateString(),
+    not switched to formatDate(): it's Lead.createdAt, a genuine
+    TIMESTAMPTZ, already rendering the exact same visual shape as the
+    new standard, and formatDate() would be the wrong (DATE-only) tool
+    for a real timestamp.
+  - PeriodSelector.jsx's getPeriodLabel() ("Month to date (August
+    2026)") — a different category entirely, a named PERIOD label, not
+    a point-in-time date. Left untouched, not part of this sweep.
+
+VERIFIED: node --check clean on dateFormat.js (the one plain-JS file
+touched; every other touched file is .jsx, verified via a clean
+`npm run build` instead, which is the correct tool for JSX syntax —
+node --check doesn't parse JSX). npm run build clean. npx vitest run —
+57/57, no regressions (expected — this is a pure display-formatting
+change, doesn't touch anything the unit tests cover). npm run lint
+diffed directly against a freshly-hydrated, untouched baseline run —
+IDENTICAL 149 problems (1 error, 148 warnings) before and after; every
+line-level diff between the two lint runs, checked individually, is the
+exact same warning text at a shifted line number from added comments —
+zero new warning text anywhere. diff -rq against the same baseline tree
+confirmed the change is isolated to exactly twelve files, nothing else
+drifted: dateFormat.js, LeadDetail.jsx, EventDetail.jsx, EventList.jsx,
+AppointmentDetail.jsx, AppointmentList.jsx, AgentDetail.jsx, Tasks.jsx,
+AppAdmin.jsx, and the three Portal pages.
+
+NOT YET DEPLOYED. No migration, no backend change at all — pure
+frontend display formatting, applying the delta ZIP is the whole
+deployment.
+
+OUTSTANDING, explicitly deferred per Mark's own decision above, not
+forgotten: a custom (non-native) date-picker component, so editable
+date fields can be brought to full visual consistency too — currently
+every `<input type="date">` app-wide (DOB fields, task due dates, first
+appointment date, report date-range filters, SAR received date) renders
+in the browser/OS locale, outside CSS/JS control. Scoping this properly
+means weighing the native picker's mobile/OS-integration/accessibility
+advantages against full visual control — a real design trade-off, not
+just a build task, and deserves its own session rather than being
+folded into this one.
+
+FILES: frontend/src/utils/dateFormat.js,
+frontend/src/pages/LeadDetail.jsx, frontend/src/pages/EventDetail.jsx,
+frontend/src/pages/EventList.jsx,
+frontend/src/pages/AppointmentDetail.jsx,
+frontend/src/pages/AppointmentList.jsx,
+frontend/src/pages/AgentDetail.jsx, frontend/src/pages/Tasks.jsx,
+frontend/src/pages/AppAdmin.jsx,
+frontend/src/pages/portal/PortalDashboard.jsx,
+frontend/src/pages/portal/PortalRegister.jsx,
+frontend/src/pages/portal/PortalCheckinConfirm.jsx.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 24 AUG 2026 (CONTINUED) — POPIA ERASURE/RESTRICTION NOW CLOSES

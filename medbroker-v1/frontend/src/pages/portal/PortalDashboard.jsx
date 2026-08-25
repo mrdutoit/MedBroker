@@ -7,11 +7,11 @@
  */
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router';
-import { format } from 'date-fns';
 import { useProspectAuth } from '../../context/ProspectAuthContext.jsx';
 import { portalApi } from '../../services/portalApi.js';
 import { ATTENDANCE_META } from '../../constants/portalAttendance.js';
 import { s } from '../../styles/tokens.js';
+import { formatDate } from '../../utils/dateFormat.js';
 
 const STATUS_LABEL = {
   Unassigned:   'Not yet assigned to a broker',
@@ -139,7 +139,10 @@ export default function PortalDashboard() {
                 >
                   <div>
                     <div style={{ fontSize: '0.875rem', fontWeight: 500, color: 'var(--ink)' }}>{ev.eventName}</div>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--mut)' }}>{format(new Date(ev.eventDate), 'd MMM yyyy')}</div>
+                    {/* 24 Aug 2026 — eventDate is a DATE column, switched
+                        to formatDate() (dateFormat.js's own header
+                        comment has the full reasoning). */}
+                    <div style={{ fontSize: '0.75rem', color: 'var(--mut)' }}>{formatDate(ev.eventDate)}</div>
                   </div>
                   <span style={{
                     display: 'inline-block', padding: '3px 10px', borderRadius: '20px',

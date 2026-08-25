@@ -1420,6 +1420,47 @@ POPIA erasure/restriction closes open Appointments — built 24 Aug 2026,
   local Postgres 16 instance (installed in-sandbox for this), not
   assumed — same standing rule this codebase already holds itself to.
 
+Date format standard — built 25 Aug 2026, Mark's explicit request,
+  following his own live testing (SAR form showing a native date input
+  next to a differently-formatted computed preview). Every read-only
+  (non-editable) date across the app renders as 'd MMM yyyy' (e.g.
+  "24 Aug 2026") — Mark's explicit choice, already the majority pattern
+  found during audit, over dateFormat.js's own originally-stated
+  DD-MM-YYYY direction (23 Jul 2026). THE RULE FOR ANY NEW DATE DISPLAY
+  GOING FORWARD: check the column's real type in schema.postgres.sql,
+  don't assume from the field name. A genuine Postgres DATE column
+  (dateOfBirth, firstAppointmentDate, eventDate, SAR receivedAt/dueDate,
+  Task dueDate) renders via utils/dateFormat.js's formatDate() — it
+  reads the calendar date straight out of the string, never constructs
+  a Date object, so it can't be shifted a day by the viewer's local
+  timezone the way `new Date(dateOnlyString)` can. A genuine TIMESTAMPTZ
+  column (createdAt, performedAt, callTime/followUpDateTime, any
+  "…At" audit-trail column) renders via date-fns' `format(new
+  Date(value), 'd MMM yyyy')` (add `, HH:mm` when time matters too) —
+  formatDate() would be the WRONG tool for a real timestamp, not a
+  stricter one; timestamps genuinely need timezone-aware conversion,
+  DATE columns genuinely must not get it. Never toLocaleDateString()
+  with no options object (falls back to the browser's own uncontrolled
+  default locale) and never an unformatted raw value straight in JSX —
+  both were found live in the app during this sweep (AppAdmin.jsx's
+  sub.lastImportAt; Tasks.jsx's task.dueDate and task.createdAt).
+  Deliberately NOT swept: PeriodSelector.jsx's getPeriodLabel() ("Month
+  to date (August 2026)") — a named PERIOD label, a different category
+  from a point-in-time date entirely. Deliberately left as flagged
+  exceptions, not silently different: AgentDetail.jsx's lastCallTime
+  column keeps a shortened no-year format (space-constrained recency
+  column); AppointmentList.jsx's leadCreatedAt stays on
+  toLocaleDateString() since it's a genuine timestamp already rendering
+  the same visual shape, formatDate() would be the wrong (DATE-only)
+  tool for it. Editable native date inputs (`<input type="date">`,
+  every editable date field app-wide) are EXPLICITLY OUT OF SCOPE here —
+  Mark's own explicit decision, 25 Aug 2026: they render in the
+  browser/OS locale, genuinely outside CSS/JS control without replacing
+  them with a custom picker component, and that replacement is a
+  separate, deliberately deferred follow-up (real trade-off against the
+  native picker's mobile/OS-integration/accessibility advantages, not
+  just a build task) — not something to assume alongside this fix.
+
 Products on Lead — built 14 Aug 2026 (§157/§158/§159, migration 028).
   Mandatory only on the manual Create Lead form (leadSource ===
   'ManualEntry'), exempt on CSV/subscription bulk import — Mark's

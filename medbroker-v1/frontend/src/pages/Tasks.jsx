@@ -41,6 +41,7 @@
 
 import { useState, useEffect } from 'react';
 import { format } from 'date-fns';
+import { formatDate } from '../utils/dateFormat.js';
 import { useNavigate }   from 'react-router';
 import { useRole }       from '../context/RoleContext.jsx';
 import { useAuth }       from '../context/AuthContext.jsx';
@@ -430,7 +431,12 @@ function TaskRow({ task, onToggle, onDelete, onReassign, isAdmin, canDelete, ass
             <div>
               <span style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Due date</span>
               <div style={{ fontSize: '0.8125rem', color:'var(--ink)', marginTop: '2px' }}>
-                {task.dueDate || 'No due date'}
+                {/* 24 Aug 2026 — was the raw ISO string ("2026-09-15"),
+                    shown completely unformatted. Task.dueDate is a DATE
+                    column, so this uses formatDate() (dateFormat.js's own
+                    header comment has the full reasoning), same as every
+                    other DATE-only field in this session's sweep. */}
+                {task.dueDate ? formatDate(task.dueDate) : 'No due date'}
               </div>
             </div>
             <div>
@@ -493,7 +499,16 @@ function TaskRow({ task, onToggle, onDelete, onReassign, isAdmin, canDelete, ass
             )}
             <div>
               <span style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Created</span>
-              <div style={{ fontSize: '0.8125rem', color:'var(--ink)', marginTop: '2px' }}>{task.createdAt}</div>
+              <div style={{ fontSize: '0.8125rem', color:'var(--ink)', marginTop: '2px' }}>
+                {/* 24 Aug 2026 — was the raw ISO timestamp string shown
+                    completely unformatted. Task.createdAt is a genuine
+                    TIMESTAMPTZ, so this uses date-fns' format() directly
+                    (not formatDate(), which is DATE-only by design — see
+                    dateFormat.js's own header comment), 'd MMM yyyy,
+                    HH:mm' matching the same full-timestamp convention
+                    AuditLogList.jsx already established. */}
+                {format(new Date(task.createdAt), 'd MMM yyyy, HH:mm')}
+              </div>
             </div>
           </div>
           {/* Delete — manually created tasks only (§58): a system-generated

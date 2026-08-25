@@ -45,7 +45,6 @@
 
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { format } from 'date-fns';
 import { useRole } from '../context/RoleContext';
 import { useFlags }                           from '../context/FlagContext';
 import { useWindowSize }                      from '../hooks/useWindowSize';
@@ -193,7 +192,11 @@ function MeetingAttemptHistoryRow({ attempt, index }) {
           {MEETING_STATUS_LABELS[attempt.status] ?? attempt.status}
         </span>
         <span style={{ fontSize: '0.75rem', color: 'var(--mut)' }}>
-          {attempt.date ? format(new Date(`${attempt.date}T00:00:00`), 'd MMM yyyy') : 'No date set'}
+          {/* 24 Aug 2026 — was format(new Date(`${attempt.date}T00:00:00`), 'd MMM
+              yyyy'); the manual T00:00:00 suffix was itself a workaround for
+              exactly the DATE-only/timezone bug formatDate() exists to avoid.
+              formatDate() makes the workaround unnecessary, not just shorter. */}
+          {attempt.date ? formatDate(attempt.date) : 'No date set'}
         </span>
       </div>
       {/* 15 Aug 2026 (§172) — the structured reason, shown distinctly from

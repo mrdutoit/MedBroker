@@ -15,6 +15,7 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { format } from 'date-fns';
+import { formatDate } from '../utils/dateFormat.js';
 import QRCode from 'qrcode';
 import { s } from '../styles/tokens.js';
 import { useWindowSize } from '../hooks/useWindowSize.js';
@@ -354,7 +355,12 @@ export default function EventDetail() {
         <div>
           <h1 style={{ fontSize: '1.375rem', fontWeight: 700, color:'var(--ink)', margin: '0 0 4px' }}>{event.name}</h1>
           <p style={{ color:'var(--mut)', fontSize: '0.875rem', margin: 0 }}>
-            {[event.university, format(new Date(event.eventDate), 'd MMMM yyyy'), event.venue].filter(Boolean).join(' · ')}
+            {/* 24 Aug 2026 — was format(new Date(event.eventDate), 'd MMMM
+                yyyy') (full month name, its own outlier format) —
+                eventDate is a DATE column, switched to formatDate() for
+                both the app-wide 'd MMM yyyy' standard and the underlying
+                DATE-only/timezone-safety fix. */}
+            {[event.university, formatDate(event.eventDate), event.venue].filter(Boolean).join(' · ')}
           </p>
         </div>
         <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
