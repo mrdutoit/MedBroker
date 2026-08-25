@@ -49,6 +49,7 @@ import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch }      from '../hooks/useFetch.js';
 import { s }             from '../styles/tokens.js';
 import { tasksApi, usersApi } from '../services/api.js';
+import DatePicker from '../components/DatePicker.jsx';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -189,7 +190,12 @@ function NewTaskModal({ onClose, onSave, assignees }) {
           </div>
           <div>
             <label style={s.formLabel}>Due date</label>
-            <input type="date" style={s.formInput} value={form.dueDate} onChange={e => f('dueDate', e.target.value)} />
+            {/* 25 Aug 2026 — native <input type="date"> replaced with the
+                custom DatePicker (internal/staff form, in scope for the
+                replacement — see DatePicker.jsx's own header comment).
+                f() already takes a plain value, not an event, so this
+                needed no signature change at the call site. */}
+            <DatePicker value={form.dueDate} onChange={v => f('dueDate', v)} />
           </div>
         </div>
 

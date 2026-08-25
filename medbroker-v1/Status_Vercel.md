@@ -79,6 +79,16 @@ native inputs can match too, is explicitly deferred as a separate
 follow-up, not forgotten. NOT YET DEPLOYED — pure frontend change, no
 migration, applying the delta ZIP is the whole deployment.
 
+CUSTOM DATE PICKER — BUILT AND VERIFIED, 25 Aug 2026 (same session,
+continued — the follow-up deferred above, done same day). Full detail
+in OUTSTANDING ITEMS immediately below (first entry). Short version:
+new DatePicker.jsx replaces native `<input type="date">` on
+internal/staff forms only (Mark's explicit scope call) — LeadNew,
+LeadDetail, AppointmentDetail, Tasks, AppAdmin; the three Portal forms
+deliberately keep the native input for its mobile OS-picker advantage.
+NOT YET DEPLOYED — pure frontend change, applying the delta ZIP is the
+whole deployment.
+
 §192 — INDEPENDENT SECURITY AUDIT, 22 Aug 2026, AND FOUR FIXES CLOSED
 SAME DAY. code-audit skill (independent-reviewer role, no fixes made
 during the audit itself) ran a security/build/known-defect-regression/
@@ -211,6 +221,117 @@ hydration, 18 Aug 2026.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 25 AUG 2026 (CONTINUED) — CUSTOM DATE PICKER, THE FOLLOW-UP
+DEFERRED FROM THE DATE-FORMAT SWEEP ABOVE. Mark asked to do it now.
+
+SCOPE DECIDED BEFORE BUILDING, per Mark's own front-load-scoping
+preference: every native `<input type="date">` app-wide falls into two
+genuinely different contexts — internal/staff-facing (desktop-primary,
+~50 known users behind login: LeadNew, LeadDetail, AppointmentDetail,
+Tasks, AppAdmin) vs public/prospect-facing (mobile-primary, one-time
+anonymous visitors: the three Portal forms). Native date inputs trigger
+the OS's own picker on mobile — genuinely excellent UX and full
+accessibility for free — which matters far more for a one-time Portal
+visitor than for staff who live in this app daily. Mark's explicit
+answer: internal/staff forms only; the three Portal forms (PortalRegister,
+PortalCheckinConfirm, PortalActivate) deliberately keep the native input,
+untouched.
+
+VALIDATION AUDIT PERFORMED BEFORE TOUCHING ANY FILE, not assumed: every
+one of the six internal files' actual save/submit logic was read, not
+just its JSX, to find out whether removing native `required` would
+silently break anything. Found EventDetail.jsx was the ONLY file relying
+purely on native HTML5 required-blocking with zero JS-side validation
+underneath it — every other file (LeadNew.jsx's formErrors.dateOfBirth,
+the SAR form's explicit !sarReceivedAt guard, the booking-date field's
+fieldErrors.date, both EditableField/EditableFieldRow's optional-field
+save-time stripping) already has its own independent validation, so
+those were safe, purely mechanical swaps. EventDetail.jsx's
+handleSubmit gained one explicit `if (!form.dateOfBirth)` check,
+replacing exactly what that field alone silently lost.
+
+BUILT — new frontend/src/components/DatePicker.jsx. Pure date-math
+helpers (toISO/parseISO/daysInMonth/mondayFirstWeekday) verified
+standalone via a plain Node script BEFORE any JSX was written — leap
+years, both date-only and full-ISO input shapes, and a known weekday
+(confirmed 24 Aug 2026 is genuinely a Monday) all checked correct.
+Display format matches formatDate() exactly ('d MMM yyyy', the
+standard from the earlier session above). Typed entry uses a separate,
+strict 'DD-MM-YYYY' format (unambiguous, day-first, faster to type than
+clicking through a calendar) — Enter or blur commits a valid value and
+re-renders in the display format; an invalid or abandoned typed value
+resets rather than getting stuck showing bad text with nothing open to
+fix it. Calendar popover uses month/year <select> dropdowns in the
+header rather than prev/next-arrows-only — DOB is roughly half this
+component's call sites, and reaching a birth year by clicking "previous
+month" 500+ times is a real, common date-picker usability failure this
+was built specifically to avoid. Every <button> inside is explicit
+type="button" — several call sites (LeadNew, EventDetail) sit inside a
+real <form onSubmit>, where a button with no explicit type defaults to
+type="submit" and would prematurely submit the form on click.
+Accessibility scope stated plainly in the component's own header
+comment rather than left to be discovered: Escape closes, Tab moves
+between day buttons, Enter/Space selects (native <button> behaviour) —
+full roving-tabindex arrow-key grid navigation was NOT built, a
+deliberate scope line, not an oversight.
+
+Value contract: plain 'YYYY-MM-DD' string in, plain string out via
+onChange(value) — matches the contract EditableField/EditableFieldRow
+already use for type='date', rather than a synthetic event object.
+Every raw native-input call site's onChange handler had its parameter
+changed from an event to a plain value to match (e.g. `e =>
+f('dueDate', e.target.value)` → `v => f('dueDate', v)`) — small,
+mechanical, one-line changes at each site, confirmed individually
+rather than assumed uniform.
+
+WIRED IN: LeadNew.jsx (DOB), LeadDetail.jsx (EditableField's date
+branch, split out from the shared text/date/number input; the
+appointment-booking date field), AppointmentDetail.jsx
+(EditableFieldRow's date branch; MeetingAttemptForm's own separate date
+input, including its disabled/locked-state styling for an original
+meeting-1 row), Tasks.jsx (due date), AppAdmin.jsx (audit log From/To
+filters, SAR received date), EventDetail.jsx (DOB, plus the new
+validation check above).
+
+REAL LINT ISSUE FOUND AND FIXED DURING VERIFICATION, not silently
+shipped: two `eslint-disable-next-line react-hooks/exhaustive-deps`
+comments in the first draft of DatePicker.jsx each produced a genuine
+new lint ERROR — "Definition for rule … was not found" — because this
+project's ESLint config doesn't actually have the react-hooks plugin
+loaded at all. Confirmed this is a pre-existing, already-tolerated gap
+in the codebase's own config (useFetch.js already has an identical
+disable-comment, and it already errors identically in the untouched
+baseline) rather than something to route around per-file — removed both
+comments from DatePicker.jsx instead, since the rule they reference
+doesn't run either way, with a comment explaining why none was added
+back.
+
+VERIFIED: pure helper functions unit-tested standalone (above). npm run
+build clean, including a first pre-fix run to catch nothing else broke.
+npx vitest run — 57/57, no regressions. npm run lint diffed directly
+against a freshly-hydrated, untouched baseline, TWICE — the first pass
+caught the two real new errors above and got fixed; the second pass
+confirmed the fix: error count unchanged (1, the same pre-existing
+useFetch.js issue), and every one of the 6 new warnings individually
+confirmed as the exact same "component defined but never used" false
+positive already present in the baseline for AuditLogList,
+ReturnToLeadsModal, and others — a known, already-tolerated ESLint
+limitation with JSX-only component usage detection in this config, not
+a new category of problem. diff -rq against the same baseline tree
+confirmed the change is isolated to exactly seven files, nothing else
+drifted, and confirmed directly (not assumed) that all three Portal
+forms are untouched.
+
+NOT YET DEPLOYED. Pure frontend change, no migration, no backend —
+applying the delta ZIP is the whole deployment.
+
+FILES: frontend/src/components/DatePicker.jsx (new),
+frontend/src/pages/LeadNew.jsx, frontend/src/pages/LeadDetail.jsx,
+frontend/src/pages/AppointmentDetail.jsx, frontend/src/pages/Tasks.jsx,
+frontend/src/pages/AppAdmin.jsx, frontend/src/pages/EventDetail.jsx.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 25 AUG 2026 — DATE FORMAT CONSISTENCY SWEEP, APP-WIDE. Mark found

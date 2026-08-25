@@ -23,6 +23,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { leadsApi, ApiError } from '../services/api.js';
 import { s } from '../styles/tokens.js';
+import DatePicker from '../components/DatePicker.jsx';
 import { TITLES, JOB_TITLES, REGIONS } from '../constants/leadOptions.js';
 import { useRole } from '../context/RoleContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
@@ -149,7 +150,14 @@ export default function LeadNew() {
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '12px' }}>
           <div style={s.formGroup}>
             <label style={s.formLabel}>Date of Birth *</label>
-            <input type="date" style={s.formInput} value={form.dateOfBirth} onChange={e => setForm(f => ({ ...f, dateOfBirth: e.target.value }))} />
+            {/* 25 Aug 2026 — native <input type="date"> replaced with
+                DatePicker (internal/staff form, in scope — see
+                DatePicker.jsx's own header comment). This field never
+                had a native required attribute at all — handleSubmit's
+                own `if (!form.dateOfBirth) errors.dateOfBirth =
+                'Required'` check (above) already gates it independent
+                of any native validation, so nothing to compensate for. */}
+            <DatePicker value={form.dateOfBirth} onChange={v => setForm(f => ({ ...f, dateOfBirth: v }))} />
             {formErrors.dateOfBirth && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{formErrors.dateOfBirth}</div>}
           </div>
           <div style={s.formGroup}>

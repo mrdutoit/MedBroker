@@ -53,6 +53,7 @@ import { appointmentsApi, usersApi, leadsApi, ApiError } from '../services/api';
 import { s, APPT_STATUS_META, MEETING_STATUS_META, MEETING_STATUS_LABELS } from '../styles/tokens.js';
 import { formatDate, formatTime }             from '../utils/dateFormat.js';
 import AuditLogList                           from '../components/AuditLogList.jsx';
+import DatePicker                             from '../components/DatePicker.jsx';
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 // In production: fetched from GET /api/appointments/:id
@@ -166,8 +167,18 @@ function EditableFieldRow({ label, editing, type = 'text', value, onChange, opti
           <option value="No">No</option>
         </select>
       )}
-      {(type === 'text' || type === 'date' || type === 'number' || type === 'time') && (
+      {(type === 'text' || type === 'number' || type === 'time') && (
         <input type={type === 'time' ? 'time' : type} style={inputStyle} value={value ?? ''} onChange={e => onChange(type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} />
+      )}
+      {/* 25 Aug 2026 — split out of the shared text/date/number/time
+          native <input> above: type='date' now goes through the custom
+          DatePicker (internal/staff form, in scope — DatePicker.jsx's
+          own header comment has the full reasoning). Already takes a
+          plain value via onChange, same contract this field already
+          exposes to ITS OWN callers, so nothing above this component
+          changes. */}
+      {type === 'date' && (
+        <DatePicker style={{ ...inputStyle, width: '170px' }} value={value ?? ''} onChange={onChange} />
       )}
     </div>
   );
@@ -288,10 +299,17 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
         <div>
           <label style={s.formLabel}>Date</label>
-          <input
-            type="date"
+          {/* 25 Aug 2026 — native <input type="date"> replaced with
+              DatePicker (internal/staff form, in scope — see
+              DatePicker.jsx's own header comment). canSave already
+              gates on !!date independent of any native required
+              attribute (this input never had one), so nothing to
+              compensate for. The isOriginalMeeting1Date locked-look
+              override (14 Aug 2026 comment below) is passed straight
+              through via the style prop, same as before — DatePicker
+              merges it onto its own input exactly like s.formInput. */}
+          <DatePicker
             style={{
-              ...s.formInput,
               // 14 Aug 2026 (§166 follow-up) — Mark's explicit follow-up:
               // the field WAS already disabled (functionally read-only),
               // but this design system's own s.formInput doesn't visibly
@@ -299,7 +317,7 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
               // editable field — no visual signal it couldn't be
               // touched. Explicit override here, not relying on the
               // browser's own default disabled appearance.
-              ...(isOriginalMeeting1Date ? { background: 'var(--panel2)', color: 'var(--mut)', cursor: 'not-allowed' } : {}),
+              ...(isOriginalMeeting1Date ? { background: 'var(--panel2)', color: 'var(--mut)' } : {}),
             }}
             value={date ?? ''}
             // 14 Aug 2026 — Mark's explicit request: the First Meeting's
@@ -331,7 +349,7 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
             // date=null the moment it's created, so this correctly
             // falls through to editable, matching meeting 2/3's own rows.
             disabled={disabled || isOriginalMeeting1Date}
-            onChange={e => setDate(e.target.value)}
+            onChange={setDate}
           />
           {isOriginalMeeting1Date && !disabled && (
             <p style={{ ...s.formHint, marginTop: '4px' }}>Set when this appointment was booked — not editable here.</p>

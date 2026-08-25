@@ -33,6 +33,7 @@ import { useFetch } from '../hooks/useFetch.js';
 import { leadsApi, appointmentsApi, brokerMatchingApi, ApiError } from '../services/api.js';
 import { formatDistanceToNow, format } from 'date-fns';
 import { formatDate } from '../utils/dateFormat.js';
+import DatePicker from '../components/DatePicker.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
@@ -142,8 +143,19 @@ function EditableField({ label, editing, type = 'text', value, onChange, options
       {type === 'textarea' && (
         <textarea style={{ ...inputStyle, height: '48px', resize: 'vertical' }} value={value ?? ''} onChange={e => onChange(e.target.value)} />
       )}
-      {(type === 'text' || type === 'date' || type === 'number') && (
+      {(type === 'text' || type === 'number') && (
         <input type={type} style={inputStyle} value={value ?? ''} onChange={e => onChange(type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} />
+      )}
+      {/* 25 Aug 2026 — split out of the shared text/date/number native
+          <input> above: type='date' now goes through the custom
+          DatePicker (internal/staff form, in scope — DatePicker.jsx's
+          own header comment has the full reasoning), which needs its own
+          width/right-aligned styling override since it isn't a plain
+          <input> any more, and already takes a plain value via onChange,
+          same contract this field already exposes to ITS OWN callers, so
+          nothing above this component changes. */}
+      {type === 'date' && (
+        <DatePicker style={{ ...inputStyle, width: '170px' }} value={value ?? ''} onChange={onChange} />
       )}
     </div>
   );
@@ -1160,7 +1172,13 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
         <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '10px', marginBottom: '10px' }}>
           <div>
             <label style={labelStyle}>Date *</label>
-            <input type="date" style={inputStyle} value={date} onChange={(e) => { setDate(e.target.value); setSearched(false); }} />
+            {/* 25 Aug 2026 — native <input type="date"> replaced with
+                DatePicker (internal/staff form, in scope — see
+                DatePicker.jsx's own header comment). Already gated by
+                the fieldErrors.date check below, independent of any
+                native required attribute (this input never had one) —
+                nothing to compensate for. */}
+            <DatePicker style={inputStyle} value={date} onChange={(v) => { setDate(v); setSearched(false); }} />
             {fieldErrors.date && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.date}</div>}
           </div>
           <div>

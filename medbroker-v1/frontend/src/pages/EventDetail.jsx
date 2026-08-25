@@ -18,6 +18,7 @@ import { format } from 'date-fns';
 import { formatDate } from '../utils/dateFormat.js';
 import QRCode from 'qrcode';
 import { s } from '../styles/tokens.js';
+import DatePicker from '../components/DatePicker.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch } from '../hooks/useFetch.js';
 import { useRole } from '../context/RoleContext.jsx';
@@ -72,6 +73,17 @@ function AddAttendeeModal({ eventId, onClose, onSaved }) {
 
   async function handleSubmit(e) {
     e.preventDefault();
+    // 25 Aug 2026 — the dateOfBirth field just below switched from a
+    // native <input type="date" required> to the custom DatePicker
+    // (internal/staff form, in scope — DatePicker.jsx's own header
+    // comment has the full reasoning), which doesn't participate in the
+    // browser's own HTML5 constraint validation the way a real <input
+    // required> does. This form had NO other client-side validation at
+    // all before this — every other field's required-ness was, and
+    // still is, enforced purely by its own still-native `required`
+    // attribute (title, firstName, lastName, email untouched). This one
+    // explicit check replaces what dateOfBirth alone silently lost.
+    if (!form.dateOfBirth) { setError('Date of birth is required.'); return; }
     setSaving(true);
     setError('');
     try {
@@ -136,7 +148,14 @@ function AddAttendeeModal({ eventId, onClose, onSaved }) {
 
             <div style={s.formGroup}>
               <label style={s.formLabel}>Date of Birth *</label>
-              <input type="date" value={form.dateOfBirth} onChange={set('dateOfBirth')} style={s.formInput} required />
+              {/* 25 Aug 2026 — native <input type="date" required>
+                  replaced with DatePicker (internal/staff form, in
+                  scope — see DatePicker.jsx's own header comment). The
+                  required-blocking this attribute used to provide is
+                  now handled explicitly in handleSubmit above — see
+                  that comment for why this was the one field on this
+                  form that needed it added, not just carried over. */}
+              <DatePicker value={form.dateOfBirth} onChange={v => setForm(f => ({ ...f, dateOfBirth: v }))} />
             </div>
             <div style={s.formGroup}>
               <label style={s.formLabel}>Email *</label>

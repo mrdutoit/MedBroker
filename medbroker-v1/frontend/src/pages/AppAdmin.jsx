@@ -14,6 +14,7 @@ import { useWindowSize } from '../hooks/useWindowSize.js';
 import { systemConfigApi, auditApi, usersApi, sarApi, leadsApi, dataExportApi } from '../services/api.js';
 import { format } from 'date-fns';
 import { formatDate } from '../utils/dateFormat.js';
+import DatePicker from '../components/DatePicker.jsx';
 
 // Mirrors auditHandlers.js's VALID_ENTITY_TYPES/VALID_ACTIONS exactly —
 // kept in sync manually (no shared module between frontend/backend in
@@ -1315,13 +1316,20 @@ export default function AppAdmin() {
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'flex-end', marginBottom: '14px' }}>
             <div>
               <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>From</label>
-              <input type="date" style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem' }}
-                value={auditDateFrom} onChange={e => resetAuditPageOnFilterChange(setAuditDateFrom)(e.target.value)} />
+              {/* 25 Aug 2026 — native <input type="date"> replaced with
+                  DatePicker (internal/staff form, in scope — see
+                  DatePicker.jsx's own header comment). The curried
+                  resetAuditPageOnFilterChange(setter) helper already
+                  just wants the plain value at its own call boundary
+                  (e.target.value was only ever unwrapped right here),
+                  so this needed no deeper signature change. */}
+              <DatePicker style={{ padding: '6px 8px', fontSize: '0.8125rem' }}
+                value={auditDateFrom} onChange={v => resetAuditPageOnFilterChange(setAuditDateFrom)(v)} />
             </div>
             <div>
               <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>To</label>
-              <input type="date" style={{ ...s.formInput, padding: '6px 8px', fontSize: '0.8125rem' }}
-                value={auditDateTo} onChange={e => resetAuditPageOnFilterChange(setAuditDateTo)(e.target.value)} />
+              <DatePicker style={{ padding: '6px 8px', fontSize: '0.8125rem' }}
+                value={auditDateTo} onChange={v => resetAuditPageOnFilterChange(setAuditDateTo)(v)} />
             </div>
             <div>
               <label style={{ ...s.formLabel, fontSize: '0.75rem' }}>Entity</label>
@@ -1571,7 +1579,16 @@ export default function AppAdmin() {
               <div style={{ display: 'flex', gap: '12px' }}>
                 <div style={{ ...s.formGroup, flex: 1 }}>
                   <label style={s.formLabel}>Date received *</label>
-                  <input type="date" style={s.formInput} value={sarReceivedAt} onChange={e => setSarReceivedAt(e.target.value)} />
+                  {/* 25 Aug 2026 — native <input type="date"> replaced
+                      with DatePicker (internal/staff form, in scope —
+                      see DatePicker.jsx's own header comment). No
+                      required attribute was ever present here — this
+                      field is already gated by the explicit
+                      !sarReceivedAt check in the create-handler above
+                      (this form has no <form onSubmit> wrapper at all,
+                      see that function's own comment), so nothing to
+                      compensate for. */}
+                  <DatePicker value={sarReceivedAt} onChange={v => setSarReceivedAt(v)} />
                 </div>
                 <div style={{ ...s.formGroup, flex: 1 }}>
                   <label style={s.formLabel}>Target due date</label>

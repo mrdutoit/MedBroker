@@ -1461,6 +1461,35 @@ Date format standard — built 25 Aug 2026, Mark's explicit request,
   native picker's mobile/OS-integration/accessibility advantages, not
   just a build task) — not something to assume alongside this fix.
 
+Custom date picker (DatePicker.jsx) — built 25 Aug 2026, same session,
+  the follow-up explicitly deferred above, done same day on Mark's
+  request. INTERNAL/STAFF FORMS ONLY, Mark's explicit scope call —
+  LeadNew, LeadDetail, AppointmentDetail, Tasks, AppAdmin. The three
+  Portal forms (PortalRegister, PortalCheckinConfirm, PortalActivate)
+  deliberately keep the native `<input type="date">` — a one-time
+  anonymous mobile visitor benefits more from the OS's own polished
+  picker than from matching MedBroker's own visual language; staff who
+  live in this app daily benefit the other way. THE RULE FOR ANY NEW
+  EDITABLE DATE FIELD GOING FORWARD: internal/staff form → DatePicker
+  (components/DatePicker.jsx), plain 'YYYY-MM-DD' string in,
+  onChange(value) plain string out (not a synthetic event — matches
+  EditableField/EditableFieldRow's own existing contract). Portal
+  (public-facing, under pages/portal/) → native `<input type="date">`,
+  unchanged, by design, not an oversight if a future Portal date field
+  is left native. Before adding this to a NEW internal form, check
+  whether the surrounding save/submit logic relies on native HTML5
+  `required`-blocking with no JS-side validation underneath — Date
+  Picker doesn't participate in that (found live in EventDetail.jsx
+  during this build, the one file affected; fixed with one explicit
+  `if (!field) …` check in that form's own submit handler, not a
+  general problem for every form since every other internal date field
+  already had independent JS validation). Value/typed-entry/calendar
+  design and every deliberate scope line (no arrow-key grid navigation,
+  absolute-positioned not portal-based) are documented in
+  DatePicker.jsx's own header comment — read it before extending or
+  copying this component elsewhere rather than re-deriving the
+  reasoning.
+
 Products on Lead — built 14 Aug 2026 (§157/§158/§159, migration 028).
   Mandatory only on the manual Create Lead form (leadSource ===
   'ManualEntry'), exempt on CSV/subscription bulk import — Mark's
