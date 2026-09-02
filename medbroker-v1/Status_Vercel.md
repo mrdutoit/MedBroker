@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status (VERCEL VERSION)
 ==================================================
-Last updated: 25 August 2026
+Last updated: 1 September 2026
 Scope: this file tracks ONLY the Vercel + Neon Postgres deployment —
 frontend/api/ + frontend/api-lib/ + frontend/src/. It does NOT cover the
 separate Azure Functions/Azure SQL codebase (api/src/, infra/), which is
@@ -238,6 +238,22 @@ hydration, 18 Aug 2026.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 1 SEP 2026 — ROLE CONFIGURATION EXPLORED, NOT BUILT. No code
+change this session — pure architecture discussion, prompted by Mark's
+own question ("should we build a Role Configuration section for
+GlobalAdmin to define new roles and configure what they can do/see"),
+purely speculative, no concrete customer driving it. Full reasoning,
+the six pieces it would actually take, and the concrete 93-checks/
+32-files sizing of the current fixed-role model live in
+Project_Context_Vercel.md's own "Role Configuration" entry — not
+repeated here. DECISION: not built. Also added as a standing Stage 1
+interview question in the app-builder skill (delivered separately as
+an updated .skill file, not part of this repo), so any FUTURE new app
+build gets asked up front whether it needs this from day one, rather
+than retrofitting it later the way MedBroker would have to.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 25 AUG 2026 (CONTINUED, FOURTH ROUND) — DOWNLOADABLE CSV

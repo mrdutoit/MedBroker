@@ -1509,6 +1509,104 @@ SheetJS date-column parsing (LeadImport.jsx) — bug found and fixed
   the fix, and testing the fix the same way afterward — not assumed
   from reading SheetJS's own documentation.
 
+Role Configuration (dynamic, GlobalAdmin-defined roles + configurable
+  permissions + configurable field visibility) — explored 1 Sep 2026,
+  Mark's explicit question, purely speculative at this point: no
+  concrete customer driving it, raised because a future customer MIGHT
+  need it, and Mark wanted to understand the real cost before it
+  becomes a live requirement. DECISION: NOT built. Documented here so
+  the thinking survives to whenever (if ever) it's needed for real,
+  rather than re-derived from scratch or, worse, guessed at without
+  a real customer's actual role gaps to design against.
+
+  WHY NOT NOW: MedBroker's current model is a fixed 5-role enum
+  (GlobalAdmin/Admin/Supervisor/Agent/Broker) hardcoded as direct
+  string comparisons — confirmed by grep, not estimated: 93 individual
+  `role === 'X'` / `.includes(role)` occurrences across 32 files, both
+  frontend (canManage/canEdit/isAdminRole-style checks — see
+  AppointmentDetail.jsx:772, LeadDetail.jsx:277-286 for two concrete
+  examples) and backend. A "GlobalAdmin defines new roles, configures
+  what they can do and see" feature isn't an addition on top of that
+  fixed model — it's a different authorization ARCHITECTURE. This app
+  is bespoke for ONE brokerage with a known, stable org chart that
+  already maps cleanly onto the five roles; dynamic role-building earns
+  its complexity serving many DIFFERENT organisations with genuinely
+  different structures, which isn't this, unless/until "customers"
+  (plural) stops being hypothetical.
+
+  ONE THING ALREADY IN ITS FAVOUR, if it ever does become real: the
+  data layer is closer to multi-tenant-ready than a typical
+  single-client app already. Every service function touched across
+  this whole project routes through resolveOrganisationId() — leads,
+  appointments, SAR requests, exports, all of it. Tenant isolation, the
+  hard part of multi-tenancy, is already done; a future Role
+  Configuration feature would naturally scope to organisationId from
+  day one rather than needing that retrofitted first.
+
+  WHAT IT WOULD ACTUALLY TAKE, if scoped for real — six pieces, sized
+  honestly at roughly 4-6x the largest single-session feature built in
+  this project so far (the POPIA erasure/date-format/date-picker
+  cluster, 25 Aug 2026), because it touches every authorization
+  decision point in the app simultaneously:
+    1. Data model — User.role (a string enum) becomes a foreign key
+       into Role/Permission/RolePermission tables, org-scoped.
+       Role.isSystemRole (or equivalent) is not optional: without a
+       way to protect the role that manages roles from being edited
+       into a lockout state, a GlobalAdmin can accidentally lock
+       themselves and everyone else out — a classic RBAC footgun, not
+       a hypothetical one.
+    2. A permission-check abstraction replacing all 93 call sites —
+       hasPermission(user, 'appointment.close_as_lost') instead of
+       role-string comparison, on BOTH sides (the existing
+       frontend-gates-for-UX / backend-re-checks-for-real discipline
+       has to survive the swap unchanged). Backend needs a caching
+       strategy — a DB join to resolve permissions on every request
+       doesn't scale; frontend needs the equivalent of useRole()
+       resolving a permission set once per session, not a raw role
+       string compared inline everywhere it's used today.
+    3. The permission taxonomy — the actual hard part, and NOT schema
+       design: going through all 93 checks and working out what
+       business capability each one really represents, then grouping
+       into something a human can sanely configure — probably 30-50
+       permissions (lead.export, appointment.close_as_lost,
+       sar.execute_deletion, system_config.edit, ...), organised by
+       entity and action. Too granular and the admin UI is an
+       unreadable wall of checkboxes; too coarse and the flexibility
+       that was the whole point never actually gets built.
+    4. A field-visibility layer — net NEW, not an extension of
+       anything. "What they can't see" is a second, separate axis from
+       "what they can't do," and MedBroker has no generic version of
+       it today — only two ad-hoc, hardcoded, non-role-driven masking
+       implementations (credential previews in
+       integrationCredentialService.js; ID-number export masking in
+       dataExportService.js, see this file's own "Display-layer
+       exposure" entry, app-builder skill, 25 Aug 2026). Needs its own
+       model: role × entity × field -> full / masked / hidden.
+    5. Migration without regressing the security audit — the five
+       existing roles become seed data, configured to reproduce
+       EXACTLY current behaviour; any drift here is a silent security
+       regression against findings that have already passed audit
+       (§192, 22 Aug 2026). Safest shape: keep the five as protected,
+       non-editable system roles (see item 1's isSystemRole), and make
+       only NEW custom roles actually configurable, at least initially
+       — don't let "configurable roles" mean "the five audited roles
+       are now editable too."
+    6. Compliance re-validation — every role/permission change needs
+       its own audit trail (this app already does this discipline well
+       elsewhere — AuditLog, writeAuditLog() — just needs extending
+       here), and the POPIA/FAIS posture needs re-checking against a
+       model where permissions can be misconfigured at runtime, a risk
+       surface that doesn't exist with fixed, audited roles.
+
+  IF THIS EVER BECOMES REAL: let the actual triggering customer's real
+  role gaps drive the permission taxonomy (item 3) — don't design it
+  speculatively now and hope it fits whatever shows up later. A
+  matching interview question was added to the app-builder skill
+  (1 Sep 2026, "CRITICAL: Interview Before Building") so any FUTURE new
+  build — not a MedBroker retrofit — gets asked this up front, while
+  building it in from day one is cheap, rather than retrofitting it
+  later once 90+ hardcoded checks already exist to unwind.
+
 Products on Lead — built 14 Aug 2026 (§157/§158/§159, migration 028).
   Mandatory only on the manual Create Lead form (leadSource ===
   'ManualEntry'), exempt on CSV/subscription bulk import — Mark's
