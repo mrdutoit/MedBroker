@@ -13,7 +13,7 @@
  *   leads.occupationFilter.enabled
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useFetch } from '../hooks/useFetch.js';
 import { leadsApi, usersApi, systemConfigApi } from '../services/api.js';
@@ -46,6 +46,10 @@ function ReassignLeadModal({ lead, agents, onClose, onSaved, isAssign = false })
   const [saving, setSaving] = useState(false);
   const [saved,  setSaved]  = useState(false);
   const [error,  setError]  = useState('');
+  // 2 Sep 2026 — real bug Mark found live-testing (UserAdmin.jsx's Create
+  // User email field, see that file's own comment for the full
+  // reasoning) — same vulnerable overlay-click pattern here too.
+  const mouseDownOnOverlayRef = useRef(false);
 
   async function handleSave() {
     if (!agent) return;
@@ -68,7 +72,11 @@ function ReassignLeadModal({ lead, agents, onClose, onSaved, isAssign = false })
   }
 
   return (
-    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      style={s.overlay}
+      onMouseDown={e => { mouseDownOnOverlayRef.current = e.target === e.currentTarget; }}
+      onClick={e => { if (e.target === e.currentTarget && mouseDownOnOverlayRef.current) onClose(); }}
+    >
       <div style={{ ...s.modal, width: '380px' }}>
         <div style={s.modalHeader}>
           <h2 style={s.modalTitle}>{isAssign ? 'Assign Lead' : 'Reassign Lead'}</h2>

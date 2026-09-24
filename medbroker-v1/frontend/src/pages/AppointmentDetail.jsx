@@ -43,7 +43,7 @@
  *   Broker (claim model): same as above + Available to Claim pool
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { useRole } from '../context/RoleContext';
 import { useFlags }                           from '../context/FlagContext';
@@ -457,6 +457,10 @@ function ReassignBrokerModal({ appointment, brokers, agents, onSaved, onClose })
   const [saving, setSaving] = useState(false);
   const [saved,  setSaved]  = useState(false);
   const [error,  setError]  = useState('');
+  // 2 Sep 2026 — real bug Mark found live-testing (UserAdmin.jsx's Create
+  // User email field, see that file's own comment for the full
+  // reasoning) — same vulnerable overlay-click pattern here too.
+  const mouseDownOnOverlayRef = useRef(false);
 
   const brokerChanged = broker !== (appointment.brokerId ?? '');
   const agentChanged  = agent  !== (appointment.agentId ?? '');
@@ -483,7 +487,11 @@ function ReassignBrokerModal({ appointment, brokers, agents, onSaved, onClose })
   }
 
   return (
-    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      style={s.overlay}
+      onMouseDown={e => { mouseDownOnOverlayRef.current = e.target === e.currentTarget; }}
+      onClick={e => { if (e.target === e.currentTarget && mouseDownOnOverlayRef.current) onClose(); }}
+    >
       <div style={{ ...s.modal, width: '420px' }}>
 
         {/* Header */}
@@ -577,6 +585,10 @@ function ReturnToLeadsModal({ appointment, onClose, onReturned }) {
   const [returning, setReturning] = useState(false);
   const [done,      setDone]      = useState(false);
   const [error,     setError]     = useState(null);
+  // 2 Sep 2026 — real bug Mark found live-testing (UserAdmin.jsx's Create
+  // User email field, see that file's own comment for the full
+  // reasoning) — same vulnerable overlay-click pattern here too.
+  const mouseDownOnOverlayRef = useRef(false);
 
   async function handleReturn() {
     setReturning(true);
@@ -592,7 +604,11 @@ function ReturnToLeadsModal({ appointment, onClose, onReturned }) {
   }
 
   return (
-    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      style={s.overlay}
+      onMouseDown={e => { mouseDownOnOverlayRef.current = e.target === e.currentTarget; }}
+      onClick={e => { if (e.target === e.currentTarget && mouseDownOnOverlayRef.current) onClose(); }}
+    >
       <div style={{ ...s.modal, width: '400px' }}>
         <div style={s.modalHeader}>
           <h2 style={s.modalTitle}>Return to Leads?</h2>
@@ -679,6 +695,10 @@ function CloseAsLostModal({ appointment, onClose, onClosed }) {
   const [saving, setSaving] = useState(false);
   const [done,   setDone]   = useState(false);
   const [error,  setError]  = useState(null);
+  // 2 Sep 2026 — real bug Mark found live-testing (UserAdmin.jsx's Create
+  // User email field, see that file's own comment for the full
+  // reasoning) — same vulnerable overlay-click pattern here too.
+  const mouseDownOnOverlayRef = useRef(false);
 
   async function handleConfirm() {
     if (!reason) {
@@ -702,7 +722,11 @@ function CloseAsLostModal({ appointment, onClose, onClosed }) {
   }
 
   return (
-    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      style={s.overlay}
+      onMouseDown={e => { mouseDownOnOverlayRef.current = e.target === e.currentTarget; }}
+      onClick={e => { if (e.target === e.currentTarget && mouseDownOnOverlayRef.current) onClose(); }}
+    >
       <div style={{ ...s.modal, width: '400px' }}>
         <div style={s.modalHeader}>
           <h2 style={s.modalTitle}>Close as Lost?</h2>

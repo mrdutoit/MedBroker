@@ -12,7 +12,7 @@
  * registration not be gated to a physical scan at the event.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { format } from 'date-fns';
 import { formatDate } from '../utils/dateFormat.js';
@@ -70,6 +70,11 @@ function AddAttendeeModal({ eventId, onClose, onSaved }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [result, setResult] = useState(null);
+  // 2 Sep 2026 — see this modal's own overlay div, a few lines down, for
+  // the full reasoning (real bug Mark found live-testing on UserAdmin.jsx's
+  // own email field — same vulnerable pattern here too, since this form
+  // has an email field of its own).
+  const mouseDownOnOverlayRef = useRef(false);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -100,7 +105,23 @@ function AddAttendeeModal({ eventId, onClose, onSaved }) {
   const set = (key) => (e) => setForm(f => ({ ...f, [key]: e.target.value }));
 
   return (
-    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      style={s.overlay}
+      // 2 Sep 2026 — real bug Mark found live-testing (UserAdmin.jsx's
+      // Create User email field): dragging to select an email address
+      // sometimes ends the drag outside the input, closing the whole
+      // modal mid-selection. A browser's native click event fires on the
+      // nearest COMMON ANCESTOR of the mousedown and mouseup targets when
+      // they differ, so a drag-select that starts inside an input and
+      // ends outside the modal card entirely produces a click whose
+      // target genuinely IS this overlay — passing the old e.target ===
+      // e.currentTarget guard alone even though the user never clicked
+      // the overlay. Fixed by also requiring the mousedown itself to have
+      // started on the overlay — a real click does; a drag that merely
+      // ends up there does not.
+      onMouseDown={e => { mouseDownOnOverlayRef.current = e.target === e.currentTarget; }}
+      onClick={e => { if (e.target === e.currentTarget && mouseDownOnOverlayRef.current) onClose(); }}
+    >
       <div style={{ ...s.modal, width: '440px' }}>
         <div style={s.modalHeader}>
           <h2 style={s.modalTitle}>Add Attendee</h2>
@@ -229,6 +250,12 @@ export default function EventDetail() {
   const [qrDataUrl, setQrDataUrl] = useState('');
   const [showAttendanceQr, setShowAttendanceQr] = useState(false);
   const [attendanceQrDataUrl, setAttendanceQrDataUrl] = useState('');
+  // 2 Sep 2026 — same overlay-click fix as AddAttendeeModal above (its
+  // own comment has the full reasoning); shared between both QR modals
+  // below since they're never shown at once and neither holds any form
+  // data worth protecting — a false click-through here just means
+  // re-opening a QR code, not losing an edit.
+  const mouseDownOnOverlayRef = useRef(false);
   const [statusChanging, setStatusChanging] = useState(false);
   const [statusError, setStatusError] = useState('');
   const [showAddAttendee, setShowAddAttendee] = useState(false);
@@ -520,7 +547,11 @@ export default function EventDetail() {
 
       {/* Registration QR modal */}
       {showQr && (
-        <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) setShowQr(false); }}>
+        <div
+          style={s.overlay}
+          onMouseDown={e => { mouseDownOnOverlayRef.current = e.target === e.currentTarget; }}
+          onClick={e => { if (e.target === e.currentTarget && mouseDownOnOverlayRef.current) setShowQr(false); }}
+        >
           <div style={{ ...s.modal, width: '420px', textAlign: 'center' }}>
             <div style={s.modalHeader}>
               <h2 style={s.modalTitle}>Registration QR Code</h2>
@@ -552,7 +583,11 @@ export default function EventDetail() {
           way the registration QR is shared would recreate the exact gap
           having a separate token was meant to close. */}
       {showAttendanceQr && (
-        <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) setShowAttendanceQr(false); }}>
+        <div
+          style={s.overlay}
+          onMouseDown={e => { mouseDownOnOverlayRef.current = e.target === e.currentTarget; }}
+          onClick={e => { if (e.target === e.currentTarget && mouseDownOnOverlayRef.current) setShowAttendanceQr(false); }}
+        >
           <div style={{ ...s.modal, width: '420px', textAlign: 'center' }}>
             <div style={s.modalHeader}>
               <h2 style={s.modalTitle}>Attendance QR Code</h2>

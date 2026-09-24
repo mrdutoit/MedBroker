@@ -22,7 +22,7 @@
  *     and reassign the broker on already-assigned ones.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
@@ -71,6 +71,10 @@ function BuyTokensModal({ onClose, paymentProvider }) {
   const [selected, setSelected] = useState(1);
   const [purchasing, setPurchasing] = useState(false);
   const [error, setError] = useState('');
+  // 2 Sep 2026 — real bug Mark found live-testing (UserAdmin.jsx's Create
+  // User email field, see that file's own comment for the full
+  // reasoning) — same vulnerable overlay-click pattern here too.
+  const mouseDownOnOverlayRef = useRef(false);
 
   async function handlePurchase() {
     setPurchasing(true);
@@ -85,7 +89,11 @@ function BuyTokensModal({ onClose, paymentProvider }) {
   }
 
   return (
-    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      style={s.overlay}
+      onMouseDown={e => { mouseDownOnOverlayRef.current = e.target === e.currentTarget; }}
+      onClick={e => { if (e.target === e.currentTarget && mouseDownOnOverlayRef.current) onClose(); }}
+    >
       <div style={{ ...s.modal, width: '440px' }}>
         <div style={s.modalHeader}>
           <h2 style={s.modalTitle}>Buy Additional Tokens</h2>
@@ -145,6 +153,10 @@ function AssignBrokerModal({ appointment, onClose, isAssign = false, brokers, ag
   const [saving,  setSaving]  = useState(false);
   const [saved,   setSaved]   = useState(false);
   const [error,   setError]   = useState('');
+  // 2 Sep 2026 — real bug Mark found live-testing (UserAdmin.jsx's Create
+  // User email field, see that file's own comment for the full
+  // reasoning) — same vulnerable overlay-click pattern here too.
+  const mouseDownOnOverlayRef = useRef(false);
 
   const agentChanged = !isAssign && agent !== (appointment.agentId ?? '') && !!agent;
 
@@ -171,7 +183,11 @@ function AssignBrokerModal({ appointment, onClose, isAssign = false, brokers, ag
   }
 
   return (
-    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      style={s.overlay}
+      onMouseDown={e => { mouseDownOnOverlayRef.current = e.target === e.currentTarget; }}
+      onClick={e => { if (e.target === e.currentTarget && mouseDownOnOverlayRef.current) onClose(); }}
+    >
       <div style={{ ...s.modal, width: '420px' }}>
         <div style={s.modalHeader}>
           <h2 style={s.modalTitle}>{isAssign ? 'Assign Broker' : 'Reassign Broker / Agent'}</h2>

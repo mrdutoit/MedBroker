@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status (VERCEL VERSION)
 ==================================================
-Last updated: 1 September 2026
+Last updated: 24 September 2026
 Scope: this file tracks ONLY the Vercel + Neon Postgres deployment —
 frontend/api/ + frontend/api-lib/ + frontend/src/. It does NOT cover the
 separate Azure Functions/Azure SQL codebase (api/src/, infra/), which is
@@ -105,6 +105,17 @@ entry). Short version: Mark noticed his test file had an idNumber
 column the in-app "Download CSV template" button didn't offer, and
 asked for the template to include it too — both tabs' template buttons
 and hint text updated to match. Same delta ZIP as the entry below it.
+
+MODAL OVERLAY DRAG-SELECT BUG — FOUND AND FIXED, 24 Sep 2026. Full
+detail in OUTSTANDING ITEMS immediately below (first entry). Short
+version: Mark reported the Create User email field closing the modal
+when selecting its text, plus a "disappearing" password-visibility
+toggle — both traced to ONE root cause, a gap in every modal's
+outside-click-to-close guard that a text-selection drag can trigger by
+accident. Checked scope before fixing just the one instance reported:
+found and fixed the same pattern in 12 overlay handlers across 7 files.
+NOT YET DEPLOYED — pure frontend interaction fix, applying the delta
+ZIP is the whole deployment.
 
 §192 — INDEPENDENT SECURITY AUDIT, 22 Aug 2026, AND FOUR FIXES CLOSED
 SAME DAY. code-audit skill (independent-reviewer role, no fixes made
@@ -238,6 +249,75 @@ hydration, 18 Aug 2026.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 24 SEP 2026 — MODAL OVERLAY DRAG-SELECT BUG, FOUND SYSTEMIC AND
+FIXED ACROSS 7 FILES. Mark reported two symptoms while live-testing
+UserAdmin.jsx's Create User page: the "Show password" toggle "disappears
+after turning it back off", and selecting the email address to copy it
+closes the whole Create User window.
+
+ROOT CAUSE, confirmed to be ONE bug explaining both symptoms, not two
+separate ones: every modal's overlay closes on an outside click via
+`onClick={e => { if (e.target === e.currentTarget) onClose(); }}`. That
+guard has a real gap — a browser's native click event fires on the
+nearest COMMON ANCESTOR of the mousedown and mouseup targets when they
+land on different elements. Dragging to select the email address
+(mousedown inside the input, mouseup outside the modal card) produces a
+click whose target genuinely IS the overlay, passing the guard even
+though the user never clicked it — closing the modal mid-selection. The
+password-toggle report is almost certainly the same mechanism: interacting
+with the revealed password text triggered the same drag-outside-closes
+behaviour, which reads as "the button disappeared" because the whole
+modal did.
+
+SCOPE CHECKED BEFORE FIXING JUST THE ONE INSTANCE MARK HIT, not assumed
+narrow: grepped for the exact vulnerable pattern across the whole
+frontend — found in 12 separate overlay handlers across 7 files, not
+just UserAdmin.jsx: Tasks.jsx (NewTaskModal), EventDetail.jsx (x3 —
+AddAttendeeModal, the two QR modals), LeadList.jsx
+(ReassignLeadModal), AppointmentList.jsx (x2 — BuyTokensModal,
+AssignBrokerModal), UserAdmin.jsx (UserModal), EventList.jsx (create
+event modal), AppointmentDetail.jsx (x3 — ReassignBrokerModal,
+ReturnToLeadsModal, CloseAsLostModal). Fixed all 12, not just the one
+reported.
+
+FIX, applied identically at every site: a `mouseDownOnOverlayRef` per
+modal component, tracking whether the mousedown itself (not just the
+resulting click) landed on the overlay. Only closes when BOTH the
+mousedown and the click land on the overlay — a real click does; a
+drag-selection that merely ends up there does not.
+
+DELIBERATELY FIXED IN PLACE, NOT EXTRACTED INTO A SHARED COMPONENT:
+12 near-identical small blocks, all touching this codebase's own
+established convention (seen repeatedly across this project — the date/
+reason dropdowns, the hint-text pairs) of duplicating a small, well-
+understood JSX pattern per file rather than abstracting it into a shared
+component. A shared "ModalOverlay" component would have been a bigger,
+more invasive architectural change than the bug itself warranted, and
+would have deviated from that established style without being asked to.
+Two QR-display modals in EventDetail.jsx share ONE ref between them
+deliberately (never shown simultaneously, neither holds form data worth
+protecting) — every other site gets its own dedicated ref.
+
+VERIFIED: npm run build clean across all seven touched files. npx
+vitest run — 57/57, no regressions (expected — this is a pure
+interaction-layer fix, doesn't touch anything the unit tests cover).
+npm run lint diffed against a freshly-hydrated, untouched baseline —
+identical 155 problems (1 error, 154 warnings) before and after; every
+line-level diff checked individually is the same pre-existing warning
+at a shifted line number from the added comments, zero new warning
+text anywhere. diff -rq against the same baseline confirmed the change
+is isolated to exactly the seven intended files, nothing else drifted.
+
+NOT YET DEPLOYED. Pure frontend interaction fix, no migration — applying
+the delta ZIP is the whole deployment.
+
+FILES: frontend/src/pages/Tasks.jsx, frontend/src/pages/EventDetail.jsx,
+frontend/src/pages/LeadList.jsx, frontend/src/pages/AppointmentList.jsx,
+frontend/src/pages/UserAdmin.jsx, frontend/src/pages/EventList.jsx,
+frontend/src/pages/AppointmentDetail.jsx.
+
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 1 SEP 2026 — ROLE CONFIGURATION EXPLORED, NOT BUILT. No code

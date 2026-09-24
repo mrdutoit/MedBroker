@@ -39,7 +39,7 @@
  *                                 not deleted. Enforced server-side, not just hidden here.
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { format } from 'date-fns';
 import { formatDate } from '../utils/dateFormat.js';
 import { useNavigate }   from 'react-router';
@@ -122,6 +122,10 @@ function NewTaskModal({ onClose, onSave, assignees }) {
     assignedTo: assignees[0]?.value ?? '', dueDate: '',
   });
   const [error, setError] = useState('');
+  // 2 Sep 2026 — real bug Mark found live-testing (UserAdmin.jsx's Create
+  // User email field, see that file's own comment for the full
+  // reasoning) — same vulnerable overlay-click pattern here too.
+  const mouseDownOnOverlayRef = useRef(false);
 
   function handleSave() {
     if (!form.title.trim()) { setError('Title is required.'); return; }
@@ -133,7 +137,11 @@ function NewTaskModal({ onClose, onSave, assignees }) {
   const f = (field, val) => setForm(prev => ({ ...prev, [field]: val }));
 
   return (
-    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      style={s.overlay}
+      onMouseDown={e => { mouseDownOnOverlayRef.current = e.target === e.currentTarget; }}
+      onClick={e => { if (e.target === e.currentTarget && mouseDownOnOverlayRef.current) onClose(); }}
+    >
       <div style={{ ...s.modal, width: '460px' }}>
         <div style={s.modalHeader}>
           <h2 style={s.modalTitle}>New Task</h2>

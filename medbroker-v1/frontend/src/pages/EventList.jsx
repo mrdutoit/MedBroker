@@ -9,7 +9,7 @@
  * same gating already used for Lead creation.
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { s } from '../styles/tokens.js';
 import { formatDate } from '../utils/dateFormat.js';
@@ -40,6 +40,10 @@ export default function EventList() {
   const [form, setForm] = useState({ name: '', university: '', venue: '', eventDate: '', description: '' });
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
+  // 2 Sep 2026 — real bug Mark found live-testing (UserAdmin.jsx's Create
+  // User email field, see that file's own comment for the full
+  // reasoning) — same vulnerable overlay-click pattern here too.
+  const mouseDownOnOverlayRef = useRef(false);
 
   async function handleCreate(e) {
     e.preventDefault();
@@ -174,7 +178,11 @@ export default function EventList() {
 
       {/* Create event modal */}
       {showCreate && (
-        <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) setShowCreate(false); }}>
+        <div
+          style={s.overlay}
+          onMouseDown={e => { mouseDownOnOverlayRef.current = e.target === e.currentTarget; }}
+          onClick={e => { if (e.target === e.currentTarget && mouseDownOnOverlayRef.current) setShowCreate(false); }}
+        >
           <div style={{ ...s.modal, width: '460px' }}>
             <div style={s.modalHeader}>
               <h2 style={s.modalTitle}>Create Event</h2>

@@ -19,7 +19,7 @@
  * assignment, region logic — is unchanged from the original.
  */
 
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { useFetch } from '../hooks/useFetch.js';
@@ -184,6 +184,24 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
   const [resetShowPw,   setResetShowPw]     = useState(false);
   const [resetSaving,   setResetSaving]     = useState(false);
   const [resetError,    setResetError]      = useState(null);
+
+  // 2 Sep 2026 — real bug Mark found live-testing: dragging to select the
+  // email address (or the revealed temporary password) sometimes ended
+  // the drag outside the input, closing the whole modal mid-selection —
+  // a lost edit, not just an annoyance. Root cause: the overlay's onClick
+  // guard (e.target === e.currentTarget, below) only checks where the
+  // CLICK event's target ended up, and a browser's native click event
+  // fires on the nearest COMMON ANCESTOR of the mousedown and mouseup
+  // targets when they differ — so a mousedown that starts inside the
+  // input, dragged to a mouseup outside the modal card entirely, gets a
+  // synthesised click whose target genuinely IS the overlay, passing the
+  // old guard even though the user never intended to click the overlay
+  // at all. Fixed by tracking where the DRAG STARTED (mousedown) as well
+  // as where it's reported to have "clicked" — only close when BOTH the
+  // mousedown and the click itself landed on the overlay, which a
+  // deliberate click does and a drag-selection that merely ends up there
+  // does not.
+  const mouseDownOnOverlayRef = useRef(false);
 
   // §117 — token balance + manual top-up. Only relevant for a Broker;
   // only fetched when this modal is actually showing one (isEdit &&
@@ -373,7 +391,11 @@ function UserModal({ mode, user, supervisors, ssoEnabled, onClose, onSave, onUnl
   }
 
   return (
-    <div style={s.overlay} onClick={e => { if (e.target === e.currentTarget) onClose(); }}>
+    <div
+      style={s.overlay}
+      onMouseDown={e => { mouseDownOnOverlayRef.current = e.target === e.currentTarget; }}
+      onClick={e => { if (e.target === e.currentTarget && mouseDownOnOverlayRef.current) onClose(); }}
+    >
       {/* Width stays 520px, capped by s.modal's own maxWidth: 95vw (tokens.js)
           — already correctly responsive on narrow screens without needing
           an isMobile override here; checked before assuming otherwise. */}

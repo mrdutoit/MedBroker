@@ -1607,6 +1607,45 @@ Role Configuration (dynamic, GlobalAdmin-defined roles + configurable
   building it in from day one is cheap, rather than retrofitting it
   later once 90+ hardcoded checks already exist to unwind.
 
+Modal overlay drag-select bug — found and fixed 24 Sep 2026, following
+  Mark's own live testing (UserAdmin.jsx: the Create User email field
+  closing the modal when its text was selected, and a "disappearing"
+  password-visibility toggle — traced to ONE root cause, not two).
+  THE RULE FOR ANY MODAL OVERLAY GOING FORWARD: a plain `onClick={e =>
+  { if (e.target === e.currentTarget) onClose(); }}` on the overlay div
+  is NOT sufficient to detect "the user clicked outside the modal" — a
+  browser's native click event fires on the nearest common ancestor of
+  the mousedown and mouseup targets when they land on different
+  elements, so dragging to select text that starts inside the modal and
+  ends outside it (entirely plausible selecting an email address, a
+  name, any text near the modal's edge) produces a click whose target
+  genuinely IS the overlay, closing the modal mid-selection even though
+  the user never intended to click it. Every overlay in this codebase
+  needs a `mouseDownOnOverlayRef` (a plain useRef(false), one per modal
+  component) set in a new `onMouseDown` handler on the overlay
+  (`mouseDownOnOverlayRef.current = e.target === e.currentTarget`), and
+  the `onClick` guard extended to require BOTH:
+  `if (e.target === e.currentTarget && mouseDownOnOverlayRef.current)
+  onClose();`. A genuine click satisfies both; a drag-selection that
+  merely ends up over the overlay does not. Fixed in 12 overlay handlers
+  across 7 files this session (Tasks.jsx, EventDetail.jsx x3,
+  LeadList.jsx, AppointmentList.jsx x2, UserAdmin.jsx, EventList.jsx,
+  AppointmentDetail.jsx x3) — checked the WHOLE codebase for the
+  vulnerable pattern before fixing only the one instance Mark actually
+  reported, since the same bug was silently present everywhere else
+  this same overlay pattern was copied. Deliberately fixed in place at
+  each of the 12 sites rather than extracted into a shared
+  "ModalOverlay" component — matches this codebase's own established
+  convention (seen repeatedly across this project) of duplicating a
+  small, well-understood JSX pattern per file rather than abstracting
+  it, and a shared component would have been a bigger architectural
+  change than the bug itself warranted. Two QR-display modals in
+  EventDetail.jsx share one ref between them deliberately (never shown
+  simultaneously, neither holds form data worth protecting) — every
+  other site gets its own dedicated ref, since two modals with
+  independent open/close state sharing one ref would be a real
+  cross-contamination risk, not a safe simplification.
+
 Products on Lead — built 14 Aug 2026 (§157/§158/§159, migration 028).
   Mandatory only on the manual Create Lead form (leadSource ===
   'ManualEntry'), exempt on CSV/subscription bulk import — Mark's
