@@ -68,7 +68,6 @@ import { s, colors } from '../styles/tokens.js';
 import { PeriodSelector, getPeriodLabel, referenceDateToParam } from '../components/PeriodSelector.jsx';
 import {
   TrendChart, DataTable, EmptyState, Section,
-  DonutBreakdown, CATEGORICAL_PALETTE,
   fmt, fmtDays, fmtRatio,
 } from '../components/ReportsWidgets.jsx';
 // 27 Sep 2026 — every metric row on this page (Executive summary, Policy
@@ -76,6 +75,13 @@ import {
 // view) is now one MetricStrip instead of a grid of identical KpiCards.
 // Same values, same deltas; see MetricStrip.jsx's header.
 import MetricStrip, { fmtMetric } from '../components/viz/MetricStrip.jsx';
+// 27 Sep 2026 (later) — Won vs Lost and Appointment Analysis rebuilt from
+// the approved canvas mock-up: the breakdown rings (DonutBreakdown /
+// BreakdownRing, and the page-local WonLostPair) are replaced by these.
+import OutcomeFlow from '../components/viz/OutcomeFlow.jsx';
+import PortfolioSplit from '../components/viz/PortfolioSplit.jsx';
+import ReasonRows from '../components/viz/ReasonRows.jsx';
+import SplitFigures from '../components/viz/SplitFigures.jsx';
 // Replaces PipelineHealth — app-design-pass skill, Reports page pilot
 // (designed 24 Sep 2026, delivered 27 Sep 2026). See PipelineJourney.jsx's
 // header for the concept and the data-semantics decisions.
@@ -129,77 +135,12 @@ const CANCEL_REASON_LABELS = {
   'Not captured': 'Not captured',
 };
 
-// 16 Aug 2026 (§180) — a Won donut and a Lost donut for the same
-// dimension (region, portfolio), side by side under one shared
-// sub-heading. Page-local, not exported from ReportsWidgets.jsx — this
-// specific "two DonutBreakdowns paired under one label" composition is
-// a Won-vs-Lost-section concern, not a generic building block the way
-// DonutBreakdown itself is. keyField picks the label off each row
-// (r.region or r.portfolio) since the two dimensions don't share a
-// common field name. 'Not captured' (region only — every appointment
-// has a real portfolio, but region is nullable pre-§166) gets the same
-// neutral-grey treatment as loss/cancel reasons elsewhere on this page.
-// notCapturedMessage added 16 Aug 2026 (§182) — region-only, since
-// that's the one dimension where "not captured" can be the WHOLE
-// answer (an org whose closed deals all predate 14 Aug 2026 would see
-// nothing else) — DonutBreakdown's own realTotal===0 branch needs a
-// message that actually explains that rather than a generic fallback.
-//
-// REWORKED 16 Aug 2026 (§183) — used to wrap its own pair in a group-
-// labelled <div> (its own heading, its own nested flex row). Mark's
-// report: "the graphs are not equal heights" — root cause was this
-// exact wrapper. The outer Won-vs-Lost row's direct children were
-// [Overall-card, By-Region-wrapper, By-Portfolio-wrapper] — THREE
-// items, not five — so flexbox's own align-items:stretch (the default)
-// equalised those three wrapper heights, but couldn't reach two levels
-// deep to equalise the actual donut CARDS inside each wrapper against
-// the standalone Overall card, since they were never true siblings of
-// it in the DOM. Fixed by returning the pair as a bare fragment of two
-// DonutBreakdowns with compound titles ("Region · Won" style) instead
-// of a labelled wrapper — every donut in the Won-vs-Lost row is now a
-// genuine flex sibling of every other one, so stretch equalises all of
-// them correctly, automatically, without hand-tuned heights anywhere.
-//
-// REWORKED AGAIN 16 Aug 2026 (§186), THEN REVERTED THE SAME DAY (§188)
-// — §184 fixed "a full donut ring for one category conveys nothing" by
-// replacing the ring with a compact stat. §186 went further: once §185
-// corrected Won/Lost to their true counts (a small business, most
-// periods will have single-digit deals), a WonLostPair with everything
-// concentrated in one region and one portfolio produced four cards
-// that each just restated "100% of the 2 wins" a different way — so
-// §186 suppressed the whole pair whenever there were fewer than 2
-// distinct categories to compare.
-//
-// §187 then rebuilt DonutBreakdown itself from the ground up — real
-// donut with a centre label, full legend with values and percentages
-// always visible, real visual weight at any category count, not just
-// 2+. That rebuild quietly removed the actual justification for §186's
-// suppression: a single-category card isn't decorative or repetitive
-// anymore, it's genuinely informative (confirms the data, shows the
-// real count, same visual language as every other card on the page).
-// Mark noticed the gap immediately — "where are all the other graphs?
-// I don't see the per portfolio breakdowns" — and he was right to.
-// §186's own reasoning ("nothing to compare, so don't show it") was
-// built for a thinner design that no longer exists; keeping it after
-// §187 just hid real, working data for no remaining reason. Reverted
-// to the simple check that was already here before §186 — show the
-// pair whenever there's any data at all, regardless of variety.
-function WonLostPair({ label, wonRows, lostRows, keyField, isMobile }) {
-  if ((!wonRows || wonRows.length === 0) && (!lostRows || lostRows.length === 0)) return null;
-  const toData = rows => rows.map((r, i) => ({
-    label: r[keyField], value: r.count,
-    colour: r[keyField] === 'Not captured' ? colors.ink400 : CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
-  }));
-  const notCapturedMsg = keyField === 'region'
-    ? "Region wasn't captured for any of these — tracking only started 14 Aug 2026."
-    : undefined;
-  return (
-    <>
-      <DonutBreakdown title={`${label} · Won`} isMobile={isMobile} data={toData(wonRows ?? [])} emptyMessage="No wins this period." notCapturedMessage={notCapturedMsg} />
-      <DonutBreakdown title={`${label} · Lost`} isMobile={isMobile} data={toData(lostRows ?? [])} emptyMessage="No losses this period." notCapturedMessage={notCapturedMsg} />
-    </>
-  );
-}
+// WonLostPair (16 Aug 2026, §180-§188) — REMOVED 27 Sep 2026. It paired a
+// Won ring and a Lost ring per dimension; region now lives in OutcomeFlow
+// and portfolio in PortfolioSplit (components/viz/). The §186/§188 lesson
+// it recorded still holds and is kept by both: show a breakdown whenever
+// there's any data, even a single category — never hide real data for
+// lack of variety.
 
 export default function Reports() {
   const navigate           = useNavigate();
@@ -350,15 +291,6 @@ export default function Reports() {
     { key: 'conversion',  label: 'Conversion Ratio', align: 'right' },
     { key: 'avgPolicyValueWon', label: 'Avg Policy Value (Won)', align: 'right', render: r => r.avgPolicyValueWon === null ? '—' : fmt(r.avgPolicyValueWon) },
   ];
-
-  // 16 Aug 2026 (§180) — computed once here, used by the two WonLostPair
-  // calls in the Won vs Lost section below.
-  const wonByRegionPair = wonVsLost ? (
-    <WonLostPair label="By Region" wonRows={wonVsLost.wonByRegion} lostRows={wonVsLost.lostByRegion} keyField="region" isMobile={isMobile} />
-  ) : null;
-  const wonByPortfolioPair = wonVsLost ? (
-    <WonLostPair label="By Portfolio" wonRows={wonVsLost.wonByPortfolio} lostRows={wonVsLost.lostByPortfolio} keyField="portfolio" isMobile={isMobile} />
-  ) : null;
 
   const productColumns = [
     { key: 'product', label: 'Product', sortable: false },
@@ -565,118 +497,53 @@ export default function Reports() {
                   { key: 'rate', label: 'Win rate', value: fmtMetric(wonVsLost.winRate, 'percent') },
                   { key: 'days', label: 'Avg days to close (won / lost)', value: `${fmtDays(wonVsLost.avgDaysToCloseWon)} / ${fmtDays(wonVsLost.avgDaysToCloseLost)}` },
                 ]} />
-                {/* 16 Aug 2026 (§182) — Mark's direct question: "why could
-                    these not be displayed next to each other?" They
-                    couldn't, because Overall used to live in a different
-                    card entirely (Pipeline Health — since replaced by the
-                    PipelineJourney hero, see components/viz/)
-                    while By Region/By Portfolio lived here. No good
-                    reason for the split — all three are the same theme
-                    (what happened to closed deals, cut three ways).
-                    REWORKED again 16 Aug 2026 (§183) — alignItems:
-                    'stretch' made explicit (it's flexbox's own default,
-                    but stating it here is the whole point: this row's
-                    five children — Overall, Region·Won, Region·Lost,
-                    Portfolio·Won, Portfolio·Lost — are now TRUE flex
-                    siblings, no wrapper divs in between (see
-                    WonLostPair's own reworked comment for why that
-                    mattered), so stretch genuinely equalises all five
-                    card heights automatically, wrapping onto new lines
-                    only when the viewport actually runs out of room.
-                    maxWidth: 1160px added 16 Aug 2026 (§187) — cards
-                    themselves got much wider that same pass (360px, up
-                    from 220px, to actually carry visual weight — see
-                    DonutBreakdown's own header comment for the full
-                    account), but on a wide monitor a row with only 1-2
-                    cards (§186 suppresses the rest when there's nothing
-                    real to compare) still looked lost without SOME cap
-                    on how far the row itself could stretch. 1160px fits
-                    3 of the new, wider cards per line — a bounded,
-                    intentional grid rather than an open-ended one, same
-                    discipline as Mark's own reference dashboard's fixed
-                    KPI-row column count, not infinite width waiting to
-                    be filled. */}
-                {/* 16 Aug 2026 (§189) — Mark's direct question: "the
-                    Loss reasons graph is tucked underneath the other 5,
-                    why? Can it not be in line with By Portfolio · Lost?"
-                    Root cause: Loss reasons used to live in its OWN
-                    separate <div> below this row (marginTop:'18px'),
-                    not as a flex child WITHIN it — so it always started
-                    a fresh line of its own regardless of how much room
-                    was actually left in the row above (Portfolio·Won/
-                    Portfolio·Lost only fill 2 of the row's 3 card
-                    slots, leaving real space Loss reasons could have
-                    used). Moved inside this same flex container as a
-                    true sibling of Overall/Region/Portfolio — same fix
-                    class as §183's own WonLostPair rework (a card
-                    outside the flex row can't flow into it, no matter
-                    how the row's own CSS is tuned). */}
-                {/* 16 Aug 2026 (§190, CORRECTED §191) — §190's own
-                    margin: '0 auto' was real but incomplete, confirmed by
-                    Mark directly inspecting the live element: that rule
-                    WAS present and DID correctly centre the row's own
-                    bounding box — verified with DevTools, not assumed.
-                    What it missed: this box has no visible border or
-                    background of its own, and flex's own default
-                    justify-content (flex-start) packs the CARDS against
-                    the box's left edge regardless of how wide or how
-                    centred the box itself is. A centred-but-invisible
-                    box with left-packed content inside it is visually
-                    IDENTICAL to a box that isn't centred at all — the
-                    eye has no way to tell "empty space is outside the
-                    box" from "empty space is inside the box, to the
-                    right of the cards." Confirmed by measuring the
-                    actual card positions directly (not just the row's
-                    own box) against a live render of the real,
-                    unmodified components — with only margin:auto, the
-                    cards' own combined span started exactly at the box's
-                    left edge and stopped 396px short of its right edge,
-                    every time. justifyContent: 'center' added — this
-                    centres the CARDS within whatever space the box
-                    provides, which is what was actually missing; kept
-                    margin: 'auto' too, since it's still correct for
-                    centring the box itself on a screen wide enough to
-                    exceed the 1160px cap. */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', justifyContent: 'center', gap: '20px', maxWidth: '1160px', margin: '18px auto 0' }}>
-                  <DonutBreakdown
-                    title="Overall"
-                    isMobile={isMobile}
-                    data={[
-                      { label: 'Closed Won', value: wonVsLost.won, colour: colors.success },
-                      { label: 'Closed Lost', value: wonVsLost.lost, colour: colors.danger },
-                    ]}
-                    emptyMessage="No closed appointments this period."
-                  />
-                  {wonByRegionPair}
-                  {wonByPortfolioPair}
-                  {wonVsLost.hasLossReasons ? (
-                    /* 15 Aug 2026 (§175) — replaces the old ranked bar
-                        list. Genuine parts-of-a-whole data (every lost
-                        deal has exactly one reason) is what
-                        DonutBreakdown exists for — Mark's own explicit
-                        request, referencing a donut+share-list pattern
-                        from another app of his. 'Not captured' stays
-                        neutral grey, not a rotating palette slot — it's
-                        an absence-of-data bucket, not a real category
-                        the reader should visually equate with the
-                        others. */
-                    <DonutBreakdown
-                      title="Loss reasons"
-                      isMobile={isMobile}
-                      data={wonVsLost.lossReasons.map((r, i) => ({
-                        label: LOST_REASON_LABELS[r.reason] ?? r.reason,
-                        value: r.count,
-                        colour: r.reason === 'Not captured' ? colors.ink400 : CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
+                {/* 27 Sep 2026 (later) — the six rings that were here (Overall,
+                    By Region · Won/Lost, By Portfolio · Won/Lost, Loss
+                    reasons) are replaced, from the canvas mock-up Mark
+                    approved: OutcomeFlow carries region → outcome → loss
+                    reason as one flow (continuing the hero's Won/Lost fork);
+                    PortfolioSplit compares won and lost per portfolio. Same
+                    API fields, nothing dropped. The §182-§191 layout history
+                    (flex rows, centring, equal heights) belonged to the ring
+                    cards and is retired with them — see Status_Vercel_Archive.md. */}
+                <div className="mbv-pair" style={{ marginTop: '18px' }}>
+                  <div className="mbv-subpanel wide">
+                    <div>
+                      <h4 className="mbv-subpanel-title">Where this period’s closed deals ended</h4>
+                      <p className="mbv-subpanel-note">Each band is real deals: from the region they came from, to won or lost, and on to why they were lost.</p>
+                    </div>
+                    <OutcomeFlow
+                      wonByRegion={wonVsLost.wonByRegion}
+                      lostByRegion={wonVsLost.lostByRegion}
+                      lossReasons={(wonVsLost.lossReasons ?? []).map(r => ({
+                        key: r.reason, label: LOST_REASON_LABELS[r.reason] ?? r.reason,
+                        count: r.count, notCaptured: r.reason === 'Not captured',
                       }))}
-                    />
-                  ) : (
-                    <DonutBreakdown
-                      title="Loss reasons"
+                      policyValue={policyValueBreakdown?.total ?? 0}
                       isMobile={isMobile}
-                      data={[]}
-                      emptyMessage="No loss reasons captured yet this period — the field exists now (marking an appointment Lost prompts for one), but none of this period's lost appointments have one recorded."
                     />
-                  )}
+                    {!wonVsLost.hasLossReasons && wonVsLost.lost > 0 && (
+                      <p className="mbv-subpanel-note">No loss reasons captured yet this period — the field exists (marking an appointment Lost prompts for one), but none of this period’s lost appointments have one recorded.</p>
+                    )}
+                  </div>
+                  {((wonVsLost.wonByPortfolio?.length ?? 0) + (wonVsLost.lostByPortfolio?.length ?? 0)) > 0 && (() => {
+                    const sumWon  = (wonVsLost.wonByPortfolio ?? []).reduce((t, r) => t + r.count, 0);
+                    const sumLost = (wonVsLost.lostByPortfolio ?? []).reduce((t, r) => t + r.count, 0);
+                    const overlaps = sumWon > wonVsLost.won || sumLost > wonVsLost.lost;
+                    return (
+                      <div className="mbv-subpanel">
+                        <div>
+                          <h4 className="mbv-subpanel-title">By portfolio</h4>
+                          <p className="mbv-subpanel-note">
+                            {overlaps
+                              ? `One deal can cover more than one portfolio, so these add up to more than the ${wonVsLost.won} won and ${wonVsLost.lost} lost.`
+                              : 'One deal can cover more than one portfolio; each portfolio is compared on its own.'}
+                          </p>
+                        </div>
+                        <PortfolioSplit won={wonVsLost.wonByPortfolio} lost={wonVsLost.lostByPortfolio} />
+                      </div>
+                    );
+                  })()}
                 </div>
               </>
             ) : (
@@ -710,104 +577,54 @@ export default function Reports() {
                     { key: 'miss',   label: 'Missed / no-show', value: fmtMetric(appointmentAnalysis.missed) },
                   ]} />
                 </div>
-                {/* 16 Aug 2026 (§182) — Meeting Type and Cancellation
-                    reasons are genuinely different breakdowns (what kind
-                    of meeting vs why one got cancelled) but used to each
-                    get their own full-width block, stacked, each with a
-                    single small donut floating in an otherwise-empty
-                    row. Same fix as Won vs Lost's own Overall/By Region/
-                    By Portfolio consolidation just above: one flex-wrap
-                    row, genuinely side by side where there's room.
-                    REWORKED again 16 Aug 2026 (§183) — same fix as
-                    WonLostPair's own rework: wrapper divs with their own
-                    group heading broke flexbox's stretch from reaching
-                    the actual donut cards, so heights came out uneven.
-                    Each donut now carries its own title directly (no
-                    single-word label needs a separate group heading the
-                    way a Won/Lost pair does) and sits as a true flex
-                    sibling of the other, so stretch equalises them
-                    correctly. */}
-                {/* 16 Aug 2026 (§190, CORRECTED §191) — same fix as the
-                    Won vs Lost row above, same real cause: margin:auto
-                    correctly centred this row's own invisible box, but
-                    said nothing about where the CARDS sit within that
-                    box — flex's default justify-content packed them
-                    left regardless. See that row's own comment for the
-                    fuller account, including how this was actually
-                    confirmed (Mark inspecting the live element directly,
-                    then a measured render of the real components). */}
-                <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', justifyContent: 'center', gap: '20px', maxWidth: '1160px', margin: '0 auto' }}>
-                  {appointmentAnalysis.byMeetingType.length > 0 && (
-                    /* 16 Aug 2026 (§180) — Mark's own suggestion: "perhaps
-                       the Meeting Type could be a donut chart." Was a
-                       DataTable (Booked/Won/Conversion Ratio columns) —
-                       genuine parts-of-a-whole data (every appointment
-                       has exactly one meeting type), so donut fits
-                       cleanly. Won/Conversion Ratio columns dropped
-                       rather than kept alongside — with only ever
-                       InPerson/Virtual as categories, a supplementary
-                       table for two rows added little beyond what the
-                       donut (booked share) plus hover already carries.
-                       Real, different metrics (not a repeat of Booked)
-                       so flagging the drop rather than silently losing
-                       them — easy to bring back as its own small table
-                       if that comparison specifically is wanted.
-                       CONDITION CHANGED to `.length > 1` in §186, then
-                       REVERTED back to `.length > 0` in §188 — §186's
-                       "nothing to compare yet" reasoning was built
-                       around a thin single-category card design; §187
-                       rebuilt DonutBreakdown to carry real weight (a
-                       centre label, a full legend with values) at any
-                       category count, which removed the actual
-                       justification for hiding this at n=1. Mark's own
-                       question after applying §187 — "where are all the
-                       other graphs?" — confirmed the suppression was
-                       hiding real, working data for no remaining
-                       reason. See WonLostPair's own §188 comment for
-                       the fuller account. */
-                    <DonutBreakdown
-                      title="Meeting Type"
-                      isMobile={isMobile}
-                      data={appointmentAnalysis.byMeetingType.map((m, i) => ({
-                        // 27 Sep 2026 — plain language, not the raw enum
-                        // ("InPerson" was on screen); same wording as
-                        // LeadDetail's own meeting-type picker.
-                        label: { InPerson: 'In person', Virtual: 'Virtual' }[m.meetingType] ?? m.meetingType, value: m.booked,
-                        colour: CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
-                      }))}
-                    />
-                  )}
-                  {appointmentAnalysis.cancelReasons.length > 0 ? (
-                    /* 15 Aug 2026 (§175) — same DonutBreakdown as Won vs
-                       Lost's own loss-reasons section, for consistency
-                       between the two visually near-identical
-                       breakdowns. See that section's own comment for
-                       the full reasoning. */
-                    <DonutBreakdown
-                      title="Cancellation reasons"
-                      isMobile={isMobile}
-                      data={appointmentAnalysis.cancelReasons.map((r, i) => ({
-                        label: CANCEL_REASON_LABELS[r.reason] ?? r.reason,
-                        value: r.count,
-                        colour: r.reason === 'Not captured' ? colors.ink400 : CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
-                      }))}
-                    />
-                  ) : appointmentAnalysis.cancelled > 0 ? (
-                    /* 16 Aug 2026 (§183) — routed through DonutBreakdown's
-                       own empty-state branch (data=[]) rather than a bare
-                       <p>, so this card matches its sibling's chrome and
-                       height exactly instead of being an unstyled outlier
-                       in the same row — same reasoning as the card-chrome
-                       fix in DonutBreakdown itself (§179/§182). */
-                    <DonutBreakdown
-                      title="Cancellation reasons"
-                      isMobile={isMobile}
-                      data={[]}
-                      emptyMessage="No cancellation reasons captured yet this period — the field exists now, but none of this period's cancelled meetings have one recorded."
-                    />
-                  ) : null}
-                </div>
-
+                {/* 27 Sep 2026 (later) — Meeting Type and Cancellation reasons
+                    rings replaced (canvas mock-up, approved): a two-way split
+                    reads best as big figures over one bar; reasons as ranked
+                    rows. Deliberately NOT a flow like Won vs Lost — Booked
+                    counts appointments created this period, Cancelled counts
+                    meeting attempts logged this period (reportService.js,
+                    §172): two different clocks, never drawn as one flow. */}
+                {(appointmentAnalysis.byMeetingType.length > 0 || appointmentAnalysis.cancelled > 0) && (
+                  <div className="mbv-pair">
+                    {appointmentAnalysis.byMeetingType.length > 0 && (() => {
+                      const MEETING_COLOURS = ['var(--accent)', 'var(--pl-booked)', 'var(--limited)'];
+                      const parts = appointmentAnalysis.byMeetingType.map((m, i) => ({
+                        key: m.meetingType,
+                        // Plain language, not the raw enum (27 Sep 2026).
+                        label: { InPerson: 'In person', Virtual: 'Virtual' }[m.meetingType] ?? m.meetingType,
+                        count: m.booked, colour: MEETING_COLOURS[i % MEETING_COLOURS.length],
+                      }));
+                      return (
+                        <div className="mbv-subpanel">
+                          <div>
+                            <h4 className="mbv-subpanel-title">Meeting type</h4>
+                            <p className="mbv-subpanel-note">Appointments booked this period.</p>
+                          </div>
+                          <SplitFigures label="Meeting type" parts={parts} total={parts.reduce((t, p) => t + p.count, 0)} />
+                        </div>
+                      );
+                    })()}
+                    {appointmentAnalysis.cancelled > 0 && (
+                      <div className="mbv-subpanel">
+                        <div>
+                          <h4 className="mbv-subpanel-title">Why meetings were cancelled</h4>
+                          <p className="mbv-subpanel-note">Meetings cancelled this period.</p>
+                        </div>
+                        {appointmentAnalysis.cancelReasons.length > 0 ? (
+                          <ReasonRows
+                            label="Why meetings were cancelled"
+                            total={appointmentAnalysis.cancelReasons.reduce((t, r) => t + r.count, 0)}
+                            rows={[...appointmentAnalysis.cancelReasons]
+                              .sort((x, y) => (x.reason === 'Not captured') - (y.reason === 'Not captured') || y.count - x.count)
+                              .map(r => ({ key: r.reason, label: CANCEL_REASON_LABELS[r.reason] ?? r.reason, count: r.count, notCaptured: r.reason === 'Not captured' }))}
+                          />
+                        ) : (
+                          <p className="mbv-subpanel-note">No cancellation reasons captured yet this period — the field exists, but none of this period’s cancelled meetings have one recorded.</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
               </>
             ) : (
               <EmptyState message="No appointments booked this period." />

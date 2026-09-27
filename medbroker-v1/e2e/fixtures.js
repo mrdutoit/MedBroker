@@ -23,7 +23,7 @@ const day = (daysAgo) => iso(daysAgo).slice(0, 10);
 export const PIPELINE_STAGES = [
   { status: 'Unassigned', count: 34 }, { status: 'Assigned', count: 61 },
   { status: 'In Progress', count: 47 }, { status: 'Appointment Booked', count: 29 },
-  { status: 'Closed Won', count: 18 }, { status: 'Closed Lost', count: 11 },
+  { status: 'Closed Won', count: 18 }, { status: 'Closed Lost', count: 12 },
 ];
 export const PIPELINE_STAGE_CONVERSION = [
   { from: 'Unassigned', to: 'Assigned', ratio: 0.78 },
@@ -61,14 +61,17 @@ const DASHBOARD = {
   sourceTable: [], portfolioTable: [],
   policyValueBreakdown: { total: 4820000, avgPerDeal: 267777.78, perAppointment: 63421.05, perLead: 21809.95, trend: [] },
   wonVsLost: {
-    won: 18, lost: 11, winRate: 62.1, avgDaysToCloseWon: 18.4, avgDaysToCloseLost: 26.2,
+    // 27 Sep 2026 (later): one lost lead closed with NO appointment (counts in
+    // Lost and region, has no loss reason) — so lost 12 vs 11 reasons, which
+    // OutcomeFlow must show as a "Closed before an appointment" branch.
+    won: 18, lost: 12, winRate: 60.0, avgDaysToCloseWon: 18.4, avgDaysToCloseLost: 26.2,
     hasLossReasons: true,
     lossReasons: [
       { reason: 'PriceTooHigh', count: 4 }, { reason: 'ChoseCompetitor', count: 3 },
       { reason: 'NoLongerInterested', count: 2 }, { reason: 'Not captured', count: 2 },
     ],
     wonByRegion: [{ region: 'Gauteng', count: 11 }, { region: 'Western Cape', count: 5 }, { region: 'Not captured', count: 2 }],
-    lostByRegion: [{ region: 'Gauteng', count: 7 }, { region: 'KwaZulu-Natal', count: 4 }],
+    lostByRegion: [{ region: 'Gauteng', count: 8 }, { region: 'KwaZulu-Natal', count: 4 }],
     wonByPortfolio: [{ portfolio: 'Medical Aid', count: 12 }, { portfolio: 'Gap Cover', count: 6 }],
     lostByPortfolio: [{ portfolio: 'Medical Aid', count: 8 }, { portfolio: 'Gap Cover', count: 3 }],
   },

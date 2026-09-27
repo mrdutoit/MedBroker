@@ -24,6 +24,8 @@
  * real), never for the ranked tables or the sequential pipeline stages,
  * where a rotating category colour would still be decoration, not
  * information, and the original restraint principle still holds.
+ * RETIRED 27 Sep 2026: every ring is gone (see the note where
+ * DonutBreakdown used to be); the rotating palette went with them.
  */
 
 import { useState } from 'react';
@@ -32,7 +34,6 @@ import { s, colors, radius, shadow, type } from '../styles/tokens.js';
 // removed from this file (and from the app: nothing else imported it).
 // The ring and the trend are now hand-built, interactive components in
 // components/viz/; KpiCard and Sparkline are replaced by viz/MetricStrip.
-import BreakdownRing from './viz/BreakdownRing.jsx';
 import TrendLines from './viz/TrendLines.jsx';
 
 // ─── Formatting — shared with Reports.jsx, single source of truth ──────────
@@ -41,16 +42,6 @@ export const fmtDays = d => d === null || d === undefined ? '—' : `${d.toFixed
 export const fmtRatio = v => v === null || v === undefined ? '—' : v.toFixed(1);
 export const fmtPct = v => v === null || v === undefined ? '—' : `${v.toFixed(1)}%`;
 
-// 15 Aug 2026 (§175) — fixed hex values, deliberately NOT theme CSS
-// variables (var(--accent) etc.) — a rotating multi-colour palette needs
-// to stay mutually distinct regardless of which of the app's own accent
-// themes is currently selected; tying rotation to a single theme
-// variable wouldn't make sense here the way it does for the rest of this
-// file's semantic colours. 'Not captured' / neutral buckets use
-// colors.ink400 instead of a palette slot — see DonutBreakdown's own
-// comment for why that stays a special case, not just another category.
-export const CATEGORICAL_PALETTE = ['#2563eb', '#0d9488', '#d97706', '#7c3aed', '#dc2626', '#0891b2'];
-
 // ─── KpiCard + Sparkline — REPLACED 27 Sep 2026 by components/viz/
 // MetricStrip.jsx (app-design-pass skill). Same value / prior-period
 // delta / lowerIsBetter / "no prior-period data" semantics and the same
@@ -58,119 +49,15 @@ export const CATEGORICAL_PALETTE = ['#2563eb', '#0d9488', '#d97706', '#7c3aed', 
 // than a grid of identical cards, with a sparkline that answers hover
 // and keyboard focus. Only Reports.jsx ever used either (grep-confirmed).
 
-// ─── Donut — 15 Aug 2026 (§175), REDESIGNED REPEATEDLY through 16 Aug
-// 2026 (§179, §180, §182, §183, §184). Genuine parts-of-a-whole data
-// ONLY (every item sums to 100% of something real) — see this file's
-// own header comment for why the ranked tables and sequential pipeline
-// stages don't use this.
-//
-// §187 — Mark, after the §184/§186 patches: "it seems that you are
-// deliberately making things worse... tell me if that looks like it
-// was designed by a data scientist for the information, and a design
-// studio for the UX?" Fair. Every prior pass fixed something real in
-// isolation (a stray cursor artifact, unequal heights, a redundant bar
-// list, a trivial single-category ring) without ever addressing the
-// actual root cause: this component had almost no visual weight of its
-// own — a narrow column, a bare number, a tiny below-legend with no
-// values shown — so no amount of show/hide logic could make it read as
-// intentional. Removing cards (§186) just moved the emptiness around
-// rather than fixing what was empty about the cards that remained.
-//
-// Mark supplied a concrete reference (a real analytics dashboard) and
-// was explicit: keep this app's own theme system and colour tokens,
-// change the STRUCTURE. Three concrete, specific things that reference
-// does that this component didn't:
-//   1. The donut has a real centre label (the total, not decoration) —
-//      the ring itself carries information beyond its slice angles.
-//   2. The legend sits BESIDE the donut with real values and
-//      percentages always visible — not a hover-only mystery, not a
-//      bare colour-key underneath with numbers you have to go find.
-//   3. Every card has real visual weight regardless of how many
-//      categories are in it — nothing in that reference is a bare
-//      number in a mostly-empty box.
-//
-// REBUILT accordingly. §184's separate "compact stat" branch for a
-// single real category is GONE — a real donut with a centre label and
-// a one-row legend is MORE informative at n=1 than a bare number ever
-// was (it still shows the count, the category name, AND the percentage
-// in the same visual language as every other card), and having one
-// consistent treatment instead of two is itself part of "reads like
-// one coherent product." A single-slice ring is no longer awkward
-// because it's not standing alone anymore — the centre label and the
-// legend row give it the same weight as a genuinely multi-category one.
-export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessage, title }) {
-  const total = data.reduce((sum, d) => sum + d.value, 0);
-  const realTotal = data.filter(d => d.label !== 'Not captured').reduce((sum, d) => sum + d.value, 0);
-
-  const cardStyle = {
-    display: 'flex', flexDirection: 'column', gap: '14px',
-    // 16 Aug 2026 (§189) — border/radius/shadow changed from one-off
-    // values (radius.lg, shadow.xs) to the SAME shared tokens s.card and
-    // s.metricCard already use everywhere else on this page (KPI cards,
-    // Section wrapper, in fact everywhere in the whole app) — colors.line
-    // (not colors.lineSoft), radius.md, shadow.sm. Mark's ask was for
-    // "a contemporary design system," not a new one sitting beside the
-    // existing one; this card was quietly using a different border
-    // weight and shadow than its own siblings, which undermines exactly
-    // the "reads like one coherent product" goal §187 was aiming for.
-    padding: '20px 22px', border: `1px solid ${colors.line}`, borderRadius: radius.md,
-    background: colors.surface, boxShadow: shadow.sm,
-    width: isMobile ? '100%' : '360px',
-    // minHeight — 18 Aug 2026, raised from a flat 184px at Mark's
-    // request ("slightly higher, almost responsive"). Mobile keeps a
-    // flat floor deliberately: clamp()'s vw term scales off the FULL
-    // viewport width, and on a narrow portrait phone that number is too
-    // small to mean anything (21vw of a 375px screen is ~79px) — using
-    // it there would make cards SHORTER, the opposite of the ask.
-    // Desktop gets a real clamp(): 210px floor (up from 184px), scaling
-    // gently with viewport up to a 250px ceiling — genuinely responsive
-    // within a bounded range, not just one more fixed pixel value.
-    minHeight: isMobile ? '210px' : 'clamp(210px, 20vw, 250px)',
-    boxSizing: 'border-box',
-    justifyContent: total === 0 || realTotal === 0 ? 'center' : 'flex-start',
-  };
-  // Reserved regardless of whether `title` is actually passed — a
-  // title-less card and a titled card need identical internal
-  // structure for flexbox's own align-items:stretch to equalise a row
-  // of them correctly (§183's own finding, still true here).
-  const titleSlot = (
-    <div style={{ fontSize: '0.75rem', fontWeight: 600, color: colors.ink500, height: '16px', lineHeight: '16px', visibility: title ? 'visible' : 'hidden' }}>
-      {title || '\u00A0'}
-    </div>
-  );
-
-  if (total === 0) {
-    return (
-      <div style={{ ...cardStyle, alignItems: 'center' }}>
-        {titleSlot}
-        <div style={{ fontSize: '0.8125rem', color: colors.ink400, textAlign: 'center' }}>
-          {emptyMessage ?? 'No data for this period.'}
-        </div>
-      </div>
-    );
-  }
-  if (realTotal === 0) {
-    return (
-      <div style={{ ...cardStyle, alignItems: 'center' }}>
-        {titleSlot}
-        <div style={{ fontSize: '0.8125rem', color: colors.ink400, textAlign: 'center' }}>
-          {notCapturedMessage ?? emptyMessage ?? 'Not captured for this period.'}
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div style={cardStyle}>
-      {titleSlot}
-      {/* 27 Sep 2026 — ring + legend now BreakdownRing (components/viz/),
-          hand-built and interactive; see its header. Card chrome, title
-          slot, width, minHeight and both empty states above are
-          unchanged — they carry the §179-§191 layout decisions. */}
-      <BreakdownRing data={data} title={title} />
-    </div>
-  );
-}
+// ─── DonutBreakdown + CATEGORICAL_PALETTE — REMOVED 27 Sep 2026 (later).
+// Every ring on Reports was replaced from the canvas mock-up Mark approved:
+// region/outcome/loss reasons → components/viz/OutcomeFlow, portfolio →
+// PortfolioSplit, meeting type → SplitFigures, cancellation reasons →
+// ReasonRows. The §175-§191 rules the rings carried (values and shares
+// always visible, never hover-only; honest "Not captured"; show a
+// breakdown whenever there's any data) are kept by those components. The
+// full ring history is in Status_Vercel_Archive.md. Only Reports.jsx ever
+// used either (grep-confirmed).
 
 // ─── Empty / low-data state — deliberately designed, not a chart at n=1 ────
 export function EmptyState({ message }) {

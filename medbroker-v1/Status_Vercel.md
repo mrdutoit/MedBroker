@@ -117,6 +117,18 @@ found and fixed the same pattern in 12 overlay handlers across 7 files.
 CONFIRMED LIVE 27 Sep 2026 — mouseDownOnOverlayRef present in all 7
 files in commit e1c112e (verified against a fresh codeload hydration).
 
+WON VS LOST + APPOINTMENT ANALYSIS REBUILT — 27 Sep 2026 (evening),
+medbroker-reports-outcome-flow-20260927-2205.zip. Every ring on Reports replaced, from a canvas mock-up Mark
+approved: OutcomeFlow (region -> won/lost -> loss reason), PortfolioSplit,
+SplitFigures (meeting type), ReasonRows (cancellation reasons). Trend lines
+and sparklines now monotone curves (Mark's request). MUST DELETE ON GITHUB:
+medbroker-v1/frontend/src/components/viz/BreakdownRing.jsx (a ZIP can't
+delete; nothing imports it any more, so the build is fine either way).
+Full account: "SESSION 27 SEP 2026 (EVENING)" in OUTSTANDING ITEMS.
+
+CI: now at .github/workflows/ci.yml (Mark moved it, 27 Sep) — first green
+run in the Actions tab still to be confirmed; F-05 closes on that.
+
 REPORTS PAGE COMPLETED — 27 Sep 2026 (later still), medbroker-reports-complete-20260927-2103.zip.
 Every chart and metric row below the PipelineJourney hero rebuilt in the
 same hand-built, interactive chart language (MetricStrip, TrendLines,
@@ -125,11 +137,8 @@ backend change (additive): trend buckets that haven't happened yet carry
 `future: true`. Full account: "SESSION 27 SEP 2026 — REPORTS PAGE
 COMPLETED" in OUTSTANDING ITEMS below. No migration.
 
-CI NOT YET RUNNING (checked 27 Sep 2026): ci.yml is on main at the REPO
-ROOT as plain `ci.yml`, not at `.github/workflows/ci.yml` — GitHub only
-runs workflows from that folder. Mark to rename it in github.dev (Rename
--> type `.github/workflows/ci.yml`). F-05 stays open until the first
-green run in the Actions tab.
+CI LOCATION FIXED (27 Sep 2026, evening): Mark moved ci.yml to
+.github/workflows/ci.yml — confirmed on a fresh hydration.
 
 REPORTS HERO (PipelineJourney) — DELIVERED 27 Sep 2026. Designed and
 browser-verified 24 Sep 2026 (app-design-pass skill), but the code NEVER
@@ -268,11 +277,11 @@ VERCEL FUNCTION COUNT: confirmed exactly 12/12 on this hydration — still
 zero headroom, still Hobby's hard ceiling. Any new top-level API surface
 needs a consolidation first.
 
-BUILD HEALTH (27 Sep 2026, on main + the reports-complete delta):
-clean `npm run build`; `npx vitest run` 57/57; browser suite 95/95 (one
+BUILD HEALTH (27 Sep 2026 evening, on main + the outcome-flow delta):
+clean `npm run build`; `npx vitest run` 57/57; browser suite 98/98 (one
 of those is the deliberately test.fail()-marked tasks.enabled item);
-`npm run lint` — the same single pre-existing plugin-version error,
-warnings down to 149 (Recharts imports gone).
+`npm run lint` — the same single pre-existing plugin-version error plus
+the known JSX-usage false-positive warnings.
 CI: .github/workflows/ci.yml delivered 27 Sep 2026 as a STANDALONE file
 (repo root, outside medbroker-v1/) — NOT live until Mark creates it in
 github.dev. Once live, unit + browser suites run on GitHub's servers on
@@ -284,6 +293,79 @@ replacement for it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 27 SEP 2026 (EVENING) — WON VS LOST AND APPOINTMENT ANALYSIS
+REBUILT; ROUNDED TREND LINES.
+
+HOW IT WAS DECIDED: Mark found the rings small and unimpactful. Asked
+whether bars were really the studio answer, the honest reply was: bars beat
+rings for comparing categories (length reads more accurately than angle),
+but what makes it studio-level is answering each section's question and
+carrying the product's own concept. Proposed "where journeys end" — a flow
+continuing the hero's Won/Lost fork. Mark asked for a static mock-up first
+(a Design canvas, Midnight theme, this period's real figures), then
+approved it.
+
+WHAT CHANGED (same endpoints, same API fields, nothing dropped):
+  - OutcomeFlow (viz/OutcomeFlow.jsx) replaces the Overall, By Region ·
+    Won/Lost and Loss reasons rings: region -> Won/Lost -> loss reason,
+    bands in the logo blue turning into the outcome colour. Every node is a
+    real button; hover/focus traces what's connected and shows a detail
+    card (top-right corner on desktop, clear of the traced path — the
+    first placement covered it; below the label on a phone). On a phone
+    the flow stops at Won/Lost and loss reasons follow as ReasonRows.
+  - PortfolioSplit replaces the By Portfolio · Won/Lost rings: lost left of
+    a centre line, won right, then the portfolio's win rate.
+  - SplitFigures replaces the Meeting Type ring; ReasonRows replaces the
+    Cancellation reasons ring. Both keep value and share always visible.
+  - Trend lines and sparklines: monotone curves (viz/curve.js), Mark's
+    request. Monotone, not generic smoothing — never overshoots, so no
+    invented peaks or dips.
+  - Removed: DonutBreakdown, CATEGORICAL_PALETTE (ReportsWidgets.jsx),
+    WonLostPair (Reports.jsx), BreakdownRing.jsx (DELETE ON GITHUB).
+
+DATA-SEMANTICS FINDINGS (these shaped the design, recorded as standing
+rules in Project_Context_Vercel.md):
+  1. PORTFOLIO RINGS WERE STATING SOMETHING FALSE. reportService counts a
+     deal in every portfolio it covers (deliberate, 21 Aug), so the parts
+     can exceed the deals — live data showed "4 total" for 3 won deals and
+     "6 total" for 3 lost. A ring asserts parts-of-a-whole. PortfolioSplit
+     compares each portfolio on its own, with a note that says when the
+     overlap shows.
+  2. Lost includes leads closed with NO appointment (regionNoAppt query);
+     loss reasons exist only on appointments. The difference is drawn as
+     its own branch, "Closed before an appointment".
+  3. There is no region x reason breakdown, so tracing a region lights its
+     region -> outcome bands only. (The mock-up traced Western Cape through
+     to a reason — illustrative, and it would have been invented data.)
+  4. Appointment Analysis is deliberately NOT a flow: Booked counts
+     appointments created this period, Cancelled counts meeting attempts
+     logged this period — two clocks.
+
+FIXTURES/TESTS: fixture now has one lost lead with no appointment (lost 12,
+reasons 11) so the new branch is exercised. Ring test replaced by four:
+flow region trace + card; the no-appointment branch; portfolio split and
+its note; reason rows + meeting type plain labels.
+
+VERIFIED: build clean; vitest 57/57; browser suite 98/98; screenshots
+reviewed — desktop Midnight and Linen, 390px phone, region hover, Lost
+focus, phone focus, rounded trend and sparklines. Two issues found in them
+and fixed before delivery: phone bands 12px long with overlapping column
+headings (label column and outcome label re-proportioned); the detail card
+covering the traced path (moved to the corner).
+
+DELIVERY: medbroker-reports-outcome-flow-20260927-2205.zip — frontend/src/pages/Reports.jsx, frontend/src/
+components/ReportsWidgets.jsx, frontend/src/components/viz/{OutcomeFlow.jsx,
+PortfolioSplit.jsx, ReasonRows.jsx, SplitFigures.jsx, curve.js} (new),
+viz/{TrendLines.jsx, MetricStrip.jsx, viz.css}, e2e/fixtures.js,
+e2e/interactions.spec.js, both status docs. DELETE on GitHub:
+frontend/src/components/viz/BreakdownRing.jsx. No migration, no backend
+change, no dependency change.
+
+NEXT (agreed order): Agent Detail and Broker Detail in the same chart
+language, then Appointment Detail (one lead's journey), then Lead List.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 27 SEP 2026 — REPORTS PAGE COMPLETED (app-design-pass, Mark's
 choice of next step over Appointment Detail / Lead List).

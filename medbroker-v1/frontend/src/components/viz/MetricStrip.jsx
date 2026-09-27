@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { useElementWidth } from '../../hooks/useElementWidth.js';
+import { monotonePath } from './curve.js';
 import './viz.css';
 
 /**
@@ -77,7 +78,8 @@ function Spark({ points, format, label, onActive }) {
     else if (e.key === 'Escape') { set(null); }
   }
 
-  const d = width ? points.map((p, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)} ${y(p.value).toFixed(1)}`).join(' ') : '';
+  // Same monotone curve as the trend chart (27 Sep 2026) — one line language.
+  const d = width ? monotonePath(points.map((p, i) => ({ x: x(i), y: y(p.value) }))) : '';
   return (
     <div
       ref={ref}

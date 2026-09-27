@@ -252,37 +252,113 @@
 .mbv-legend-item.off { color: var(--mut); opacity: 0.55; }
 .mbv-legend-item.off .mbv-key { background: transparent !important; box-shadow: inset 0 0 0 1.5px var(--mut); }
 
-/* ---------- BreakdownRing ---------- */
-.mbv-ring-wrap { display: flex; gap: 20px; align-items: center; }
-.mbv-ring { position: relative; width: 112px; height: 112px; flex-shrink: 0; }
-.mbv-ring svg { display: block; overflow: visible; }
-.mbv-ring-track { stroke: var(--line); opacity: 0.5; }
-.mbv-ring-seg { transition: stroke-width 140ms ease, opacity 140ms ease; cursor: pointer; }
-.mbv-ring-centre {
-  position: absolute; inset: 0; display: flex; flex-direction: column;
-  align-items: center; justify-content: center; pointer-events: none;
-}
-.mbv-ring-figure { font-family: var(--disp); font-size: 1.375rem; font-weight: 700; color: var(--ink); line-height: 1; font-variant-numeric: tabular-nums; }
-.mbv-ring-caption { font-size: 0.6875rem; color: var(--mut); margin-top: 3px; }
+/* ════════════════════════════════════════════════════════════════════
+   27 Sep 2026 (later) — Won vs Lost and Appointment Analysis, replacing
+   the breakdown rings (approved from the canvas mock-up). BreakdownRing
+   and its styles are gone.
+   ════════════════════════════════════════════════════════════════════ */
 
-.mbv-ring-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
-.mbv-ring-row {
-  display: flex; align-items: flex-start; gap: 7px; width: 100%;
+/* Sub-panels: two side by side on desktop, stacked on a phone. */
+.mbv-pair { display: flex; gap: 20px; align-items: stretch; }
+.mbv-subpanel {
+  flex: 1 1 0; min-width: 0; box-sizing: border-box;
+  background: var(--panel2); border: 1px solid var(--line); border-radius: var(--r-card, 14px);
+  padding: 20px 22px; display: flex; flex-direction: column; gap: 16px;
+}
+.mbv-subpanel.wide { flex-grow: 2; }
+.mbv-subpanel-title { margin: 0; font-size: 0.875rem; font-weight: 700; color: var(--ink); }
+.mbv-subpanel-note { margin: 4px 0 0; font-size: 0.75rem; color: var(--mut); line-height: 1.5; max-width: 60ch; }
+.mbv-subpanel-kicker { font-size: 0.75rem; font-weight: 600; color: var(--mut); margin-bottom: 10px; }
+@media (max-width: 767px) {
+  .mbv-pair { flex-direction: column; }
+  .mbv-subpanel { padding: 16px; }
+}
+
+/* ---------- OutcomeFlow ---------- */
+.mbv-flow-plot { position: relative; width: 100%; }
+.mbv-flow-plot svg { display: block; overflow: visible; }
+.mbv-flow-col { fill: var(--mut); font-size: 12px; font-weight: 600; font-family: var(--body); }
+.mbv-flow-label { fill: var(--ink); font-size: 13px; font-weight: 600; font-family: var(--body); }
+.mbv-flow-sub { fill: var(--mut); font-size: 11.5px; font-family: var(--body); font-variant-numeric: tabular-nums; }
+.mbv-flow-big { fill: var(--ink); font-size: 22px; font-weight: 700; font-family: var(--disp); font-variant-numeric: tabular-nums; }
+.mbv-flow-band { opacity: 0.5; transition: opacity 160ms ease; }
+.mbv-flow-band.reason { opacity: 0.3; }
+.mbv-flow-band.lit { opacity: 0.88; }
+.mbv-flow-band.dim { opacity: 0.1; }
+.mbv-flow-node.hatched { stroke: var(--mut); stroke-width: 1; }
+.mbv-dim { opacity: 0.32; transition: opacity 160ms ease; }
+.mbv-flow-hit {
+  position: absolute; padding: 0; margin: 0; border: none; background: transparent;
+  cursor: pointer; border-radius: 8px;
+}
+.mbv-flow-mobile-reasons { margin-top: 18px; padding-top: 16px; border-top: 1px solid var(--line); }
+
+/* ---------- ReasonRows ---------- */
+.mbv-reasons { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.mbv-reason {
+  display: grid; grid-template-columns: minmax(120px, 0.9fr) minmax(0, 1.4fr) 84px;
+  align-items: center; column-gap: 14px; width: 100%;
   background: none; border: none; font: inherit; text-align: left; cursor: default;
-  padding: 3px 6px; margin: 0 -6px; border-radius: 6px;
+  padding: 7px 8px; margin: 0 -8px; border-radius: 8px;
   transition: opacity 140ms ease, background 140ms ease;
 }
-.mbv-ring-row.active { background: color-mix(in srgb, var(--accent) 8%, transparent); }
-.mbv-ring-row.dim { opacity: 0.45; }
-.mbv-ring-swatch { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
-.mbv-ring-swatch.hatched {
-  background: repeating-linear-gradient(45deg, var(--mut) 0 1.5px, transparent 1.5px 3.5px);
-  box-shadow: inset 0 0 0 1px var(--mut);
+.mbv-reason.active { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.mbv-reason.dim { opacity: 0.45; }
+.mbv-reason-name { font-size: 0.8125rem; color: var(--ink); line-height: 1.35; }
+.mbv-reason-track { height: 12px; border-radius: 6px; background: color-mix(in srgb, var(--mut) 12%, transparent); overflow: hidden; }
+.mbv-reason-bar { display: block; height: 100%; border-radius: 6px; min-width: 3px; }
+.mbv-reason-bar.hatched { background: repeating-linear-gradient(45deg, var(--mut) 0 2px, transparent 2px 6px); box-shadow: inset 0 0 0 1px var(--mut); }
+.mbv-reason-value { font-size: 0.8125rem; font-weight: 700; color: var(--ink); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.mbv-reason-pct { font-weight: 400; color: var(--mut); margin-left: 4px; }
+@media (max-width: 767px) {
+  .mbv-reason { grid-template-columns: minmax(0, 1fr) 70px; row-gap: 6px; }
+  .mbv-reason-track { grid-column: 1 / -1; grid-row: 2; }
 }
-.mbv-ring-name { font-size: 0.8125rem; color: var(--ink); line-height: 1.35; flex: 1; }
-.mbv-ring-value { font-size: 0.8125rem; font-weight: 600; color: var(--ink); flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
-.mbv-ring-pct { font-size: 0.75rem; font-weight: 400; color: var(--mut); }
+
+/* ---------- SplitFigures ---------- */
+.mbv-split { display: flex; flex-direction: column; gap: 14px; }
+.mbv-split-figures { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+.mbv-split-figure {
+  display: flex; flex-direction: column; gap: 4px; align-items: flex-start;
+  background: none; border: none; font: inherit; cursor: default; padding: 4px 6px; margin: -4px -6px; border-radius: 8px;
+  transition: opacity 140ms ease;
+}
+.mbv-split-figure:last-child { align-items: flex-end; }
+.mbv-split-figure.dim, .mbv-split-seg.dim { opacity: 0.35; }
+.mbv-split-count { font-family: var(--disp); font-size: 2.5rem; font-weight: 700; line-height: 1; color: var(--ink); font-variant-numeric: tabular-nums; }
+.mbv-split-label { display: inline-flex; align-items: center; font-size: 0.8125rem; color: var(--ink); }
+.mbv-split-pct { color: var(--mut); margin-left: 6px; }
+.mbv-split-bar { display: flex; gap: 3px; height: 16px; }
+.mbv-split-seg { flex-basis: 0; min-width: 4px; transition: opacity 140ms ease; }
+.mbv-split-seg:first-child { border-radius: 8px 0 0 8px; }
+.mbv-split-seg:last-child { border-radius: 0 8px 8px 0; }
+.mbv-split-seg:only-child { border-radius: 8px; }
+
+/* ---------- PortfolioSplit ---------- */
+.mbv-port { display: flex; flex-direction: column; gap: 10px; }
+.mbv-port-head { display: grid; grid-template-columns: minmax(0, 1fr) 60px; column-gap: 12px; font-size: 0.6875rem; font-weight: 600; color: var(--mut); }
+.mbv-port-head-bars { display: flex; justify-content: space-between; }
+.mbv-port-head-rate { text-align: right; }
+.mbv-port-rows { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.mbv-port-row {
+  display: flex; flex-direction: column; gap: 8px; width: 100%;
+  background: none; border: none; font: inherit; text-align: left; cursor: default;
+  padding: 8px; margin: 0 -8px; border-radius: 8px; transition: opacity 140ms ease, background 140ms ease;
+}
+.mbv-port-row.active { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.mbv-port-row.dim { opacity: 0.45; }
+.mbv-port-name { font-size: 0.8125rem; font-weight: 600; color: var(--ink); }
+.mbv-port-line { display: grid; grid-template-columns: minmax(0, 1fr) 60px; column-gap: 12px; align-items: center; }
+.mbv-port-bars { display: grid; grid-template-columns: minmax(0, 1fr) 2px minmax(0, 1fr); align-items: center; }
+.mbv-port-side { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.mbv-port-side.lost { justify-content: flex-end; }
+.mbv-port-bar { height: 14px; min-width: 3px; }
+.mbv-port-bar.lost { background: var(--pl-lost); border-radius: 7px 0 0 7px; }
+.mbv-port-bar.won { background: var(--pl-won); border-radius: 0 7px 7px 0; }
+.mbv-port-spine { height: 26px; background: var(--mut); opacity: 0.4; }
+.mbv-port-n { font-size: 0.8125rem; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
+.mbv-port-rate { text-align: right; font-family: var(--disp); font-size: 1.25rem; font-weight: 700; color: var(--ink); font-variant-numeric: tabular-nums; }
 
 @media (prefers-reduced-motion: reduce) {
-  .mbv-ring-seg, .mbv-ring-row, .mbv-trend-dot { transition: none; }
+  .mbv-trend-dot, .mbv-flow-band, .mbv-dim, .mbv-reason, .mbv-split-figure, .mbv-split-seg, .mbv-port-row { transition: none; }
 }

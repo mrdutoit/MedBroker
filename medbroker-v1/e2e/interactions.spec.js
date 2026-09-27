@@ -122,18 +122,48 @@ test('Reports trend: legend buttons hide and show a series', async ({ page }) =>
   await expect(plot.locator('.mbv-tip')).toContainText('Lost');
 });
 
-test('Reports breakdown rings: focusing a legend row puts that category in the centre', async ({ page }) => {
+test('Reports outcome flow: focusing a region traces it and shows its detail card', async ({ page }) => {
   const errors = watchErrors(page);
   await signInAs(page, 'GlobalAdmin');
   await page.goto('/reports');
-  const row = page.getByRole('button', { name: 'Price too high: 4, 36%' });
-  await row.focus();
-  const ring = row.locator('xpath=ancestor::div[contains(@class,"mbv-ring-wrap")]');
-  await expect(ring.locator('.mbv-ring-figure')).toHaveText('4');
-  await expect(ring.locator('.mbv-ring-caption')).toHaveText('36%');
-  await row.blur();
-  await expect(ring.locator('.mbv-ring-figure')).toHaveText('11');   // back to the total
+  const gauteng = page.getByRole('button', { name: /^Gauteng: 19 closed, 11 won, 8 lost/ });
+  await gauteng.focus();
+  const card = page.locator('.mbv-flow .mbv-tip');
+  await expect(card).toContainText('Gauteng');
+  await expect(card).toContainText('58%');           // 11 of 19
+  // Tracing dims what isn't connected: at least one band is lit, others dimmed.
+  await expect(page.locator('.mbv-flow-band.lit').first()).toBeVisible();
+  expect(await page.locator('.mbv-flow-band.dim').count()).toBeGreaterThan(0);
   expect(errors).toEqual([]);
+});
+
+test('Reports outcome flow: lost leads with no appointment get their own branch, not a missing slice', async ({ page }) => {
+  // Lost includes leads closed without ever booking an appointment; loss
+  // reasons only exist on appointments. The fixture has 12 lost and 11
+  // reasons, so the difference (1) must appear as its own branch.
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/reports');
+  const branch = page.getByRole('button', { name: /^Closed before an appointment: 1 of 12 lost deals/ });
+  await expect(branch).toBeAttached();
+  await expect(page.getByRole('button', { name: /^Lost: 12 deals, 1 closed before an appointment/ })).toBeAttached();
+});
+
+test('Reports portfolio split: a deal counted in two portfolios is explained, not shown as shares', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/reports');
+  await expect(page.getByRole('button', { name: 'Medical Aid: 12 won, 8 lost, win rate 60%' })).toBeVisible();
+  // Fixture portfolios sum to 18 won / 11 lost against 18 / 12 — no overlap,
+  // so the general note shows, not the "add up to more" one.
+  await expect(page.getByText('each portfolio is compared on its own')).toBeVisible();
+});
+
+test('Reports reason rows: cancellation reasons keep value and share visible, Not captured hatched', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/reports');
+  const list = page.getByRole('list', { name: 'Why meetings were cancelled' });
+  await expect(list.getByRole('button', { name: 'Scheduling conflict: 5, 56%' })).toBeVisible();
+  await expect(list.locator('.mbv-reason-bar.hatched')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'In person: 49, 64%' })).toBeVisible();   // meeting type, plain language
 });
 
 test('Reports metric strip: a sparkline reads out each period by keyboard', async ({ page }) => {

@@ -1799,7 +1799,17 @@ Reports chart language — completed 27 Sep 2026 (app-design-pass). Every
   a dependency and should not be reintroduced for a new chart. Components:
   PipelineJourney (the one bold hero panel), MetricStrip (any row of
   headline figures — never a grid of identical KPI cards), TrendLines
-  (time series), BreakdownRing (parts-of-a-whole, inside DonutBreakdown).
+  (time series, monotone curves via curve.js), OutcomeFlow (closed deals:
+  region -> won/lost -> loss reason), PortfolioSplit (won vs lost per
+  overlapping group), SplitFigures (a 2-3 way split), ReasonRows (reasons
+  that each count once). NO RINGS: BreakdownRing/DonutBreakdown were
+  retired 27 Sep 2026 (evening) after Mark found them small and
+  unimpactful — don't reintroduce a donut for a new breakdown.
+  FLOW RULES: only draw a flow where the bands genuinely sum (every item in
+  exactly one category, one time basis); draw any remainder as its own
+  named branch; never trace through a cross-breakdown the data doesn't
+  have. Portfolio counts overlap (a deal counts in every portfolio it
+  covers) — never show them as shares of a total.
   STANDING RULES: every mark answers hover AND keyboard focus; a floating
   tooltip never goes above its chart or inside a clipping container (use
   the side-hung card, or an inline/centre readout); focus uses the app's

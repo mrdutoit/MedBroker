@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react';
 import { useElementWidth } from '../../hooks/useElementWidth.js';
+import { monotonePath } from './curve.js';
 import './viz.css';
 
 /**
@@ -24,8 +25,9 @@ import './viz.css';
  *   - Periods that haven't happened yet (`future`, reportService 27 Sep)
  *     are not drawn as zeros — the lines stop at the last real period and
  *     the remainder is a faint hatched band labelled "Still to come".
- *   - Straight segments, not monotone curves: a curve implies values
- *     between periods that were never measured.
+ *   - Monotone curves (curve.js) — CHANGED 27 Sep 2026 at Mark's request
+ *     from straight segments. Monotone, not generic smoothing: it never
+ *     overshoots, so the rounding can't invent a peak or dip.
  *
  * Tooltip placement: beside the guide line (right, or left near the
  * right edge), hanging from the top of the plot — never above it, so no
@@ -179,7 +181,7 @@ export default function TrendLines({ data, isMobile }) {
 
             {visible.map(sr => {
               if (lastReal < 0) return null;
-              const d = real.map((pt, i) => `${i === 0 ? 'M' : 'L'}${x(i).toFixed(1)} ${yFor(sr, pt[sr.key] ?? 0).toFixed(1)}`).join(' ');
+              const d = monotonePath(real.map((pt, i) => ({ x: x(i), y: yFor(sr, pt[sr.key] ?? 0) })));
               return (
                 <g key={sr.key}>
                   <path d={d} fill="none" stroke={sr.colour} strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" />
