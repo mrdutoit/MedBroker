@@ -1607,7 +1607,93 @@ Role Configuration (dynamic, GlobalAdmin-defined roles + configurable
   building it in from day one is cheap, rather than retrofitting it
   later once 90+ hardcoded checks already exist to unwind.
 
-Modal overlay drag-select bug — found and fixed 24 Sep 2026, following
+Browser regression suite — built 27 Sep 2026 (app-design-pass skill's
+  own mandatory requirement; continuation of 24-26 Sep 2026's Reports
+  redesign). e2e/ at repo root (sibling to frontend/, not inside it),
+  @playwright/test pinned as a repo-root-only devDependency
+  (medbroker-v1/package.json — deliberately never frontend/package.json,
+  which ships to Vercel), run by .github/workflows/ci.yml as its own
+  job alongside the existing unit-test job. Two files: smoke.spec.js
+  (every page, every role, renders cleanly) and interactions.spec.js
+  (regression tests for specific real bugs, listed below).
+
+  WHY THIS FOUND SO MUCH, EXPLAINED ONCE HERE RATHER THAN RE-JUSTIFIED
+  EVERY TIME: vitest's 57 tests mock the database and test service-layer
+  logic in isolation — they never render a real page, a real component
+  tree, or a real role/permission context, so they structurally cannot
+  catch a page crashing on a missing field, a NaN warning from a normal
+  zero-state, or two endpoints returning inconsistently-shaped
+  responses. This suite is the first thing in this project's history to
+  drive every page, for every role, through a real browser with
+  realistic data. What it found was not introduced by recent work — it
+  was latent, shipping invisibly, waiting for the specific combination
+  of role and data state that would trigger it.
+
+  FIXTURE-SHAPE FINDINGS (the suite's actual value, not incidental
+  friction): usersApi's user objects need `portfolios`/`products`
+  arrays or UserAdmin.jsx crashes the whole page (`user.portfolios.
+  length`, no `?.` guard) — found by running the suite, not by reading
+  the component first. eventsApi.get() wraps its response in
+  `{ event: {...} }`; appointmentsApi.get() and leadsApi.get() don't —
+  checked each individually before fixturing rather than assumed
+  uniform, after the wrong assumption left an event page permanently
+  showing "Event not found."
+
+  REAL APP BUGS FOUND: EventDetail.jsx's attendance bars divide by
+  event.rsvpCount with no zero-guard (attendancePct, three lines away,
+  already had the correct guard — these two just never got the same
+  treatment) — a brand-new event with zero RSVPs is a completely normal
+  state, not an edge case, and produced a real React NaN-attribute
+  warning every time. FIXED, same guard pattern applied consistently.
+  tasks.enabled defaults to false in FlagContext, and /tasks' redirect
+  check runs on the synchronous first render, before the async /flags
+  fetch can possibly have resolved yet — /events never shows the same
+  class of bug only because its own default happens to already be true.
+  NOT FIXED (a real design decision, not a mechanical one — show a
+  loading state before gating? change the default? — out of scope for
+  this pass), documented as a deliberately-still-failing
+  interactions.spec.js test (test.fail()) so it stays visible in CI
+  rather than silently working around it by excluding the page from the
+  smoke list and forgetting it exists.
+
+  A GENUINE SEMANTIC-HTML GAP, NOTED NOT FIXED: AppointmentDetail.jsx
+  has zero heading elements of any level anywhere in the file. The
+  suite's own health check (expectHealthyPage, e2e/fixtures.js) was
+  adjusted to fall back to confirming <main> rendered real content
+  instead of hard-requiring an h1 every page doesn't actually have —
+  the right fix for the TEST, since forcing uniform semantic HTML onto
+  every page is a separate, real piece of work this pass didn't do.
+
+  TWO SCREENSHOT/TEST-METHODOLOGY CORRECTIONS, carried over from the
+  throwaway harness this suite replaced: document.body.scrollHeight
+  stays pinned to the viewport because a <main> element, not the page,
+  is this app's true internally-scrolling container (confirmed by
+  measuring scrollHeight vs clientHeight directly) — full-page capture
+  or full-content assertions need that constraint temporarily lifted
+  first (expandMainForFullContent() in e2e/fixtures.js).
+
+  THE BIGGEST LESSON, cost real debugging time before it was found:
+  Supervisor role hung on "Loading…" indefinitely on /reports and
+  /leads/import specifically, reproducibly, in isolation — looked
+  exactly like a real, role-specific app bug. It wasn't. Direct
+  instrumentation (temporarily logging every loading flag from inside
+  Reports.jsx itself, not guessed from reading the code) showed all
+  four flags correctly reaching false — the page genuinely finishes
+  loading. The suite's OWN expectHealthyPage helper was the bug: its
+  fallback took one un-retried textContent() reading immediately after
+  an unrelated h1-visibility wait had already timed out, and on a page
+  that happened to still be rendering at that exact instant, that
+  single reading caught it mid-render and failed a perfectly healthy
+  page. Fixed with expect.poll() (retries its own read against its own
+  timeout) instead of a bare read. STANDING RULE for any future test in
+  this suite: any assertion on data-dependent content must poll/retry,
+  never take a single reading right after a different check's timeout
+  already expired — and before concluding a failing test reveals an app
+  bug, run it alone with --retries=0 first; if it fails the same way
+  every time alone, it's real, investigate the app; if it only fails
+  intermittently in a larger batch, suspect the test's own timing
+  margins first.
+
   Mark's own live testing (UserAdmin.jsx: the Create User email field
   closing the modal when its text was selected, and a "disappearing"
   password-visibility toggle — traced to ONE root cause, not two).

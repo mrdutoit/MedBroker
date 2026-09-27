@@ -462,8 +462,18 @@ export default function EventDetail() {
           </div>
           <div style={{ background: 'var(--panel2)', borderRadius: '6px', height: '10px', overflow: 'hidden' }}>
             <div style={{ display: 'flex', height: '100%' }}>
-              <div style={{ background: '#10b981', width: `${Math.round((event.attendedCount / event.rsvpCount) * 100)}%` }} />
-              <div style={{ background: '#db2777', width: `${Math.round((event.walkinCount  / event.rsvpCount) * 100)}%` }} />
+              {/* 26 Sep 2026 — REAL BUG found by this session's e2e suite,
+                  not by inspection: a brand-new event with zero RSVPs yet
+                  (a completely normal, common state — every event starts
+                  here) divides by event.rsvpCount directly with no
+                  guard, producing NaN, which React then warns about
+                  loudly trying to set width:"NaN%" as a DOM style value.
+                  attendancePct (a few lines up) already has the correct
+                  `rsvpCount > 0 ? ... : 0` guard for the exact same class
+                  of ratio — these two bars just never got the same
+                  treatment. Same guard, applied consistently now. */}
+              <div style={{ background: '#10b981', width: `${event.rsvpCount > 0 ? Math.round((event.attendedCount / event.rsvpCount) * 100) : 0}%` }} />
+              <div style={{ background: '#db2777', width: `${event.rsvpCount > 0 ? Math.round((event.walkinCount  / event.rsvpCount) * 100) : 0}%` }} />
             </div>
           </div>
           <div style={{ display: 'flex', gap: '16px', marginTop: '6px' }}>

@@ -1,0 +1,11 @@
+{
+  "name": "medbroker-v1",
+  "private": true,
+  "description": "Repo-root-level package for the e2e regression suite only — @playwright/test deliberately does NOT live in frontend/package.json, which ships to Vercel. See e2e/playwright.config.js.",
+  "scripts": {
+    "test:e2e": "playwright test --config=e2e/playwright.config.js"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.56.0"
+  }
+}
