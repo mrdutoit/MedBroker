@@ -162,3 +162,127 @@
   color: rgba(234, 242, 250, 0.6);
   font-size: 0.8125rem;
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   27 Sep 2026 — Reports page completion (app-design-pass). Quiet
+   supporting surfaces: theme-aware (they sit on the page, not in the
+   hero), no competing bold panel, hairlines instead of card borders.
+   ════════════════════════════════════════════════════════════════════ */
+
+.mbv-key {
+  display: inline-block; width: 9px; height: 9px; border-radius: 2px;
+  margin-right: 6px; vertical-align: 0; flex-shrink: 0;
+}
+.mbv-hatch-line { stroke: var(--line); stroke-width: 1.5; }
+.mbv-hatch-bg { fill: var(--panel); }
+.mbv-hatch-line-strong { stroke: var(--mut); stroke-width: 1.6; opacity: 0.7; }
+
+/* Keyboard focus on every control below uses the app's own convention
+   (index.css :focus-visible — a soft accent ring), not a second outline. */
+
+/* ---------- MetricStrip ---------- */
+/* One panel, metrics separated by 1px hairlines: the grid's own gap shows
+   the container's --line background through, so dividers stay correct in
+   any column count, desktop or phone. */
+.mbv-strip {
+  display: grid;
+  grid-template-columns: repeat(var(--cols), minmax(0, 1fr));
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+  border-radius: var(--r-card, 14px);
+  overflow: hidden;
+}
+.mbv-strip-cell {
+  background: var(--panel);
+  padding: 16px 18px 12px;
+  min-width: 0;
+  display: flex; flex-direction: column;
+}
+.mbv-strip-label { font-size: 0.75rem; font-weight: 600; color: var(--mut); line-height: 1.3; }
+.mbv-strip-value {
+  font-family: var(--disp); font-size: 1.625rem; font-weight: 700; color: var(--ink);
+  letter-spacing: -0.02em; line-height: 1.1; margin-top: 6px;
+  font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+}
+.mbv-strip-meta { font-size: 0.75rem; margin-top: 6px; min-height: 18px; line-height: 1.4; }
+.mbv-strip-muted { color: var(--mut); font-weight: 400; }
+.mbv-strip-readout { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.mbv-delta { font-weight: 600; font-variant-numeric: tabular-nums; }
+.mbv-delta-good { color: var(--live); }
+.mbv-delta-bad  { color: var(--danger); }
+.mbv-delta-flat { color: var(--mut); }
+
+.mbv-spark { margin-top: auto; padding-top: 8px; height: 30px; box-sizing: content-box; cursor: crosshair; border-radius: 6px; }
+.mbv-spark svg { display: block; overflow: visible; }
+.mbv-spark-line { fill: none; stroke: var(--accent); stroke-width: 1.75; stroke-linejoin: round; stroke-linecap: round; }
+.mbv-spark-area { fill: color-mix(in srgb, var(--accent) 10%, transparent); stroke: none; }
+.mbv-spark-guide { stroke: var(--mut); stroke-width: 1; opacity: 0.5; }
+.mbv-spark-dot { fill: var(--accent); stroke: var(--panel); stroke-width: 1.5; }
+
+@media (max-width: 767px) {
+  .mbv-strip { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  /* Odd count on a phone: the last metric spans the row, so no empty
+     hairline-coloured slot is left behind. */
+  .mbv-strip-cell:last-child:nth-child(odd) { grid-column: 1 / -1; }
+  .mbv-strip-cell { padding: 14px 14px 10px; }
+  .mbv-strip-value { font-size: 1.375rem; }
+}
+
+/* ---------- TrendLines ---------- */
+.mbv-trend-plot { position: relative; width: 100%; cursor: crosshair; border-radius: 8px; }
+.mbv-trend-plot svg { display: block; overflow: visible; }
+.mbv-grid { stroke: var(--line); stroke-width: 1; }
+.mbv-axis { fill: var(--mut); font-size: 11px; font-family: var(--body); font-variant-numeric: tabular-nums; }
+.mbv-axis-active { fill: var(--ink); font-weight: 700; }
+.mbv-guide { stroke: var(--mut); stroke-width: 1; stroke-dasharray: 3 3; opacity: 0.7; }
+.mbv-trend-dot { stroke: var(--panel); stroke-width: 1.5; transition: r 120ms ease; }
+
+/* Side-hung tooltip: beside the guide line, hanging DOWN from the plot's
+   top — never above the chart, so no ancestor can clip it. */
+.mbv-tip.mbv-tip-side { transform: translate(14px, 0); }
+.mbv-tip.mbv-tip-side-l { transform: translate(calc(-100% - 14px), 0); }
+.mbv-tip .mbv-tip-label { display: inline-flex; align-items: center; }
+
+.mbv-legend { display: flex; gap: 6px 14px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
+.mbv-legend-item {
+  display: inline-flex; align-items: center; background: none; border: none; cursor: pointer;
+  font: inherit; font-size: 0.75rem; color: var(--ink); padding: 4px 6px; border-radius: 6px;
+}
+.mbv-legend-item.off { color: var(--mut); opacity: 0.55; }
+.mbv-legend-item.off .mbv-key { background: transparent !important; box-shadow: inset 0 0 0 1.5px var(--mut); }
+
+/* ---------- BreakdownRing ---------- */
+.mbv-ring-wrap { display: flex; gap: 20px; align-items: center; }
+.mbv-ring { position: relative; width: 112px; height: 112px; flex-shrink: 0; }
+.mbv-ring svg { display: block; overflow: visible; }
+.mbv-ring-track { stroke: var(--line); opacity: 0.5; }
+.mbv-ring-seg { transition: stroke-width 140ms ease, opacity 140ms ease; cursor: pointer; }
+.mbv-ring-centre {
+  position: absolute; inset: 0; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; pointer-events: none;
+}
+.mbv-ring-figure { font-family: var(--disp); font-size: 1.375rem; font-weight: 700; color: var(--ink); line-height: 1; font-variant-numeric: tabular-nums; }
+.mbv-ring-caption { font-size: 0.6875rem; color: var(--mut); margin-top: 3px; }
+
+.mbv-ring-legend { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 2px; flex: 1; min-width: 0; }
+.mbv-ring-row {
+  display: flex; align-items: flex-start; gap: 7px; width: 100%;
+  background: none; border: none; font: inherit; text-align: left; cursor: default;
+  padding: 3px 6px; margin: 0 -6px; border-radius: 6px;
+  transition: opacity 140ms ease, background 140ms ease;
+}
+.mbv-ring-row.active { background: color-mix(in srgb, var(--accent) 8%, transparent); }
+.mbv-ring-row.dim { opacity: 0.45; }
+.mbv-ring-swatch { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; margin-top: 5px; }
+.mbv-ring-swatch.hatched {
+  background: repeating-linear-gradient(45deg, var(--mut) 0 1.5px, transparent 1.5px 3.5px);
+  box-shadow: inset 0 0 0 1px var(--mut);
+}
+.mbv-ring-name { font-size: 0.8125rem; color: var(--ink); line-height: 1.35; flex: 1; }
+.mbv-ring-value { font-size: 0.8125rem; font-weight: 600; color: var(--ink); flex-shrink: 0; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.mbv-ring-pct { font-size: 0.75rem; font-weight: 400; color: var(--mut); }
+
+@media (prefers-reduced-motion: reduce) {
+  .mbv-ring-seg, .mbv-ring-row, .mbv-trend-dot { transition: none; }
+}

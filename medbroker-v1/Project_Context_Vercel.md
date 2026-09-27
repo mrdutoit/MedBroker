@@ -1794,9 +1794,27 @@ Reports hero — PipelineJourney (components/viz/), designed 24 Sep 2026,
   sits below its dot; gradient uses gradientUnits="userSpaceOnUse".
   Covered by three e2e/interactions.spec.js tests.
 
+Reports chart language — completed 27 Sep 2026 (app-design-pass). Every
+  chart on Reports is hand-built in components/viz/; Recharts is no longer
+  a dependency and should not be reintroduced for a new chart. Components:
+  PipelineJourney (the one bold hero panel), MetricStrip (any row of
+  headline figures — never a grid of identical KPI cards), TrendLines
+  (time series), BreakdownRing (parts-of-a-whole, inside DonutBreakdown).
+  STANDING RULES: every mark answers hover AND keyboard focus; a floating
+  tooltip never goes above its chart or inside a clipping container (use
+  the side-hung card, or an inline/centre readout); focus uses the app's
+  own :focus-visible ring, not a second outline; "Not captured" is
+  hatched, never a palette colour; raw enum values never reach the screen
+  (map them, as Meeting Type now does); trend buckets flagged `future`
+  (reportService, getDashboardReport) are never drawn as zeros; SVGs are
+  drawn in measured pixels (useElementWidth), never a stretched viewBox.
+  Supporting surfaces are theme-aware and quiet — only the hero is dark.
+
 Continuous integration — .github/workflows/ci.yml at the TRUE repo root
   (outside medbroker-v1/), 27 Sep 2026, Mark's decision once it was
-  explained. Two jobs on every push: unit (vitest) and e2e (Playwright,
+  explained. STATUS 27 Sep 2026: on main as plain `ci.yml` at the repo
+  root, NOT in .github/workflows/ — so not yet running; Mark to move it.
+  Two jobs on every push: unit (vitest) and e2e (Playwright,
   API fully mocked — no database, no secrets). Runs on GitHub's servers,
   works with github.dev drag-and-drop commits, does not gate or touch
   Vercel deploys. DELIVERY RULE: anything outside medbroker-v1/ (this

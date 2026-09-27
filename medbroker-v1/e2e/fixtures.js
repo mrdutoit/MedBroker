@@ -42,16 +42,43 @@ const DASHBOARD = {
     { key: 'policyValue', label: 'Total Policy Value', format: 'currency', current: 4820000, prior: 3910000, deltaPct: 23.3, direction: 'up' },
     { key: 'avgDaysToCloseWon', label: 'Avg Days to Close (Won)', format: 'days', current: 18.4, prior: 21.7, lowerIsBetter: true, deltaPct: -15.2, direction: 'down' },
   ],
+  // 27 Sep 2026 — trend/wonVsLost/appointmentAnalysis/policyValueBreakdown
+  // rewritten to the REAL response shape (reportService.js,
+  // getDashboardReport). The previous fixture had the wrong field names
+  // (wonVsLost.won as an array, avgDaysWon, policyValueBreakdown as an
+  // array), so Won vs Lost, Appointment Analysis and Policy Value always
+  // fell through to their empty states and nothing in them was ever
+  // exercised in a browser. Labels use the real weekly format (W<n>); the
+  // last bucket is a real `future` bucket (flag added 27 Sep).
   trend: [
-    { label: 'Wk 1', leads: 48, appts: 16, won: 3, lost: 2, policyValue: 780000 },
-    { label: 'Wk 2', leads: 55, appts: 19, won: 4, lost: 3, policyValue: 1120000 },
-    { label: 'Wk 3', leads: 61, appts: 21, won: 5, lost: 2, policyValue: 1340000 },
-    { label: 'Wk 4', leads: 57, appts: 20, won: 6, lost: 4, policyValue: 1580000 },
+    { label: 'W36', leads: 48, appts: 16, won: 3, lost: 2, policyValue: 780000 },
+    { label: 'W37', leads: 55, appts: 19, won: 4, lost: 3, policyValue: 1120000 },
+    { label: 'W38', leads: 61, appts: 21, won: 5, lost: 2, policyValue: 1340000 },
+    { label: 'W39', leads: 57, appts: 20, won: 6, lost: 4, policyValue: 1580000 },
+    { label: 'W40', future: true, leads: 0, appts: 0, won: 0, lost: 0, policyValue: 0 },
   ],
   pipeline: { stages: PIPELINE_STAGES, stageConversion: PIPELINE_STAGE_CONVERSION },
-  sourceTable: [], portfolioTable: [], policyValueBreakdown: [],
-  wonVsLost: { won: [], lost: [], byRegionWon: [], byRegionLost: [], byPortfolioWon: [], byPortfolioLost: [], avgDaysWon: null, avgDaysLost: null },
-  appointmentAnalysis: { booked: 0, perLead: null, bookedToWonConversion: null, byMeetingType: [], cancelled: 0, missed: 0, cancelReasons: [], hasCancelledMissedTracking: true },
+  sourceTable: [], portfolioTable: [],
+  policyValueBreakdown: { total: 4820000, avgPerDeal: 267777.78, perAppointment: 63421.05, perLead: 21809.95, trend: [] },
+  wonVsLost: {
+    won: 18, lost: 11, winRate: 62.1, avgDaysToCloseWon: 18.4, avgDaysToCloseLost: 26.2,
+    hasLossReasons: true,
+    lossReasons: [
+      { reason: 'PriceTooHigh', count: 4 }, { reason: 'ChoseCompetitor', count: 3 },
+      { reason: 'NoLongerInterested', count: 2 }, { reason: 'Not captured', count: 2 },
+    ],
+    wonByRegion: [{ region: 'Gauteng', count: 11 }, { region: 'Western Cape', count: 5 }, { region: 'Not captured', count: 2 }],
+    lostByRegion: [{ region: 'Gauteng', count: 7 }, { region: 'KwaZulu-Natal', count: 4 }],
+    wonByPortfolio: [{ portfolio: 'Medical Aid', count: 12 }, { portfolio: 'Gap Cover', count: 6 }],
+    lostByPortfolio: [{ portfolio: 'Medical Aid', count: 8 }, { portfolio: 'Gap Cover', count: 3 }],
+  },
+  appointmentAnalysis: {
+    booked: 76, perLead: 0.34, bookedToWonConversion: 23.7,
+    byMeetingType: [{ meetingType: 'InPerson', booked: 49 }, { meetingType: 'Virtual', booked: 27 }],
+    cancelled: 9, missed: 4,
+    cancelReasons: [{ reason: 'SchedulingConflict', count: 5 }, { reason: 'NoLongerInterested', count: 3 }, { reason: 'Not captured', count: 1 }],
+    hasCancelledMissedTracking: true,
+  },
   insights: [],
 };
 
@@ -109,7 +136,10 @@ const FLAGS = { flags: { 'events.enabled': true, 'tasks.enabled': true, 'data.ex
 function routes() {
   return [
     ['GET', /^\/reports\/dashboard/, DASHBOARD],
-    ['GET', /^\/reports\/brokers/, { brokers: [{ id: 'u2', name: 'Werner Hattingh' }], rows: [] }],
+    // 27 Sep 2026 — real row shape (reportService.js, broker report):
+    // without appts/signed/policyValue the Broker Performance table showed
+    // "RNaNm" / "NaN" — a fixture gap, never an app bug.
+    ['GET', /^\/reports\/brokers/, { brokers: [{ id: 'u2', name: 'Werner Hattingh', appts: 31, signed: 12, portfolios: ['Medical Aid'], policyValue: 2140000 }], rows: [] }],
     ['GET', /^\/reports\/agents/, { agents: [], rows: [] }],
     ['GET', /^\/reports\/closed-won-by-product/, { rows: [] }],
     ['GET', /^\/leads\/portfolios/, PORTFOLIOS],

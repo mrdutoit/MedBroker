@@ -117,6 +117,20 @@ found and fixed the same pattern in 12 overlay handlers across 7 files.
 CONFIRMED LIVE 27 Sep 2026 — mouseDownOnOverlayRef present in all 7
 files in commit e1c112e (verified against a fresh codeload hydration).
 
+REPORTS PAGE COMPLETED — 27 Sep 2026 (later still), medbroker-reports-complete-20260927-2103.zip.
+Every chart and metric row below the PipelineJourney hero rebuilt in the
+same hand-built, interactive chart language (MetricStrip, TrendLines,
+BreakdownRing in components/viz/). Recharts REMOVED from the app. One
+backend change (additive): trend buckets that haven't happened yet carry
+`future: true`. Full account: "SESSION 27 SEP 2026 — REPORTS PAGE
+COMPLETED" in OUTSTANDING ITEMS below. No migration.
+
+CI NOT YET RUNNING (checked 27 Sep 2026): ci.yml is on main at the REPO
+ROOT as plain `ci.yml`, not at `.github/workflows/ci.yml` — GitHub only
+runs workflows from that folder. Mark to rename it in github.dev (Rename
+-> type `.github/workflows/ci.yml`). F-05 stays open until the first
+green run in the Actions tab.
+
 REPORTS HERO (PipelineJourney) — DELIVERED 27 Sep 2026. Designed and
 browser-verified 24 Sep 2026 (app-design-pass skill), but the code NEVER
 made it into any delivery ZIP — commit e1c112e (the 27 Sep delivery)
@@ -254,11 +268,11 @@ VERCEL FUNCTION COUNT: confirmed exactly 12/12 on this hydration — still
 zero headroom, still Hobby's hard ceiling. Any new top-level API surface
 needs a consolidation first.
 
-BUILD HEALTH (27 Sep 2026, on commit e1c112e + the reports-hero delta):
-clean `npm run build`; `npx vitest run` 57/57; browser suite 91/91 (one
+BUILD HEALTH (27 Sep 2026, on main + the reports-complete delta):
+clean `npm run build`; `npx vitest run` 57/57; browser suite 95/95 (one
 of those is the deliberately test.fail()-marked tasks.enabled item);
-`npm run lint` unchanged — the same single pre-existing plugin-version
-error, plus the known JSX-usage false-positive warnings.
+`npm run lint` — the same single pre-existing plugin-version error,
+warnings down to 149 (Recharts imports gone).
 CI: .github/workflows/ci.yml delivered 27 Sep 2026 as a STANDALONE file
 (repo root, outside medbroker-v1/) — NOT live until Mark creates it in
 github.dev. Once live, unit + browser suites run on GitHub's servers on
@@ -270,6 +284,98 @@ replacement for it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 27 SEP 2026 — REPORTS PAGE COMPLETED (app-design-pass, Mark's
+choice of next step over Appointment Detail / Lead List).
+
+WHY: after the hero landed, the page used two chart languages — the
+hand-built interactive hero, and Recharts donuts/lines/sparklines with no
+keyboard interaction — and every metric row was a grid of identical
+cards. Both are named in the skill as the generic look to avoid.
+
+WHAT CHANGED (visual/interaction only — same endpoints, same data, same
+filters, same permissions, same section order):
+  - MetricStrip (viz/MetricStrip.jsx) replaces KpiCard everywhere on the
+    page: Executive summary, Policy Value, Won vs Lost, Appointment
+    Analysis, Agent/Broker self-view. One hairline-divided panel per row.
+    Same value, delta, lowerIsBetter colouring and sparkline series.
+    Sparklines answer hover and arrow keys with an INLINE readout (e.g.
+    "W38: 61") in place of the delta line — inline, not a floating card,
+    because the strip clips its rounded corners.
+  - TrendLines (viz/TrendLines.jsx) replaces the Recharts LineChart inside
+    TrendChart: same five series, same separate policy-value scale (shown
+    only when that series is on), same clickable legend and defaults
+    (Lost and Policy value hidden). Hover/arrow keys snap to a period;
+    one card lists every visible series. Legend entries are real toggle
+    buttons (aria-pressed). Straight segments, not curves.
+  - BreakdownRing (viz/BreakdownRing.jsx) replaces the Recharts PieChart
+    inside DonutBreakdown. Every §175-§191 rule kept (centre total, legend
+    beside with value and % always visible, card chrome/width/minHeight,
+    both empty states). New: hover or focus a category to isolate it and
+    show its count/share in the centre; "Not captured" is hatched, not
+    flat grey.
+  - Won vs Lost and Appointment Analysis: the four/five repeated "No
+    prior-period data" lines are replaced by one Section subtitle saying
+    the same thing once.
+  - Keyboard focus uses the app's own :focus-visible ring (index.css).
+
+CORRECTNESS FIXES, separate from the design work:
+  1. FUTURE PERIODS DRAWN AS ZEROS. getDashboardReport returned buckets
+     not yet reached as five genuine-looking zeros, so every trend line
+     and sparkline crashed to 0 at "today". reportService.js now adds
+     `future: true` to those buckets (zeros kept for any summing
+     consumer); the chart stops at the last real period and hatches the
+     rest ("Still to come"). Regression test proven to FAIL with the fix
+     removed.
+  2. RAW ENUM ON SCREEN: the Meeting Type ring showed "InPerson"; now "In
+     person" (same wording as LeadDetail's picker).
+  3. INTERNAL DESIGN NOTE ON SCREEN: Policy Value's subtitle read "Real
+     prominence, not just another KPI card." — a build note, not user
+     copy. Now "What this period's closed deals were worth."
+  4. Recharts removed from frontend/package.json (nothing else imported
+     it): Reports JS bundle 406 KB -> 33 KB. package-lock.json change is
+     deletions only.
+
+TEST FIXTURES CORRECTED (e2e/fixtures.js): the dashboard fixture had the
+wrong field names for wonVsLost (arrays instead of counts, avgDaysWon),
+policyValueBreakdown (array instead of object) and appointmentAnalysis
+(all zeros), so Won vs Lost, Policy Value and Appointment Analysis always
+rendered their empty states and had never been exercised in a browser.
+Now the real reportService shapes, including a real `future` bucket and
+"Not captured" categories. The broker report fixture lacked appts/signed/
+policyValue ("RNaNm" in Broker Performance) — also fixed; a fixture gap,
+not an app bug (the real query always returns numbers).
+
+TESTS: four new in interactions.spec.js (trend keyboard + future stop;
+legend toggle; ring legend focus -> centre; sparkline keyboard readout).
+The hero fork test is now scoped to .pj-panel, since the Won vs Lost
+legend rows are buttons named "Closed Won"/"Closed Lost" too.
+
+VERIFIED: build clean; vitest 57/57; browser suite 95/95; screenshots
+reviewed at 1440px and 390px, Linen and Midnight, hover and keyboard focus
+on the trend, a sparkline and two rings. Three issues found in the
+screenshots and fixed before delivery: a doubled focus ring (my outline on
+top of the app's own); "Still to come" running off the chart on phones
+(label now only where the band is >= 90px); an empty meta line under
+metrics with no comparison figure. Screenshots used fallback fonts.
+
+NOT VERIFIED IN A BROWSER: the Agent/Broker self-view strip — App.jsx
+routes Agents and Brokers to /reports/agent/:id and /reports/broker/:id,
+so the self-view branch of Reports.jsx isn't reachable through the UI.
+Built to the same component; flagged, not assumed.
+
+DELIVERY: medbroker-reports-complete-20260927-2103.zip — frontend/src/pages/Reports.jsx, frontend/src/components/
+ReportsWidgets.jsx, frontend/src/components/viz/{MetricStrip.jsx,
+TrendLines.jsx, BreakdownRing.jsx, viz.css} (first three new),
+frontend/api-lib/services/reportService.js, frontend/package.json,
+frontend/package-lock.json, e2e/fixtures.js, e2e/interactions.spec.js,
+and both status docs. Nothing to delete. No migration. Diffed against a
+fresh hydration of main (no drift since the start of this session).
+
+NEXT (agreed order): Agent Detail and Broker Detail in the same chart
+language, then Appointment Detail (one lead's journey), then Lead List.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 27 SEP 2026 (LATER) — COMMIT e1c112e VERIFIED; REPORTS HERO
 ACTUALLY DELIVERED; CORRECTIONS TO THE ENTRY BELOW.

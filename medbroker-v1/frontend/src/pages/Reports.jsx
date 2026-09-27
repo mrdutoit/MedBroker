@@ -67,10 +67,15 @@ import { reportsApi } from '../services/api.js';
 import { s, colors } from '../styles/tokens.js';
 import { PeriodSelector, getPeriodLabel, referenceDateToParam } from '../components/PeriodSelector.jsx';
 import {
-  KpiCard, TrendChart, DataTable, EmptyState, Section,
+  TrendChart, DataTable, EmptyState, Section,
   DonutBreakdown, CATEGORICAL_PALETTE,
   fmt, fmtDays, fmtRatio,
 } from '../components/ReportsWidgets.jsx';
+// 27 Sep 2026 — every metric row on this page (Executive summary, Policy
+// value, Won vs Lost, Appointment analysis, and the Agent/Broker self-
+// view) is now one MetricStrip instead of a grid of identical KpiCards.
+// Same values, same deltas; see MetricStrip.jsx's header.
+import MetricStrip, { fmtMetric } from '../components/viz/MetricStrip.jsx';
 // Replaces PipelineHealth — app-design-pass skill, Reports page pilot
 // (designed 24 Sep 2026, delivered 27 Sep 2026). See PipelineJourney.jsx's
 // header for the concept and the data-semantics decisions.
@@ -393,15 +398,7 @@ export default function Reports() {
         noSelfData ? (
           <div style={{ ...s.card, color: colors.ink500, fontSize: '0.875rem' }}>No reporting data for your account in this period.</div>
         ) : (
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : `repeat(${selfKpis.length}, 1fr)`, gap: '12px' }}>
-            {selfKpis.map(c => (
-              <div key={c.label} style={s.card}>
-                <div style={s.kpiLabel}>{c.label}</div>
-                <div style={{ ...s.kpiValue, marginTop: '6px' }}>{c.value}</div>
-                <div style={s.kpiSub}>{c.sub}</div>
-              </div>
-            ))}
-          </div>
+          <MetricStrip label="Your performance this period" items={selfKpis.map(c => ({ key: c.label, label: c.label, value: c.value, note: c.sub }))} />
         )
       )}
 
@@ -457,23 +454,26 @@ export default function Reports() {
           <PipelineJourney stages={pipeline} stageConversion={stageConversion} isMobile={isMobile} />
 
           {/* ── 3. Executive summary ─────────────────────────────────────── */}
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(6, 1fr)', gap: '12px', marginTop: '20px', marginBottom: '16px' }}>
-            {kpis.map(k => {
-              // Only KPIs with a matching series in `trend` get a sparkline
-              // (conversion/avgDaysToCloseWon have no per-bucket trend data).
-              const sparklineKey = { leads: 'leads', appts: 'appts', closedWon: 'won', policyValue: 'policyValue' }[k.key];
-              return (
-                <KpiCard
-                  key={k.key} label={k.label} current={k.current} format={k.format}
-                  deltaPct={k.deltaPct} direction={k.direction} lowerIsBetter={k.lowerIsBetter}
-                  sparklineData={sparklineKey ? trend : undefined} sparklineKey={sparklineKey} sparklineColour={colors.primary}
-                />
-              );
-            })}
+          <div style={{ marginTop: '20px', marginBottom: '16px' }}>
+            <MetricStrip
+              label="Executive summary"
+              items={kpis.map(k => {
+                // Only KPIs with a matching series in `trend` get a
+                // sparkline (conversion/avgDaysToCloseWon have no
+                // per-bucket trend data) — unchanged from KpiCard.
+                const sparklineKey = { leads: 'leads', appts: 'appts', closedWon: 'won', policyValue: 'policyValue' }[k.key];
+                return {
+                  key: k.key, label: k.label, value: fmtMetric(['count', 'currency', undefined].includes(k.format) ? (k.current ?? 0) : k.current, k.format),
+                  deltaPct: k.deltaPct, direction: k.direction, lowerIsBetter: k.lowerIsBetter, showNoPrior: true,
+                  spark: sparklineKey ? trend.map(t => ({ label: t.label, value: t[sparklineKey] ?? 0, future: t.future })) : undefined,
+                  sparkFormat: k.format,
+                };
+              })}
+            />
           </div>
 
           {/* ── 4. Primary trend ─────────────────────────────────────────── */}
-          <Section title="Trend" subtitle="Leads, appointments, outcomes, and policy value over the period — click a series to hide/show it.">
+          <Section title="Trend" subtitle="Leads, appointments, outcomes and policy value over the period. Select a series below to show or hide it; hover or use the arrow keys to read any period.">
             <TrendChart data={trend} isMobile={isMobile} />
           </Section>
 
@@ -513,14 +513,16 @@ export default function Reports() {
           </Section>
 
           {/* ── 8. Policy value ──────────────────────────────────────────── */}
-          <Section title="Policy Value" subtitle="Real prominence, not just another KPI card.">
+          <Section title="Policy Value" subtitle="What this period's closed deals were worth.">
             {policyValueBreakdown && policyValueBreakdown.total > 0 ? (
               <>
-                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '12px', marginBottom: '18px' }}>
-                  <div><div style={s.kpiLabel}>Total</div><div style={s.kpiValue}>{fmt(policyValueBreakdown.total)}</div></div>
-                  <div><div style={s.kpiLabel}>Avg per deal</div><div style={s.kpiValue}>{policyValueBreakdown.avgPerDeal === null ? '—' : fmt(policyValueBreakdown.avgPerDeal)}</div></div>
-                  <div><div style={s.kpiLabel}>Per appointment</div><div style={s.kpiValue}>{policyValueBreakdown.perAppointment === null ? '—' : fmt(policyValueBreakdown.perAppointment)}</div></div>
-                  <div><div style={s.kpiLabel}>Per lead</div><div style={s.kpiValue}>{policyValueBreakdown.perLead === null ? '—' : fmt(policyValueBreakdown.perLead)}</div></div>
+                <div style={{ marginBottom: '18px' }}>
+                  <MetricStrip label="Policy value" items={[
+                    { key: 'total', label: 'Total', value: fmt(policyValueBreakdown.total) },
+                    { key: 'deal',  label: 'Avg per deal', value: policyValueBreakdown.avgPerDeal === null ? '—' : fmt(policyValueBreakdown.avgPerDeal) },
+                    { key: 'appt',  label: 'Per appointment', value: policyValueBreakdown.perAppointment === null ? '—' : fmt(policyValueBreakdown.perAppointment) },
+                    { key: 'lead',  label: 'Per lead', value: policyValueBreakdown.perLead === null ? '—' : fmt(policyValueBreakdown.perLead) },
+                  ]} />
                 </div>
                 {closedWonByProduct.length > 0 && (
                   <>
@@ -535,7 +537,7 @@ export default function Reports() {
           </Section>
 
           {/* ── 9. Won vs Lost ───────────────────────────────────────────── */}
-          <Section title="Won vs Lost">
+          <Section title="Won vs Lost" subtitle="This period only — these figures don't yet have a comparison with the previous period.">
             {wonVsLost && (wonVsLost.won + wonVsLost.lost) > 0 ? (
               <>
                 {/* 18 Aug 2026 — Mark's request: this row was four bare
@@ -553,12 +555,16 @@ export default function Reports() {
                     fmtDays() results, not one) — see KpiCard's own
                     customValue comment for why that needed a real prop
                     rather than a fmtDays()-as-string workaround. */}
-                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(4, 1fr)', gap: '12px' }}>
-                  <KpiCard label="Won" current={wonVsLost.won} />
-                  <KpiCard label="Lost" current={wonVsLost.lost} />
-                  <KpiCard label="Win Rate" current={wonVsLost.winRate} format="percent" />
-                  <KpiCard label="Avg Days (Won vs Lost)" customValue={`${fmtDays(wonVsLost.avgDaysToCloseWon)} / ${fmtDays(wonVsLost.avgDaysToCloseLost)}`} />
-                </div>
+                {/* 27 Sep 2026 — MetricStrip replaces the four KpiCards. The
+                    honest "no prior-period comparison" note moved from
+                    each card (four identical lines) to the Section
+                    subtitle — said once, still said. */}
+                <MetricStrip label="Won vs lost" items={[
+                  { key: 'won',  label: 'Won',  value: fmtMetric(wonVsLost.won) },
+                  { key: 'lost', label: 'Lost', value: fmtMetric(wonVsLost.lost) },
+                  { key: 'rate', label: 'Win rate', value: fmtMetric(wonVsLost.winRate, 'percent') },
+                  { key: 'days', label: 'Avg days to close (won / lost)', value: `${fmtDays(wonVsLost.avgDaysToCloseWon)} / ${fmtDays(wonVsLost.avgDaysToCloseLost)}` },
+                ]} />
                 {/* 16 Aug 2026 (§182) — Mark's direct question: "why could
                     these not be displayed next to each other?" They
                     couldn't, because Overall used to live in a different
@@ -679,7 +685,7 @@ export default function Reports() {
           </Section>
 
           {/* ── 10. Appointment analysis ──────────────────────────────────── */}
-          <Section title="Appointment Analysis">
+          <Section title="Appointment Analysis" subtitle="This period only — these figures don't yet have a comparison with the previous period.">
             {appointmentAnalysis && appointmentAnalysis.booked > 0 ? (
               <>
                 {/* 15 Aug 2026 — Mark's request: this row was five bare
@@ -692,18 +698,17 @@ export default function Reports() {
                     faked here) — KpiCard's own existing "No prior-period
                     data" fallback covers that honestly rather than
                     showing a delta that isn't real. */}
-                <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(5, 1fr)', gap: '12px', marginBottom: '18px' }}>
-                  <KpiCard label="Booked" current={appointmentAnalysis.booked} />
-                  <KpiCard label="Appts per lead" current={appointmentAnalysis.perLead} format="ratio" />
-                  <KpiCard label="Booked → Won" current={appointmentAnalysis.bookedToWonConversion} format="percent" />
-                  {/* 15 Aug 2026 (§172) — real numbers now (migration
-                      034/MeetingAttempt.status), not a "not tracked yet"
-                      placeholder. Counts attempts LOGGED this period
-                      (matches the backend's own scoping — see
-                      reportService.js), not appointments whose first
-                      meeting was originally booked in it. */}
-                  <KpiCard label="Cancelled" current={appointmentAnalysis.cancelled} />
-                  <KpiCard label="Missed / No-show" current={appointmentAnalysis.missed} />
+                <div style={{ marginBottom: '18px' }}>
+                  {/* 27 Sep 2026 — MetricStrip replaces the five KpiCards;
+                      same values. Cancelled/Missed still count attempts
+                      LOGGED this period (reportService.js, §172). */}
+                  <MetricStrip label="Appointment analysis" items={[
+                    { key: 'booked', label: 'Booked', value: fmtMetric(appointmentAnalysis.booked) },
+                    { key: 'per',    label: 'Appointments per lead', value: fmtMetric(appointmentAnalysis.perLead, 'ratio') },
+                    { key: 'conv',   label: 'Booked → won', value: fmtMetric(appointmentAnalysis.bookedToWonConversion, 'percent') },
+                    { key: 'canc',   label: 'Cancelled', value: fmtMetric(appointmentAnalysis.cancelled) },
+                    { key: 'miss',   label: 'Missed / no-show', value: fmtMetric(appointmentAnalysis.missed) },
+                  ]} />
                 </div>
                 {/* 16 Aug 2026 (§182) — Meeting Type and Cancellation
                     reasons are genuinely different breakdowns (what kind
@@ -764,7 +769,10 @@ export default function Reports() {
                       title="Meeting Type"
                       isMobile={isMobile}
                       data={appointmentAnalysis.byMeetingType.map((m, i) => ({
-                        label: m.meetingType, value: m.booked,
+                        // 27 Sep 2026 — plain language, not the raw enum
+                        // ("InPerson" was on screen); same wording as
+                        // LeadDetail's own meeting-type picker.
+                        label: { InPerson: 'In person', Virtual: 'Virtual' }[m.meetingType] ?? m.meetingType, value: m.booked,
                         colour: CATEGORICAL_PALETTE[i % CATEGORICAL_PALETTE.length],
                       }))}
                     />

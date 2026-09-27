@@ -1467,7 +1467,13 @@ export async function getDashboardData(period, referenceDate = new Date(), scope
   const buckets = getTrendBuckets(period, referenceDate);
   const trend = [];
   for (const b of buckets) {
-    if (b.future) { trend.push({ label: b.label, leads: 0, appts: 0, won: 0, lost: 0, policyValue: 0 }); continue; }
+    // `future: true` — 27 Sep 2026 (app-design-pass, Reports page). A
+    // bucket that hasn't happened yet used to come back as five genuine-
+    // looking zeros, so every trend line and sparkline crashed to zero at
+    // "today" — a drop that never happened. The flag lets the frontend
+    // stop the line at the last real bucket instead. Zeros kept for any
+    // other consumer that sums the series.
+    if (b.future) { trend.push({ label: b.label, future: true, leads: 0, appts: 0, won: 0, lost: 0, policyValue: 0 }); continue; }
     const params = { start: { type: sql.DateTimeOffset, value: b.start }, end: { type: sql.DateTimeOffset, value: b.end }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
     const leadF = leadFilterSql(f);
     const apptF = apptFilterSql(f);

@@ -27,11 +27,13 @@
  */
 
 import { useState } from 'react';
-import {
-  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ResponsiveContainer, PieChart, Pie, Cell,
-} from 'recharts';
 import { s, colors, radius, shadow, type } from '../styles/tokens.js';
+// 27 Sep 2026 (app-design-pass, Reports page completion) — Recharts
+// removed from this file (and from the app: nothing else imported it).
+// The ring and the trend are now hand-built, interactive components in
+// components/viz/; KpiCard and Sparkline are replaced by viz/MetricStrip.
+import BreakdownRing from './viz/BreakdownRing.jsx';
+import TrendLines from './viz/TrendLines.jsx';
 
 // ─── Formatting — shared with Reports.jsx, single source of truth ──────────
 export const fmt = v => `R${(v / 1000000).toFixed(2)}m`;
@@ -49,73 +51,12 @@ export const fmtPct = v => v === null || v === undefined ? '—' : `${v.toFixed(
 // comment for why that stays a special case, not just another category.
 export const CATEGORICAL_PALETTE = ['#2563eb', '#0d9488', '#d97706', '#7c3aed', '#dc2626', '#0891b2'];
 
-/**
- * Direction -> colour, respecting `lowerIsBetter` (Avg Days to Close: a
- * DROP is the good direction, same underlying computeDelta() shape as
- * every other KPI, just inverted display semantics for this one metric).
- */
-function deltaColour(direction, lowerIsBetter) {
-  if (direction === 'flat') return colors.ink500;
-  const isGood = lowerIsBetter ? direction === 'down' : direction === 'up';
-  return isGood ? colors.success : colors.danger;
-}
-function deltaArrow(direction) {
-  return direction === 'up' ? '↑' : direction === 'down' ? '↓' : '→';
-}
-
-// ─── Sparkline — tiny inline trend, no axes, no grid, deliberately quiet ───
-export function Sparkline({ data, dataKey, colour, height = 32 }) {
-  if (!data || data.length < 2) return null;
-  return (
-    <ResponsiveContainer width="100%" height={height}>
-      <LineChart data={data} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
-        <Line type="monotone" dataKey={dataKey} stroke={colour} strokeWidth={1.75} dot={false} isAnimationActive={false} />
-      </LineChart>
-    </ResponsiveContainer>
-  );
-}
-
-/**
- * KpiCard — value, prior-period delta with direction + colour, optional
- * sparkline. This is the brief's own item 2 spelled out per-card: "current
- * value + prior period + %/pt change + direction, sparkline where useful."
- */
-export function KpiCard({ label, current, format, customValue, deltaPct, direction, lowerIsBetter, sparklineData, sparklineKey, sparklineColour }) {
-  // customValue — 18 Aug 2026. Escape hatch for a metric that isn't a
-  // single formattable number, e.g. Won vs Lost's "Avg Days (Won vs
-  // Lost)" — genuinely two fmtDays() values shown as "21.3 days / —",
-  // not one value under one of the existing format keys. When passed,
-  // it wins outright; `current`/`format` are ignored rather than both
-  // being computed and one discarded, so there's no dead prop confusion
-  // at the call site.
-  const formatted = customValue !== undefined ? customValue :
-    format === 'currency' ? fmt(current ?? 0) :
-    format === 'ratio'    ? fmtRatio(current) :
-    format === 'percent'  ? fmtPct(current) :
-    format === 'days'     ? fmtDays(current) :
-    (current ?? 0).toLocaleString();
-  const hasDelta = deltaPct !== null && deltaPct !== undefined;
-  return (
-    <div style={s.metricCard}>
-      <div style={s.kpiLabel}>{label}</div>
-      <div style={s.kpiValue}>{formatted}</div>
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: '6px', minHeight: '20px' }}>
-        {hasDelta ? (
-          <span style={{ fontSize: '0.75rem', fontWeight: 600, color: deltaColour(direction, lowerIsBetter), display: 'flex', alignItems: 'center', gap: '3px' }}>
-            {deltaArrow(direction)} {Math.abs(deltaPct)}% <span style={{ color: colors.ink400, fontWeight: 400 }}>vs last period</span>
-          </span>
-        ) : (
-          <span style={{ fontSize: '0.75rem', color: colors.ink400 }}>No prior-period data</span>
-        )}
-      </div>
-      {sparklineData && sparklineData.length >= 2 && (
-        <div style={{ marginTop: '6px' }}>
-          <Sparkline data={sparklineData} dataKey={sparklineKey} colour={sparklineColour ?? colors.primary} />
-        </div>
-      )}
-    </div>
-  );
-}
+// ─── KpiCard + Sparkline — REPLACED 27 Sep 2026 by components/viz/
+// MetricStrip.jsx (app-design-pass skill). Same value / prior-period
+// delta / lowerIsBetter / "no prior-period data" semantics and the same
+// per-bucket sparkline, now one hairline-divided instrument strip rather
+// than a grid of identical cards, with a sparkline that answers hover
+// and keyboard focus. Only Reports.jsx ever used either (grep-confirmed).
 
 // ─── Donut — 15 Aug 2026 (§175), REDESIGNED REPEATEDLY through 16 Aug
 // 2026 (§179, §180, §182, §183, §184). Genuine parts-of-a-whole data
@@ -222,66 +163,11 @@ export function DonutBreakdown({ data, isMobile, emptyMessage, notCapturedMessag
   return (
     <div style={cardStyle}>
       {titleSlot}
-      <div style={{ display: 'flex', gap: '20px', alignItems: 'center' }}>
-        {/* Donut with a real centre label — position:relative/absolute
-            overlay rather than fighting Recharts' own <Label> geometry;
-            simpler, and gives full control over the typography. */}
-        <div style={{ position: 'relative', width: '104px', height: '104px', flexShrink: 0 }}>
-          <ResponsiveContainer width="100%" height="100%">
-            <PieChart>
-              <Pie
-                data={data} dataKey="value" nameKey="label"
-                cx="50%" cy="50%" innerRadius="68%" outerRadius="100%"
-                paddingAngle={data.length > 1 ? 2 : 0}
-                stroke="none" isAnimationActive={false}
-              >
-                {data.map(d => <Cell key={d.label} fill={d.colour} />)}
-              </Pie>
-              {/* cursor={false} — §179. Recharts' Tooltip cursor defaults
-                  to true, built for Cartesian charts; a <Pie> has no
-                  column for it to highlight, so leaving it on renders a
-                  stray rectangle unrelated to the chart. Hover still
-                  works as a bonus (exact value + %) — the legend below
-                  no longer depends on it for basic legibility. */}
-              <Tooltip
-                cursor={false}
-                formatter={(value, name) => {
-                  const pct = total === 0 ? 0 : Math.round((value / total) * 100);
-                  return [`${value} (${pct}%)`, name];
-                }}
-                contentStyle={{ background: colors.surface, border: `1px solid ${colors.line}`, borderRadius: radius.sm, fontSize: '0.8125rem' }}
-              />
-            </PieChart>
-          </ResponsiveContainer>
-          <div style={{
-            position: 'absolute', inset: 0, display: 'flex', alignItems: 'center',
-            justifyContent: 'center', pointerEvents: 'none',
-          }}>
-            <span style={{ fontSize: '1.25rem', fontWeight: 700, color: colors.ink, lineHeight: 1 }}>{total}</span>
-          </div>
-        </div>
-        {/* Legend — real values and percentages always visible, not
-            hover-only. alignItems:flex-start (not centre) so a long
-            label (cancellation/loss reasons routinely run 25-35
-            characters) wraps onto a second line without dragging the
-            value/% column down with it — those stay pinned level with
-            the label's own first line regardless of how many lines the
-            label itself takes. */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '7px', flex: 1, minWidth: 0 }}>
-          {data.map(d => {
-            const pct = total === 0 ? 0 : Math.round((d.value / total) * 100);
-            return (
-              <div key={d.label} style={{ display: 'flex', alignItems: 'flex-start', gap: '7px' }}>
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', background: d.colour, flexShrink: 0, marginTop: '5px' }} />
-                <span style={{ fontSize: '0.8125rem', color: colors.ink700, lineHeight: '1.35', flex: 1 }}>{d.label}</span>
-                <span style={{ fontSize: '0.8125rem', fontWeight: 600, color: colors.ink, flexShrink: 0, whiteSpace: 'nowrap' }}>
-                  {d.value} <span style={{ fontSize: '0.75rem', fontWeight: 400, color: colors.ink400 }}>({pct}%)</span>
-                </span>
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      {/* 27 Sep 2026 — ring + legend now BreakdownRing (components/viz/),
+          hand-built and interactive; see its header. Card chrome, title
+          slot, width, minHeight and both empty states above are
+          unchanged — they carry the §179-§191 layout decisions. */}
+      <BreakdownRing data={data} title={title} />
     </div>
   );
 }
@@ -298,74 +184,14 @@ export function EmptyState({ message }) {
   );
 }
 
-// ─── Primary trend chart — multi-series, toggleable, dual-axis (counts vs
-// currency live on genuinely different scales) ──────────────────────────────
-const TREND_SERIES = [
-  { key: 'leads',       label: 'Leads',        colour: colors.primary,  axis: 'left'  },
-  { key: 'appts',       label: 'Appointments', colour: '#7c3aed',       axis: 'left'  },
-  { key: 'won',         label: 'Won',          colour: colors.success,  axis: 'left'  },
-  { key: 'lost',        label: 'Lost',         colour: colors.danger,   axis: 'left'  },
-  { key: 'policyValue', label: 'Policy Value', colour: '#d97706',       axis: 'right' },
-];
-
+// ─── Primary trend chart — 27 Sep 2026: now a thin wrapper around
+// components/viz/TrendLines.jsx (hand-built, interactive; same five
+// series, same separate scales, same clickable legend, same defaults —
+// see its header). Kept here under the same name so Reports.jsx's call
+// site and empty state are unchanged.
 export function TrendChart({ data, isMobile }) {
-  const [hidden, setHidden] = useState(new Set(['policyValue', 'lost']));
   if (!data || data.length === 0) return <EmptyState message="No activity yet this period." />;
-
-  function toggle(key) {
-    setHidden(prev => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key); else next.add(key);
-      return next;
-    });
-  }
-
-  return (
-    <div>
-      <ResponsiveContainer width="100%" height={isMobile ? 220 : 280}>
-        <LineChart data={data} margin={{ top: 8, right: isMobile ? 8 : 16, bottom: 4, left: isMobile ? -16 : 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke={colors.lineSoft} vertical={false} />
-          <XAxis dataKey="label" stroke={colors.ink500} fontSize={11} />
-          <YAxis yAxisId="left" stroke={colors.ink500} fontSize={11} allowDecimals={false} />
-          <YAxis yAxisId="right" orientation="right" stroke={colors.ink500} fontSize={11} tickFormatter={v => `R${(v / 1000000).toFixed(1)}m`} />
-          <Tooltip
-            formatter={(value, name) => {
-              const series = TREND_SERIES.find(sr => sr.label === name);
-              return [series?.key === 'policyValue' ? fmt(value) : value, name];
-            }}
-            contentStyle={{ background: colors.surface, border: `1px solid ${colors.line}`, borderRadius: radius.sm, fontSize: '0.8125rem' }}
-          />
-          {TREND_SERIES.map(sr => !hidden.has(sr.key) && (
-            <Line
-              key={sr.key} yAxisId={sr.axis} type="monotone" dataKey={sr.key} name={sr.label}
-              stroke={sr.colour} strokeWidth={2} dot={{ r: 2.5 }} activeDot={{ r: 4 }}
-            />
-          ))}
-        </LineChart>
-      </ResponsiveContainer>
-      {/* Custom legend, not Recharts' built-in — needs to stay clickable
-          even for series currently hidden (Recharts' own <Legend> only
-          renders entries for series that are actually mounted). */}
-      <div style={{ display: 'flex', gap: '14px', flexWrap: 'wrap', justifyContent: 'center', marginTop: '4px' }}>
-        {TREND_SERIES.map(sr => {
-          const isHidden = hidden.has(sr.key);
-          return (
-            <button
-              key={sr.key} onClick={() => toggle(sr.key)}
-              style={{
-                display: 'flex', alignItems: 'center', gap: '5px', background: 'none', border: 'none',
-                cursor: 'pointer', fontFamily: 'inherit', fontSize: '0.75rem', padding: '2px 4px',
-                color: isHidden ? colors.ink400 : colors.ink700, opacity: isHidden ? 0.5 : 1,
-              }}
-            >
-              <span style={{ width: '9px', height: '9px', borderRadius: '2px', background: sr.colour, display: 'inline-block' }} />
-              {sr.label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
+  return <TrendLines data={data} isMobile={isMobile} />;
 }
 
 // ─── Pipeline health — REPLACED by components/viz/PipelineJourney.jsx

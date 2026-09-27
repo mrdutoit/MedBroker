@@ -81,8 +81,71 @@ test('Reports pipeline hero: Won/Lost fork renders as two branches, not a straig
   // line, silently reintroducing the mixed-basis bug above.
   await signInAs(page, 'GlobalAdmin');
   await page.goto('/reports');
-  await expect(page.getByRole('button', { name: /Closed Won/ })).toBeVisible();
-  await expect(page.getByRole('button', { name: /Closed Lost/ })).toBeVisible();
+  // Scoped to the hero (27 Sep 2026): the Won vs Lost ring's legend rows
+  // are now buttons named "Closed Won" / "Closed Lost" too.
+  const hero = page.locator('.pj-panel');
+  await expect(hero.getByRole('button', { name: /Closed Won/ })).toBeVisible();
+  await expect(hero.getByRole('button', { name: /Closed Lost/ })).toBeVisible();
+});
+
+// ── Reports page completion, 27 Sep 2026 (app-design-pass) ─────────────
+
+test('Reports trend: keyboard steps through periods, and future periods are never read out as zeros', async ({ page }) => {
+  // The trend used to draw buckets that hadn't happened yet as real
+  // zeros, so every line crashed to 0 at "today". The last fixture bucket
+  // (W40) is flagged future: the chart must stop at W39.
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/reports');
+  const plot = page.getByRole('group', { name: /Trend over the period/ });
+  await plot.focus();
+  const tip = plot.locator('.mbv-tip');
+  await expect(tip).toContainText('W39');          // focus lands on the last REAL period
+  await page.keyboard.press('ArrowLeft');
+  await expect(tip).toContainText('W38');
+  await expect(tip).toContainText('61');           // W38 leads
+  await page.keyboard.press('End');
+  await expect(tip).toContainText('W39');          // End stops at the last real period, not W40
+  await expect(tip).not.toContainText('W40');
+  expect(errors).toEqual([]);
+});
+
+test('Reports trend: legend buttons hide and show a series', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/reports');
+  const lost = page.getByRole('button', { name: 'Lost', exact: true });
+  await expect(lost).toHaveAttribute('aria-pressed', 'false');   // hidden by default, as before
+  await lost.click();
+  await expect(lost).toHaveAttribute('aria-pressed', 'true');
+  const plot = page.getByRole('group', { name: /Trend over the period/ });
+  await plot.focus();
+  await expect(plot.locator('.mbv-tip')).toContainText('Lost');
+});
+
+test('Reports breakdown rings: focusing a legend row puts that category in the centre', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/reports');
+  const row = page.getByRole('button', { name: 'Price too high: 4, 36%' });
+  await row.focus();
+  const ring = row.locator('xpath=ancestor::div[contains(@class,"mbv-ring-wrap")]');
+  await expect(ring.locator('.mbv-ring-figure')).toHaveText('4');
+  await expect(ring.locator('.mbv-ring-caption')).toHaveText('36%');
+  await row.blur();
+  await expect(ring.locator('.mbv-ring-figure')).toHaveText('11');   // back to the total
+  expect(errors).toEqual([]);
+});
+
+test('Reports metric strip: a sparkline reads out each period by keyboard', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/reports');
+  const spark = page.getByRole('group', { name: /Total Leads trend/ });
+  await spark.focus();
+  await page.keyboard.press('ArrowLeft');
+  const cell = spark.locator('xpath=ancestor::div[contains(@class,"mbv-strip-cell")]');
+  await expect(cell.locator('.mbv-strip-readout')).toHaveText('W38: 61');
+  await page.keyboard.press('Escape');
+  await expect(cell.locator('.mbv-strip-readout')).toHaveCount(0);   // delta line returns
 });
 
 test('Lead Import: a YYYY-MM-DD dateOfBirth column parses correctly, not as a serial number (25 Aug 2026 bug)', async ({ page }) => {
