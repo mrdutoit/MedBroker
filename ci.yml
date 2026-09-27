@@ -1,0 +1,72 @@
+# MedBroker CI (27 Sep 2026) — GitHub Actions.
+#
+# WHAT THIS IS: every time a commit lands on GitHub (including a
+# github.dev drag-and-drop commit), GitHub spins up a clean Linux machine
+# on its own servers, installs the app, and runs the automated tests.
+# Results appear in the repo's "Actions" tab: a green tick or red cross
+# per commit. It needs no CLI, changes nothing about how you deploy, and
+# never touches Vercel or Neon — Vercel still deploys exactly as before,
+# whether the tests pass or not. It is a smoke alarm, not a gate.
+#
+# Two jobs, in parallel:
+#   unit  vitest — the 57 service-layer tests (database mocked)
+#   e2e   Playwright in real Chromium against the BUILT frontend, every
+#         /api/* call answered from e2e/fixtures.js (no database, no
+#         secrets), desktop + phone viewport, every page for every role
+#
+# No integration job: this repo has no tests against a real database yet
+# (checked, not assumed). No lint job: `npm run lint` carries one known
+# pre-existing error and would fail every run until that is fixed.
+# A failed e2e run uploads the HTML report (screenshots + traces) as an
+# artifact named "playwright-report" on the run's summary page.
+#
+# LOCATION: this file lives at the TRUE repo root —
+#   .github/workflows/ci.yml   (sibling of medbroker-v1/, not inside it)
+
+name: CI
+
+on:
+  push:
+  pull_request:
+
+defaults:
+  run:
+    working-directory: medbroker-v1
+
+jobs:
+  unit:
+    name: Unit tests (vitest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: medbroker-v1/frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npm test --prefix frontend
+
+  e2e:
+    name: Browser regression suite (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            medbroker-v1/package-lock.json
+            medbroker-v1/frontend/package-lock.json
+      - run: npm ci
+      - run: npm ci --prefix frontend
+      - run: npm run build --prefix frontend
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e
+      - if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: medbroker-v1/playwright-report
+          retention-days: 14
