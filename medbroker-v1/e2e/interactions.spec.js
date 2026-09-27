@@ -113,6 +113,27 @@ test('mobile navigation opens and a link works (existing pattern, kept honest)',
   await expect(page).toHaveURL(/\/reports$/);
 });
 
+test('User Admin: a user record without portfolio/product arrays does not crash the list (27 Sep 2026)', async ({ page }) => {
+  // Status_Vercel.md (27 Sep) logged this as fixed, but only the edit-form
+  // init in UserModal was guarded — the list render still read
+  // user.portfolios.length directly and took the whole page down. The live
+  // API always COALESCEs these to [] (userService.js), so this is defence
+  // in depth, not a production incident. Proven against the unfixed code:
+  // this test failed there before the guard was added.
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  // Registered after mockApi's catch-all, so it takes precedence.
+  await page.route(/\/api\/users(\?.*)?$/, (route) => route.fulfill({
+    status: 200, contentType: 'application/json',
+    body: JSON.stringify({ users: [
+      { id: 'u9', displayName: 'Legacy Record', email: 'legacy@medbroker.test', role: 'Agent', region: null, supervisor: null },
+    ] }),
+  }));
+  await page.goto('/admin/users');
+  await expect(page.getByText('Legacy Record')).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
 // KNOWN, NOT YET FIXED — found while building this suite (24 Sep 2026),
 // out of scope for the Reports redesign this suite grew out of, flagged
 // to Mark rather than fixed silently. test.fail() so CI shows this as a

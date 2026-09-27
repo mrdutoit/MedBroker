@@ -10,9 +10,14 @@ import { defineConfig, devices } from '@playwright/test';
  * render, a console error, a modal that closes when you select text
  * inside it, a tooltip clipped to invisible.
  *
- * Run by GitHub Actions on every push (.github/workflows/ci.yml, repo
- * root). Locally, from medbroker-v1/:
+ * HOW THIS SUITE IS RUN (27 Sep 2026): (1) by GitHub Actions on every
+ * push — .github/workflows/ci.yml at the TRUE repo root, outside
+ * medbroker-v1/ (process.env.CI switches below apply there: one retry,
+ * HTML report uploaded on failure); (2) in the Claude sandbox before every
+ * delivery, as the session protocol's verification step. From
+ * medbroker-v1/:
  *   npm --prefix frontend run build && npm run test:e2e
+ * (sandbox: prefix with PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers).
  */
 const PORT = 4173;
 

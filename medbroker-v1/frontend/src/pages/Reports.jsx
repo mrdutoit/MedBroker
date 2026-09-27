@@ -67,10 +67,14 @@ import { reportsApi } from '../services/api.js';
 import { s, colors } from '../styles/tokens.js';
 import { PeriodSelector, getPeriodLabel, referenceDateToParam } from '../components/PeriodSelector.jsx';
 import {
-  KpiCard, TrendChart, PipelineHealth, DataTable, EmptyState, Section,
+  KpiCard, TrendChart, DataTable, EmptyState, Section,
   DonutBreakdown, CATEGORICAL_PALETTE,
   fmt, fmtDays, fmtRatio,
 } from '../components/ReportsWidgets.jsx';
+// Replaces PipelineHealth — app-design-pass skill, Reports page pilot
+// (designed 24 Sep 2026, delivered 27 Sep 2026). See PipelineJourney.jsx's
+// header for the concept and the data-semantics decisions.
+import PipelineJourney from '../components/viz/PipelineJourney.jsx';
 
 // 14 Aug 2026 (§163) — matches AppointmentDetail.jsx's lostReason dropdown
 // labels exactly (kept as a second copy deliberately, not imported across
@@ -444,8 +448,16 @@ export default function Reports() {
             )}
           </div>
 
-          {/* ── 2. Executive summary ─────────────────────────────────────── */}
-          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(6, 1fr)', gap: '12px', marginBottom: '16px' }}>
+          {/* ── 2. Pipeline Journey — the page hero (app-design-pass skill).
+              Moved here from its old position after the trend chart (the
+              former "Pipeline Health" section): one signature panel per
+              page, answering "where are leads getting stuck" at a glance.
+              Same stages/stageConversion data, wired identically — only
+              the visual treatment and its position changed. */}
+          <PipelineJourney stages={pipeline} stageConversion={stageConversion} isMobile={isMobile} />
+
+          {/* ── 3. Executive summary ─────────────────────────────────────── */}
+          <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(6, 1fr)', gap: '12px', marginTop: '20px', marginBottom: '16px' }}>
             {kpis.map(k => {
               // Only KPIs with a matching series in `trend` get a sparkline
               // (conversion/avgDaysToCloseWon have no per-bucket trend data).
@@ -460,14 +472,9 @@ export default function Reports() {
             })}
           </div>
 
-          {/* ── 3. Primary trend ─────────────────────────────────────────── */}
+          {/* ── 4. Primary trend ─────────────────────────────────────────── */}
           <Section title="Trend" subtitle="Leads, appointments, outcomes, and policy value over the period — click a series to hide/show it.">
             <TrendChart data={trend} isMobile={isMobile} />
-          </Section>
-
-          {/* ── 4. Pipeline health ───────────────────────────────────────── */}
-          <Section title="Pipeline Health" subtitle="Where leads are getting stuck — conversion between adjacent stages.">
-            <PipelineHealth stages={pipeline} stageConversion={stageConversion} isMobile={isMobile} />
           </Section>
 
           {/* ── 5. Broker / Agent performance ────────────────────────────── */}
@@ -555,8 +562,8 @@ export default function Reports() {
                 {/* 16 Aug 2026 (§182) — Mark's direct question: "why could
                     these not be displayed next to each other?" They
                     couldn't, because Overall used to live in a different
-                    card entirely (Pipeline Health, moved from there —
-                    see PipelineHealth's own comment, ReportsWidgets.jsx)
+                    card entirely (Pipeline Health — since replaced by the
+                    PipelineJourney hero, see components/viz/)
                     while By Region/By Portfolio lived here. No good
                     reason for the split — all three are the same theme
                     (what happened to closed deals, cut three ways).

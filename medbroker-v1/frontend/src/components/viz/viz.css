@@ -1,0 +1,164 @@
+/*
+ * components/viz/viz.css — NEW (built 24 Sep 2026, delivered 27 Sep 2026).
+ * app-design-pass skill, Reports page pilot. Scoped to exactly what
+ * PipelineJourney and its Tooltip need — not a port of the skill's whole
+ * reference catalogue. Principles unchanged from the skill's reference
+ * stylesheet: every mark answers hover AND keyboard focus with the detail
+ * behind it via one shared tooltip card; no axes or gridlines unless they
+ * carry meaning.
+ */
+
+/* ---------- Tooltip card (mbv- prefix: MedBroker Viz) ---------- */
+
+.mbv-tip {
+  position: absolute;
+  z-index: 20;
+  pointer-events: none;
+  min-width: 180px;
+  max-width: 260px;
+  padding: 10px 13px;
+  border-radius: var(--r-card, 14px);
+  background: var(--panel);
+  color: var(--ink);
+  border: 1px solid var(--line);
+  box-shadow: 0 12px 32px -12px rgba(11, 27, 58, 0.45), 0 2px 6px rgba(11, 27, 58, 0.08);
+  font-size: 13px;
+  line-height: 1.45;
+  transform: translate(-50%, calc(-100% - 14px));
+  animation: mbv-tip-in 120ms ease-out;
+}
+.mbv-tip.mbv-tip-left { transform: translate(calc(-100% + 24px), calc(-100% - 14px)); }
+.mbv-tip.mbv-tip-right { transform: translate(-24px, calc(-100% - 14px)); }
+.mbv-tip.mbv-tip-below { transform: translate(-50%, 14px); }
+@keyframes mbv-tip-in { from { opacity: 0; } to { opacity: 1; } }
+
+.mbv-tip-title { font-weight: 650; color: var(--ink); margin-bottom: 6px; }
+.mbv-tip-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 4px; }
+.mbv-tip-row + .mbv-tip-row { margin-top: 5px; }
+.mbv-tip-label { color: var(--mut); font-size: 12px; }
+
+/* ---------- Pipeline Journey (Reports page hero) ---------- */
+
+/* NO overflow:hidden on .pj-panel — 24 Sep 2026 bug: the Tooltip is an
+   absolutely-positioned child rendering ABOVE its waypoint, and with
+   overflow:hidden here (originally added for the background washes) any
+   tooltip positioned outside the panel's box was clipped to invisible —
+   in the DOM with opacity:1, just not visible. The washes need clipping
+   to the rounded corners, so they live on ::before instead; the element
+   that hosts content which must NOT be clipped doesn't clip. Regression
+   test: e2e/interactions.spec.js, "hovering a waypoint shows its tooltip". */
+.pj-panel {
+  position: relative;
+  border-radius: var(--r-panel, 18px);
+  padding: 28px 30px 24px;
+  color: #EAF2FA;
+  background: linear-gradient(160deg, #0A1230 0%, #0D1A45 60%, #091026 100%);
+}
+/* Deep indigo-navy from darkening the logo's own gradient start colour
+   (#2F4FE0) toward near-black — not an invented hero colour. A FIXED dark
+   treatment in every theme (design-language.md: panels that must stay dark
+   set data-theme="dark" on themselves — done in the JSX). */
+.pj-panel::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    radial-gradient(900px 500px at 15% -10%, rgba(23, 182, 201, 0.16), transparent 60%),
+    radial-gradient(1000px 650px at 100% 115%, rgba(47, 79, 224, 0.22), transparent 55%);
+}
+.pj-panel > * { position: relative; z-index: 1; }
+
+.pj-eyebrow { font-size: 0.75rem; color: rgba(234, 242, 250, 0.65); letter-spacing: 0.02em; margin: 0 0 2px; }
+.pj-title { font-family: var(--disp); font-size: clamp(1.375rem, 2vw, 1.75rem); font-weight: 700; letter-spacing: -0.015em; margin: 0; color: #fff; }
+.pj-subtitle { font-size: 0.8125rem; color: rgba(234, 242, 250, 0.6); margin: 4px 0 0; max-width: 46ch; }
+
+.pj-plot { position: relative; width: 100%; }
+.pj-plot svg { display: block; overflow: visible; }
+
+/* Waypoints are HTML buttons positioned over the SVG, not SVG circles —
+   pitfalls.md: circles in a stretched SVG become ellipses on narrow screens. */
+.pj-waypoint {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  padding: 0;
+  border: 2px solid rgba(10, 18, 48, 0.85);
+  border-radius: 50%;
+  cursor: pointer;
+  transition: transform 140ms ease, box-shadow 140ms ease;
+}
+.pj-waypoint.active {
+  transform: translate(-50%, -50%) scale(1.35);
+  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.14);
+  z-index: 3;
+}
+.pj-waypoint:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
+
+.pj-label {
+  position: absolute;
+  transform: translate(-50%, 0);
+  text-align: center;
+  pointer-events: none;
+  white-space: nowrap;
+}
+.pj-label-count {
+  font-family: var(--disp);
+  font-size: 1.375rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: #fff;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+.pj-label-name {
+  font-size: 0.6875rem;
+  color: rgba(234, 242, 250, 0.68);
+  margin-top: 3px;
+}
+
+.pj-segment { transition: stroke-width 160ms ease, opacity 160ms ease; }
+
+.pj-conv-badge {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  pointer-events: none;
+  background: rgba(10, 18, 48, 0.55);
+  padding: 2px 6px;
+  border-radius: 999px;
+}
+
+/* One orchestrated moment on load: the plot fades and settles, waypoints
+   staggered slightly after. Deliberately NOT a stroke-dasharray "draw the
+   path" animation — pitfalls.md: that breaks under vector-effect, and this
+   path has curves (the Won/Lost fork) where the scaleX workaround doesn't
+   cleanly apply. */
+.pj-panel:not(.pj-static) .pj-plot { animation: pj-settle 520ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.pj-panel:not(.pj-static) .pj-waypoint { animation: pj-fade-in 420ms ease-out both; }
+.pj-panel:not(.pj-static) .pj-waypoint:nth-of-type(2) { animation-delay: 60ms; }
+.pj-panel:not(.pj-static) .pj-waypoint:nth-of-type(3) { animation-delay: 120ms; }
+.pj-panel:not(.pj-static) .pj-waypoint:nth-of-type(4) { animation-delay: 180ms; }
+.pj-panel:not(.pj-static) .pj-waypoint:nth-of-type(5) { animation-delay: 260ms; }
+.pj-panel:not(.pj-static) .pj-waypoint:nth-of-type(6) { animation-delay: 300ms; }
+@keyframes pj-settle { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes pj-fade-in { from { opacity: 0; } to { opacity: 1; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .pj-panel .pj-plot, .pj-panel .pj-waypoint { animation: none !important; }
+}
+
+.pj-empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: rgba(234, 242, 250, 0.6);
+  font-size: 0.8125rem;
+}

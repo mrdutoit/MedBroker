@@ -114,8 +114,18 @@ toggle — both traced to ONE root cause, a gap in every modal's
 outside-click-to-close guard that a text-selection drag can trigger by
 accident. Checked scope before fixing just the one instance reported:
 found and fixed the same pattern in 12 overlay handlers across 7 files.
-NOT YET DEPLOYED — pure frontend interaction fix, applying the delta
-ZIP is the whole deployment.
+CONFIRMED LIVE 27 Sep 2026 — mouseDownOnOverlayRef present in all 7
+files in commit e1c112e (verified against a fresh codeload hydration).
+
+REPORTS HERO (PipelineJourney) — DELIVERED 27 Sep 2026. Designed and
+browser-verified 24 Sep 2026 (app-design-pass skill), but the code NEVER
+made it into any delivery ZIP — commit e1c112e (the 27 Sep delivery)
+carried the e2e suite that tests the hero, but not the hero itself, so
+three interaction tests failed against main. Reconstructed from the
+session transcript, with every verified fix, in
+medbroker-reports-hero-20260927-1511.zip. Full account: the "SESSION 27 SEP
+2026 (LATER)" entry in OUTSTANDING ITEMS below. Pure frontend, no
+migration — applying the ZIP is the whole deployment.
 
 §192 — INDEPENDENT SECURITY AUDIT, 22 Aug 2026, AND FOUR FIXES CLOSED
 SAME DAY. code-audit skill (independent-reviewer role, no fixes made
@@ -244,20 +254,112 @@ VERCEL FUNCTION COUNT: confirmed exactly 12/12 on this hydration — still
 zero headroom, still Hobby's hard ceiling. Any new top-level API surface
 needs a consolidation first.
 
-BUILD HEALTH: clean `npm run build`, 48/48 tests passing, on this
-hydration, 18 Aug 2026.
+BUILD HEALTH (27 Sep 2026, on commit e1c112e + the reports-hero delta):
+clean `npm run build`; `npx vitest run` 57/57; browser suite 91/91 (one
+of those is the deliberately test.fail()-marked tasks.enabled item);
+`npm run lint` unchanged — the same single pre-existing plugin-version
+error, plus the known JSX-usage false-positive warnings.
+CI: .github/workflows/ci.yml delivered 27 Sep 2026 as a STANDALONE file
+(repo root, outside medbroker-v1/) — NOT live until Mark creates it in
+github.dev. Once live, unit + browser suites run on GitHub's servers on
+every push, drag-and-drop commits included; deployment is unchanged. The
+browser suite ALSO keeps running in the sandbox every session as part of
+the protocol's verification step — CI is the between-sessions net, not a
+replacement for it.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+SESSION 27 SEP 2026 (LATER) — COMMIT e1c112e VERIFIED; REPORTS HERO
+ACTUALLY DELIVERED; CORRECTIONS TO THE ENTRY BELOW.
+
+WHAT e1c112e (the 27 Sep delivery, = main) CONTAINS, verified against a
+codeload hydration of that exact commit: e2e/ suite, root package.json
+(@playwright/test 1.56.0), EventDetail.jsx zero-RSVP guard, the modal
+overlay fix in all 7 files, and the 27 Sep status docs. WHAT IT DOES NOT
+CONTAIN, AND NEVER DID: the Reports hero (components/viz/, hooks/
+useElementWidth.js, Reports.jsx wiring). It was built and verified in
+the 24-26 Sep session's sandbox and never packaged — that session's
+final ZIP was built delta-only on the wrong assumption that the hero had
+shipped earlier. Consequence on main: the three "Reports pipeline hero"
+tests in interactions.spec.js failed (baseline run today: 87 passed, 3
+failed — exactly those three). Mark applied everything he was given;
+the gap was in what was delivered, not in what was deployed.
+
+RECONSTRUCTED AND DELIVERED THIS SESSION, from the original session's
+transcript, carrying every fix that session verified: the headline sums
+only the four Lead.createdAt-scoped stages ("N leads still in play" —
+summing all six mixed three different clocks); Won/Lost tooltip shares
+use closedTotal; colour-coded conversion % badges; mobile label and
+badge collision fixes; the tooltip-clipping fix (washes on ::before, no
+overflow:hidden on the panel). ONE NEW CORRECTION found in today's
+screenshots: the desktop Closed Lost label overran the 220px plot and
+sat on the panel's bottom edge — plot now 260px with the spine held at
+y=118 (identical position to the approved design). Two defensive
+additions with no visual effect: a stages.length < 6 guard, and
+aria-hidden on the decorative SVG (the waypoint buttons carry the labels).
+PipelineHealth and stageColour() retired from ReportsWidgets.jsx (grep
+confirmed no other call sites). Verified: build clean, vitest 57/57,
+browser suite 91/91 including all three hero tests, and screenshots
+reviewed at desktop/390px, Linen/Midnight, hover and keyboard focus.
+Screenshots used fallback fonts (the suite's fixtures stub Google Fonts);
+the CSS is unchanged from the version whose type was checked at 2x on
+24 Sep.
+
+ADJACENT FIX: UserAdmin.jsx's user LIST still read user.portfolios.length
+/ user.products.length unguarded — the entry below records this crash as
+FIXED, but only UserModal's edit-form init was guarded. Now guarded in
+both places. Not a production incident (userService.js COALESCEs both to
+ARRAY[]), but the suite's fixture-shaped crash was real. New regression
+test in interactions.spec.js, proven to FAIL against the unfixed file
+before the guard was added.
+
+CI — WHY IT NEVER LANDED, AND WHAT CHANGED. The entry below and
+Project_Context_Vercel.md said the suite is "run by CI". No CI workflow
+ever reached the repo: ci.yml was packed into the 27 Sep ZIP as a second
+top-level folder (.github/), which the app-design-pass skill's own
+pitfalls file warns against (macOS hides dot-folders; a two-root ZIP
+unzips into a wrapper folder). It had also never been explained to Mark.
+Once explained — GitHub runs the tests on its own servers after every
+push, needs no CLI, and does not affect Vercel deploys — Mark chose to
+keep it. Delivered this time as a standalone file with its exact path,
+plus a repo-root package-lock.json the workflow's `npm ci` needs (the
+27 Sep version would also have failed on that: no root lockfile
+existed). Every workflow step except the Chromium download was run in
+the sandbox on a clean copy with CI=true: vitest 57/57, build clean,
+browser suite 91/91, HTML report written to the artifact path. No lint
+job (one known pre-existing lint error would fail every run). F-05 (CI
+pipeline) CLOSES on the first green run in the Actions tab — not before.
+
+COUNT CORRECTION for the entry below: "FIVE FOUND, FOUR FIXED" does not
+match its own list. Of the five: two app-code fixes (EventDetail
+zero-RSVP guard; UserAdmin — partial until today), one response-shape
+inconsistency that isn't a bug (eventsApi.get wrapping), two deliberately
+left open (tasks.enabled first-render redirect; AppointmentDetail has no
+headings). Plus one bug in the suite's own helper (expectHealthyPage),
+fixed.
+
+DELIVERY: medbroker-reports-hero-20260927-1511.zip — Reports.jsx,
+ReportsWidgets.jsx, UserAdmin.jsx, components/viz/ (PipelineJourney.jsx,
+Tooltip.jsx, viz.css), hooks/useElementWidth.js, e2e/interactions.spec.js,
+e2e/playwright.config.js, medbroker-v1/package-lock.json (new), and both
+status docs. SEPARATELY: .github/workflows/ci.yml, created by hand in
+github.dev at the repo root. Diffed against a fresh
+hydration of main (no upstream drift since e1c112e) — isolated to exactly
+those files. Nothing to delete on GitHub. No migration.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 SESSION 27 SEP 2026 — BROWSER REGRESSION SUITE BUILT (app-design-pass
 skill's own mandatory requirement), FIVE REAL PRE-EXISTING BUGS FOUND
-AND FOUR FIXED. Continuation of the 24-26 Sep 2026 Reports redesign —
+AND FOUR FIXED. [CORRECTED — see "27 SEP (LATER)" entry above: the
+count, the CI claim and the hero's delivery status below are wrong.]
+Continuation of the 24-26 Sep 2026 Reports redesign —
 that session ended with the PipelineJourney hero verified via a
 throwaway screenshot harness; this one replaced that with the
 permanent Playwright suite the skill actually requires (e2e/, repo
-root, run by CI), and in the process of driving every page for every
+root; "run by CI" was untrue at the time — see entry above), and in the process of driving every page for every
 role through a real browser for the first time, found bugs that had
 been shipping invisibly the whole time — not introduced by recent
 work, just never exercised this way before. Full technical account
@@ -302,7 +404,8 @@ single read — every role, every page, verified clean afterward,
 repeatedly, not just once.
 
 METHODOLOGY NOW ALSO IN THE app-builder SKILL (delivered as an updated
-.skill file, not part of this repo) — a new mandatory "Browser
+.skill file, not part of this repo; placement, evidence claims and CI
+wording corrected 27 Sep (later)) — a new mandatory "Browser
 regression pass" section, so a future NEW app build gets this from day
 one rather than retrofitting it after bugs have already shipped
 invisibly, the way this session found them here.

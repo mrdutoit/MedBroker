@@ -921,6 +921,15 @@ export default function UserAdmin() {
           <tbody>
             {sortedFiltered.map(user => {
               const rs = ROLE_STYLE[user.role] ?? ROLE_STYLE.Agent;
+              // 27 Sep 2026 — Status_Vercel.md logged the missing-array crash
+              // as FIXED, but only the edit-form init was guarded; this list
+              // render still read
+              // user.portfolios.length / user.products.length unguarded. The
+              // live API always returns arrays (userService COALESCEs to
+              // ARRAY[]), so production was never affected — but the same
+              // defensive rule now applies in both places, not one.
+              const userPortfolios = Array.isArray(user.portfolios) ? user.portfolios : [];
+              const userProducts   = Array.isArray(user.products)   ? user.products   : [];
               return (
                 <tr
                   key={user.id}
@@ -948,8 +957,8 @@ export default function UserAdmin() {
                   </td>
                   <td style={{ ...s.td, fontSize: '0.8125rem' }}>{user.region || '—'}</td>
                   <td style={s.td}>
-                    {user.portfolios.length > 0
-                      ? user.portfolios.map(p => (
+                    {userPortfolios.length > 0
+                      ? userPortfolios.map(p => (
                           <span key={p} style={{
                             ...s.badge, fontSize: '0.688rem', marginRight: '3px',
                             background: p === 'Discovery' ? 'color-mix(in srgb, #1d4ed8 14%, var(--panel))' : 'color-mix(in srgb, #7c3aed 14%, var(--panel))',
@@ -961,13 +970,13 @@ export default function UserAdmin() {
                   </td>
                   <td style={{ ...s.td, fontSize: '0.8125rem', color:'var(--mut)' }}>{user.supervisor || '—'}</td>
                   <td style={s.td}>
-                    {user.products.length > 0
-                      ? user.products.slice(0, 2).map(p => (
+                    {userProducts.length > 0
+                      ? userProducts.slice(0, 2).map(p => (
                           <span key={p} style={{ ...s.badge, background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d', fontSize: '0.625rem', marginRight: '2px' }}>{p}</span>
                         ))
                       : <span style={{ color:'var(--mut)', fontSize: '0.8125rem' }}>—</span>
                     }
-                    {user.products.length > 2 && <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}> +{user.products.length - 2}</span>}
+                    {userProducts.length > 2 && <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}> +{userProducts.length - 2}</span>}
                   </td>
                   <td style={s.td}>
                     <span style={{ ...s.badge, background: user.isActive ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'var(--panel2)', color: user.isActive ? '#15803d' : 'var(--mut)' }}>

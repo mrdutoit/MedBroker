@@ -1612,8 +1612,12 @@ Browser regression suite — built 27 Sep 2026 (app-design-pass skill's
   redesign). e2e/ at repo root (sibling to frontend/, not inside it),
   @playwright/test pinned as a repo-root-only devDependency
   (medbroker-v1/package.json — deliberately never frontend/package.json,
-  which ships to Vercel), run by .github/workflows/ci.yml as its own
-  job alongside the existing unit-test job. Two files: smoke.spec.js
+  which ships to Vercel). Run by .github/workflows/ci.yml at the TRUE
+  repo root (outside medbroker-v1/) as a job alongside a unit-test job —
+  CORRECTED 27 Sep 2026 (later): that line was written before the file
+  existed on GitHub; it only becomes true once Mark creates the file in
+  github.dev (delivered standalone — see Status_Vercel.md). The suite
+  also runs in the sandbox every session regardless. Two files: smoke.spec.js
   (every page, every role, renders cleanly) and interactions.spec.js
   (regression tests for specific real bugs, listed below).
 
@@ -1766,6 +1770,42 @@ Unassigned Appointment Warning — built 14 Aug 2026 (§160, migration
   (respects manual reassignment since creation) rather than
   re-deriving a routing decision from scratch; only fall back to a
   fresh region-based lookup when no such Task exists at all.
+
+Reports hero — PipelineJourney (components/viz/), designed 24 Sep 2026,
+  delivered 27 Sep 2026 (app-design-pass skill, Reports page pilot).
+  Replaces PipelineHealth. Signature dark panel at the top of the org-view
+  Reports page (Admin/GlobalAdmin/Supervisor; Agent/Broker self-view is
+  unchanged). Concept: the logo draws "MB" as one continuous stroke; a
+  Lead's journey is the same shape, so four sequential stages form one
+  spine in the logo gradient (#2F4FE0 -> #1A7FCF -> #17B6C9), forking into
+  Closed Won / Closed Lost. Waypoint dots use the per-theme --pl-* tokens.
+  STANDING DATA RULES — each already caused a real bug once:
+    1. NEVER sum all six pipeline buckets. Sequential stages are scoped
+       by Lead.createdAt, Won/Lost by Appointment.closedAt, and Closed
+       Lost also counts leads closed with no Appointment (Lead.updatedAt).
+       The headline ("N leads still in play") sums the four sequential
+       stages only; Won/Lost shares use closedTotal as denominator.
+    2. Won/Lost are parallel terminal outcomes from Appointment Booked,
+       never a 5th/6th sequential stage — the fork is the data semantics,
+       not decoration.
+  STANDING RENDERING RULES: no overflow:hidden on .pj-panel (it clipped
+  the tooltip to invisible — the background washes clip on ::before);
+  waypoints are HTML buttons over the SVG, not SVG circles; every label
+  sits below its dot; gradient uses gradientUnits="userSpaceOnUse".
+  Covered by three e2e/interactions.spec.js tests.
+
+Continuous integration — .github/workflows/ci.yml at the TRUE repo root
+  (outside medbroker-v1/), 27 Sep 2026, Mark's decision once it was
+  explained. Two jobs on every push: unit (vitest) and e2e (Playwright,
+  API fully mocked — no database, no secrets). Runs on GitHub's servers,
+  works with github.dev drag-and-drop commits, does not gate or touch
+  Vercel deploys. DELIVERY RULE: anything outside medbroker-v1/ (this
+  file included) is never put in a delivery ZIP — hidden dot-folders get
+  lost on macOS and a second top-level folder breaks the unzip. Deliver
+  it standalone with its exact path and github.dev instructions. The root
+  medbroker-v1/package-lock.json must stay in the repo: the e2e job's
+  `npm ci` requires it. No lint job until the pre-existing lint error is
+  fixed.
 
 Donut pattern (DonutBreakdown, ReportsWidgets.jsx) — CURRENT DESIGN as
   of 16 Aug 2026 (§187), a structural rebuild after six earlier passes

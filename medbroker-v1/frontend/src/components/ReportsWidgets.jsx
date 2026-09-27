@@ -368,70 +368,15 @@ export function TrendChart({ data, isMobile }) {
   );
 }
 
-// ─── Pipeline health — stage counts + stage-to-stage conversion, bottleneck
-// visually obvious via colour on the connector, not just a number ──────────
-function stageColour(ratio) {
-  if (ratio === null) return colors.ink400;
-  if (ratio >= 0.7) return colors.success;
-  if (ratio >= 0.4) return colors.warn;
-  return colors.danger;
-}
-
-/**
- * REDESIGNED TWICE — 15 Aug 2026, both times real feedback, not
- * successive guesses. First pass (this comment, same day, earlier):
- * fixed a genuine structural bug (four side-by-side boxes made bar
- * WIDTHS impossible to compare even though the percentages were already
- * correct) by switching to a shared-scale vertical stack. Mark's
- * follow-up went further: the bars still "just show a number... aren't
- * being compared to anything else" — correct, and a deeper point than
- * the first fix addressed. The sequential stages (Unassigned/Assigned/
- * In Progress/Appointment Booked) aren't parts-of-a-whole data at all —
- * a lead doesn't split across them, it's a snapshot of where each lead
- * in this period's cohort currently sits. A bar chart implies "these
- * add up to something," which was never true here, so no amount of
- * rescaling could make it read as meaningful. Dropped bars from the
- * sequential stages entirely — just the count, the label, and the real
- * stage-to-stage conversion % that already existed (that number was
- * always the actually useful part).
- *
- * Win Rate REMOVED from here 16 Aug 2026 (§182) — Mark's direct
- * question: "why could these not be displayed next to each other?"
- * Closed Won/Lost, By Region, and By Portfolio are all the same
- * underlying theme (what happened to closed deals) but were split
- * across two unrelated cards — this one, and Won vs Lost further down
- * the page — for no real reason beyond having been built in separate
- * sessions. This card's job is now purely the sequential funnel; every
- * closed-deal breakdown lives together in Won vs Lost (Reports.jsx),
- * where it can actually sit side by side instead of scattered.
- */
-export function PipelineHealth({ stages, stageConversion, isMobile }) {
-  if (!stages || stages.every(s2 => s2.count === 0)) {
-    return <EmptyState message="No leads in the pipeline this period." />;
-  }
-  const sequential = stages.slice(0, 4); // Unassigned/Assigned/In Progress/Appointment Booked — see reportService.js's own comment on why Closed Won/Lost aren't a 5th sequential stage
-
-  return (
-    <div style={{ display: 'flex', flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'stretch' : 'center', gap: isMobile ? '4px' : '0' }}>
-      {sequential.map((stage, i) => (
-        <div key={stage.status} style={{ display: 'flex', alignItems: 'center', flex: isMobile ? 'none' : 1 }}>
-          <div style={{ flex: 1, textAlign: isMobile ? 'left' : 'center' }}>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: colors.ink }}>{stage.count}</div>
-            <div style={{ fontSize: '0.75rem', color: colors.ink500, marginTop: '2px' }}>{stage.status}</div>
-          </div>
-          {i < sequential.length - 1 && stageConversion[i] && (
-            <div style={{ display: 'flex', flexDirection: isMobile ? 'row' : 'column', alignItems: 'center', gap: isMobile ? '6px' : '2px', padding: isMobile ? '2px 0' : '0 10px', flexShrink: 0 }}>
-              <span style={{ fontSize: '0.9rem', color: colors.ink400 }}>{isMobile ? '↓' : '→'}</span>
-              <span style={{ fontSize: '0.6875rem', fontWeight: 600, color: stageColour(stageConversion[i].ratio), whiteSpace: 'nowrap' }}>
-                {stageConversion[i].ratio === null ? 'No prior data' : `${Math.round(stageConversion[i].ratio * 100)}%`}
-              </span>
-            </div>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
+// ─── Pipeline health — REPLACED by components/viz/PipelineJourney.jsx
+// (app-design-pass skill, Reports page pilot; designed 24 Sep 2026,
+// delivered 27 Sep 2026). Same data (stage counts + stage-to-stage
+// conversion), new visual treatment — kept, modernised, not dropped.
+// stageColour() and PipelineHealth removed together; grep confirmed
+// neither had any other call site. The 15-16 Aug 2026 design history
+// that lived in PipelineHealth's comment (why the sequential stages
+// aren't parts-of-a-whole, why Win Rate moved to Won vs Lost, §182) is
+// preserved in Status_Vercel_Archive.md and still holds.
 
 // ─── Ranked / sortable table — reused across Broker, Agent, Lead Source,
 // Portfolio Performance. `highlightKey` gets a subtle inline bar, matching
