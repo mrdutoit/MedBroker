@@ -364,3 +364,18 @@ test('Agent Detail orbit: past 120 calls each tick stands for several, and the p
   await expect(page.locator('.mbv-orbit-tick')).toHaveCount(71);
   await expect(page.getByText('Each tick on the outer ring marks 2 calls.')).toBeVisible();
 });
+
+// ── Appointment Detail, 28 Sep 2026 (app-design-pass) ──────────────────
+
+test('Appointment Detail journey: headline, stretches, and a friction marker with its detail', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/appointments/appt-1');
+  await expect(page.getByRole('heading', { name: /^Day 26: second meeting on \d{1,2} [A-Z][a-z]{2}$/ })).toBeVisible();
+  await expect(page.getByText('Booked by Thandi Mokoena on day 7. One meeting held with Werner Hattingh, with 1 reschedule along the way.')).toBeVisible();
+  const marker = page.getByRole('button', { name: /^First meeting: Rescheduled, .*, day 9/ });
+  await marker.focus();
+  await expect(page.locator('.lj-panel .mbv-tip')).toContainText('Rescheduled');
+  await expect(page.getByRole('button', { name: /^Second meeting, .*, day 31, Scheduled/ })).toBeAttached();
+  expect(errors).toEqual([]);
+});

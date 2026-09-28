@@ -54,6 +54,9 @@ import { s, APPT_STATUS_META, MEETING_STATUS_META, MEETING_STATUS_LABELS } from 
 import { formatDate, formatTime }             from '../utils/dateFormat.js';
 import AuditLogList                           from '../components/AuditLogList.jsx';
 import DatePicker                             from '../components/DatePicker.jsx';
+// 28 Sep 2026 — app-design-pass: the page's signature panel, this one
+// lead's journey (canvas mock-up approved by Mark unchanged).
+import LeadJourney                            from '../components/viz/LeadJourney.jsx';
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 // In production: fetched from GET /api/appointments/:id
@@ -110,6 +113,13 @@ const CANCEL_REASONS = [
   { value: 'Other',              label: 'Other' },
 ];
 const CANCEL_REASON_LABELS = Object.fromEntries(CANCEL_REASONS.map(r => [r.value, r.label]));
+// 28 Sep 2026 — for LeadJourney's outcome label; the same wording as this
+// page's own lostReason dropdown (and Reports.jsx's copy, §163).
+const LOST_REASON_LABELS = {
+  PriceTooHigh: 'Price too high', ChoseCompetitor: 'Chose a competitor',
+  NoLongerInterested: 'No longer interested', Uncontactable: 'Uncontactable',
+  NotEligible: 'Not eligible', Other: 'Other', ConsentWithdrawn: 'Consent withdrawn (POPIA)',
+};
 
 // ─── Status chip ───────────────────────────────────────────────────────────────
 function StatusChip({ status }) {
@@ -889,6 +899,13 @@ export default function AppointmentDetail() {
       id:             apptData.id,
       leadId:         apptData.leadId,
       leadName:       `${apptData.title ?? ''} ${apptData.firstName} ${apptData.lastName}`.trim(),
+      // 28 Sep 2026 — LeadJourney's time line (dates only; no new PII).
+      firstName:      apptData.firstName,
+      lastName:       apptData.lastName,
+      leadCreatedAt:  apptData.leadCreatedAt,
+      bookedAt:       apptData.createdAt,
+      closedAt:       apptData.closedAt ?? null,
+      updatedAt:      apptData.updatedAt,
       occupation:     apptData.occupation,
       mobile:         apptData.leadMobile,
       currentInsurer: apptData.currentInsurer,
@@ -1081,7 +1098,12 @@ export default function AppointmentDetail() {
         // now, not bundled into this call.
       });
       // Production returns the updated record; preview returns null (mock mode).
-      if (result?.status) setAppt(prev => ({ ...prev, status: result.status }));
+      // closedAt set locally when the save closes the deal, so LeadJourney
+      // places the outcome today without waiting for a refetch.
+      if (result?.status) setAppt(prev => ({
+        ...prev, status: result.status,
+        closedAt: ['ClosedWon', 'ClosedLost'].includes(result.status) ? (prev.closedAt ?? new Date().toISOString()) : prev.closedAt,
+      }));
       setOutcomeSaved(true);
       refetchAudit();
       setTimeout(() => setOutcomeSaved(false), 3000);
@@ -1338,6 +1360,20 @@ export default function AppointmentDetail() {
       {detailsSaveError && (
         <div style={{ ...s.errorBox, marginBottom: '14px' }}>{detailsSaveError}</div>
       )}
+
+      {/* ── Lead journey — 28 Sep 2026 (app-design-pass). A read-only
+          summary of this lead's whole path; every edit still happens in the
+          sections below, exactly as before. */}
+      <div style={{ marginBottom: '16px' }}>
+        <LeadJourney
+          isMobile={isMobile}
+          appt={{
+            ...appt,
+            lostReasonLabel: appt.lostReason ? (LOST_REASON_LABELS[appt.lostReason] ?? appt.lostReason) : null,
+            cancelReasonLabels: CANCEL_REASON_LABELS,
+          }}
+        />
+      </div>
 
       {/* ── Detail cards ────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', marginBottom: '14px' }}>

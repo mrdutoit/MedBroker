@@ -1808,7 +1808,8 @@ Reports chart language — completed 27 Sep 2026 (app-design-pass). Every
   28 Sep 2026 (Mark's pick; BranchFlow retired); ValueStroke (signed value by product — dark hero or 'plain'
   section variant). One dark signature panel per page (.pj-panel):
   Reports = PipelineJourney, Agent Detail = CallFlow, Broker Detail =
-  AppointmentFlow. CONVERSION RATIO everywhere is §157/§158's deliberate
+  AppointmentFlow, Appointment Detail = LeadJourney (one lead's path on a
+  real time scale; rules in leadJourneyModel.js, unit-tested). CONVERSION RATIO everywhere is §157/§158's deliberate
   throughput ratio (closed this period ÷ booked this period) — label it as
   such, never as a share.
   CHOOSING A VISUAL (Mark's decision, 28 Sep 2026) — by data shape, never

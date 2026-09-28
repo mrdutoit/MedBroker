@@ -117,6 +117,12 @@ found and fixed the same pattern in 12 overlay handlers across 7 files.
 CONFIRMED LIVE 27 Sep 2026 — mouseDownOnOverlayRef present in all 7
 files in commit e1c112e (verified against a fresh codeload hydration).
 
+APPOINTMENT DETAIL JOURNEY — 28 Sep 2026, medbroker-appointment-journey-20260928-1343.zip. LeadJourney:
+this one lead's path from lead created to outcome on a real time scale,
+approved by Mark from the canvas mock-up unchanged. One additive backend
+field (appointment closedAt). BranchFlow.jsx was still on main at the
+start of this session — STILL TO DELETE on GitHub if not done since.
+
 ORBIT ON THE ROLE-PAGE HEROES — 28 Sep 2026, medbroker-orbit-heroes-20260928-0908.zip. Mark
 picked "Orbit" from four canvas options; applied to Agent Detail (calls)
 and Broker Detail (appointments). Reports' Won vs Lost keeps its flow (see
@@ -299,8 +305,8 @@ VERCEL FUNCTION COUNT: confirmed exactly 12/12 on this hydration — still
 zero headroom, still Hobby's hard ceiling. Any new top-level API surface
 needs a consolidation first.
 
-BUILD HEALTH (28 Sep 2026, on main + the orbit-heroes delta):
-clean `npm run build`; `npx vitest run` 57/57; browser suite 113/113 (one
+BUILD HEALTH (28 Sep 2026, on main + the appointment-journey delta):
+clean `npm run build`; `npx vitest run` 62/62; browser suite 114/114 (one
 of those is the deliberately test.fail()-marked tasks.enabled item);
 `npm run lint` — the same single pre-existing plugin-version error plus
 the known JSX-usage false-positive warnings.
@@ -315,6 +321,65 @@ replacement for it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 28 SEP 2026 (AFTERNOON) — APPOINTMENT DETAIL: ONE LEAD'S JOURNEY.
+
+Mock-up first (Design canvas: signed in the page, open with a reschedule
+and a future meeting, lost with no meeting held, phone); Mark approved it
+as it was.
+
+BUILT: viz/LeadJourney.jsx (drawing, interaction) + viz/leadJourneyModel.js
+(every date and status rule, pure, unit-tested). On Appointment Detail,
+between the topbar and the detail cards; read-only — every edit still
+happens in the sections below exactly as before.
+  - Real time scale: waypoints at their actual dates; nudged only so none
+    sit closer than 30px (same-day lead + booking), order kept.
+  - Per meeting number, the CURRENT attempt (latest createdAt — the rule
+    appointmentService already uses) is the waypoint: held = solid;
+    scheduled in the future = hollow beyond Today; scheduled in the past
+    with nothing logged = hollow "Not logged yet". Earlier Rescheduled /
+    Cancelled / Missed attempts are small hollow markers on the path.
+  - Outcome: Signed (value, product count) / Lost (reason) / Returned to
+    leads, at closedAt; while open, a "Today, day N" line and the path
+    dashed to any meeting still to come.
+  - Brackets name each stretch ("7 days to book", "13 days to second
+    meeting, 1 cancellation"); text shortens, then drops, when a stretch is
+    too narrow for it.
+  - Headline + generated subtitle ("Signed after 25 days"; "Day 26: second
+    meeting on 3 Oct"; "No meeting was held" on a closed deal, "yet" only
+    while open).
+  - Every waypoint/marker is a real button; hover/focus shows date, day of
+    the journey, what happened, cancellation reason. Meeting NOTES are
+    deliberately not shown (can hold personal information; they live in
+    the Meetings section). Phone: the path runs down the page.
+  - Dates are Johannesburg calendar days (a timestamp logged 00:30 SAST is
+    that day, not the previous UTC day); date labels built by hand ("3
+    Oct") — toLocaleDateString('en-ZA') gave "03 Oct" in Node, caught by
+    the unit test.
+BACKEND: appointmentService APPOINTMENT_SELECT gains a.closedAt (additive;
+the column already existed). Page state gains firstName, lastName,
+leadCreatedAt, bookedAt, closedAt, updatedAt; an outcome save sets
+closedAt locally so the journey updates without a refetch.
+FIXTURE: APPOINTMENT_DETAIL still carried the retired `meetings` array
+(§164), so the page had always rendered with no meetings in the browser
+suite; now the real meetingAttempts shape.
+
+VERIFIED: build clean; vitest 62/62 (5 new model tests); browser suite
+114/114 (new: headline, subtitle, a marker's detail card, the future
+meeting); screenshots — open in the page (Linen), marker hover (Midnight),
+signed, lost, phone. Fixed from them before delivery: an empty band under
+single-tier journeys (height now fits the tiers used); "2 meetings" -> "Two
+meetings"; "No meeting held yet" on a closed deal.
+
+DELIVERY: medbroker-appointment-journey-20260928-1343.zip — frontend/src/components/viz/{LeadJourney.jsx,
+leadJourneyModel.js, leadJourneyModel.test.js} (new), viz/viz.css,
+frontend/src/pages/AppointmentDetail.jsx, frontend/api-lib/services/
+appointmentService.js, e2e/{fixtures.js, interactions.spec.js}, both
+status docs. No migration, no dependency change.
+
+NEXT: Lead List (compact journey per row), per the agreed order.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 28 SEP 2026 (LATER) — ORBIT ON THE AGENT AND BROKER HEROES.
 

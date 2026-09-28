@@ -469,3 +469,48 @@
 .mbv-orbit-pct { font-size: 0.8125rem; color: rgba(234, 242, 250, 0.62); text-align: right; font-variant-numeric: tabular-nums; }
 .mbv-orbit-note { margin: 10px 0 0; font-size: 0.75rem; color: rgba(234, 242, 250, 0.62); }
 @media (prefers-reduced-motion: reduce) { .mbv-orbit-seg, .mbv-orbit-tick, .mbv-orbit-row { transition: none; } }
+
+/* ════════════════════════════════════════════════════════════════════
+   28 Sep 2026 — LeadJourney (Appointment Detail hero). Fixed-dark panel,
+   so text colours are fixed; waypoint colours come from the page theme's
+   --pl-* tokens via --tone.
+   ════════════════════════════════════════════════════════════════════ */
+.lj-subtitle { max-width: 64ch; }
+.lj-plot { position: relative; width: 100%; }
+.lj-future-path { stroke: rgba(234, 242, 250, 0.3); stroke-width: 3; stroke-dasharray: 4 7; stroke-linecap: round; }
+.lj-today { stroke: rgba(234, 242, 250, 0.5); stroke-dasharray: 3 4; }
+.lj-today-text, .lj-today-label { fill: #fff; color: #fff; font-family: var(--body); font-size: 12px; font-weight: 700; }
+.lj-today-label { position: absolute; }
+.lj-span { fill: none; stroke: rgba(234, 242, 250, 0.35); stroke-width: 1.2; }
+.lj-span-text { fill: rgba(234, 242, 250, 0.66); font-family: var(--body); font-size: 12px; }
+.lj-leader { stroke: rgba(234, 242, 250, 0.3); }
+.lj-marker-text { font-family: var(--body); font-size: 11px; font-weight: 700; }
+.lj-title-text { fill: #fff; font-family: var(--body); font-size: 13px; font-weight: 700; }
+.lj-outcome-text { fill: #fff; font-family: var(--disp); font-size: 18px; font-weight: 700; }
+.lj-sub-text { fill: rgba(234, 242, 250, 0.66); font-family: var(--body); font-size: 12px; font-variant-numeric: tabular-nums; }
+
+.lj-node {
+  position: absolute; transform: translate(-50%, -50%);
+  width: 34px; height: 34px; padding: 0; border: none; background: transparent; cursor: pointer;
+  display: flex; align-items: center; justify-content: center; border-radius: 50%;
+}
+.lj-dot { display: block; border-radius: 50%; box-sizing: border-box; transition: transform 140ms ease; }
+.lj-major .lj-dot { width: 18px; height: 18px; background: var(--tone); border: 2.5px solid #0D1A45; }
+.lj-outcome .lj-dot { width: 26px; height: 26px; background: var(--tone); border: 2.5px solid #0D1A45; box-shadow: 0 0 0 8px color-mix(in srgb, var(--tone) 28%, transparent); }
+.lj-marker .lj-dot { width: 13px; height: 13px; background: #0D1A45; border: 2.5px solid var(--tone); }
+.lj-planned .lj-dot { width: 18px; height: 18px; background: #0D1A45; border: 2.5px dashed #fff; }
+.lj-node.active .lj-dot, .lj-node:focus-visible .lj-dot { transform: scale(1.3); }
+
+/* Phone: vertical path; label sits beside the dot inside the button. */
+.lj-panel .lj-plot .lj-vlabel { display: none; }
+@media (max-width: 767px) {
+  .lj-node { transform: translate(-17px, -50%); width: auto; height: 34px; border-radius: 8px; justify-content: flex-start; gap: 14px; padding-right: 6px; }
+  .lj-node .lj-dot { margin-left: calc((34px - 18px) / 2); }
+  .lj-marker .lj-dot { margin-left: calc((34px - 13px) / 2); }
+  .lj-outcome .lj-dot { margin-left: calc((34px - 26px) / 2); }
+  .lj-panel .lj-plot .lj-vlabel { display: flex; flex-direction: column; text-align: left; }
+  .lj-title { color: #fff; font-size: 0.875rem; font-weight: 700; }
+  .lj-marker .lj-title { color: var(--tone); font-size: 0.75rem; }
+  .lj-sub { color: rgba(234, 242, 250, 0.66); font-size: 0.75rem; }
+}
+@media (prefers-reduced-motion: reduce) { .lj-dot { transition: none; } }

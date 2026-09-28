@@ -69,6 +69,10 @@ const APPOINTMENT_SELECT = `
   a.customerSigned AS "customerSigned", a.isBrokerSwitch AS "isBrokerSwitch", a.lostReason AS "lostReason",
   a.claimTokenCost AS "claimTokenCost", a.claimedAt AS "claimedAt",
   a.createdAt AS "createdAt", a.updatedAt AS "updatedAt",
+  -- 28 Sep 2026 — additive, for Appointment Detail's LeadJourney (where the
+  -- outcome sits on the time line). The column has existed since the
+  -- closed-date work; it just wasn't returned.
+  a.closedAt AS "closedAt",
   l.id AS "leadId", l.title, l.firstName AS "firstName", l.lastName AS "lastName",
   l.email AS "leadEmail", l.mobileNumber AS "leadMobile", l.occupation,
   -- 16 Aug 2026 — Mark's request: the appointment's own firstAppointmentDate

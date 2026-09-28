@@ -96,8 +96,21 @@ const APPOINTMENTS = { appointments: [
 
 const APPOINTMENT_DETAIL = {
   id: 'appt-1', leadId: 'lead-2', firstName: 'Priya', lastName: 'Naidoo', dateOfBirth: '1985-04-12',
-  status: 'Assigned', firstAppointmentDate: day(-2), firstAppointmentTime: '10:00', portfolio: 'Discovery',
-  meetings: [{ meetingNumber: 1, status: 'Scheduled', date: day(-2) }],
+  firstAppointmentTime: '10:00', portfolio: 'Discovery',
+  // 28 Sep 2026 — the real shape (appointmentService.getAppointmentById):
+  // the old fixture still carried `meetings` (retired §164), so the page
+  // rendered with no meetings at all. Journey: lead 26 days ago, booked 7
+  // days later, first meeting rescheduled once then held, second meeting
+  // 5 days ahead — "Day 26: second meeting on …".
+  status: 'InProgress', firstAppointmentDate: day(17),
+  leadCreatedAt: iso(26), createdAt: iso(19), updatedAt: iso(12), closedAt: null,
+  agentName: 'Thandi Mokoena', brokerName: 'Werner Hattingh', sourceLabel: 'Referral',
+  meetingAttempts: [
+    { id: 'ma1', meetingNumber: 1, status: 'Rescheduled', date: day(17), createdAt: iso(18), cancelReason: null, notes: null },
+    { id: 'ma2', meetingNumber: 1, status: 'HeldInterested', date: day(12), createdAt: iso(12), cancelReason: null, notes: null },
+    { id: 'ma3', meetingNumber: 2, status: 'Scheduled', date: day(-5), createdAt: iso(11), cancelReason: null, notes: null },
+  ],
+  productsSold: [],
   changeLog: [],
 };
 
