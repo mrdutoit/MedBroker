@@ -52,6 +52,18 @@
   --glow:rgba(45,212,191,.35); --disp:'Syne',sans-serif;
   --mesh:radial-gradient(900px 600px at 12% -8%,rgba(45,212,191,.16),transparent 60%),radial-gradient(1000px 700px at 100% 110%,rgba(0,174,239,.18),transparent 55%),linear-gradient(160deg,#0A1622 0%,#0B1A28 55%,#091420 100%);
   --grain:.05; --gridop:.5; --gridline:rgba(255,255,255,.07);
+  /* Signature-panel ("hero") tokens — 28 Sep 2026. The report heroes used
+     to be a FIXED dark navy in every theme (design-language.md's old rule);
+     Mark found that awkward on the other themes. They now follow the theme:
+     dark themes keep a deep panel in their own hue, light themes get a
+     light panel. --path-* is the journey gradient (the logo's own blues
+     here). --hero-solid = the panel's base colour, used for dot rings. */
+  --path-a:#2F4FE0; --path-b:#1A7FCF; --path-c:#17B6C9;
+  --hero-bg:linear-gradient(160deg,#0A1230 0%,#0D1A45 60%,#091026 100%);
+  --hero-wash:radial-gradient(900px 500px at 15% -10%,rgba(23,182,201,.16),transparent 60%),radial-gradient(1000px 650px at 100% 115%,rgba(47,79,224,.22),transparent 55%);
+  --hero-solid:#0D1A45; --hero-border:transparent;
+  --hero-ink:#EAF2FA; --hero-strong:#FFFFFF; --hero-mut:rgba(234,242,250,.66);
+  --hero-accent:#17B6C9;
 }
 [data-theme="ember"]{
   color-scheme: dark;
@@ -71,6 +83,14 @@
   --glow:rgba(232,133,59,.3); --disp:'Unbounded',sans-serif;
   --mesh:radial-gradient(900px 600px at 12% -8%,rgba(232,133,59,.18),transparent 60%),radial-gradient(1000px 700px at 100% 110%,rgba(224,178,60,.14),transparent 55%),linear-gradient(160deg,#16100D 0%,#1C1411 55%,#130D0A 100%);
   --grain:.05; --gridop:.4; --gridline:rgba(255,235,210,.06);
+  /* Hero tokens (28 Sep 2026) — see [data-theme="midnight"]. Warm dark
+     panel; the journey runs ember orange into gold. */
+  --path-a:#B8572A; --path-b:#E8853B; --path-c:#E0B23C;
+  --hero-bg:linear-gradient(160deg,#1B130E 0%,#261B14 60%,#150E0A 100%);
+  --hero-wash:radial-gradient(900px 500px at 15% -10%,rgba(224,178,60,.12),transparent 60%),radial-gradient(1000px 650px at 100% 115%,rgba(232,133,59,.18),transparent 55%);
+  --hero-solid:#211710; --hero-border:transparent;
+  --hero-ink:#F3E9DF; --hero-strong:#FFF8F0; --hero-mut:rgba(243,233,223,.66);
+  --hero-accent:#E0B23C;
 }
 [data-theme="terra"]{
   color-scheme: light;
@@ -96,6 +116,15 @@
   --glow:rgba(94,122,79,.25); --disp:'Fraunces',serif;
   --mesh:radial-gradient(900px 600px at 10% -10%,rgba(138,154,91,.22),transparent 60%),radial-gradient(1000px 700px at 105% 110%,rgba(192,138,62,.16),transparent 55%),linear-gradient(160deg,#F6F0E2 0%,#F0E8D6 55%,#EFE7D3 100%);
   --grain:.04; --gridop:.35; --gridline:rgba(80,60,30,.1);
+  /* Hero tokens (28 Sep 2026) — see [data-theme="midnight"]. A light
+     panel in the theme's own parchment; the journey runs olive into ochre
+     (kept clear of --pl-won's sage so a Won dot never melts into it). */
+  --path-a:#3F5A38; --path-b:#5E7A4F; --path-c:#A8843F;
+  --hero-bg:linear-gradient(160deg,#FCF9F0 0%,#F6F0E2 60%,#EFE7D5 100%);
+  --hero-wash:radial-gradient(900px 500px at 15% -10%,rgba(94,122,79,.10),transparent 60%),radial-gradient(1000px 650px at 100% 115%,rgba(192,138,62,.10),transparent 55%);
+  --hero-solid:#FAF6EB; --hero-border:rgba(60,50,30,.14);
+  --hero-ink:#2C2A24; --hero-strong:#1E1C17; --hero-mut:#6B6454;
+  --hero-accent:#4E7896;
 }
 [data-theme="linen"]{
   color-scheme: light;
@@ -108,6 +137,15 @@
   --glow:rgba(47,93,138,.2); --disp:'Fraunces',serif;
   --mesh:radial-gradient(900px 600px at 10% -10%,rgba(47,93,138,.1),transparent 60%),radial-gradient(1000px 700px at 105% 110%,rgba(46,125,107,.1),transparent 55%),linear-gradient(160deg,#FAF9F6 0%,#F2F1EC 100%);
   --grain:.03; --gridop:.3; --gridline:rgba(20,30,40,.06);
+  /* Hero tokens (28 Sep 2026) — see [data-theme="midnight"]. A light
+     panel; the logo's blues, deepened at the cyan end so the path keeps
+     3:1 against white. */
+  --path-a:#2F4FE0; --path-b:#1F6FB8; --path-c:#0E8FA8;
+  --hero-bg:linear-gradient(160deg,#FFFFFF 0%,#F9F9F6 60%,#F2F1EB 100%);
+  --hero-wash:radial-gradient(900px 500px at 15% -10%,rgba(14,143,168,.07),transparent 60%),radial-gradient(1000px 650px at 100% 115%,rgba(47,79,224,.07),transparent 55%);
+  --hero-solid:#FFFFFF; --hero-border:rgba(20,30,40,.1);
+  --hero-ink:#1F2328; --hero-strong:#111418; --hero-mut:#5F6B78;
+  --hero-accent:#0E8FA8;
 }
 
 body{

@@ -51,7 +51,7 @@ export default function CallFlow({ callOutcomes, isMobile }) {
       unitOne="call"
       isMobile={isMobile}
       branches={[
-        { key: 'reached', label: 'Reached', colour: '#17B6C9', children: reached },
+        { key: 'reached', label: 'Reached', colour: 'var(--hero-accent)', children: reached },
         { key: 'missed', label: 'Not reached', colour: 'var(--pl-unassigned)', children: missed },
       ]}
     />

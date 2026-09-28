@@ -1809,7 +1809,13 @@ Reports chart language — completed 27 Sep 2026 (app-design-pass). Every
   section variant). One dark signature panel per page (.pj-panel):
   Reports = PipelineJourney, Agent Detail = CallFlow, Broker Detail =
   AppointmentFlow, Appointment Detail = LeadJourney (one lead's path on a
-  real time scale; rules in leadJourneyModel.js, unit-tested). CONVERSION RATIO everywhere is §157/§158's deliberate
+  real time scale; rules in leadJourneyModel.js, unit-tested).
+  THEME RULE (Mark, 28 Sep 2026): signature panels FOLLOW THE THEME — every
+  colour inside a .pj-panel comes from that theme's --hero-* and --path-*
+  tokens in themes.css (dark themes: a deep panel in their own hue; light
+  themes: a light panel with a hairline border). Never hard-code a colour
+  on a panel descendant, in CSS or JSX; add a token. No data-theme="dark"
+  overrides. Screenshot all four themes after any panel change. CONVERSION RATIO everywhere is §157/§158's deliberate
   throughput ratio (closed this period ÷ booked this period) — label it as
   such, never as a share.
   CHOOSING A VISUAL (Mark's decision, 28 Sep 2026) — by data shape, never

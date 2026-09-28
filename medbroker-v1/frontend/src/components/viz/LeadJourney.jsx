@@ -43,9 +43,9 @@ import './viz.css';
 const MIN_GAP = 30;
 
 const TONE = {
-  lead: 'var(--pl-unassigned)', booked: 'var(--pl-booked)', met: '#17B6C9',
+  lead: 'var(--pl-unassigned)', booked: 'var(--pl-booked)', met: 'var(--hero-accent)',
   won: 'var(--pl-won)', lost: 'var(--pl-lost)', returned: 'var(--pl-unassigned)',
-  resched: 'var(--pl-progress)', miss: 'var(--pl-lost)', planned: '#ffffff',
+  resched: 'var(--pl-progress)', miss: 'var(--pl-lost)', planned: 'var(--hero-strong)',
 };
 
 function place(events, scale, lo, hi) {
@@ -112,13 +112,13 @@ export default function LeadJourney({ appt, isMobile, todayDn = todayDay() }) {
     const H = Math.max(...placed.map(p => p.p), ...markers.map(m => m.p), todayP ?? 0) + 50;
     const lx = 22;
     return (
-      <div className="pj-panel lj-panel" data-theme="dark">
+      <div className="pj-panel lj-panel">
         {header}
         <div ref={ref} className="lj-plot" style={{ height: `${H}px`, marginTop: '18px' }}>
           <svg width="100%" height={H} aria-hidden="true" style={{ position: 'absolute', inset: 0, overflow: 'visible' }}>
             <defs>
               <linearGradient id="lj-vg" gradientUnits="userSpaceOnUse" x1="0" y1={top} x2="0" y2={solidEnd}>
-                <stop offset="0" stopColor="#2F4FE0" /><stop offset="1" stopColor="#17B6C9" />
+                <stop offset="0" stopColor="var(--path-a)" /><stop offset="1" stopColor="var(--path-c)" />
               </linearGradient>
             </defs>
             <line x1={lx} y1={top} x2={lx} y2={solidEnd} stroke="url(#lj-vg)" strokeWidth="6" strokeLinecap="round" />
@@ -188,7 +188,7 @@ export default function LeadJourney({ appt, isMobile, todayDn = todayDay() }) {
   const H = ly + 36 + Math.max(0, ...labelled.map(e => e.tier)) * 54 + 48;
 
   return (
-    <div className="pj-panel lj-panel" data-theme="dark">
+    <div className="pj-panel lj-panel">
       {header}
       <div ref={ref} className="lj-plot" style={{ height: `${H}px`, marginTop: '18px' }}>
         {width > 0 && (
@@ -196,7 +196,7 @@ export default function LeadJourney({ appt, isMobile, todayDn = todayDay() }) {
             <svg width={width} height={H} viewBox={`0 0 ${width} ${H}`} aria-hidden="true" style={{ position: 'absolute', inset: 0, overflow: 'visible' }}>
               <defs>
                 <linearGradient id="lj-hg" gradientUnits="userSpaceOnUse" x1={x0} y1="0" x2={x1} y2="0">
-                  <stop offset="0" stopColor="#2F4FE0" /><stop offset="0.52" stopColor="#1A7FCF" /><stop offset="1" stopColor="#17B6C9" />
+                  <stop offset="0" stopColor="var(--path-a)" /><stop offset="0.52" stopColor="var(--path-b)" /><stop offset="1" stopColor="var(--path-c)" />
                 </linearGradient>
               </defs>
               <line x1={x0} y1={ly} x2={solidEnd} y2={ly} stroke="url(#lj-hg)" strokeWidth="6" strokeLinecap="round" />

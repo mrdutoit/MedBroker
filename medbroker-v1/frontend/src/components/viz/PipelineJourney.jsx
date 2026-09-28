@@ -66,9 +66,9 @@ function conversionWeight(ratio) {
 // used — same semantics, re-implemented here since that helper was
 // page-local and is gone with the component it served.
 function conversionBadgeColour(ratio) {
-  if (ratio === null || ratio === undefined) return 'rgba(234, 242, 250, 0.55)';
+  if (ratio === null || ratio === undefined) return 'color-mix(in srgb, var(--hero-ink) 55%, transparent)';
   if (ratio >= 0.7) return 'var(--pl-won)';
-  if (ratio >= 0.4) return '#F5A623';
+  if (ratio >= 0.4) return 'var(--pl-progress)';
   return 'var(--pl-lost)';
 }
 
@@ -118,7 +118,7 @@ export default function PipelineJourney({ stages, stageConversion, isMobile }) {
   const [uA, aA, ipA, abA, wonPt, lostPt] = points;
 
   return (
-    <div className="pj-panel" data-theme="dark">
+    <div className="pj-panel">
       <p className="pj-eyebrow">This period&rsquo;s pipeline</p>
       <h3 className="pj-title">{activeLeadsTotal.toLocaleString()} leads still in play</h3>
       <p className="pj-subtitle">Every lead&rsquo;s path from first contact to outcome — where they are now, and where the journey slows down.</p>
@@ -134,9 +134,9 @@ export default function PipelineJourney({ stages, stageConversion, isMobile }) {
                     horizontal line has a zero-height bounding box, so an
                     objectBoundingBox gradient on it renders nothing. */}
                 <linearGradient id={gradientId} gradientUnits="userSpaceOnUse" x1={uA.x} y1={uA.y} x2={abA.x} y2={abA.y}>
-                  <stop offset="0%" stopColor="#2F4FE0" />
-                  <stop offset="52%" stopColor="#1A7FCF" />
-                  <stop offset="100%" stopColor="#17B6C9" />
+                  <stop offset="0%" stopColor="var(--path-a)" />
+                  <stop offset="52%" stopColor="var(--path-b)" />
+                  <stop offset="100%" stopColor="var(--path-c)" />
                 </linearGradient>
               </defs>
 

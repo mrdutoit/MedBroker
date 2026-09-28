@@ -224,10 +224,10 @@ export default function OutcomeFlow({ wonByRegion, lostByRegion, lossReasons, po
               <defs>
                 {/* userSpaceOnUse — pitfalls.md: objectBoundingBox gradients vanish on flat shapes. */}
                 <linearGradient id={`${uid}-won`} gradientUnits="userSpaceOnUse" x1={xL + NODE_W} y1="0" x2={xM} y2="0">
-                  <stop offset="0" stopColor="#1A7FCF" /><stop offset="1" stopColor="var(--pl-won)" />
+                  <stop offset="0" stopColor="var(--path-b)" /><stop offset="1" stopColor="var(--pl-won)" />
                 </linearGradient>
                 <linearGradient id={`${uid}-lost`} gradientUnits="userSpaceOnUse" x1={xL + NODE_W} y1="0" x2={xM} y2="0">
-                  <stop offset="0" stopColor="#1A7FCF" /><stop offset="1" stopColor="var(--pl-lost)" />
+                  <stop offset="0" stopColor="var(--path-b)" /><stop offset="1" stopColor="var(--pl-lost)" />
                 </linearGradient>
                 <pattern id={`${uid}-hatch`} width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
                   <line x1="0" y1="0" x2="0" y2="6" className="mbv-hatch-line-strong" />

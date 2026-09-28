@@ -70,7 +70,7 @@ export default function OrbitPanel({ eyebrow, title, subtitle, total, unit, unit
     })
     .filter(b => b.n > 0);
   if (total === 0 || bs.length === 0) {
-    return <div className="pj-panel" data-theme="dark">{header}</div>;
+    return <div className="pj-panel">{header}</div>;
   }
 
   // ── Geometry, in measured pixels
@@ -91,12 +91,12 @@ export default function OrbitPanel({ eyebrow, title, subtitle, total, unit, unit
     let c0 = a0;
     // Siblings sharing a colour (three loss reasons, or no answer / voicemail
     // / wrong number) would read as one block — the first screenshot showed
-    // it. Each repeat steps darker toward the panel's navy, so neighbours
+    // it. Each repeat steps toward the panel's base colour (--hero-solid), so neighbours
     // differ in lightness, not only by the hairline gap.
     const seen = {};
     const kids = b.children.map(c => {
       const nth = seen[c.colour] = (seen[c.colour] ?? -1) + 1;
-      const colour = nth === 0 || c.hatched ? c.colour : `color-mix(in srgb, ${c.colour} ${Math.max(40, 100 - nth * 24)}%, #0D1A45)`;
+      const colour = nth === 0 || c.hatched ? c.colour : `color-mix(in srgb, ${c.colour} ${Math.max(40, 100 - nth * 24)}%, var(--hero-solid))`;
       const k = { ...c, colour, a0: c0, a1: c0 + c.count * perItem };
       c0 = k.a1;
       return k;
@@ -138,7 +138,7 @@ export default function OrbitPanel({ eyebrow, title, subtitle, total, unit, unit
   });
 
   return (
-    <div className="pj-panel" data-theme="dark">
+    <div className="pj-panel">
       {header}
       <div ref={ref} className={`mbv-orbit${isMobile ? ' mobile' : ''}`}>
         {width > 0 && (
@@ -146,8 +146,8 @@ export default function OrbitPanel({ eyebrow, title, subtitle, total, unit, unit
             <svg width={D} height={D} viewBox={`0 0 ${D} ${D}`} aria-hidden="true">
               <defs>
                 <pattern id={`${uid}-hatch`} width="5" height="5" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
-                  <rect width="5" height="5" fill="rgba(234, 242, 250, 0.08)" />
-                  <line x1="0" y1="0" x2="0" y2="5" stroke="rgba(234, 242, 250, 0.75)" strokeWidth="1.5" />
+                  <rect width="5" height="5" fill="color-mix(in srgb, var(--hero-ink) 8%, transparent)" />
+                  <line x1="0" y1="0" x2="0" y2="5" stroke="color-mix(in srgb, var(--hero-ink) 75%, transparent)" strokeWidth="1.5" />
                 </pattern>
               </defs>
               <circle cx={cx} cy={cy} r={rOrbit} className="mbv-orbit-ring" />

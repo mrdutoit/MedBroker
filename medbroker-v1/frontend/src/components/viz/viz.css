@@ -51,13 +51,18 @@
   position: relative;
   border-radius: var(--r-panel, 18px);
   padding: 28px 30px 24px;
-  color: #EAF2FA;
-  background: linear-gradient(160deg, #0A1230 0%, #0D1A45 60%, #091026 100%);
+  color: var(--hero-ink);
+  background: var(--hero-bg);
+  border: 1px solid var(--hero-border);
 }
-/* Deep indigo-navy from darkening the logo's own gradient start colour
-   (#2F4FE0) toward near-black — not an invented hero colour. A FIXED dark
-   treatment in every theme (design-language.md: panels that must stay dark
-   set data-theme="dark" on themselves — done in the JSX). */
+/* THEME-FOLLOWING since 28 Sep 2026 (Mark: the fixed navy looked awkward
+   on the other themes). Every colour on the signature panels comes from the
+   --hero-* and --path-* tokens each theme defines in themes.css: a deep
+   panel in the theme's own hue on Midnight/Ember, a light panel on
+   Linen/Terra. Before this the panel was a fixed dark navy everywhere and
+   marked data-theme="dark" (design-language.md's old rule); that attribute
+   is gone. Never hard-code a colour on a .pj-panel descendant — add a
+   token. */
 .pj-panel::before {
   content: '';
   position: absolute;
@@ -66,15 +71,13 @@
   overflow: hidden;
   pointer-events: none;
   z-index: 0;
-  background:
-    radial-gradient(900px 500px at 15% -10%, rgba(23, 182, 201, 0.16), transparent 60%),
-    radial-gradient(1000px 650px at 100% 115%, rgba(47, 79, 224, 0.22), transparent 55%);
+  background: var(--hero-wash);
 }
 .pj-panel > * { position: relative; z-index: 1; }
 
-.pj-eyebrow { font-size: 0.75rem; color: rgba(234, 242, 250, 0.65); letter-spacing: 0.02em; margin: 0 0 2px; }
-.pj-title { font-family: var(--disp); font-size: clamp(1.375rem, 2vw, 1.75rem); font-weight: 700; letter-spacing: -0.015em; margin: 0; color: #fff; }
-.pj-subtitle { font-size: 0.8125rem; color: rgba(234, 242, 250, 0.6); margin: 4px 0 0; max-width: 46ch; }
+.pj-eyebrow { font-size: 0.75rem; color: color-mix(in srgb, var(--hero-ink) 65%, transparent); letter-spacing: 0.02em; margin: 0 0 2px; }
+.pj-title { font-family: var(--disp); font-size: clamp(1.375rem, 2vw, 1.75rem); font-weight: 700; letter-spacing: -0.015em; margin: 0; color: var(--hero-strong); }
+.pj-subtitle { font-size: 0.8125rem; color: color-mix(in srgb, var(--hero-ink) 60%, transparent); margin: 4px 0 0; max-width: 46ch; }
 
 .pj-plot { position: relative; width: 100%; }
 .pj-plot svg { display: block; overflow: visible; }
@@ -85,18 +88,18 @@
   position: absolute;
   transform: translate(-50%, -50%);
   padding: 0;
-  border: 2px solid rgba(10, 18, 48, 0.85);
+  border: 2px solid color-mix(in srgb, var(--hero-solid) 85%, transparent);
   border-radius: 50%;
   cursor: pointer;
   transition: transform 140ms ease, box-shadow 140ms ease;
 }
 .pj-waypoint.active {
   transform: translate(-50%, -50%) scale(1.35);
-  box-shadow: 0 0 0 5px rgba(255, 255, 255, 0.14);
+  box-shadow: 0 0 0 5px color-mix(in srgb, var(--hero-ink) 14%, transparent);
   z-index: 3;
 }
 .pj-waypoint:focus-visible {
-  outline: 2px solid #fff;
+  outline: 2px solid var(--hero-strong);
   outline-offset: 3px;
 }
 
@@ -112,13 +115,13 @@
   font-size: 1.375rem;
   font-weight: 700;
   letter-spacing: -0.02em;
-  color: #fff;
+  color: var(--hero-strong);
   line-height: 1;
   font-variant-numeric: tabular-nums;
 }
 .pj-label-name {
   font-size: 0.6875rem;
-  color: rgba(234, 242, 250, 0.68);
+  color: color-mix(in srgb, var(--hero-ink) 68%, transparent);
   margin-top: 3px;
 }
 
@@ -132,7 +135,7 @@
   letter-spacing: 0.01em;
   white-space: nowrap;
   pointer-events: none;
-  background: rgba(10, 18, 48, 0.55);
+  background: color-mix(in srgb, var(--hero-solid) 55%, transparent);
   padding: 2px 6px;
   border-radius: 999px;
 }
@@ -159,7 +162,7 @@
 .pj-empty {
   padding: 40px 16px;
   text-align: center;
-  color: rgba(234, 242, 250, 0.6);
+  color: color-mix(in srgb, var(--hero-ink) 60%, transparent);
   font-size: 0.8125rem;
 }
 
@@ -365,25 +368,25 @@
 
 /* ════════════════════════════════════════════════════════════════════
    27 Sep 2026 — Agent Detail and Broker Detail heroes (CallFlow,
-   ValueStroke). They sit on the fixed-dark .pj-panel in every theme, and
-   the app has no dark token set for data-theme="dark", so text colours
+   ValueStroke). They sit on the .pj-panel — its colours now come from the
+   theme's --hero-* tokens (28 Sep 2026), so text colours
    inside the panel are fixed here — the same approach PipelineJourney's
    own labels take. The detail card (.mbv-tip) keeps following the page
    theme, as the hero's does.
    ════════════════════════════════════════════════════════════════════ */
-.mbv-flow-dark .mbv-flow-label { fill: #EAF2FA; }
-.mbv-flow-dark .mbv-flow-sub { fill: rgba(234, 242, 250, 0.62); }
-.mbv-flow-dark .mbv-flow-big { fill: #fff; }
+.mbv-flow-dark .mbv-flow-label { fill: var(--hero-ink); }
+.mbv-flow-dark .mbv-flow-sub { fill: color-mix(in srgb, var(--hero-ink) 62%, transparent); }
+.mbv-flow-dark .mbv-flow-big { fill: var(--hero-strong); }
 /* On the dark panel the 0.3 outcome bands read as mud (first screenshot). */
 .mbv-flow-dark .mbv-flow-band.reason { opacity: 0.52; }
 .mbv-flow-dark .mbv-flow-band.reason.lit { opacity: 0.9; }
 .mbv-flow-dark .mbv-flow-band.dim { opacity: 0.1; }
-.pj-panel .mbv-flow-mobile-reasons { border-top-color: rgba(255, 255, 255, 0.1); }
+.pj-panel .mbv-flow-mobile-reasons { border-top-color: color-mix(in srgb, var(--hero-ink) 10%, transparent); }
 .pj-panel .mbv-subpanel-kicker,
-.pj-panel .mbv-reason-pct { color: rgba(234, 242, 250, 0.62); }
+.pj-panel .mbv-reason-pct { color: color-mix(in srgb, var(--hero-ink) 62%, transparent); }
 .pj-panel .mbv-reason-name,
-.pj-panel .mbv-reason-value { color: #EAF2FA; }
-.pj-panel .mbv-reason-track { background: rgba(255, 255, 255, 0.08); }
+.pj-panel .mbv-reason-value { color: var(--hero-ink); }
+.pj-panel .mbv-reason-track { background: color-mix(in srgb, var(--hero-ink) 8%, transparent); }
 
 /* ---------- ValueStroke (Broker Detail hero) ---------- */
 .mbv-stroke { margin-top: 26px; display: flex; flex-direction: column; gap: 20px; }
@@ -404,15 +407,15 @@
 .mbv-stroke-row {
   display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: baseline; column-gap: 10px;
   width: 100%; background: none; border: none; font: inherit; text-align: left; cursor: default;
-  padding: 8px 8px; margin: 0 -8px; border-radius: 8px; color: #EAF2FA;
+  padding: 8px 8px; margin: 0 -8px; border-radius: 8px; color: var(--hero-ink);
   transition: opacity 140ms ease, background 140ms ease;
 }
-.mbv-stroke-row.active { background: rgba(255, 255, 255, 0.06); }
+.mbv-stroke-row.active { background: color-mix(in srgb, var(--hero-ink) 6%, transparent); }
 .mbv-stroke-swatch { width: 10px; height: 10px; border-radius: 3px; align-self: center; }
 .mbv-stroke-name { font-size: 0.875rem; font-weight: 600; }
-.mbv-stroke-count { display: block; font-size: 0.75rem; font-weight: 400; color: rgba(234, 242, 250, 0.62); margin-top: 2px; }
+.mbv-stroke-count { display: block; font-size: 0.75rem; font-weight: 400; color: color-mix(in srgb, var(--hero-ink) 62%, transparent); margin-top: 2px; }
 .mbv-stroke-value { font-family: var(--disp); font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
-.mbv-stroke-share { display: block; font-family: var(--body); font-size: 0.75rem; font-weight: 400; color: rgba(234, 242, 250, 0.62); margin-top: 2px; }
+.mbv-stroke-share { display: block; font-family: var(--body); font-size: 0.75rem; font-weight: 400; color: color-mix(in srgb, var(--hero-ink) 62%, transparent); margin-top: 2px; }
 @media (prefers-reduced-motion: reduce) { .mbv-stroke-seg, .mbv-stroke-row { transition: none; } }
 
 /* ValueStroke 'plain' (28 Sep 2026): the same stroke on the ambient page
@@ -425,15 +428,15 @@
 
 /* ════════════════════════════════════════════════════════════════════
    28 Sep 2026 — OrbitPanel (Agent/Broker Detail heroes, Mark's pick).
-   Sits on the fixed-dark .pj-panel, so text colours are fixed here.
+   Sits on the .pj-panel; colours from the theme's --hero-* tokens.
    BranchFlow is gone; the .mbv-flow-* rules above remain for OutcomeFlow.
    ════════════════════════════════════════════════════════════════════ */
 .mbv-orbit { display: flex; align-items: center; gap: 48px; margin-top: 22px; }
 .mbv-orbit.mobile { flex-direction: column; align-items: stretch; gap: 22px; }
 .mbv-orbit-dial { position: relative; flex-shrink: 0; margin: 0 auto; }
 .mbv-orbit-dial svg { display: block; overflow: visible; }
-.mbv-orbit-ring { fill: none; stroke: rgba(234, 242, 250, 0.14); stroke-dasharray: 2 7; }
-.mbv-orbit-core { fill: rgba(10, 18, 48, 0.45); stroke: rgba(234, 242, 250, 0.1); }
+.mbv-orbit-ring { fill: none; stroke: color-mix(in srgb, var(--hero-ink) 14%, transparent); stroke-dasharray: 2 7; }
+.mbv-orbit-core { fill: color-mix(in srgb, var(--hero-solid) 45%, transparent); stroke: color-mix(in srgb, var(--hero-ink) 10%, transparent); }
 .mbv-orbit-seg { opacity: 0.95; cursor: pointer; transition: opacity 150ms ease; }
 .mbv-orbit-seg.sub { opacity: 0.88; }
 .mbv-orbit-seg.dim { opacity: 0.18; }
@@ -444,50 +447,50 @@
   position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center;
   pointer-events: none; text-align: center; padding: 0 22%;
 }
-.mbv-orbit-figure { font-family: var(--disp); font-size: 3.5rem; font-weight: 700; color: #fff; line-height: 1; font-variant-numeric: tabular-nums; }
-.mbv-orbit-caption { margin-top: 6px; font-size: 0.8125rem; color: rgba(234, 242, 250, 0.7); line-height: 1.35; }
+.mbv-orbit-figure { font-family: var(--disp); font-size: 3.5rem; font-weight: 700; color: var(--hero-strong); line-height: 1; font-variant-numeric: tabular-nums; }
+.mbv-orbit-caption { margin-top: 6px; font-size: 0.8125rem; color: color-mix(in srgb, var(--hero-ink) 70%, transparent); line-height: 1.35; }
 .mbv-orbit.mobile .mbv-orbit-figure { font-size: 2.75rem; }
 
 .mbv-orbit-legend { flex: 1; min-width: 0; display: flex; flex-direction: column; }
-.mbv-orbit-group { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-top: 1px solid rgba(234, 242, 250, 0.12); }
+.mbv-orbit-group { display: flex; flex-direction: column; gap: 2px; padding: 10px 0; border-top: 1px solid color-mix(in srgb, var(--hero-ink) 12%, transparent); }
 .mbv-orbit-group:first-child { border-top: none; }
 .mbv-orbit-row {
   display: grid; grid-template-columns: 14px minmax(0, 1fr) auto 48px; align-items: baseline; column-gap: 12px;
-  width: 100%; background: none; border: none; font: inherit; color: #EAF2FA; text-align: left; cursor: default;
+  width: 100%; background: none; border: none; font: inherit; color: var(--hero-ink); text-align: left; cursor: default;
   padding: 5px 8px; margin: 0 -8px; border-radius: 8px; transition: opacity 150ms ease, background 150ms ease;
 }
 .mbv-orbit-row.sub { padding-left: 32px; }
-.mbv-orbit-row.focus { background: rgba(255, 255, 255, 0.07); }
+.mbv-orbit-row.focus { background: color-mix(in srgb, var(--hero-ink) 7%, transparent); }
 .mbv-orbit-row.dim { opacity: 0.4; }
 .mbv-orbit-swatch { width: 12px; height: 12px; border-radius: 3px; align-self: center; }
 .mbv-orbit-swatch.small { width: 8px; height: 8px; border-radius: 2px; justify-self: center; }
-.mbv-orbit-swatch.hatched { background: repeating-linear-gradient(45deg, rgba(234, 242, 250, 0.75) 0 1.5px, transparent 1.5px 4.5px); box-shadow: inset 0 0 0 1px rgba(234, 242, 250, 0.6); }
+.mbv-orbit-swatch.hatched { background: repeating-linear-gradient(45deg, color-mix(in srgb, var(--hero-ink) 75%, transparent) 0 1.5px, transparent 1.5px 4.5px); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--hero-ink) 60%, transparent); }
 .mbv-orbit-name { font-size: 0.9375rem; font-weight: 600; }
-.mbv-orbit-row.sub .mbv-orbit-name { font-size: 0.8125rem; font-weight: 400; color: rgba(234, 242, 250, 0.72); }
+.mbv-orbit-row.sub .mbv-orbit-name { font-size: 0.8125rem; font-weight: 400; color: color-mix(in srgb, var(--hero-ink) 72%, transparent); }
 .mbv-orbit-n { font-family: var(--disp); font-size: 1.375rem; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
 .mbv-orbit-row.sub .mbv-orbit-n { font-family: var(--body); font-size: 0.875rem; }
-.mbv-orbit-pct { font-size: 0.8125rem; color: rgba(234, 242, 250, 0.62); text-align: right; font-variant-numeric: tabular-nums; }
-.mbv-orbit-note { margin: 10px 0 0; font-size: 0.75rem; color: rgba(234, 242, 250, 0.62); }
+.mbv-orbit-pct { font-size: 0.8125rem; color: color-mix(in srgb, var(--hero-ink) 62%, transparent); text-align: right; font-variant-numeric: tabular-nums; }
+.mbv-orbit-note { margin: 10px 0 0; font-size: 0.75rem; color: color-mix(in srgb, var(--hero-ink) 62%, transparent); }
 @media (prefers-reduced-motion: reduce) { .mbv-orbit-seg, .mbv-orbit-tick, .mbv-orbit-row { transition: none; } }
 
 /* ════════════════════════════════════════════════════════════════════
-   28 Sep 2026 — LeadJourney (Appointment Detail hero). Fixed-dark panel,
+   28 Sep 2026 — LeadJourney (Appointment Detail hero). Theme-following panel,
    so text colours are fixed; waypoint colours come from the page theme's
    --pl-* tokens via --tone.
    ════════════════════════════════════════════════════════════════════ */
 .lj-subtitle { max-width: 64ch; }
 .lj-plot { position: relative; width: 100%; }
-.lj-future-path { stroke: rgba(234, 242, 250, 0.3); stroke-width: 3; stroke-dasharray: 4 7; stroke-linecap: round; }
-.lj-today { stroke: rgba(234, 242, 250, 0.5); stroke-dasharray: 3 4; }
-.lj-today-text, .lj-today-label { fill: #fff; color: #fff; font-family: var(--body); font-size: 12px; font-weight: 700; }
+.lj-future-path { stroke: color-mix(in srgb, var(--hero-ink) 30%, transparent); stroke-width: 3; stroke-dasharray: 4 7; stroke-linecap: round; }
+.lj-today { stroke: color-mix(in srgb, var(--hero-ink) 50%, transparent); stroke-dasharray: 3 4; }
+.lj-today-text, .lj-today-label { fill: var(--hero-strong); color: var(--hero-strong); font-family: var(--body); font-size: 12px; font-weight: 700; }
 .lj-today-label { position: absolute; }
-.lj-span { fill: none; stroke: rgba(234, 242, 250, 0.35); stroke-width: 1.2; }
-.lj-span-text { fill: rgba(234, 242, 250, 0.66); font-family: var(--body); font-size: 12px; }
-.lj-leader { stroke: rgba(234, 242, 250, 0.3); }
+.lj-span { fill: none; stroke: color-mix(in srgb, var(--hero-ink) 35%, transparent); stroke-width: 1.2; }
+.lj-span-text { fill: color-mix(in srgb, var(--hero-ink) 66%, transparent); font-family: var(--body); font-size: 12px; }
+.lj-leader { stroke: color-mix(in srgb, var(--hero-ink) 30%, transparent); }
 .lj-marker-text { font-family: var(--body); font-size: 11px; font-weight: 700; }
-.lj-title-text { fill: #fff; font-family: var(--body); font-size: 13px; font-weight: 700; }
-.lj-outcome-text { fill: #fff; font-family: var(--disp); font-size: 18px; font-weight: 700; }
-.lj-sub-text { fill: rgba(234, 242, 250, 0.66); font-family: var(--body); font-size: 12px; font-variant-numeric: tabular-nums; }
+.lj-title-text { fill: var(--hero-strong); font-family: var(--body); font-size: 13px; font-weight: 700; }
+.lj-outcome-text { fill: var(--hero-strong); font-family: var(--disp); font-size: 18px; font-weight: 700; }
+.lj-sub-text { fill: color-mix(in srgb, var(--hero-ink) 66%, transparent); font-family: var(--body); font-size: 12px; font-variant-numeric: tabular-nums; }
 
 .lj-node {
   position: absolute; transform: translate(-50%, -50%);
@@ -495,10 +498,10 @@
   display: flex; align-items: center; justify-content: center; border-radius: 50%;
 }
 .lj-dot { display: block; border-radius: 50%; box-sizing: border-box; transition: transform 140ms ease; }
-.lj-major .lj-dot { width: 18px; height: 18px; background: var(--tone); border: 2.5px solid #0D1A45; }
-.lj-outcome .lj-dot { width: 26px; height: 26px; background: var(--tone); border: 2.5px solid #0D1A45; box-shadow: 0 0 0 8px color-mix(in srgb, var(--tone) 28%, transparent); }
-.lj-marker .lj-dot { width: 13px; height: 13px; background: #0D1A45; border: 2.5px solid var(--tone); }
-.lj-planned .lj-dot { width: 18px; height: 18px; background: #0D1A45; border: 2.5px dashed #fff; }
+.lj-major .lj-dot { width: 18px; height: 18px; background: var(--tone); border: 2.5px solid var(--hero-solid); }
+.lj-outcome .lj-dot { width: 26px; height: 26px; background: var(--tone); border: 2.5px solid var(--hero-solid); box-shadow: 0 0 0 8px color-mix(in srgb, var(--tone) 28%, transparent); }
+.lj-marker .lj-dot { width: 13px; height: 13px; background: var(--hero-solid); border: 2.5px solid var(--tone); }
+.lj-planned .lj-dot { width: 18px; height: 18px; background: var(--hero-solid); border: 2.5px dashed var(--hero-strong); }
 .lj-node.active .lj-dot, .lj-node:focus-visible .lj-dot { transform: scale(1.3); }
 
 /* Phone: vertical path; label sits beside the dot inside the button. */
@@ -509,8 +512,8 @@
   .lj-marker .lj-dot { margin-left: calc((34px - 13px) / 2); }
   .lj-outcome .lj-dot { margin-left: calc((34px - 26px) / 2); }
   .lj-panel .lj-plot .lj-vlabel { display: flex; flex-direction: column; text-align: left; }
-  .lj-title { color: #fff; font-size: 0.875rem; font-weight: 700; }
+  .lj-title { color: var(--hero-strong); font-size: 0.875rem; font-weight: 700; }
   .lj-marker .lj-title { color: var(--tone); font-size: 0.75rem; }
-  .lj-sub { color: rgba(234, 242, 250, 0.66); font-size: 0.75rem; }
+  .lj-sub { color: color-mix(in srgb, var(--hero-ink) 66%, transparent); font-size: 0.75rem; }
 }
 @media (prefers-reduced-motion: reduce) { .lj-dot { transition: none; } }

@@ -54,7 +54,7 @@ export default function AppointmentFlow({ rows, lossLabels, isMobile }) {
       isMobile={isMobile}
       branches={[
         { key: 'signed', label: 'Signed so far', colour: 'var(--pl-won)', count: signed },
-        { key: 'open', label: 'Still open', colour: '#17B6C9', children: [
+        { key: 'open', label: 'Still open', colour: 'var(--hero-accent)', children: [
           { key: 'met', label: 'Met, still deciding', count: openMet, colour: 'var(--pl-booked)' },
           { key: 'notmet', label: 'Not met yet', count: openNotMet, colour: 'var(--pl-unassigned)', muted: true },
         ] },

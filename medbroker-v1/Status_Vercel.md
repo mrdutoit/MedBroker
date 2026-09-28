@@ -117,6 +117,13 @@ found and fixed the same pattern in 12 overlay handlers across 7 files.
 CONFIRMED LIVE 27 Sep 2026 — mouseDownOnOverlayRef present in all 7
 files in commit e1c112e (verified against a fresh codeload hydration).
 
+SIGNATURE PANELS FOLLOW THE THEME — 28 Sep 2026, medbroker-theme-following-heroes-20260928-1745.zip. The
+report heroes (Reports, Agent, Broker, Appointment Detail) were a fixed
+dark navy in every theme; Mark found that awkward. Every colour on them now
+comes from per-theme --hero-* / --path-* tokens (themes.css). Leads list
+journey column approved (second canvas revision, captions inline past the
+today line) — to be built next, theme-following from the start.
+
 APPOINTMENT DETAIL JOURNEY — 28 Sep 2026, medbroker-appointment-journey-20260928-1343.zip. LeadJourney:
 this one lead's path from lead created to outcome on a real time scale,
 approved by Mark from the canvas mock-up unchanged. One additive backend
@@ -305,7 +312,7 @@ VERCEL FUNCTION COUNT: confirmed exactly 12/12 on this hydration — still
 zero headroom, still Hobby's hard ceiling. Any new top-level API surface
 needs a consolidation first.
 
-BUILD HEALTH (28 Sep 2026, on main + the appointment-journey delta):
+BUILD HEALTH (28 Sep 2026, on main + the theme-following-heroes delta):
 clean `npm run build`; `npx vitest run` 62/62; browser suite 114/114 (one
 of those is the deliberately test.fail()-marked tasks.enabled item);
 `npm run lint` — the same single pre-existing plugin-version error plus
@@ -321,6 +328,43 @@ replacement for it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 28 SEP 2026 (EVENING) — SIGNATURE PANELS FOLLOW THE THEME.
+
+Mark: "The static theme on the reports across the various application
+themes looks awkward. Could we make these switchable?" — and the same rule
+wanted for WayPoint's light and dark themes.
+
+WHAT CHANGED: each theme in themes.css gains hero tokens — --hero-bg,
+--hero-wash, --hero-solid (base colour for dot rings), --hero-border,
+--hero-ink, --hero-strong, --hero-mut, --hero-accent — and the journey
+gradient --path-a/-b/-c. Midnight: the same navy as before. Ember: a warm
+dark panel, the path ember-orange into gold. Terra: a light parchment
+panel, path olive into ochre (kept clear of --pl-won's sage). Linen: a
+light panel, the logo blues with the cyan end deepened (#0E8FA8) to keep
+3:1 against white. Light panels get a hairline border.
+Every fixed colour on a .pj-panel descendant replaced: viz.css (all
+rgba(234,242,250,…)/rgba(255,255,255,…) → color-mix on --hero-ink; #fff →
+--hero-strong; navy → --hero-solid), and in JSX the gradient stops,
+#17B6C9 → --hero-accent (CallFlow, AppointmentFlow, LeadJourney), the
+orbit's hatch and sibling-darkening target, PipelineJourney's badge
+fallback and fixed amber, ValueStroke's rgb ramp (now color-mix along
+--path-*), OutcomeFlow's gradient start. data-theme="dark" removed from
+the panels (it had no CSS behind it). Rule recorded in
+Project_Context_Vercel.md and in the app-design-pass skill (delivered as an
+updated .skill — design-language.md, pitfalls.md, SKILL.md's check list).
+
+VERIFIED: build clean; vitest 62/62; browser suite 114/114; screenshots of
+all four heroes in all four themes (16), reviewed per theme.
+
+DELIVERY: medbroker-theme-following-heroes-20260928-1745.zip — frontend/src/themes.css, frontend/src/components/viz/
+{viz.css, PipelineJourney.jsx, OrbitPanel.jsx, CallFlow.jsx,
+AppointmentFlow.jsx, LeadJourney.jsx, ValueStroke.jsx, OutcomeFlow.jsx},
+both status docs. No backend, migration or dependency change.
+
+NEXT: Leads list journey column (approved design), theme-following.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 28 SEP 2026 (AFTERNOON) — APPOINTMENT DETAIL: ONE LEAD'S JOURNEY.
 

@@ -14,7 +14,7 @@ import './viz.css';
  * sum to the total — the same total the Policy value figure shows. Every
  * product also shows how many were sold, always visible.
  *
- * Colour: a ramp through the logo gradient (#2F4FE0 -> #1A7FCF -> #17B6C9)
+ * Colour: a ramp through the theme's journey gradient (--path-a/b/c)
  * by rank, not a rainbow — the categories are products, not statuses, and
  * the stroke should read as one thing.
  *
@@ -23,15 +23,14 @@ import './viz.css';
  * length to draw.
  */
 
-const STOPS = [[47, 79, 224], [26, 127, 207], [23, 182, 201]];
+// Ramp by rank along the theme's journey gradient (--path-a -> --path-b ->
+// --path-c; the logo's blues on Midnight/Linen). color-mix, not computed
+// rgb: the stops are theme tokens since 28 Sep 2026, unknown in JS.
 function ramp(i, n) {
-  if (n <= 1) return 'rgb(26, 127, 207)';
+  if (n <= 1) return 'var(--path-b)';
   const t = i / (n - 1);
-  const seg = t < 0.5 ? 0 : 1;
-  const local = t < 0.5 ? t / 0.5 : (t - 0.5) / 0.5;
-  const [a, b] = [STOPS[seg], STOPS[seg + 1]];
-  const c = a.map((v, k) => Math.round(v + (b[k] - v) * local));
-  return `rgb(${c[0]}, ${c[1]}, ${c[2]})`;
+  if (t <= 0.5) return `color-mix(in srgb, var(--path-a) ${Math.round((1 - t / 0.5) * 100)}%, var(--path-b))`;
+  return `color-mix(in srgb, var(--path-b) ${Math.round((1 - (t - 0.5) / 0.5) * 100)}%, var(--path-c))`;
 }
 const rand = v => `R${Math.round(v).toLocaleString('en-ZA')}`;
 const fmtM = v => `R${(v / 1000000).toFixed(2)}m`;
@@ -92,7 +91,7 @@ export default function ValueStroke({ productsSold, signed, variant = 'hero' }) 
   }
 
   return (
-    <div className="pj-panel" data-theme="dark">
+    <div className="pj-panel">
       <p className="pj-eyebrow">This period’s signed policy value</p>
       <h3 className="pj-title">{total > 0 ? fmtM(total) : 'Nothing signed yet'}</h3>
       <p className="pj-subtitle">
