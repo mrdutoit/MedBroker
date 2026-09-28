@@ -517,3 +517,44 @@
   .lj-sub { color: color-mix(in srgb, var(--hero-ink) 66%, transparent); font-size: 0.75rem; }
 }
 @media (prefers-reduced-motion: reduce) { .lj-dot { transition: none; } }
+
+/* ════════════════════════════════════════════════════════════════════
+   28 Sep 2026 — Leads list journey band + LeadRowJourney. The band is the
+   page's one bold element: the theme's hero base tinted a touch toward the
+   journey gradient, so it reads as a band in light themes too. All colours
+   from tokens — it follows the theme like every signature panel.
+   ════════════════════════════════════════════════════════════════════ */
+.lrj-band {
+  --band: color-mix(in srgb, var(--path-a) 7%, var(--hero-solid));
+  background: var(--band) !important;
+  border-left: 1px solid color-mix(in srgb, var(--path-a) 18%, transparent);
+  color: var(--hero-ink);
+}
+.lrj-band-head { color: var(--hero-ink) !important; }
+.lrj-axis { position: relative; height: 16px; margin-top: 6px; }
+.lrj-axis span { position: absolute; transform: translateX(-50%); font-size: 11px; font-weight: 600; color: var(--hero-mut); white-space: nowrap; letter-spacing: 0; text-transform: none; }
+.lrj-axis span.today { color: var(--hero-accent); }
+.lrj-axis span.start { transform: none; }  /* first label starts at the band's edge instead of centring past it */
+.lrj-axis span.lane { transform: none; }
+.lrj { position: relative; width: 100%; min-width: 360px; }
+.lrj-hit { display: block; width: 100%; padding: 0; margin: 0; border: none; background: none; cursor: pointer; border-radius: 6px; }
+.lrj-hit svg { display: block; overflow: visible; }
+.lrj-today { stroke: var(--hero-accent); stroke-width: 1; opacity: 0.35; }
+.lrj-ring { stroke: var(--band, var(--hero-solid)); stroke-width: 2; }
+.lrj-ring.thin { stroke-width: 1.5; }
+.lrj-missed { fill: var(--band, var(--hero-solid)); stroke: color-mix(in srgb, var(--hero-ink) 70%, transparent); stroke-width: 1.6; }
+.lrj-nocall { stroke: var(--pl-unassigned); stroke-width: 2; stroke-dasharray: 2 5; stroke-linecap: round; }
+.lrj-quiet { stroke: var(--pl-progress); stroke-width: 2.5; stroke-dasharray: 5 5; stroke-linecap: round; }
+.lrj-recent { stroke-width: 2; stroke-dasharray: 1 5; stroke-linecap: round; opacity: 0.75; }
+.lrj-age { fill: var(--hero-mut); font-family: var(--body); font-size: 10px; font-weight: 700; }
+.lrj-caption { font-family: var(--body); font-size: 12.5px; font-weight: 700; }
+.lrj-card { position: fixed; z-index: 50; transform: translate(-50%, calc(-100% - 6px)); }
+
+/* Phone: each lead is a card; the journey sits in a band-coloured strip. */
+.lrj-cards { display: flex; flex-direction: column; gap: 10px; }
+.lrj-cardrow {
+  display: flex; flex-direction: column; gap: 10px; padding: 14px; text-align: left; width: 100%;
+  background: var(--panel); border: 1px solid var(--line); border-radius: 16px; cursor: pointer; font: inherit; color: var(--ink);
+}
+.lrj-strip { --band: color-mix(in srgb, var(--path-a) 7%, var(--hero-solid)); background: var(--band); border-radius: 12px; padding: 8px 10px 8px 12px; }
+.lrj-strip .lrj { min-width: 0; }

@@ -379,3 +379,28 @@ test('Appointment Detail journey: headline, stretches, and a friction marker wit
   await expect(page.getByRole('button', { name: /^Second meeting, .*, day 31, Scheduled/ })).toBeAttached();
   expect(errors).toEqual([]);
 });
+
+// ── Leads list journey band, 28 Sep 2026 (app-design-pass) ─────────────
+
+test('Leads list journey: every caption state, and a quiet lead explains itself on focus', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/leads');
+  for (const text of ['No call yet', 'Quiet for 18 days', 'Called 2 days ago', 'Booked 31 days ago', 'Signed 31 days ago']) {
+    await expect(page.locator('.lrj-caption', { hasText: text })).toHaveCount(1);
+  }
+  const quiet = page.getByRole('button', { name: /^Journey: Quiet for 18 days\. 1 call in total, 0 of the last 1 reached the client\.$/ });
+  await quiet.focus();
+  const card = page.locator('.lrj-card');
+  await expect(card).toContainText('Priya Naidoo');
+  await expect(card).toContainText('Event: Wits Career Day');
+  await expect(card).toContainText('priya.naidoo@example.com');
+  expect(errors).toEqual([]);
+});
+
+test('Leads list journey: clicking a journey still opens the lead', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/leads');
+  await page.getByRole('button', { name: /^Journey: Called 2 days ago/ }).click();
+  await expect(page).toHaveURL(/\/leads\/lead-3$/);
+});

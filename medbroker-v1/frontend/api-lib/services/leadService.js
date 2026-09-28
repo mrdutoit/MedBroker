@@ -230,6 +230,38 @@ export async function listLeads({ status, excludeStatuses, agentId, brokerId, ev
     }
   );
 
+  // 28 Sep 2026 — journey data for THIS PAGE's leads only (app-design-pass,
+  // Leads list journey band). Additive: each lead gains a `journey` object;
+  // nothing existing changes. Three small queries keyed on the page's ids
+  // (at most pageSize leads), not a join into the paged query above, so the
+  // COUNT/ORDER/LIMIT logic is untouched.
+  //   calls      — the last 60 days' call times and outcomes (the band's window)
+  //   lastCallAt — the latest call ever, and the total count (a lead older
+  //                than the window still knows when it was last contacted)
+  //   latest appointment — booked date, status, closed date
+  if (leads.length > 0) {
+    const ids = { type: sql.NVarChar(sql.MAX), value: leads.map(l => l.id) };
+    const [calls, callStats, appts] = await Promise.all([
+      executeQuery(
+        `SELECT leadId AS "leadId", callTime AS "at", outcome
+           FROM CallAttempt
+          WHERE leadId = ANY(@ids) AND callTime >= NOW() - INTERVAL '61 days'
+          ORDER BY callTime`, { ids }),
+      executeQuery(
+        `SELECT leadId AS "leadId", MAX(callTime) AS "lastCallAt", COUNT(*) AS "callCount"
+           FROM CallAttempt WHERE leadId = ANY(@ids) GROUP BY leadId`, { ids }),
+      executeQuery(
+        `SELECT DISTINCT ON (leadId) leadId AS "leadId", createdAt AS "bookedAt", status, closedAt AS "closedAt"
+           FROM Appointment WHERE leadId = ANY(@ids)
+          ORDER BY leadId, createdAt DESC`, { ids }),
+    ]);
+    const byLead = new Map(leads.map(l => [String(l.id), { calls: [], lastCallAt: null, callCount: 0, bookedAt: null, apptStatus: null, closedAt: null }]));
+    for (const c of calls) byLead.get(String(c.leadId))?.calls.push({ at: c.at, outcome: c.outcome });
+    for (const c of callStats) Object.assign(byLead.get(String(c.leadId)) ?? {}, { lastCallAt: c.lastCallAt, callCount: Number(c.callCount) });
+    for (const a of appts) Object.assign(byLead.get(String(a.leadId)) ?? {}, { bookedAt: a.bookedAt, apptStatus: a.status, closedAt: a.closedAt });
+    for (const l of leads) l.journey = byLead.get(String(l.id));
+  }
+
   return { leads, total, page, pageSize };
 }
 

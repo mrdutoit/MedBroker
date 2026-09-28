@@ -1809,7 +1809,10 @@ Reports chart language — completed 27 Sep 2026 (app-design-pass). Every
   section variant). One dark signature panel per page (.pj-panel):
   Reports = PipelineJourney, Agent Detail = CallFlow, Broker Detail =
   AppointmentFlow, Appointment Detail = LeadJourney (one lead's path on a
-  real time scale; rules in leadJourneyModel.js, unit-tested).
+  real time scale; rules in leadJourneyModel.js, unit-tested), Leads list =
+  the journey band (LeadRowJourney; every row on one shared 60-day scale,
+  today at the right; rules in leadRowModel.js, unit-tested — "quiet" is
+  >7 days without contact on a lead still with the agent).
   THEME RULE (Mark, 28 Sep 2026): signature panels FOLLOW THE THEME — every
   colour inside a .pj-panel comes from that theme's --hero-* and --path-*
   tokens in themes.css (dark themes: a deep panel in their own hue; light

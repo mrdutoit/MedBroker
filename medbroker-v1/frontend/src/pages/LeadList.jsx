@@ -17,7 +17,13 @@ import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { useFetch } from '../hooks/useFetch.js';
 import { leadsApi, usersApi, systemConfigApi } from '../services/api.js';
-import { formatDistanceToNow } from 'date-fns';
+// formatDistanceToNow retired 28 Sep 2026 with the "Added" column — the
+// journey band's start point now shows a lead's age.
+// 28 Sep 2026 — app-design-pass: the journey band (canvas design approved
+// by Mark, second revision). One compact journey per lead, every row on
+// the same 60-day scale with today at the right.
+import LeadRowJourney from '../components/viz/LeadRowJourney.jsx';
+import { WINDOW } from '../components/viz/leadRowModel.js';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
@@ -381,113 +387,155 @@ export default function LeadList() {
             {search      ? ` · "${search}"`       : ''}
           </div>
 
-          <div style={{ ...s.tableCard, overflowX: 'auto' }}>
-            <table style={{ ...s.table, minWidth: '700px' }}>
-              <thead>
-                <tr>
-                  {/* 16 Aug 2026 — sortable headers, same click-toggle-
-                      direction/↑↓-indicator convention as
-                      AppointmentList.jsx's own table. sortKey here is a
-                      real server-side param (see the apiParams/useFetch
-                      block above) since this list is paginated — a
-                      client-side sort would only reorder the current
-                      page. Source/Status intentionally left non-
-                      sortable here even though they're real columns:
-                      Source has too many distinct free-text values to
-                      make an alphabetical sort meaningful day-to-day,
-                      and Status is already fully navigable via the
-                      chips above it — sorting by status would just
-                      re-group exactly what a chip already isolates. */}
-                  <th style={{ ...s.th, cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('name')}>
-                    Name{sortKey === 'name' && (sortDir === 'asc' ? ' ↑' : ' ↓')}
-                  </th>
-                  <th style={{ ...s.th, cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('occupation')}>
-                    Job Title{sortKey === 'occupation' && (sortDir === 'asc' ? ' ↑' : ' ↓')}
-                  </th>
-                  <th style={s.th}>Source</th>
-                  <th style={s.th}>Status</th>
-                  {!isAgent && (
-                    <th style={{ ...s.th, cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('agentName')}>
-                      Agent{sortKey === 'agentName' && (sortDir === 'asc' ? ' ↑' : ' ↓')}
-                    </th>
-                  )}
-                  <th style={{ ...s.th, cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('createdAt')}>
-                    Added{sortKey === 'createdAt' && (sortDir === 'asc' ? ' ↑' : ' ↓')}
-                  </th>
-                  <th style={s.th}></th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.leads.length === 0 && (
-                  <tr>
-                    <td colSpan={isAgent ? 6 : 7} style={{ textAlign: 'center', padding: '40px', color:'var(--mut)' }}>
-                      No leads match your current filters.
-                    </td>
-                  </tr>
-                )}
-                {data.leads.map(lead => {
-                  const sm = STATUS_META[lead.pipelineStatus] ?? STATUS_META.Unassigned;
-                  return (
-                    <tr key={lead.id} style={{ ...s.tr, cursor: 'pointer' }}
-                      onClick={() => navigate(`/leads/${lead.id}`)}
-                      onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
-                      onMouseLeave={e => e.currentTarget.style.background = ''}>
-                      <td style={s.td}>
-                        <div style={{ fontWeight: 500 }}>{lead.firstName} {lead.lastName}</div>
-                        <div style={{ fontSize: '0.75rem', color:'var(--mut)', marginTop: '1px' }}>{lead.email}</div>
-                      </td>
-                      <td style={{ ...s.td, fontSize: '0.8125rem' }}>{lead.occupation ?? '—'}</td>
-                      <td style={{ ...s.td, fontSize: '0.75rem', color:'var(--mut)' }}>{lead.sourceLabel ?? '—'}</td>
-                      <td style={s.td}>
-                        <span style={{ ...s.badge, background: sm.bg, color: sm.colour, border: `1px solid ${sm.border}` }}>
-                          {sm.label}
-                        </span>
-                      </td>
-                      {!isAgent && (
-                        <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.813rem' }}>
-                          {lead.agentName ?? '—'}
-                        </td>
-                      )}
-                      <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.75rem' }}>
-                        {lead.createdAt ? formatDistanceToNow(new Date(lead.createdAt), { addSuffix: true }) : '—'}
-                      </td>
-                      {/* stopPropagation — this cell has its own buttons (View,
-                          Assign/Reassign); without this, clicking any of them
-                          would also fire the row's own onClick above. View
-                          navigates to the same place anyway, but Assign/
-                          Reassign opening a modal while also navigating away
-                          would be a real bug, not just a redundant no-op. */}
-                      <td style={{ ...s.td, whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
-                        <button onClick={() => navigate(`/leads/${lead.id}`)} style={s.linkBtn}>
-                          View →
+          {/* Phone (28 Sep 2026): one card per lead, the journey in a
+              band-coloured strip — the canvas design's phone frame. The card
+              opens the lead on click; the name is also a real button for
+              keyboard users. Assign/Reassign stay on the desktop table and
+              on Lead Detail. */}
+          {isMobile ? (
+            <div className="lrj-cards">
+              {data.leads.length === 0 && (
+                <div style={{ textAlign: 'center', padding: '32px', color: 'var(--mut)' }}>No leads match your current filters.</div>
+              )}
+              {data.leads.map(lead => {
+                const sm = STATUS_META[lead.pipelineStatus] ?? STATUS_META.Unassigned;
+                return (
+                  <div key={lead.id} className="lrj-cardrow" onClick={() => navigate(`/leads/${lead.id}`)}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '10px' }}>
+                      <div style={{ minWidth: 0 }}>
+                        <button type="button" onClick={e => { e.stopPropagation(); navigate(`/leads/${lead.id}`); }}
+                          style={{ background: 'none', border: 'none', padding: 0, font: 'inherit', fontWeight: 700, fontSize: '0.9375rem', color: 'var(--ink)', cursor: 'pointer', textAlign: 'left' }}>
+                          {lead.firstName} {lead.lastName}
                         </button>
-                        {canReassign && lead.pipelineStatus === 'Unassigned' && (
-                          <button
-                            onClick={() => { setReassignTarget(lead); setIsAssignMode(true); }}
-                            style={{
-                              background: '#fffbeb', color: '#d97706', border: '1px solid #fde68a',
-                              borderRadius: '6px', padding: '3px 10px', cursor: 'pointer',
-                              fontSize: '0.75rem', fontWeight: 500, fontFamily: 'inherit', marginLeft: '6px',
-                            }}
-                          >
-                            Assign
-                          </button>
-                        )}
-                        {canReassign && lead.pipelineStatus !== 'Unassigned' && (
-                          <button
-                            onClick={() => { setReassignTarget(lead); setIsAssignMode(false); }}
-                            style={{ ...s.linkBtn, color:'var(--mut)', marginLeft: '4px' }}
-                          >
-                            Reassign
-                          </button>
-                        )}
+                        <div style={{ fontSize: '0.75rem', color: 'var(--mut)', marginTop: '2px' }}>
+                          {lead.occupation ?? '—'}{!isAgent ? `, ${lead.agentName ?? 'not assigned'}` : ''}
+                        </div>
+                      </div>
+                      <span style={{ ...s.badge, background: sm.bg, color: sm.colour, border: `1px solid ${sm.border}`, whiteSpace: 'nowrap' }}>{sm.label}</span>
+                    </div>
+                    <div className="lrj-strip"><LeadRowJourney lead={lead} isMobile /></div>
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+          <div style={{ ...s.tableCard, overflowX: 'auto' }}>
+              <table style={{ ...s.table, minWidth: '960px' }}>
+                <thead>
+                  <tr>
+                    {/* 16 Aug 2026 — sortable headers, same click-toggle-
+                        direction/↑↓-indicator convention as
+                        AppointmentList.jsx's own table. sortKey here is a
+                        real server-side param (see the apiParams/useFetch
+                        block above) since this list is paginated — a
+                        client-side sort would only reorder the current
+                        page. Source/Status intentionally left non-
+                        sortable here even though they're real columns:
+                        Source has too many distinct free-text values to
+                        make an alphabetical sort meaningful day-to-day,
+                        and Status is already fully navigable via the
+                        chips above it — sorting by status would just
+                        re-group exactly what a chip already isolates. */}
+                    <th style={{ ...s.th, cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('name')}>
+                      Name{sortKey === 'name' && (sortDir === 'asc' ? ' ↑' : ' ↓')}
+                    </th>
+                    <th style={s.th}>Status</th>
+                    {!isAgent && (
+                      <th style={{ ...s.th, cursor: 'pointer', userSelect: 'none' }} onClick={() => toggleSort('agentName')}>
+                        Agent{sortKey === 'agentName' && (sortDir === 'asc' ? ' ↑' : ' ↓')}
+                      </th>
+                    )}
+                    {/* 28 Sep 2026 — the journey band replaces the Job Title,
+                        Source and Added columns (occupation now sits under
+                        the name; source and email are in the journey's hover
+                        card; the band's start point is the lead's age). The
+                        band's header keeps Added's sort — by lead age. */}
+                    <th className="lrj-band lrj-band-head" style={{ ...s.th, cursor: 'pointer', userSelect: 'none', minWidth: '420px' }} onClick={() => toggleSort('createdAt')}>
+                      Journey, last {WINDOW} days{sortKey === 'createdAt' && (sortDir === 'asc' ? ' ↑' : ' ↓')}
+                      <div className="lrj-axis" aria-hidden="true">
+                        {[60, 30, 0].map(d => (
+                          <span key={d} className={d === 0 ? 'today' : d === WINDOW ? 'start' : ''} style={{ left: `calc((100% - 150px) * ${1 - d / WINDOW} + ${10 * d / WINDOW}px)` }}>
+                            {d === 0 ? 'Today' : `${d} days ago`}
+                          </span>
+                        ))}
+                        <span className="lane" style={{ left: 'calc(100% - 122px)' }}>Where it stands</span>
+                      </div>
+                    </th>
+                    <th style={s.th}></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.leads.length === 0 && (
+                    <tr>
+                      <td colSpan={isAgent ? 4 : 5} style={{ textAlign: 'center', padding: '40px', color:'var(--mut)' }}>
+                        No leads match your current filters.
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  )}
+                  {data.leads.map(lead => {
+                    const sm = STATUS_META[lead.pipelineStatus] ?? STATUS_META.Unassigned;
+                    return (
+                      <tr key={lead.id} style={{ ...s.tr, cursor: 'pointer' }}
+                        onClick={() => navigate(`/leads/${lead.id}`)}
+                        onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
+                        onMouseLeave={e => e.currentTarget.style.background = ''}>
+                        <td style={s.td}>
+                          <div style={{ fontWeight: 500 }}>{lead.firstName} {lead.lastName}</div>
+                          {/* Occupation under the name (28 Sep 2026); email moved
+                              to the journey's hover card. */}
+                          <div style={{ fontSize: '0.75rem', color:'var(--mut)', marginTop: '1px' }}>{lead.occupation ?? '—'}</div>
+                        </td>
+                        <td style={s.td}>
+                          <span style={{ ...s.badge, background: sm.bg, color: sm.colour, border: `1px solid ${sm.border}` }}>
+                            {sm.label}
+                          </span>
+                        </td>
+                        {!isAgent && (
+                          <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.813rem' }}>
+                            {lead.agentName ?? '—'}
+                          </td>
+                        )}
+                        <td className="lrj-band" style={{ ...s.td, padding: '8px 16px' }}>
+                          <LeadRowJourney lead={lead} isMobile={false} />
+                        </td>
+                        {/* stopPropagation — this cell has its own buttons (View,
+                            Assign/Reassign); without this, clicking any of them
+                            would also fire the row's own onClick above. View
+                            navigates to the same place anyway, but Assign/
+                            Reassign opening a modal while also navigating away
+                            would be a real bug, not just a redundant no-op. */}
+                        <td style={{ ...s.td, whiteSpace: 'nowrap' }} onClick={e => e.stopPropagation()}>
+                          <button onClick={() => navigate(`/leads/${lead.id}`)} style={s.linkBtn}>
+                            View →
+                          </button>
+                          {canReassign && lead.pipelineStatus === 'Unassigned' && (
+                            <button
+                              onClick={() => { setReassignTarget(lead); setIsAssignMode(true); }}
+                              style={{
+                                background: '#fffbeb', color: '#d97706', border: '1px solid #fde68a',
+                                borderRadius: '6px', padding: '3px 10px', cursor: 'pointer',
+                                fontSize: '0.75rem', fontWeight: 500, fontFamily: 'inherit', marginLeft: '6px',
+                              }}
+                            >
+                              Assign
+                            </button>
+                          )}
+                          {canReassign && lead.pipelineStatus !== 'Unassigned' && (
+                            <button
+                              onClick={() => { setReassignTarget(lead); setIsAssignMode(false); }}
+                              style={{ ...s.linkBtn, color:'var(--mut)', marginLeft: '4px' }}
+                            >
+                              Reassign
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           {totalPages > 1 && (
             <div style={{ display: 'flex', gap: '8px', marginTop: '14px', alignItems: 'center' }}>

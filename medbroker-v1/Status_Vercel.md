@@ -117,6 +117,11 @@ found and fixed the same pattern in 12 overlay handlers across 7 files.
 CONFIRMED LIVE 27 Sep 2026 — mouseDownOnOverlayRef present in all 7
 files in commit e1c112e (verified against a fresh codeload hydration).
 
+LEADS LIST JOURNEY BAND — 28 Sep 2026, medbroker-leads-journey-20260928-2022.zip. The approved
+canvas design (second revision) built, theme-following from the start.
+With this, the agreed UI-refresh order (Reports, Agent/Broker Detail,
+Appointment Detail, Lead List) is complete.
+
 SIGNATURE PANELS FOLLOW THE THEME — 28 Sep 2026, medbroker-theme-following-heroes-20260928-1745.zip. The
 report heroes (Reports, Agent, Broker, Appointment Detail) were a fixed
 dark navy in every theme; Mark found that awkward. Every colour on them now
@@ -312,8 +317,8 @@ VERCEL FUNCTION COUNT: confirmed exactly 12/12 on this hydration — still
 zero headroom, still Hobby's hard ceiling. Any new top-level API surface
 needs a consolidation first.
 
-BUILD HEALTH (28 Sep 2026, on main + the theme-following-heroes delta):
-clean `npm run build`; `npx vitest run` 62/62; browser suite 114/114 (one
+BUILD HEALTH (28 Sep 2026, on main + the leads-journey delta):
+clean `npm run build`; `npx vitest run` 68/68; browser suite 116/116 (one
 of those is the deliberately test.fail()-marked tasks.enabled item);
 `npm run lint` — the same single pre-existing plugin-version error plus
 the known JSX-usage false-positive warnings.
@@ -328,6 +333,57 @@ replacement for it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 28 SEP 2026 (NIGHT) — LEADS LIST JOURNEY BAND.
+
+DESIGN (canvas, two revisions; Mark approved the second): a journey band
+down the list — every lead's last 60 days on ONE shared scale, today at
+the right, drawn in the Appointment Detail journey's language; captions
+inline past the today line, fading from the line's colour into their own
+(Mark: captions under the line looked "in the middle of nowhere").
+
+BUILT:
+  - viz/leadRowModel.js (pure, 6 unit tests) — reached = not NoAnswer /
+    Voicemail / WrongNumber; "quiet" = over 7 days since the last contact
+    on a lead still with the agent (a lead with an open appointment is with
+    the broker and reads "Booked", never quiet — the broker's meetings
+    aren't on this list); outcome from the latest appointment (ClosedWon /
+    ClosedLost at closedAt) or a lead closed with no appointment
+    ("Closed", at updatedAt — no separate closed date on Lead).
+  - viz/LeadRowJourney.jsx — the row journey; the whole journey is one
+    button (aria-label summary, hover/focus card with source, created,
+    calls, last contact, email). The card is position: fixed from the
+    button's rectangle because the table scrolls sideways inside an
+    overflow container (the 24 Sep clipping lesson). Clicks bubble to the
+    row and open the lead as before.
+  - LeadList.jsx — the band replaces Job Title, Source and Added: occupation
+    moves under the name (email to the hover card), source to the hover
+    card, the band's start point shows the lead's age. The band header
+    keeps Added's sort (by lead age). Occupation is still a filter but no
+    longer a sortable column — flagged to Mark. Phone: a card per lead with
+    the journey in a band-coloured strip (the table used to scroll
+    sideways at 390px).
+  - leadService.listLeads — additive `journey` per lead from three small
+    queries on the page's ids (last 60 days' calls; last call + count ever;
+    latest appointment's booked/status/closed dates). The paged query,
+    COUNT and ORDER are untouched.
+  - Band colour = the theme's hero base tinted 7% toward --path-a, so it
+    reads as a band in light themes too; every colour from tokens.
+
+VERIFIED: build clean; vitest 68/68; browser suite 116/116 (new: every
+caption state + the focus card; a click on a journey still opens the
+lead); screenshots — all four themes, hover card, phone (Linen, Midnight).
+Fixed from them before delivery: the "60 days ago" label clipped at the
+band's edge; phone captions running out of the card and the today line
+crossing out of the strip.
+
+DELIVERY: medbroker-leads-journey-20260928-2022.zip — frontend/api-lib/services/leadService.js,
+frontend/src/pages/LeadList.jsx, frontend/src/components/viz/
+{LeadRowJourney.jsx, leadRowModel.js, leadRowModel.test.js} (new),
+viz/viz.css, e2e/{fixtures.js, interactions.spec.js}, both status docs.
+No migration, no dependency change.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 28 SEP 2026 (EVENING) — SIGNATURE PANELS FOLLOW THE THEME.
 

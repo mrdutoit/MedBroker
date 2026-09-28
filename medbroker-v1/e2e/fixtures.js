@@ -85,10 +85,21 @@ const DASHBOARD = {
   insights: [],
 };
 
+// 28 Sep 2026 — each lead carries `journey` as listLeads now returns it
+// (leadService.js). Five leads cover every caption: no call yet, quiet,
+// called recently, booked (with the broker), signed.
 const LEADS = { leads: [
-  { id: 'lead-1', firstName: 'Thabo', lastName: 'Nkosi', email: 'thabo.nkosi@example.com', pipelineStatus: 'Unassigned', occupation: 'Cardiologist', createdAt: iso(3) },
-  { id: 'lead-2', firstName: 'Priya', lastName: 'Naidoo', email: 'priya.naidoo@example.com', pipelineStatus: 'Assigned', occupation: 'General Practitioner', createdAt: iso(5) },
-], total: 2 };
+  { id: 'lead-1', firstName: 'Thabo', lastName: 'Nkosi', email: 'thabo.nkosi@example.com', pipelineStatus: 'Unassigned', occupation: 'Cardiologist', sourceLabel: 'Website', createdAt: iso(3),
+    journey: { calls: [], lastCallAt: null, callCount: 0, bookedAt: null, apptStatus: null, closedAt: null } },
+  { id: 'lead-2', firstName: 'Priya', lastName: 'Naidoo', email: 'priya.naidoo@example.com', pipelineStatus: 'Assigned', occupation: 'General Practitioner', sourceLabel: 'Event: Wits Career Day', createdAt: iso(21),
+    journey: { calls: [{ at: iso(18), outcome: 'NoAnswer' }], lastCallAt: iso(18), callCount: 1, bookedAt: null, apptStatus: null, closedAt: null } },
+  { id: 'lead-3', firstName: 'Johan', lastName: 'Botha', email: 'johan.botha@example.com', pipelineStatus: 'InProgress', occupation: 'Dentist', sourceLabel: 'Website', createdAt: iso(14),
+    journey: { calls: [{ at: iso(13), outcome: 'NoAnswer' }, { at: iso(9), outcome: 'ClientContacted' }, { at: iso(2), outcome: 'CallbackRequested' }], lastCallAt: iso(2), callCount: 3, bookedAt: null, apptStatus: null, closedAt: null } },
+  { id: 'lead-4', firstName: 'Kavitha', lastName: 'Reddy', email: 'kavitha.reddy@example.com', pipelineStatus: 'AppointmentScheduled', occupation: 'Dentist', sourceLabel: 'Referral', createdAt: iso(35),
+    journey: { calls: [{ at: iso(34), outcome: 'ClientContacted' }, { at: iso(31), outcome: 'AppointmentScheduled' }], lastCallAt: iso(31), callCount: 2, bookedAt: iso(31), apptStatus: 'InProgress', closedAt: null } },
+  { id: 'lead-5', firstName: 'Fatima', lastName: 'Essop', email: 'fatima.essop@example.com', pipelineStatus: 'AppointmentScheduled', occupation: 'Radiologist', sourceLabel: 'Referral', createdAt: iso(58),
+    journey: { calls: [{ at: iso(57), outcome: 'NoAnswer' }, { at: iso(55), outcome: 'AppointmentScheduled' }], lastCallAt: iso(55), callCount: 2, bookedAt: iso(54), apptStatus: 'ClosedWon', closedAt: iso(31) } },
+], total: 5 };
 
 const APPOINTMENTS = { appointments: [
   { id: 'appt-1', leadId: 'lead-2', firstName: 'Priya', lastName: 'Naidoo', status: 'Assigned', firstAppointmentDate: day(-2), firstAppointmentTime: '10:00', portfolio: 'Discovery' },
