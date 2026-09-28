@@ -1803,9 +1803,14 @@ Reports chart language — completed 27 Sep 2026 (app-design-pass). Every
   region -> won/lost -> loss reason), PortfolioSplit (won vs lost per
   overlapping group), SplitFigures (a 2-3 way split), ReasonRows (reasons
   that each count once), CallFlow (Agent Detail hero: calls -> reached ->
-  outcome), ValueStroke (Broker Detail hero: signed value by product).
-  One dark signature panel per page (.pj-panel): Reports = PipelineJourney,
-  Agent Detail = CallFlow, Broker Detail = ValueStroke. Text inside it uses
+  outcome), AppointmentFlow (Broker Detail hero: this period's
+  appointments by where each stands now), both on the shared BranchFlow
+  engine; ValueStroke (signed value by product — dark hero or 'plain'
+  section variant). One dark signature panel per page (.pj-panel):
+  Reports = PipelineJourney, Agent Detail = CallFlow, Broker Detail =
+  AppointmentFlow. CONVERSION RATIO everywhere is §157/§158's deliberate
+  throughput ratio (closed this period ÷ booked this period) — label it as
+  such, never as a share. Text inside it uses
   fixed light colours (no dark token set exists for data-theme="dark"). NO RINGS: BreakdownRing/DonutBreakdown were
   retired 27 Sep 2026 (evening) after Mark found them small and
   unimpactful — don't reintroduce a donut for a new breakdown.

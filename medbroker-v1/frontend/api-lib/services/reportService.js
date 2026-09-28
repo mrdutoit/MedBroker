@@ -618,6 +618,24 @@ export async function getBrokerDetailReport(brokerId, period, scope, referenceDa
   // (the recent-appointments query below takes the latest of them).
   const meetingBreakdown = { first: { ...mCounts[1] }, second: { ...mCounts[2] } };
 
+  // 28 Sep 2026 (app-design-pass, Broker Detail — Mark asked for an
+  // appointments view to match the agent's calls view). ONE cohort, one
+  // clock: this broker's appointments CREATED in the period (the same set
+  // the Appointments figure counts), each once, by its CURRENT status —
+  // plus whether any meeting has been held yet, and the loss reason. The
+  // page draws it as a flow; these rows are exactly what sums.
+  const flowRows = await executeQuery(
+    `SELECT a.status, a.lostReason AS "lostReason",
+       EXISTS (SELECT 1 FROM MeetingAttempt ma
+               WHERE ma.appointmentId = a.id AND ma.status IN ('HeldInterested', 'HeldNotInterested')) AS "met",
+       COUNT(*) AS count
+     FROM Appointment a
+     WHERE a.brokerId = @brokerId AND a.createdAt >= @start AND a.createdAt <= @end
+     GROUP BY 1, 2, 3`,
+    { brokerId: { type: sql.UniqueIdentifier, value: brokerId }, start: { type: sql.DateTimeOffset, value: start }, end: { type: sql.DateTimeOffset, value: end } }
+  );
+  const appointmentFlow = flowRows.map(r => ({ status: r.status, lostReason: r.lostReason ?? null, met: r.met === true || r.met === 't', count: Number(r.count) }));
+
   // Recent appointments — last 5, with lead name, portfolio, meeting
   // statuses, signed decision, and products sold (joined names).
   // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) — m1/m2
@@ -671,7 +689,7 @@ export async function getBrokerDetailReport(brokerId, period, scope, referenceDa
 
   return {
     meta: { name: meta.name, region: meta.region, portfolios: meta.portfolios },
-    kpi, productsSold, meetingSummary, meetingBreakdown, avgDaysToClose,
+    kpi, productsSold, meetingSummary, meetingBreakdown, appointmentFlow, avgDaysToClose,
     recentAppointments: recentRows.map(r => ({
       id: r.id, name: `${r.firstName} ${r.lastName}`, portfolio: r.portfolio, portfolios: r.portfolios,
       m1: r.m1, m2: r.m2, signed: r.signed, products: r.products, totalValue: Number(r.totalValue),

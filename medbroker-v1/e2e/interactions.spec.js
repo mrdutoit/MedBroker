@@ -312,11 +312,27 @@ test('Agent Detail table shows lead status in plain language, not the enum', asy
   await expect(page.getByText('AppointmentScheduled')).toHaveCount(0);
 });
 
-test('Broker Detail value stroke: segments and rows carry value and share; zero-value products still listed', async ({ page }) => {
+test('Broker Detail appointment flow: every appointment by where it stands, open split by met / not met', async ({ page }) => {
+  // 28 Sep 2026 — Mark: "should the Broker not get a similar report showing
+  // Appointments?" One cohort (booked this period), current status, sums to 31.
   const errors = watchErrors(page);
   await signInAs(page, 'GlobalAdmin');
   await page.goto('/reports/broker/u2');
-  await expect(page.getByRole('heading', { name: 'R2.14m' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: '31 appointments this period' })).toBeVisible();
+  await page.getByRole('button', { name: 'Still open: 18 appointments, 58%' }).focus();
+  await expect(page.locator('.pj-panel .mbv-tip')).toContainText('58%');
+  await expect(page.getByRole('button', { name: 'Met, still deciding: 9 appointments, 29%' })).toBeAttached();
+  // A lost appointment with no recorded reason is its own, hatched branch.
+  await expect(page.getByRole('button', { name: 'Not captured: 1 appointments, 3%' })).toBeAttached();
+  await expect(page.getByRole('button', { name: 'Returned to leads: 2 appointments, 6%' })).toBeAttached();
+  expect(errors).toEqual([]);
+});
+
+test('Broker Detail signed value: stroke and rows carry value and share; zero-value products still listed', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/reports/broker/u2');
+  await expect(page.getByRole('heading', { name: 'Signed policy value' })).toBeVisible();
   await expect(page.getByRole('button', { name: /^Comprehensive Medical Aid: R1\D?240\D?000, 58% of the value$/ })).toBeVisible();
   // Sold, but no value recorded: a row, but no segment to draw.
   await expect(page.getByRole('button', { name: /^Funeral Cover: 1 sold/ })).toBeVisible();

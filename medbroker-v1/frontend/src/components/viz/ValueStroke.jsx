@@ -36,7 +36,11 @@ function ramp(i, n) {
 const rand = v => `R${Math.round(v).toLocaleString('en-ZA')}`;
 const fmtM = v => `R${(v / 1000000).toFixed(2)}m`;
 
-export default function ValueStroke({ productsSold, signed }) {
+// variant (28 Sep 2026): 'hero' (default) is the dark signature panel;
+// 'plain' draws just the stroke and rows on the ambient page theme, for
+// Broker Detail once AppointmentFlow became its hero (one bold panel per
+// page). The caller supplies the section heading in 'plain'.
+export default function ValueStroke({ productsSold, signed, variant = 'hero' }) {
   const [active, setActive] = useState(null);
   const products = [...(productsSold ?? [])].sort((a, b) => b.value - a.value);
   const total = products.reduce((t, p) => t + p.value, 0);
@@ -48,6 +52,45 @@ export default function ValueStroke({ productsSold, signed }) {
     onFocus: () => setActive(key), onBlur: () => setActive(null),
   });
 
+  const body = products.length > 0 && (
+    <div className={`mbv-stroke${variant === 'plain' ? ' plain' : ''}`}>
+      {total > 0 && (
+        <div className="mbv-stroke-line" role="group" aria-label="Policy value by product">
+          {coloured.filter(p => p.value > 0).map(p => (
+            <button
+              key={p.name} type="button"
+              className={`mbv-stroke-seg${active === p.name ? ' active' : ''}${active !== null && active !== p.name ? ' dim' : ''}`}
+              style={{ flexGrow: p.value, background: p.colour }}
+              aria-label={`${p.name}: ${rand(p.value)}, ${share(p.value)} of the value`}
+              {...on(p.name)}
+            />
+          ))}
+        </div>
+      )}
+      <ul className="mbv-stroke-rows" aria-label="Products sold">
+        {coloured.map(p => (
+          <li key={p.name}>
+            <button
+              type="button"
+              className={`mbv-stroke-row${active === p.name ? ' active' : ''}${active !== null && active !== p.name ? ' dim' : ''}`}
+              aria-label={`${p.name}: ${p.count} sold, ${rand(p.value)}, ${share(p.value)} of the value`}
+              {...on(p.name)}
+            >
+              <span className="mbv-stroke-swatch" style={{ background: p.colour }} />
+              <span className="mbv-stroke-name">{p.name}<span className="mbv-stroke-count">{p.count} sold</span></span>
+              <span className="mbv-stroke-value">{rand(p.value)}<span className="mbv-stroke-share">{share(p.value)}</span></span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+  if (variant === 'plain') {
+    return products.length > 0
+      ? body
+      : <p style={{ margin: 0, color: 'var(--mut)', fontSize: '0.875rem' }}>No policies signed this period.</p>;
+  }
+
   return (
     <div className="pj-panel" data-theme="dark">
       <p className="pj-eyebrow">This period’s signed policy value</p>
@@ -57,39 +100,7 @@ export default function ValueStroke({ productsSold, signed }) {
           ? `${units} ${units === 1 ? 'product' : 'products'} across ${signed} signed ${signed === 1 ? 'deal' : 'deals'}. Each segment is one product’s share of the value.`
           : 'No policies signed this period.'}
       </p>
-      {products.length > 0 && (
-        <div className="mbv-stroke">
-          {total > 0 && (
-            <div className="mbv-stroke-line" role="group" aria-label="Policy value by product">
-              {coloured.filter(p => p.value > 0).map(p => (
-                <button
-                  key={p.name} type="button"
-                  className={`mbv-stroke-seg${active === p.name ? ' active' : ''}${active !== null && active !== p.name ? ' dim' : ''}`}
-                  style={{ flexGrow: p.value, background: p.colour }}
-                  aria-label={`${p.name}: ${rand(p.value)}, ${share(p.value)} of the value`}
-                  {...on(p.name)}
-                />
-              ))}
-            </div>
-          )}
-          <ul className="mbv-stroke-rows" aria-label="Products sold">
-            {coloured.map(p => (
-              <li key={p.name}>
-                <button
-                  type="button"
-                  className={`mbv-stroke-row${active === p.name ? ' active' : ''}${active !== null && active !== p.name ? ' dim' : ''}`}
-                  aria-label={`${p.name}: ${p.count} sold, ${rand(p.value)}, ${share(p.value)} of the value`}
-                  {...on(p.name)}
-                >
-                  <span className="mbv-stroke-swatch" style={{ background: p.colour }} />
-                  <span className="mbv-stroke-name">{p.name}<span className="mbv-stroke-count">{p.count} sold</span></span>
-                  <span className="mbv-stroke-value">{rand(p.value)}<span className="mbv-stroke-share">{share(p.value)}</span></span>
-                </button>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
+      {body}
     </div>
   );
 }

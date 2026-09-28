@@ -183,6 +183,19 @@ function routes() {
         first:  { HeldInterested: 17, HeldNotInterested: 5, Rescheduled: 4, Cancelled: 3, Missed: 2, Scheduled: 3 },
         second: { HeldInterested: 9, HeldNotInterested: 2, Scheduled: 4 },
       },
+      // 28 Sep 2026 — the 31 appointments booked this period by current
+      // status (sums to kpi.appts): 5 signed, 6 lost (one with no reason),
+      // 2 returned to leads, 18 open (9 met, 9 not yet).
+      appointmentFlow: [
+        { status: 'ClosedWon', lostReason: null, met: true, count: 5 },
+        { status: 'ClosedLost', lostReason: 'PriceTooHigh', met: true, count: 3 },
+        { status: 'ClosedLost', lostReason: 'ChoseCompetitor', met: true, count: 2 },
+        { status: 'ClosedLost', lostReason: null, met: false, count: 1 },
+        { status: 'ReturnedToLeads', lostReason: null, met: false, count: 2 },
+        { status: 'InProgress', lostReason: null, met: true, count: 9 },
+        { status: 'Assigned', lostReason: null, met: false, count: 6 },
+        { status: 'Claimed', lostReason: null, met: false, count: 3 },
+      ],
       recentAppointments: [
         { id: 'a1', name: 'Sipho Dlamini', portfolio: 'Medical Aid', portfolios: ['Medical Aid'], m1: 'HeldInterested', m2: 'Scheduled', signed: null, products: [], totalValue: 0 },
       ],

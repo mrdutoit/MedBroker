@@ -34,6 +34,19 @@ import { PeriodSelector, getPeriodLabel, referenceDateToParam, paramToReferenceD
 // Products Sold list), MetricStrip replaces the KPI card grid, and the
 // Meeting Outcome Summary becomes two sets of ranked rows.
 import ValueStroke from '../components/viz/ValueStroke.jsx';
+// 28 Sep 2026 — AppointmentFlow is now this page's signature panel (the
+// broker's counterpart to the agent's CallFlow, at Mark's suggestion);
+// ValueStroke moves to a supporting section in its plain variant.
+import AppointmentFlow from '../components/viz/AppointmentFlow.jsx';
+
+// Same labels as Reports.jsx / AppointmentDetail.jsx (§163) — a second
+// presentation copy by the codebase's own convention, not an import.
+const LOST_REASON_LABELS = {
+  PriceTooHigh: 'Price too high', ChoseCompetitor: 'Chose a competitor',
+  NoLongerInterested: 'No longer interested', Uncontactable: 'Uncontactable',
+  NotEligible: 'Not eligible', Other: 'Other',
+  ConsentWithdrawn: 'Consent withdrawn (POPIA)', 'Not captured': 'Not captured',
+};
 import MetricStrip from '../components/viz/MetricStrip.jsx';
 import ReasonRows from '../components/viz/ReasonRows.jsx';
 import { Section } from '../components/ReportsWidgets.jsx';
@@ -141,7 +154,7 @@ export default function BrokerDetail() {
     );
   }
 
-  const { meta, kpi, productsSold, meetingBreakdown, recentAppointments, avgDaysToClose } = data;
+  const { meta, kpi, productsSold, meetingBreakdown, appointmentFlow, recentAppointments, avgDaysToClose } = data;
   // 23 Jul 2026 rule (bar length scales with VALUE, not count — R3,833
   // must not draw as long as R15m) is kept by ValueStroke: each segment's
   // length is its share of the value.
@@ -177,18 +190,33 @@ export default function BrokerDetail() {
         <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading…</div>
       )}
 
-      <ValueStroke productsSold={productsSold} signed={kpi.signed} />
+      <AppointmentFlow rows={appointmentFlow} lossLabels={LOST_REASON_LABELS} isMobile={isMobile} />
 
       <div style={{ margin: '20px 0 16px' }}>
         <MetricStrip label="Broker performance" items={[
           { key: 'appts', label: 'Appointments', value: kpi.appts.toString() },
-          { key: 'signed', label: 'Signed', value: kpi.signed.toString() },
-          { key: 'conv', label: 'Conversion ratio', value: kpi.conversion, note: 'Signed per appointment' },
+          // Note added 28 Sep 2026 so it isn't mistaken for the flow's
+          // "Signed so far" (this period's appointments, signed by now).
+          { key: 'signed', label: 'Signed', value: kpi.signed.toString(), note: 'Closed this period, whenever booked' },
+          // Note corrected 28 Sep 2026: "Signed per appointment" implied a
+          // share of these appointments. It's §157/§158's deliberate ratio
+          // (Mark, 14 Aug): deals closed this period ÷ appointments booked
+          // this period, two different sets, so it can exceed 1.
+          { key: 'conv', label: 'Conversion ratio', value: kpi.conversion, note: 'Signed this period ÷ booked this period' },
           { key: 'value', label: 'Policy value', value: `R${kpi.policyValue.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` },
           { key: 'switches', label: 'Broker switches', value: kpi.switches.toString() },
           { key: 'won', label: 'Avg days to close (won)', value: avgDaysToClose.won === null ? '—' : `${avgDaysToClose.won.toFixed(1)} days` },
           { key: 'lost', label: 'Avg days to close (lost)', value: avgDaysToClose.lost === null ? '—' : `${avgDaysToClose.lost.toFixed(1)} days` },
         ]} />
+      </div>
+
+      <div style={{ marginBottom: '16px' }}>
+        <Section
+          title="Signed policy value"
+          subtitle={`Deals closed as signed this period, by product — each segment is one product’s share of the value.`}
+        >
+          <ValueStroke productsSold={productsSold} signed={kpi.signed} variant="plain" />
+        </Section>
       </div>
 
       {/* Meeting Outcome Summary — same counts, drawn (meetingBreakdown,

@@ -117,6 +117,12 @@ found and fixed the same pattern in 12 overlay handlers across 7 files.
 CONFIRMED LIVE 27 Sep 2026 — mouseDownOnOverlayRef present in all 7
 files in commit e1c112e (verified against a fresh codeload hydration).
 
+BROKER APPOINTMENTS FLOW — 28 Sep 2026, medbroker-broker-appointments-20260928-0837.zip. Broker Detail's
+signature panel is now AppointmentFlow (Mark's suggestion): this period's
+appointments by where each stands today. ValueStroke moves to a
+"Signed policy value" section. Conversion-ratio flag resolved (see the
+session entry). BreakdownRing.jsx confirmed deleted from main.
+
 AGENT DETAIL + BROKER DETAIL REBUILT — 27 Sep 2026 (night), medbroker-agent-broker-detail-20260928-0813.zip.
 Same chart language as Reports: CallFlow hero (Agent), ValueStroke hero
 (Broker), MetricStrip, shared TrendLines, ReasonRows for meeting outcomes.
@@ -286,8 +292,8 @@ VERCEL FUNCTION COUNT: confirmed exactly 12/12 on this hydration — still
 zero headroom, still Hobby's hard ceiling. Any new top-level API surface
 needs a consolidation first.
 
-BUILD HEALTH (27 Sep 2026 night, on main + the agent/broker-detail delta):
-clean `npm run build`; `npx vitest run` 57/57; browser suite 111/111 (one
+BUILD HEALTH (28 Sep 2026, on main + the broker-appointments delta):
+clean `npm run build`; `npx vitest run` 57/57; browser suite 112/112 (one
 of those is the deliberately test.fail()-marked tasks.enabled item);
 `npm run lint` — the same single pre-existing plugin-version error plus
 the known JSX-usage false-positive warnings.
@@ -302,6 +308,54 @@ replacement for it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 28 SEP 2026 — BROKER APPOINTMENTS FLOW; FLAGS RESOLVED.
+
+Mark asked (a) for flagged items to be fixed as we go, (b) where the
+Meeting outcomes change was, (c) whether the Broker should get an
+appointments report like the agent's calls report.
+
+(b) Meeting outcomes is on Broker Detail (Reports -> click a broker's row
+in Broker Performance, or a Broker's own Reports link), below the figures.
+It was live — main at the start of this session matched the delivery.
+
+(c) YES — AppointmentFlow (viz/AppointmentFlow.jsx) is now Broker
+Detail's signature panel: this broker's appointments booked this period,
+each once by its CURRENT status — Signed so far / Still open (met and
+still deciding, or not met yet) / Lost (by loss reason, "Not captured"
+hatched) / Returned to leads. One cohort, one clock (createdAt), so the
+bands sum to the Appointments figure. New backend rows
+getBrokerDetailReport.appointmentFlow (additive). "Signed so far" is
+deliberately not the strip's Signed (closed this period, whenever booked);
+both are labelled so on screen. ValueStroke gains a 'plain' variant and
+moves to a "Signed policy value" section — one bold panel per page.
+CallFlow and AppointmentFlow now share one engine, viz/BranchFlow.jsx
+(CallFlow re-verified by tests and screenshot).
+
+(a) CONVERSION RATIO FLAG — resolved by correcting the LABEL, not the
+metric. On checking the code, the mixed basis (signed by closedAt ÷
+appointments by createdAt) is Mark's recorded decision of 14 Aug 2026
+(§157/§158, "most accurate metric, industry standard"), used across every
+Conversion Ratio on Reports — a throughput ratio that can exceed 1, not
+the summed-counts error the hero headline had. What WAS wrong was the
+27 Sep strip note, "Signed per appointment", implying a share of those
+appointments. Now "Signed this period ÷ booked this period". Reverting
+§157 would need Mark's say.
+
+VERIFIED: build clean; vitest 57/57; browser suite 112/112 (new: broker
+appointment flow incl. the Not captured branch; value-stroke test moved to
+the section); screenshots — Broker Detail Midnight full page, phone, Lost
+hover; Agent hero re-checked after the BranchFlow refactor.
+
+DELIVERY: medbroker-broker-appointments-20260928-0837.zip — frontend/src/pages/BrokerDetail.jsx,
+frontend/src/components/viz/{BranchFlow.jsx, AppointmentFlow.jsx} (new),
+viz/{CallFlow.jsx, ValueStroke.jsx, viz.css}, frontend/api-lib/services/
+reportService.js, e2e/{fixtures.js, interactions.spec.js}, both status
+docs. No migration, no dependency change.
+
+NEXT: Appointment Detail — one lead's journey (canvas mock-up first).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 27 SEP 2026 (NIGHT) — AGENT DETAIL AND BROKER DETAIL REBUILT.
 

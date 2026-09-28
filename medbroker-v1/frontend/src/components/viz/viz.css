@@ -414,3 +414,11 @@
 .mbv-stroke-value { font-family: var(--disp); font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
 .mbv-stroke-share { display: block; font-family: var(--body); font-size: 0.75rem; font-weight: 400; color: rgba(234, 242, 250, 0.62); margin-top: 2px; }
 @media (prefers-reduced-motion: reduce) { .mbv-stroke-seg, .mbv-stroke-row { transition: none; } }
+
+/* ValueStroke 'plain' (28 Sep 2026): the same stroke on the ambient page
+   theme, as a supporting section under Broker Detail's AppointmentFlow. */
+.mbv-stroke.plain { margin-top: 0; }
+.mbv-stroke.plain .mbv-stroke-row { color: var(--ink); }
+.mbv-stroke.plain .mbv-stroke-row.active { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+.mbv-stroke.plain .mbv-stroke-count,
+.mbv-stroke.plain .mbv-stroke-share { color: var(--mut); }
