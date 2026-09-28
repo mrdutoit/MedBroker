@@ -24,12 +24,16 @@ const PAGES = {
   Broker: [
     ['/appointments', 'Appointments'], ['/appointments/appt-1', null],
     ['/events', 'Events'], ['/events/event-1', 'Wits Medical School Career Day'],
+    // 27 Sep 2026 — a Broker's own report; never covered before.
+    ['/reports/broker/u1', 'Broker Detail — Werner Hattingh'],
     ...COMMON,
   ],
   // isAgent -> /appointments and /appointments/* redirect to /leads instead.
   Agent: [
     ['/leads', 'Leads'], ['/leads/lead-2', null], ['/leads/new', 'Add Lead'],
-    ['/events', 'Events'], ...COMMON,
+    ['/events', 'Events'],
+    // 27 Sep 2026 — an Agent's own report; never covered before.
+    ['/reports/agent/u1', 'Agent Detail — Thandi Mokoena'], ...COMMON,
   ],
   Supervisor: [
     ['/leads', 'Leads'], ['/leads/import', 'Import Leads'], ['/appointments', 'Appointments'],
@@ -42,7 +46,9 @@ const PAGES = {
   GlobalAdmin: [
     ['/leads', 'Leads'], ['/appointments', 'Appointments'], ['/reports', 'Reports'],
     ['/admin/users', 'User'], ['/admin/app', null], ['/admin/flags', 'Feature Flags'],
-    ['/admin/integrations', 'Integrations'], ...COMMON,
+    ['/admin/integrations', 'Integrations'],
+    ['/reports/agent/u3', 'Agent Detail — Thandi Mokoena'], ['/reports/broker/u2', 'Broker Detail — Werner Hattingh'],
+    ...COMMON,
   ],
 };
 

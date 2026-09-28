@@ -144,6 +144,50 @@ function routes() {
     // "RNaNm" / "NaN" — a fixture gap, never an app bug.
     ['GET', /^\/reports\/brokers/, { brokers: [{ id: 'u2', name: 'Werner Hattingh', appts: 31, signed: 12, portfolios: ['Medical Aid'], policyValue: 2140000 }], rows: [] }],
     ['GET', /^\/reports\/agents/, { agents: [], rows: [] }],
+    // 27 Sep 2026 — real response shapes (reportService.js,
+    // getAgentDetailReport / getBrokerDetailReport). Previously no fixture
+    // existed, so Agent/Broker detail pages rendered their error state in
+    // the browser suite. Includes a future activity bucket and a quiet
+    // PAST week (W37: zero calls) — the old page greyed that out as if it
+    // were future.
+    ['GET', /^\/reports\/agent\//, {
+      meta: { name: 'Thandi Mokoena', region: 'Gauteng', portfolios: ['Medical Aid', 'Gap Cover'] },
+      kpi: { leads: 64, calls: 142, callbacks: 7, noAnswer: 41, appts: 11, conversion: '0.2' },
+      callOutcomes: [
+        { label: 'No Answer', count: 41, pct: 29 }, { label: 'Voicemail', count: 22, pct: 15 },
+        { label: 'Client Contacted', count: 31, pct: 22 }, { label: 'Callback Requested', count: 18, pct: 13 },
+        { label: 'Appointment Booked', count: 12, pct: 8 }, { label: 'Not Interested', count: 14, pct: 10 },
+        { label: 'Wrong Number', count: 4, pct: 3 },
+      ],
+      activity: [
+        { label: 'W36', calls: 38, booked: 3 }, { label: 'W37', calls: 0, booked: 0 },
+        { label: 'W38', calls: 61, booked: 5 }, { label: 'W39', calls: 43, booked: 3 },
+        { label: 'W40', future: true, calls: 0, booked: 0 },
+      ],
+      recentLeads: [
+        { leadId: 'l1', name: 'Sipho Dlamini', source: 'Website', status: 'AppointmentScheduled', lastCallTime: '2026-09-24T09:12:00Z', lastOutcome: 'AppointmentScheduled' },
+        { leadId: 'l2', name: 'Anna van Wyk', source: 'Referral', status: 'InProgress', lastCallTime: '2026-09-23T14:40:00Z', lastOutcome: 'CallbackRequested' },
+      ],
+      avgDaysToClose: { won: 16.5, lost: null },
+    }],
+    ['GET', /^\/reports\/broker\//, {
+      meta: { name: 'Werner Hattingh', region: 'Western Cape', portfolios: ['Medical Aid'] },
+      kpi: { appts: 31, signed: 12, switches: 2, meetingsHeld: 24, policyValue: 2140000, conversion: '0.4' },
+      productsSold: [
+        { name: 'Comprehensive Medical Aid', count: 7, value: 1240000 }, { name: 'Gap Cover', count: 9, value: 410000 },
+        { name: 'Hospital Plan', count: 4, value: 355000 }, { name: 'Life Cover', count: 2, value: 135000 },
+        { name: 'Funeral Cover', count: 1, value: 0 },
+      ],
+      meetingSummary: [],
+      meetingBreakdown: {
+        first:  { HeldInterested: 17, HeldNotInterested: 5, Rescheduled: 4, Cancelled: 3, Missed: 2, Scheduled: 3 },
+        second: { HeldInterested: 9, HeldNotInterested: 2, Scheduled: 4 },
+      },
+      recentAppointments: [
+        { id: 'a1', name: 'Sipho Dlamini', portfolio: 'Medical Aid', portfolios: ['Medical Aid'], m1: 'HeldInterested', m2: 'Scheduled', signed: null, products: [], totalValue: 0 },
+      ],
+      avgDaysToClose: { won: 21.3, lost: 14.0 },
+    }],
     ['GET', /^\/reports\/closed-won-by-product/, { rows: [] }],
     ['GET', /^\/leads\/portfolios/, PORTFOLIOS],
     ['GET', /^\/leads\/[^/]+$/, { ...LEADS.leads[1], portfolios: ['Discovery'], products: ['Life Insurance'] }],

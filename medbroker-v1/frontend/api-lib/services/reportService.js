@@ -372,7 +372,10 @@ export async function getAgentDetailReport(agentId, period, scope, referenceDate
   const buckets = getTrendBuckets(period, referenceDate);
   const activity = [];
   for (const b of buckets) {
-    if (b.future) { activity.push({ label: b.label, calls: 0, booked: 0 }); continue; }
+    // `future: true` — 27 Sep 2026, same fix as getDashboardReport's trend:
+    // AgentDetail.jsx guessed "future" from calls === 0 && booked === 0,
+    // which also greyed out a genuinely quiet PAST week. Now explicit.
+    if (b.future) { activity.push({ label: b.label, future: true, calls: 0, booked: 0 }); continue; }
     const [callRows, bookedRows] = await Promise.all([
       executeQuery(
         `SELECT COUNT(*) AS count FROM CallAttempt WHERE agentId = @agentId AND callTime >= @start AND callTime <= @end`,
@@ -606,6 +609,14 @@ export async function getBrokerDetailReport(brokerId, period, scope, referenceDa
     { label: '2nd meeting — Missed / No-show',      value: `${mCounts[2].Missed ?? 0} / ${mTotal(2)}` },
     { label: 'Signed (of all appointments)', value: `${signed} / ${appts}${appts > 0 ? ` (${Math.round(signed / appts * 100)}%)` : ''}`, bold: true },
   ];
+  // 27 Sep 2026 (app-design-pass, Broker Detail) — the same counts as
+  // meetingSummary above, as numbers rather than preformatted "a / b"
+  // strings, so the page can draw them. Additive: meetingSummary is kept
+  // unchanged for any other consumer. Every status is included (e.g.
+  // Scheduled — a meeting not yet held), and these count ATTEMPTS: a
+  // rescheduled meeting has more than one attempt with the same number
+  // (the recent-appointments query below takes the latest of them).
+  const meetingBreakdown = { first: { ...mCounts[1] }, second: { ...mCounts[2] } };
 
   // Recent appointments — last 5, with lead name, portfolio, meeting
   // statuses, signed decision, and products sold (joined names).
@@ -660,7 +671,7 @@ export async function getBrokerDetailReport(brokerId, period, scope, referenceDa
 
   return {
     meta: { name: meta.name, region: meta.region, portfolios: meta.portfolios },
-    kpi, productsSold, meetingSummary, avgDaysToClose,
+    kpi, productsSold, meetingSummary, meetingBreakdown, avgDaysToClose,
     recentAppointments: recentRows.map(r => ({
       id: r.id, name: `${r.firstName} ${r.lastName}`, portfolio: r.portfolio, portfolios: r.portfolios,
       m1: r.m1, m2: r.m2, signed: r.signed, products: r.products, totalValue: Number(r.totalValue),

@@ -56,13 +56,16 @@ function niceScale(max, ticks = 4) {
   return { top: step * ticks, step };
 }
 
-export default function TrendLines({ data, isMobile }) {
+// series / defaultHidden / label — 27 Sep 2026: generalised so Agent
+// Detail's calls-and-bookings activity uses the same chart. Reports passes
+// nothing and gets exactly what it had.
+export default function TrendLines({ data, isMobile, series = TREND_SERIES, defaultHidden = ['policyValue', 'lost'], label = 'Trend over the period' }) {
   const ref = useRef(null);
   const width = useElementWidth(ref);
-  const [hidden, setHidden] = useState(() => new Set(['policyValue', 'lost']));
+  const [hidden, setHidden] = useState(() => new Set(defaultHidden));
   const [active, setActive] = useState(null);
 
-  const visible = TREND_SERIES.filter(sr => !hidden.has(sr.key));
+  const visible = series.filter(sr => !hidden.has(sr.key));
   const showValue = visible.some(sr => sr.scale === 'value');
   const realCount = data.findIndex(d => d.future);
   const lastReal = (realCount === -1 ? data.length : realCount) - 1;
@@ -130,7 +133,7 @@ export default function TrendLines({ data, isMobile }) {
         style={{ height: `${height}px` }}
         tabIndex={0}
         role="group"
-        aria-label="Trend over the period — use the arrow keys to step through each period"
+        aria-label={`${label} — use the arrow keys to step through each period`}
         onPointerMove={setFromPointer}
         onPointerLeave={() => setActive(null)}
         onFocus={() => setActive(a => a ?? lastReal)}
@@ -217,7 +220,7 @@ export default function TrendLines({ data, isMobile }) {
       </div>
 
       <div className="mbv-legend" role="group" aria-label="Show or hide a series">
-        {TREND_SERIES.map(sr => {
+        {series.map(sr => {
           const on = !hidden.has(sr.key);
           return (
             <button key={sr.key} type="button" className={`mbv-legend-item${on ? '' : ' off'}`} aria-pressed={on} onClick={() => toggle(sr.key)}>

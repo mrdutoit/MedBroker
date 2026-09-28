@@ -117,6 +117,15 @@ found and fixed the same pattern in 12 overlay handlers across 7 files.
 CONFIRMED LIVE 27 Sep 2026 — mouseDownOnOverlayRef present in all 7
 files in commit e1c112e (verified against a fresh codeload hydration).
 
+AGENT DETAIL + BROKER DETAIL REBUILT — 27 Sep 2026 (night), medbroker-agent-broker-detail-20260928-0813.zip.
+Same chart language as Reports: CallFlow hero (Agent), ValueStroke hero
+(Broker), MetricStrip, shared TrendLines, ReasonRows for meeting outcomes.
+Two additive backend fields (getAgentDetailReport activity `future`;
+getBrokerDetailReport `meetingBreakdown`). STILL TO DELETE ON GITHUB from
+the previous delivery: medbroker-v1/frontend/src/components/viz/
+BreakdownRing.jsx (still on main at the start of this session; unused).
+Full account: "SESSION 27 SEP 2026 (NIGHT)" in OUTSTANDING ITEMS.
+
 WON VS LOST + APPOINTMENT ANALYSIS REBUILT — 27 Sep 2026 (evening),
 medbroker-reports-outcome-flow-20260927-2205.zip. Every ring on Reports replaced, from a canvas mock-up Mark
 approved: OutcomeFlow (region -> won/lost -> loss reason), PortfolioSplit,
@@ -277,8 +286,8 @@ VERCEL FUNCTION COUNT: confirmed exactly 12/12 on this hydration — still
 zero headroom, still Hobby's hard ceiling. Any new top-level API surface
 needs a consolidation first.
 
-BUILD HEALTH (27 Sep 2026 evening, on main + the outcome-flow delta):
-clean `npm run build`; `npx vitest run` 57/57; browser suite 98/98 (one
+BUILD HEALTH (27 Sep 2026 night, on main + the agent/broker-detail delta):
+clean `npm run build`; `npx vitest run` 57/57; browser suite 111/111 (one
 of those is the deliberately test.fail()-marked tasks.enabled item);
 `npm run lint` — the same single pre-existing plugin-version error plus
 the known JSX-usage false-positive warnings.
@@ -293,6 +302,77 @@ replacement for it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 27 SEP 2026 (NIGHT) — AGENT DETAIL AND BROKER DETAIL REBUILT.
+
+Mark's call: continue the refresh in the agreed order. Both pages are the
+reports Agents and Brokers actually land on (App.jsx routes them to
+/reports/agent/:id and /reports/broker/:id), so this is their Reports.
+
+AGENT DETAIL:
+  - CallFlow (viz/CallFlow.jsx) — signature dark panel replacing the Call
+    Outcome Breakdown list: calls -> Reached / Not reached -> outcome.
+    Valid as a flow: one outcome per CallAttempt, so bands sum to calls.
+    "Not reached" (no answer, voicemail, wrong number) is a grouping this
+    chart adds, stated in the panel's own subtitle. Its "ended in a
+    booking" count is a CALL outcome and can differ from Appointments
+    booked (appointments created) — documented in the component.
+  - MetricStrip for the seven §148 figures; Calls made and Appointments
+    booked carry sparklines from the weekly activity.
+  - Weekly call-activity bars -> shared TrendLines (generalised 27 Sep with
+    series/defaultHidden/label props; Reports passes nothing and is
+    unchanged).
+  - Recent Lead Activity: Lead.status now plain language ("In progress",
+    "Appointment booked") — the raw enum was on screen.
+  - BUG FIXED: the old bars decided "future" from calls === 0 && booked
+    === 0, so a genuinely quiet PAST week was greyed out as if it hadn't
+    happened. getAgentDetailReport now flags future buckets explicitly
+    (additive), same as the dashboard trend.
+BROKER DETAIL:
+  - ValueStroke (viz/ValueStroke.jsx) — signature dark panel replacing the
+    Products Sold list: signed policy value as one continuous stroke, a
+    segment per product sized by value (the 23 Jul value-not-count rule
+    kept), coloured along the logo gradient. Every product row shows count
+    sold, value and share; a product sold with no value keeps its row.
+  - MetricStrip for the seven figures.
+  - Meeting Outcome Summary ("3 / 5" strings) -> "Meeting outcomes": first
+    and second meetings as ReasonRows, from a new numeric
+    meetingBreakdown (additive; meetingSummary unchanged). Counts meeting
+    ATTEMPTS, said on screen. Its old "Signed (of all appointments)" row
+    duplicated the Signed and Conversion figures and isn't repeated.
+  - NOT CHANGED, flagged: the conversion ratio divides signed (closedAt
+    clock) by appointments (createdAt clock) — the same mixed-clock issue
+    fixed in the hero headline. Pre-existing, left as is pending Mark's
+    call.
+SHARED: dark-panel text rules in viz.css (the app has no dark token set
+for data-theme="dark"; hero labels use fixed colours, as PipelineJourney's
+do). BreakdownRing/ring history unaffected.
+
+TESTS: smoke suite now covers /reports/agent/:id and /reports/broker/:id
+for Agent, Broker and GlobalAdmin — never covered before (no fixture
+existed; the pages rendered their error state). Real-shape fixtures added.
+Five new interaction tests (call-flow trace; quiet past week vs future;
+plain status labels; value stroke incl. zero-value product; meeting
+outcome shares).
+
+VERIFIED: build clean; vitest 57/57; browser suite 111/111; screenshots
+reviewed — both pages desktop Linen and Midnight, 390px, hover states.
+Fixed from the screenshots before delivery: middle-column labels sitting
+on the outgoing bands (moved above the nodes; beside them on a phone);
+muddy outcome bands on the dark panel (opacity raised there only); the
+detail card covering the traced band (moved to the empty top-left).
+
+DELIVERY: medbroker-agent-broker-detail-20260928-0813.zip — frontend/src/pages/{AgentDetail.jsx,
+BrokerDetail.jsx}, frontend/src/components/viz/{CallFlow.jsx,
+ValueStroke.jsx} (new), viz/{TrendLines.jsx, viz.css},
+frontend/api-lib/services/reportService.js, e2e/{fixtures.js,
+interactions.spec.js, smoke.spec.js}, both status docs. No migration, no
+dependency change. Diffed against a fresh hydration of main.
+
+NEXT: Appointment Detail — one lead's journey. A new signature, so a
+canvas mock-up first (Mark's preferred rhythm), then Lead List.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 27 SEP 2026 (EVENING) — WON VS LOST AND APPOINTMENT ANALYSIS
 REBUILT; ROUNDED TREND LINES.

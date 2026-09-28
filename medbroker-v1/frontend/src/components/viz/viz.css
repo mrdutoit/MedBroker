@@ -362,3 +362,55 @@
 @media (prefers-reduced-motion: reduce) {
   .mbv-trend-dot, .mbv-flow-band, .mbv-dim, .mbv-reason, .mbv-split-figure, .mbv-split-seg, .mbv-port-row { transition: none; }
 }
+
+/* ════════════════════════════════════════════════════════════════════
+   27 Sep 2026 — Agent Detail and Broker Detail heroes (CallFlow,
+   ValueStroke). They sit on the fixed-dark .pj-panel in every theme, and
+   the app has no dark token set for data-theme="dark", so text colours
+   inside the panel are fixed here — the same approach PipelineJourney's
+   own labels take. The detail card (.mbv-tip) keeps following the page
+   theme, as the hero's does.
+   ════════════════════════════════════════════════════════════════════ */
+.mbv-flow-dark .mbv-flow-label { fill: #EAF2FA; }
+.mbv-flow-dark .mbv-flow-sub { fill: rgba(234, 242, 250, 0.62); }
+.mbv-flow-dark .mbv-flow-big { fill: #fff; }
+/* On the dark panel the 0.3 outcome bands read as mud (first screenshot). */
+.mbv-flow-dark .mbv-flow-band.reason { opacity: 0.52; }
+.mbv-flow-dark .mbv-flow-band.reason.lit { opacity: 0.9; }
+.mbv-flow-dark .mbv-flow-band.dim { opacity: 0.1; }
+.pj-panel .mbv-flow-mobile-reasons { border-top-color: rgba(255, 255, 255, 0.1); }
+.pj-panel .mbv-subpanel-kicker,
+.pj-panel .mbv-reason-pct { color: rgba(234, 242, 250, 0.62); }
+.pj-panel .mbv-reason-name,
+.pj-panel .mbv-reason-value { color: #EAF2FA; }
+.pj-panel .mbv-reason-track { background: rgba(255, 255, 255, 0.08); }
+
+/* ---------- ValueStroke (Broker Detail hero) ---------- */
+.mbv-stroke { margin-top: 26px; display: flex; flex-direction: column; gap: 20px; }
+.mbv-stroke-line { display: flex; gap: 3px; height: 26px; }
+.mbv-stroke-seg {
+  flex-basis: 0; min-width: 6px; border: none; padding: 0; cursor: pointer;
+  transition: opacity 140ms ease, transform 140ms ease;
+}
+.mbv-stroke-seg:first-child { border-radius: 13px 0 0 13px; }
+.mbv-stroke-seg:last-child { border-radius: 0 13px 13px 0; }
+.mbv-stroke-seg:only-child { border-radius: 13px; }
+.mbv-stroke-seg.dim, .mbv-stroke-row.dim { opacity: 0.3; }
+.mbv-stroke-seg.active { transform: scaleY(1.25); }
+.mbv-stroke-rows {
+  list-style: none; margin: 0; padding: 0;
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 4px 28px;
+}
+.mbv-stroke-row {
+  display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: baseline; column-gap: 10px;
+  width: 100%; background: none; border: none; font: inherit; text-align: left; cursor: default;
+  padding: 8px 8px; margin: 0 -8px; border-radius: 8px; color: #EAF2FA;
+  transition: opacity 140ms ease, background 140ms ease;
+}
+.mbv-stroke-row.active { background: rgba(255, 255, 255, 0.06); }
+.mbv-stroke-swatch { width: 10px; height: 10px; border-radius: 3px; align-self: center; }
+.mbv-stroke-name { font-size: 0.875rem; font-weight: 600; }
+.mbv-stroke-count { display: block; font-size: 0.75rem; font-weight: 400; color: rgba(234, 242, 250, 0.62); margin-top: 2px; }
+.mbv-stroke-value { font-family: var(--disp); font-size: 1rem; font-weight: 700; font-variant-numeric: tabular-nums; text-align: right; }
+.mbv-stroke-share { display: block; font-family: var(--body); font-size: 0.75rem; font-weight: 400; color: rgba(234, 242, 250, 0.62); margin-top: 2px; }
+@media (prefers-reduced-motion: reduce) { .mbv-stroke-seg, .mbv-stroke-row { transition: none; } }

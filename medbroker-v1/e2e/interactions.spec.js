@@ -273,3 +273,61 @@ test('the internally-scrolling <main> can be expanded to show its full content u
   const after = await page.evaluate(() => document.body.scrollHeight);
   expect(after).toBeGreaterThan(before);
 });
+
+// ── Agent Detail and Broker Detail, 27 Sep 2026 (app-design-pass) ──────
+
+test('Agent Detail call flow: focusing Not reached traces it and shows its share', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/reports/agent/u3');
+  await expect(page.getByRole('heading', { name: '142 calls this period' })).toBeVisible();
+  // Not reached = no answer 41 + voicemail 22 + wrong number 4 = 67 of 142.
+  await page.getByRole('button', { name: 'Not reached: 67 calls, 47%' }).focus();
+  await expect(page.locator('.pj-panel .mbv-tip')).toContainText('47%');
+  expect(await page.locator('.mbv-flow-band.dim').count()).toBeGreaterThan(0);
+  expect(errors).toEqual([]);
+});
+
+test('Agent Detail activity: a quiet past week is a real zero, the future week is never read', async ({ page }) => {
+  // The old bars greyed out ANY week with no calls and no bookings as if it
+  // were future. W37 (zero calls, in the past) must read as 0; W40 (future)
+  // must be unreachable.
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/reports/agent/u3');
+  const plot = page.getByRole('group', { name: /Calls and bookings/ });
+  await plot.focus();
+  await page.keyboard.press('Home');
+  await page.keyboard.press('ArrowRight');
+  const tip = plot.locator('.mbv-tip');
+  await expect(tip).toContainText('W37');
+  await expect(tip).toContainText('Calls made');
+  await page.keyboard.press('End');
+  await expect(tip).toContainText('W39');
+});
+
+test('Agent Detail table shows lead status in plain language, not the enum', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/reports/agent/u3');
+  await expect(page.getByText('Appointment booked', { exact: true }).first()).toBeVisible();
+  await expect(page.getByText('AppointmentScheduled')).toHaveCount(0);
+});
+
+test('Broker Detail value stroke: segments and rows carry value and share; zero-value products still listed', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/reports/broker/u2');
+  await expect(page.getByRole('heading', { name: 'R2.14m' })).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Comprehensive Medical Aid: R1\D?240\D?000, 58% of the value$/ })).toBeVisible();
+  // Sold, but no value recorded: a row, but no segment to draw.
+  await expect(page.getByRole('button', { name: /^Funeral Cover: 1 sold/ })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Policy value by product' }).getByRole('button', { name: /^Funeral Cover/ })).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('Broker Detail meeting outcomes: counts drawn from numbers, with shares of attempts', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/reports/broker/u2');
+  const first = page.getByRole('list', { name: 'First meetings' });
+  await expect(first.getByRole('button', { name: 'Held, interested: 17, 50%' })).toBeVisible();   // 17 of 34 attempts
+  await expect(page.getByRole('list', { name: 'Second meetings' }).getByRole('button', { name: 'Scheduled, not yet held: 4, 27%' })).toBeVisible();
+});

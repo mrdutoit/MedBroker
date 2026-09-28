@@ -29,8 +29,30 @@ import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch } from '../hooks/useFetch.js';
 import { reportsApi } from '../services/api.js';
 import { PeriodSelector, getPeriodLabel, referenceDateToParam, paramToReferenceDate } from '../components/PeriodSelector.jsx';
+// 27 Sep 2026 — app-design-pass, Broker Detail: same chart language as
+// Reports. ValueStroke is the page's signature panel (replacing the
+// Products Sold list), MetricStrip replaces the KPI card grid, and the
+// Meeting Outcome Summary becomes two sets of ranked rows.
+import ValueStroke from '../components/viz/ValueStroke.jsx';
+import MetricStrip from '../components/viz/MetricStrip.jsx';
+import ReasonRows from '../components/viz/ReasonRows.jsx';
+import { Section } from '../components/ReportsWidgets.jsx';
 
-const PRODUCT_COLOURS = ['#3b82f6', '#3b82f6', '#6366f1', '#06b6d4', '#06b6d4', '#10b981', '#8b5cf6', '#f59e0b', '#ef4444', '#f97316'];
+const MEETING_STATUS_LABEL = {
+  HeldInterested: 'Held, interested', HeldNotInterested: 'Held, not interested',
+  Rescheduled: 'Rescheduled', Cancelled: 'Cancelled', Missed: 'Missed / no-show',
+  Scheduled: 'Scheduled, not yet held',
+};
+const MEETING_STATUS_ORDER = ['HeldInterested', 'HeldNotInterested', 'Scheduled', 'Rescheduled', 'Cancelled', 'Missed'];
+function meetingRows(counts) {
+  const keys = [...MEETING_STATUS_ORDER, ...Object.keys(counts ?? {}).filter(k => !MEETING_STATUS_ORDER.includes(k))];
+  return keys
+    .map(k => ({ key: k, label: MEETING_STATUS_LABEL[k] ?? k, count: counts?.[k] ?? 0, muted: !['HeldInterested', 'HeldNotInterested'].includes(k) }))
+    .filter(r => r.count > 0);
+}
+
+// PRODUCT_COLOURS removed 27 Sep 2026 — products are drawn by ValueStroke,
+// which ramps through the logo gradient instead of a rainbow.
 
 function MeetingBadge({ status }) {
   if (!status) return <span style={{ color:'var(--mut)', fontSize: '0.75rem' }}>—</span>;
@@ -119,14 +141,13 @@ export default function BrokerDetail() {
     );
   }
 
-  const { meta, kpi, productsSold, meetingSummary, recentAppointments, avgDaysToClose } = data;
-  // Bar width must scale with value, not count — count only tells you how
-  // many times a product was sold, not how much it was worth. With every
-  // product sold exactly once (as in early test data), every bar computed
-  // to the same 100% width regardless of value, which is what Mark
-  // spotted from a screenshot: R3,833 (TFSA) rendering the same length as
-  // R15,000,000 (Life Insurance). Fixed 23 Jul 2026.
-  const maxProductValue = Math.max(...productsSold.map(p => p.value), 1);
+  const { meta, kpi, productsSold, meetingBreakdown, recentAppointments, avgDaysToClose } = data;
+  // 23 Jul 2026 rule (bar length scales with VALUE, not count — R3,833
+  // must not draw as long as R15m) is kept by ValueStroke: each segment's
+  // length is its share of the value.
+  const firstRows  = meetingRows(meetingBreakdown?.first);
+  const secondRows = meetingRows(meetingBreakdown?.second);
+  const sumOf = rows => rows.reduce((t, r) => t + r.count, 0);
 
   return (
     <div style={{ padding: isMobile ? '12px' : '24px' }}>
@@ -156,63 +177,44 @@ export default function BrokerDetail() {
         <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>Loading…</div>
       )}
 
-      {/* KPIs */}
-      {/* §148 (13 Aug 2026) — grid changed from a fixed repeat(5, 1fr) to
-          auto-fit/minmax, same reasoning as AgentDetail.jsx's identical
-          change: 7 columns now, not 5. */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr 1fr' : 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '18px' }}>
-        {[
-          { label: 'Appointments',    value: kpi.appts.toString(),        colour: 'var(--ink)' },
-          { label: 'Signed',          value: kpi.signed.toString(),       colour: '#15803d' },
-          { label: 'Conversion Ratio',  value: kpi.conversion,              colour: '#15803d' },
-          { label: 'Policy value',    value: `R${kpi.policyValue.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`, colour: '#15803d' },
-          { label: 'Broker switches', value: kpi.switches.toString(),     colour: 'var(--ink)' },
-          // §148 — new, Mark's explicit request. null (no deals of that
-          // outcome closed this period) shown as an em dash, not "0 days".
-          { label: 'Avg days to close (Won)',  value: avgDaysToClose.won  === null ? '—' : `${avgDaysToClose.won.toFixed(1)}`,  colour: '#15803d', sub: avgDaysToClose.won === null ? undefined : 'days' },
-          { label: 'Avg days to close (Lost)', value: avgDaysToClose.lost === null ? '—' : `${avgDaysToClose.lost.toFixed(1)}`, colour: '#ef4444', sub: avgDaysToClose.lost === null ? undefined : 'days' },
-        ].map(m => (
-          <div key={m.label} style={s.metricCard}>
-            <div style={{ fontSize: '0.6875rem', color:'var(--mut)', textTransform: 'uppercase', letterSpacing: '0.04em', marginBottom: '4px' }}>{m.label}</div>
-            <div style={{ fontSize: '1.5rem', fontWeight: 700, color: m.colour, lineHeight: 1 }}>{m.value}</div>
-            {m.sub && <div style={{ fontSize: '0.75rem', color:'var(--mut)', marginTop: '4px' }}>{m.sub}</div>}
-          </div>
-        ))}
+      <ValueStroke productsSold={productsSold} signed={kpi.signed} />
+
+      <div style={{ margin: '20px 0 16px' }}>
+        <MetricStrip label="Broker performance" items={[
+          { key: 'appts', label: 'Appointments', value: kpi.appts.toString() },
+          { key: 'signed', label: 'Signed', value: kpi.signed.toString() },
+          { key: 'conv', label: 'Conversion ratio', value: kpi.conversion, note: 'Signed per appointment' },
+          { key: 'value', label: 'Policy value', value: `R${kpi.policyValue.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` },
+          { key: 'switches', label: 'Broker switches', value: kpi.switches.toString() },
+          { key: 'won', label: 'Avg days to close (won)', value: avgDaysToClose.won === null ? '—' : `${avgDaysToClose.won.toFixed(1)} days` },
+          { key: 'lost', label: 'Avg days to close (lost)', value: avgDaysToClose.lost === null ? '—' : `${avgDaysToClose.lost.toFixed(1)} days` },
+        ]} />
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
-
-        {/* Products sold */}
-        <div style={s.card}>
-          <div style={s.cardTitle}>Products Sold — {period}</div>
-          {productsSold.length === 0 && <p style={{ color: 'var(--mut)', fontSize: '0.875rem' }}>No products sold this period.</p>}
-          {productsSold.map((p, i) => (
-            <div key={p.name} style={{ marginBottom: '9px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '3px' }}>
-                <span style={{ fontSize: '0.8125rem', color:'var(--ink)' }}>{p.name}</span>
-                <span style={{ fontSize: '0.8125rem', fontWeight: 600 }}>
-                  {p.count} {p.value > 0 && <span style={{ color: '#15803d', fontWeight: 500 }}>· R{p.value.toLocaleString('en-ZA', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span>}
-                </span>
-              </div>
-              <div style={s.barTrack}>
-                <div style={{ ...s.barFill, background: PRODUCT_COLOURS[i % PRODUCT_COLOURS.length], width: `${p.value > 0 ? Math.max(2, (p.value / maxProductValue) * 100) : 0}%` }} />
-              </div>
+      {/* Meeting Outcome Summary — same counts, drawn (meetingBreakdown,
+          added 27 Sep 2026 beside the unchanged meetingSummary strings).
+          Its old last row, "Signed (of all appointments)", is the Signed and
+          Conversion figures above, so it isn't repeated here. */}
+      <div style={{ marginBottom: '16px' }}>
+        <Section title="Meeting outcomes" subtitle="Counts meeting attempts for this period’s appointments — a rescheduled meeting counts once for each attempt.">
+          {firstRows.length + secondRows.length === 0 ? (
+            <p style={{ margin: 0, color: 'var(--mut)', fontSize: '0.875rem' }}>No meetings recorded for this period’s appointments yet.</p>
+          ) : (
+            <div className="mbv-pair">
+              {[['First meetings', firstRows], ['Second meetings', secondRows]].map(([title, rows]) => (
+                <div key={title} className="mbv-subpanel">
+                  <div>
+                    <h4 className="mbv-subpanel-title">{title}</h4>
+                    <p className="mbv-subpanel-note">{sumOf(rows)} {sumOf(rows) === 1 ? 'attempt' : 'attempts'}</p>
+                  </div>
+                  {rows.length > 0
+                    ? <ReasonRows label={title} rows={rows} total={sumOf(rows)} colour="var(--pl-won)" />
+                    : <p className="mbv-subpanel-note">None yet.</p>}
+                </div>
+              ))}
             </div>
-          ))}
-        </div>
-
-        {/* Meeting outcome summary */}
-        <div style={s.card}>
-          <div style={s.cardTitle}>Meeting Outcome Summary</div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '9px' }}>
-            {meetingSummary.map(row => (
-              <div key={row.label} style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.875rem' }}>
-                <span style={{ color:'var(--mut)' }}>{row.label}</span>
-                <span style={{ fontWeight: row.bold ? 700 : 500, color: row.bold ? '#15803d' : 'var(--ink)' }}>{row.value}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+          )}
+        </Section>
       </div>
 
       {/* Recent appointments */}
