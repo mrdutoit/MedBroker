@@ -1,4 +1,4 @@
-import BranchFlow from './BranchFlow.jsx';
+import OrbitPanel from './OrbitPanel.jsx';
 
 /**
  * components/viz/AppointmentFlow.jsx — NEW, 28 Sep 2026 (app-design-pass,
@@ -7,6 +7,9 @@ import BranchFlow from './BranchFlow.jsx';
  * the page's signature panel: every appointment booked for this broker in
  * the period, and where each one stands now — signed, lost (and why),
  * returned to leads, or still open (and whether they've met yet).
+ *
+ * Drawn as an ORBIT since 28 Sep 2026 (Mark's pick from four canvas
+ * options; OrbitPanel.jsx, shared with Agent Detail's CallFlow).
  *
  * DATA SEMANTICS (reportService.js, getBrokerDetailReport →
  * appointmentFlow): ONE cohort, one clock — appointments CREATED in the
@@ -39,7 +42,7 @@ export default function AppointmentFlow({ rows, lossLabels, isMobile }) {
   const open = openMet + openNotMet;
 
   return (
-    <BranchFlow
+    <OrbitPanel
       eyebrow="Where this broker’s appointments stand"
       title={`${total.toLocaleString()} ${total === 1 ? 'appointment' : 'appointments'} this period`}
       subtitle={total > 0
@@ -47,7 +50,7 @@ export default function AppointmentFlow({ rows, lossLabels, isMobile }) {
         : 'No appointments booked this period.'}
       total={total}
       unit="appointments"
-      childKicker="Still open, and lost"
+      unitOne="appointment"
       isMobile={isMobile}
       branches={[
         { key: 'signed', label: 'Signed so far', colour: 'var(--pl-won)', count: signed },

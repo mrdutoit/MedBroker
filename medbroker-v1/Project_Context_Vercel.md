@@ -1804,13 +1804,18 @@ Reports chart language — completed 27 Sep 2026 (app-design-pass). Every
   overlapping group), SplitFigures (a 2-3 way split), ReasonRows (reasons
   that each count once), CallFlow (Agent Detail hero: calls -> reached ->
   outcome), AppointmentFlow (Broker Detail hero: this period's
-  appointments by where each stands now), both on the shared BranchFlow
-  engine; ValueStroke (signed value by product — dark hero or 'plain'
+  appointments by where each stands now), both drawn by OrbitPanel since
+  28 Sep 2026 (Mark's pick; BranchFlow retired); ValueStroke (signed value by product — dark hero or 'plain'
   section variant). One dark signature panel per page (.pj-panel):
   Reports = PipelineJourney, Agent Detail = CallFlow, Broker Detail =
   AppointmentFlow. CONVERSION RATIO everywhere is §157/§158's deliberate
   throughput ratio (closed this period ÷ booked this period) — label it as
-  such, never as a share. Text inside it uses
+  such, never as a share.
+  CHOOSING A VISUAL (Mark's decision, 28 Sep 2026) — by data shape, never
+  a view switch: hierarchy (total -> parts -> sub-parts) = Orbit; items
+  moving between two independent breakdowns = Flow; stages in sequence =
+  Journey. Orbit keeps every count and share in its legend, one tick per
+  item up to 120 (then one per N, stated on screen). Text inside it uses
   fixed light colours (no dark token set exists for data-theme="dark"). NO RINGS: BreakdownRing/DonutBreakdown were
   retired 27 Sep 2026 (evening) after Mark found them small and
   unimpactful — don't reintroduce a donut for a new breakdown.

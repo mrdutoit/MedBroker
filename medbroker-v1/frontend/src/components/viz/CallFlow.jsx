@@ -1,12 +1,13 @@
-import BranchFlow from './BranchFlow.jsx';
+import OrbitPanel from './OrbitPanel.jsx';
 
 /**
  * components/viz/CallFlow.jsx — Agent Detail's signature panel (27 Sep
  * 2026, app-design-pass): every call the agent made this period, flowing
  * into whether the client was reached, and on to what the call ended in.
- * Since 28 Sep 2026 a thin wrapper over BranchFlow, which Broker Detail's
- * AppointmentFlow shares — the drawing, interaction and phone layout live
- * there; what's specific to calls lives here.
+ * Drawn as an ORBIT since 28 Sep 2026 (Mark's pick from four canvas
+ * options; OrbitPanel.jsx, shared with Broker Detail's AppointmentFlow) —
+ * the name stays CallFlow so AgentDetail.jsx is untouched. What's specific
+ * to calls lives here; drawing and interaction live in OrbitPanel.
  *
  * DATA SEMANTICS (reportService.js, getAgentDetailReport): callOutcomes
  * counts CallAttempt rows by outcome, one outcome per call, so the bands
@@ -39,7 +40,7 @@ export default function CallFlow({ callOutcomes, isMobile }) {
   const reachedN = reached.reduce((t, o) => t + o.count, 0);
   const bookedN = outcomes.find(o => o.key === 'Appointment Booked')?.count ?? 0;
   return (
-    <BranchFlow
+    <OrbitPanel
       eyebrow="Where this agent’s calls led"
       title={`${total.toLocaleString()} ${total === 1 ? 'call' : 'calls'} this period`}
       subtitle={total > 0
@@ -47,7 +48,7 @@ export default function CallFlow({ callOutcomes, isMobile }) {
         : 'No calls logged this period.'}
       total={total}
       unit="calls"
-      childKicker="What the calls ended in"
+      unitOne="call"
       isMobile={isMobile}
       branches={[
         { key: 'reached', label: 'Reached', colour: '#17B6C9', children: reached },

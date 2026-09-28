@@ -276,15 +276,20 @@ test('the internally-scrolling <main> can be expanded to show its full content u
 
 // ── Agent Detail and Broker Detail, 27 Sep 2026 (app-design-pass) ──────
 
-test('Agent Detail call flow: focusing Not reached traces it and shows its share', async ({ page }) => {
+test('Agent Detail orbit: focusing Not reached lights it and puts its share in the centre', async ({ page }) => {
   const errors = watchErrors(page);
   await signInAs(page, 'GlobalAdmin');
   await page.goto('/reports/agent/u3');
   await expect(page.getByRole('heading', { name: '142 calls this period' })).toBeVisible();
   // Not reached = no answer 41 + voicemail 22 + wrong number 4 = 67 of 142.
   await page.getByRole('button', { name: 'Not reached: 67 calls, 47%' }).focus();
-  await expect(page.locator('.pj-panel .mbv-tip')).toContainText('47%');
-  expect(await page.locator('.mbv-flow-band.dim').count()).toBeGreaterThan(0);
+  // 28 Sep 2026: drawn as an Orbit — the centre is the detail readout.
+  await expect(page.locator('.mbv-orbit-figure')).toHaveText('67');
+  await expect(page.locator('.mbv-orbit-caption')).toHaveText('Not reached, 47%');
+  expect(await page.locator('.mbv-orbit-seg.dim').count()).toBeGreaterThan(0);
+  // A child lights its parent: focusing Voicemail keeps Not reached lit.
+  await page.getByRole('button', { name: 'Voicemail: 22 calls, 15%' }).focus();
+  await expect(page.locator('.mbv-orbit-row.lit', { hasText: 'Not reached' })).toHaveCount(1);
   expect(errors).toEqual([]);
 });
 
@@ -312,7 +317,7 @@ test('Agent Detail table shows lead status in plain language, not the enum', asy
   await expect(page.getByText('AppointmentScheduled')).toHaveCount(0);
 });
 
-test('Broker Detail appointment flow: every appointment by where it stands, open split by met / not met', async ({ page }) => {
+test('Broker Detail appointment orbit: every appointment by where it stands, open split by met / not met', async ({ page }) => {
   // 28 Sep 2026 — Mark: "should the Broker not get a similar report showing
   // Appointments?" One cohort (booked this period), current status, sums to 31.
   const errors = watchErrors(page);
@@ -320,10 +325,13 @@ test('Broker Detail appointment flow: every appointment by where it stands, open
   await page.goto('/reports/broker/u2');
   await expect(page.getByRole('heading', { name: '31 appointments this period' })).toBeVisible();
   await page.getByRole('button', { name: 'Still open: 18 appointments, 58%' }).focus();
-  await expect(page.locator('.pj-panel .mbv-tip')).toContainText('58%');
+  await expect(page.locator('.mbv-orbit-caption')).toHaveText('Still open, 58%');
+  // 31 appointments: one tick each, and no "each tick marks" note.
+  await expect(page.locator('.mbv-orbit-tick')).toHaveCount(31);
+  await expect(page.locator('.mbv-orbit-note')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Met, still deciding: 9 appointments, 29%' })).toBeAttached();
   // A lost appointment with no recorded reason is its own, hatched branch.
-  await expect(page.getByRole('button', { name: 'Not captured: 1 appointments, 3%' })).toBeAttached();
+  await expect(page.getByRole('button', { name: 'Not captured: 1 appointment, 3%' })).toBeAttached();
   await expect(page.getByRole('button', { name: 'Returned to leads: 2 appointments, 6%' })).toBeAttached();
   expect(errors).toEqual([]);
 });
@@ -346,4 +354,13 @@ test('Broker Detail meeting outcomes: counts drawn from numbers, with shares of 
   const first = page.getByRole('list', { name: 'First meetings' });
   await expect(first.getByRole('button', { name: 'Held, interested: 17, 50%' })).toBeVisible();   // 17 of 34 attempts
   await expect(page.getByRole('list', { name: 'Second meetings' }).getByRole('button', { name: 'Scheduled, not yet held: 4, 27%' })).toBeVisible();
+});
+
+test('Agent Detail orbit: past 120 calls each tick stands for several, and the panel says so', async ({ page }) => {
+  // 142 calls would crowd into a solid band at one tick each; the orbit
+  // switches to one tick per 2 calls (71 ticks) and states it on screen.
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/reports/agent/u3');
+  await expect(page.locator('.mbv-orbit-tick')).toHaveCount(71);
+  await expect(page.getByText('Each tick on the outer ring marks 2 calls.')).toBeVisible();
 });

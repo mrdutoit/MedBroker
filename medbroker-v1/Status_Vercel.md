@@ -117,6 +117,13 @@ found and fixed the same pattern in 12 overlay handlers across 7 files.
 CONFIRMED LIVE 27 Sep 2026 — mouseDownOnOverlayRef present in all 7
 files in commit e1c112e (verified against a fresh codeload hydration).
 
+ORBIT ON THE ROLE-PAGE HEROES — 28 Sep 2026, medbroker-orbit-heroes-20260928-0908.zip. Mark
+picked "Orbit" from four canvas options; applied to Agent Detail (calls)
+and Broker Detail (appointments). Reports' Won vs Lost keeps its flow (see
+the rule in Project_Context_Vercel.md). MUST DELETE ON GITHUB:
+medbroker-v1/frontend/src/components/viz/BranchFlow.jsx (nothing imports
+it any more; build is fine either way).
+
 BROKER APPOINTMENTS FLOW — 28 Sep 2026, medbroker-broker-appointments-20260928-0837.zip. Broker Detail's
 signature panel is now AppointmentFlow (Mark's suggestion): this period's
 appointments by where each stands today. ValueStroke moves to a
@@ -292,8 +299,8 @@ VERCEL FUNCTION COUNT: confirmed exactly 12/12 on this hydration — still
 zero headroom, still Hobby's hard ceiling. Any new top-level API surface
 needs a consolidation first.
 
-BUILD HEALTH (28 Sep 2026, on main + the broker-appointments delta):
-clean `npm run build`; `npx vitest run` 57/57; browser suite 112/112 (one
+BUILD HEALTH (28 Sep 2026, on main + the orbit-heroes delta):
+clean `npm run build`; `npx vitest run` 57/57; browser suite 113/113 (one
 of those is the deliberately test.fail()-marked tasks.enabled item);
 `npm run lint` — the same single pre-existing plugin-version error plus
 the known JSX-usage false-positive warnings.
@@ -308,6 +315,52 @@ replacement for it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 28 SEP 2026 (LATER) — ORBIT ON THE AGENT AND BROKER HEROES.
+
+Mark asked for other ways to show the broker's appointments, "premium,
+futuristic, infographic-like". Four options on a Design canvas (Orbit,
+Constellation, Dial, Lanes) with honest trade-offs; recommended
+Constellation, Mark chose Orbit. He then asked whether to offer Orbit as a
+switchable view wherever the flow appears, or pick one. Recommended — and
+he agreed — pick by DATA SHAPE, no switch: a switch doubles build and test
+on every page and lets two people discuss different pictures of the same
+report; and Orbit can't honestly draw Won vs Lost (two independent
+breakdowns, region and outcome — a ring would drop one). So:
+  hierarchy (total -> parts -> sub-parts)  -> Orbit
+  items moving between two breakdowns      -> Flow
+  stages in sequence                       -> Journey
+Orbit went on Agent Detail and Broker Detail; Won vs Lost keeps its flow.
+
+BUILT: viz/OrbitPanel.jsx — inner ring the parts, outer ring the sub-parts,
+a tick ring with one tick per item (past 120 items one tick per N, evenly
+spaced, and the panel says "Each tick on the outer ring marks N calls" —
+142 calls in the test data gives 71 ticks of 2), legend with every count
+and share always visible (angles are hard to compare; no figure depends on
+one). Hover/focus on a segment or legend row (real buttons) steps the rest
+back and puts that part's count and share in the centre; a child lights
+its parent and a parent its children. Siblings sharing a colour (three
+loss reasons; no answer / voicemail / wrong number) step darker toward the
+panel navy so neighbours differ in lightness — found in the first
+screenshot. CallFlow and AppointmentFlow keep their names and data logic
+and now render OrbitPanel; BranchFlow.jsx retired (DELETE ON GITHUB).
+Screen-reader labels now say "1 appointment", not "1 appointments".
+
+TESTS: role-hero tests rewritten for the orbit (centre readout, dimming,
+child-lights-parent, 31 ticks and no note for the broker) plus a new one
+for tick scaling (142 calls -> 71 ticks + the note). 113/113.
+
+VERIFIED: build clean; vitest 57/57; browser suite 113/113; screenshots —
+both heroes, Midnight and Linen, Lost hover, a child focused, 390px phone.
+
+DELIVERY: medbroker-orbit-heroes-20260928-0908.zip — frontend/src/components/viz/{OrbitPanel.jsx (new),
+CallFlow.jsx, AppointmentFlow.jsx, viz.css}, e2e/interactions.spec.js,
+both status docs. DELETE on GitHub: frontend/src/components/viz/
+BranchFlow.jsx. No backend, migration or dependency change.
+
+NEXT: Appointment Detail — one lead's journey (canvas mock-up first).
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 28 SEP 2026 — BROKER APPOINTMENTS FLOW; FLAGS RESOLVED.
 
