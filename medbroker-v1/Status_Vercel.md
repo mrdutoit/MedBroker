@@ -117,6 +117,12 @@ found and fixed the same pattern in 12 overlay handlers across 7 files.
 CONFIRMED LIVE 27 Sep 2026 — mouseDownOnOverlayRef present in all 7
 files in commit e1c112e (verified against a fresh codeload hydration).
 
+LEADS LIST FOLLOW-UPS — 29 Sep 2026, medbroker-leads-followups-20260929-0747.zip. Journey band now
+redraws live on resize (it used to need a refresh); "Source: <name>" under
+the job title with the name column growing to fit; "Longest without
+contact" sort. Next: Lead Detail journey + vertical audit-log timeline
+(canvas mock-up first).
+
 LEADS LIST JOURNEY BAND — 28 Sep 2026, medbroker-leads-journey-20260928-2022.zip. The approved
 canvas design (second revision) built, theme-following from the start.
 With this, the agreed UI-refresh order (Reports, Agent/Broker Detail,
@@ -317,8 +323,8 @@ VERCEL FUNCTION COUNT: confirmed exactly 12/12 on this hydration — still
 zero headroom, still Hobby's hard ceiling. Any new top-level API surface
 needs a consolidation first.
 
-BUILD HEALTH (28 Sep 2026, on main + the leads-journey delta):
-clean `npm run build`; `npx vitest run` 68/68; browser suite 116/116 (one
+BUILD HEALTH (29 Sep 2026, on main + the leads-follow-ups delta):
+clean `npm run build`; `npx vitest run` 68/68; browser suite 119/119 (one
 of those is the deliberately test.fail()-marked tasks.enabled item);
 `npm run lint` — the same single pre-existing plugin-version error plus
 the known JSX-usage false-positive warnings.
@@ -333,6 +339,42 @@ replacement for it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 29 SEP 2026 — LEADS LIST FOLLOW-UPS.
+
+Mark, from the live list: (1) what did "Assign on the phone cards" mean —
+answered: the desktop table's Assign/Reassign buttons (Unassigned rows)
+aren't on the phone cards; left as is. (2) Source back on the row as
+"Source: <name>" under the job title, text always visible, the column
+growing and the journey compacting. (3) The band needed a page refresh
+after the window narrowed (screenshot: today line and captions
+off-screen). (4) Add "Longest without contact".
+
+  - RESIZE BUG, ROOT CAUSE: LeadRowJourney's SVG sat in the cell's normal
+    flow at its measured pixel width, so the table's auto layout held the
+    column at that width; the ResizeObserver never saw the column shrink.
+    Fix: .lrj has a fixed height and the SVG is absolutely placed — the
+    column sizes the drawing, never the reverse. Regression test (resize
+    1600 -> 1100, every caption inside the band) proven to FAIL on the old
+    component.
+  - Name cell (and Agent cell) nowrap; "Source: …" under the job title on
+    the table and on the phone cards. The band keeps its 360px minimum.
+  - Sort key 'quiet' (models/lead.js enum + leadService whitelist): leads
+    with the broker (AppointmentScheduled) or Closed always last, then by
+    last contact (latest call or booking, else created) — the band's own
+    rule. Correlated subqueries on indexed leadId. A toggle button,
+    "Longest without contact", in the filter row (aria-pressed); Clear Sort
+    & Filters resets it.
+
+VERIFIED: build clean; vitest 68/68; browser suite 119/119 (3 new);
+screenshots at 1500px and after a live narrow to 1100px.
+
+DELIVERY: medbroker-leads-followups-20260929-0747.zip — frontend/api-lib/services/leadService.js,
+frontend/api-lib/models/lead.js, frontend/src/pages/LeadList.jsx,
+frontend/src/components/viz/{LeadRowJourney.jsx, viz.css},
+e2e/interactions.spec.js, both status docs. No migration.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 28 SEP 2026 (NIGHT) — LEADS LIST JOURNEY BAND.
 

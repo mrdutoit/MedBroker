@@ -537,7 +537,9 @@
 .lrj-axis span.start { transform: none; }  /* first label starts at the band's edge instead of centring past it */
 .lrj-axis span.lane { transform: none; }
 .lrj { position: relative; width: 100%; min-width: 360px; }
-.lrj-hit { display: block; width: 100%; padding: 0; margin: 0; border: none; background: none; cursor: pointer; border-radius: 6px; }
+.lrj-hit { position: absolute; inset: 0; display: block; width: 100%; padding: 0; margin: 0; border: none; background: none; cursor: pointer; border-radius: 6px; }
+/* 29 Sep 2026 — .lrj has a fixed height and its SVG is absolutely placed,
+   so the drawing never dictates the table column's width (the resize bug). */
 .lrj-hit svg { display: block; overflow: visible; }
 .lrj-today { stroke: var(--hero-accent); stroke-width: 1; opacity: 0.35; }
 .lrj-ring { stroke: var(--band, var(--hero-solid)); stroke-width: 2; }

@@ -362,6 +362,17 @@ export default function LeadList() {
             {agents.map(a => <option key={a.id} value={a.id}>{a.displayName}</option>)}
           </select>
         )}
+        {/* 29 Sep 2026 — "Longest without contact": a server-side sort
+            (leadService 'quiet'), same rule as the journey band's "Quiet
+            for N days". Leads with the broker or closed always sort last. */}
+        <button
+          type="button"
+          aria-pressed={sortKey === 'quiet'}
+          onClick={() => { if (sortKey === 'quiet') { setSortKey(null); setSortDir('asc'); } else { setSortKey('quiet'); setSortDir('asc'); } }}
+          style={{ ...s.ghostBtn, ...(sortKey === 'quiet' ? { background: 'color-mix(in srgb, var(--pl-progress) 16%, var(--panel))', borderColor: 'var(--pl-progress)', color: 'var(--ink)', fontWeight: 600 } : {}) }}
+        >
+          {sortKey === 'quiet' ? '✓ ' : ''}Longest without contact
+        </button>
         {hasFilter && (
           <button
             onClick={() => { setActiveStatus('Active'); setSearch(''); setAgentFilter(''); setOccFilter(''); setSourceFilter(''); setSortKey(null); setSortDir('asc'); }}
@@ -410,6 +421,7 @@ export default function LeadList() {
                         <div style={{ fontSize: '0.75rem', color: 'var(--mut)', marginTop: '2px' }}>
                           {lead.occupation ?? '—'}{!isAgent ? `, ${lead.agentName ?? 'not assigned'}` : ''}
                         </div>
+                        <div style={{ fontSize: '0.75rem', color: 'var(--mut)', marginTop: '2px' }}>Source: {lead.sourceLabel ?? '—'}</div>
                       </div>
                       <span style={{ ...s.badge, background: sm.bg, color: sm.colour, border: `1px solid ${sm.border}`, whiteSpace: 'nowrap' }}>{sm.label}</span>
                     </div>
@@ -479,11 +491,16 @@ export default function LeadList() {
                         onClick={() => navigate(`/leads/${lead.id}`)}
                         onMouseEnter={e => e.currentTarget.style.background = 'color-mix(in srgb, var(--accent) 6%, var(--panel))'}
                         onMouseLeave={e => e.currentTarget.style.background = ''}>
-                        <td style={s.td}>
+                        <td style={{ ...s.td, whiteSpace: 'nowrap' }}>
                           <div style={{ fontWeight: 500 }}>{lead.firstName} {lead.lastName}</div>
                           {/* Occupation under the name (28 Sep 2026); email moved
                               to the journey's hover card. */}
                           <div style={{ fontSize: '0.75rem', color:'var(--mut)', marginTop: '1px' }}>{lead.occupation ?? '—'}</div>
+                          {/* 29 Sep 2026 (Mark) — source back on the row, under
+                              the job title. nowrap on this cell: the column
+                              grows to fit its text and the journey band
+                              gives way (LeadRowJourney never forces width). */}
+                          <div style={{ fontSize: '0.75rem', color:'var(--mut)', marginTop: '1px' }}>Source: {lead.sourceLabel ?? '—'}</div>
                         </td>
                         <td style={s.td}>
                           <span style={{ ...s.badge, background: sm.bg, color: sm.colour, border: `1px solid ${sm.border}` }}>
@@ -491,7 +508,7 @@ export default function LeadList() {
                           </span>
                         </td>
                         {!isAgent && (
-                          <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.813rem' }}>
+                          <td style={{ ...s.td, color:'var(--mut)', fontSize: '0.813rem', whiteSpace: 'nowrap' }}>
                             {lead.agentName ?? '—'}
                           </td>
                         )}

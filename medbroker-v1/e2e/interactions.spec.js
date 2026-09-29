@@ -404,3 +404,42 @@ test('Leads list journey: clicking a journey still opens the lead', async ({ pag
   await page.getByRole('button', { name: /^Journey: Called 2 days ago/ }).click();
   await expect(page).toHaveURL(/\/leads\/lead-3$/);
 });
+
+// ── Leads list follow-ups, 29 Sep 2026 ─────────────────────────────────
+
+test('Leads list: narrowing the window redraws the journey band live (no refresh)', async ({ page }) => {
+  // Mark's screenshot: after the window narrowed, the band stayed at its old
+  // width — today line and captions off-screen until a refresh. Proven to
+  // FAIL against the pre-fix LeadRowJourney.
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/leads');
+  await expect(page.locator('.lrj-caption').first()).toBeVisible();
+  await page.setViewportSize({ width: 1100, height: 900 });
+  await page.waitForTimeout(400);
+  const band = await page.locator('td.lrj-band').first().boundingBox();
+  const table = await page.locator('table').first().evaluate(t => t.parentElement.getBoundingClientRect().right);
+  expect(band.x + band.width).toBeLessThanOrEqual(table + 1);
+  for (const c of await page.locator('.lrj-caption').all()) {
+    const b = await c.boundingBox();
+    expect(b.x + b.width).toBeLessThanOrEqual(band.x + band.width + 1);
+  }
+});
+
+test('Leads list: source shows under the job title', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/leads');
+  await expect(page.getByText('Source: Event: Wits Career Day')).toBeVisible();
+});
+
+test('Leads list: "Longest without contact" asks the server for the quiet sort, and toggles off', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/leads');
+  const btn = page.getByRole('button', { name: /Longest without contact/ });
+  const req = page.waitForRequest(r => /\/api\/leads\?/.test(r.url()) && r.url().includes('sortKey=quiet'));
+  await btn.click();
+  await req;
+  await expect(btn).toHaveAttribute('aria-pressed', 'true');
+  await btn.click();
+  await expect(btn).toHaveAttribute('aria-pressed', 'false');
+});

@@ -1812,7 +1812,11 @@ Reports chart language — completed 27 Sep 2026 (app-design-pass). Every
   real time scale; rules in leadJourneyModel.js, unit-tested), Leads list =
   the journey band (LeadRowJourney; every row on one shared 60-day scale,
   today at the right; rules in leadRowModel.js, unit-tested — "quiet" is
-  >7 days without contact on a lead still with the agent).
+  >7 days without contact on a lead still with the agent; the list's
+  "Longest without contact" sort, sortKey 'quiet', uses the same rule).
+  SIZING RULE for any drawing inside a TABLE cell: absolutely position the
+  SVG in a fixed-height box so it never sizes the column (29 Sep 2026 —
+  otherwise auto table layout pins the column and resize needs a refresh).
   THEME RULE (Mark, 28 Sep 2026): signature panels FOLLOW THE THEME — every
   colour inside a .pj-panel comes from that theme's --hero-* and --path-*
   tokens in themes.css (dark themes: a deep panel in their own hue; light

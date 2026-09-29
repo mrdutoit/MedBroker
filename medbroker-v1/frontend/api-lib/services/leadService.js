@@ -184,9 +184,26 @@ export async function listLeads({ status, excludeStatuses, agentId, brokerId, ev
     agentName:  'a.displayName NULLS LAST',
     createdAt:  'l.createdAt',
   };
-  const orderClause = sortKey
-    ? `ORDER BY ${SORT_COLUMN[sortKey]} ${sortDir === 'desc' ? 'DESC' : 'ASC'}`
-    : 'ORDER BY l.createdAt DESC'; // unchanged default — no sort requested
+  // 'quiet' — "Longest without contact" (29 Sep 2026, Mark's pick from the
+  // Leads journey band work). The same rule the band draws
+  // (leadRowModel.js): last contact = the latest call or booking, or the
+  // lead's creation if neither; leads with the broker (Converted =
+  // AppointmentScheduled) or Closed are never "quiet", so they always sort
+  // after the leads the agents still own — in either direction. Correlated
+  // subqueries on indexed leadId (IX_CallAttempt_LeadId,
+  // IX_Appointment_LeadId); fine at this list's page sizes.
+  const QUIET_ORDER = dir => `ORDER BY
+      (CASE WHEN l.pipelineStatus IN ('AppointmentScheduled', 'Closed') THEN 1 ELSE 0 END) ASC,
+      GREATEST(
+        COALESCE((SELECT MAX(ca.callTime) FROM CallAttempt ca WHERE ca.leadId = l.id), l.createdAt),
+        COALESCE((SELECT MAX(ap.createdAt) FROM Appointment ap WHERE ap.leadId = l.id), l.createdAt)
+      ) ${dir},
+      l.createdAt ASC`;
+  const orderClause = sortKey === 'quiet'
+    ? QUIET_ORDER(sortDir === 'desc' ? 'DESC' : 'ASC')
+    : sortKey
+      ? `ORDER BY ${SORT_COLUMN[sortKey]} ${sortDir === 'desc' ? 'DESC' : 'ASC'}`
+      : 'ORDER BY l.createdAt DESC'; // unchanged default — no sort requested
 
   const countResult = await executeQuery(
     `SELECT COUNT(*) AS total FROM Lead l ${SOURCE_JOINS} ${whereClause}`,

@@ -246,7 +246,8 @@ export const LeadListQuerySchema = z.object({
   // rows are on top. Enum here is the actual SQL-injection defence —
   // listLeads() (leadService.js) maps this against a fixed whitelist of
   // real column expressions, never interpolates the value itself.
-  sortKey:         z.enum(['name', 'occupation', 'source', 'status', 'agentName', 'createdAt']).optional(),
+  // 'quiet' added 29 Sep 2026 — "Longest without contact" (leadService.js).
+  sortKey:         z.enum(['name', 'occupation', 'source', 'status', 'agentName', 'createdAt', 'quiet']).optional(),
   sortDir:         z.enum(['asc', 'desc']).default('asc'),
 });
 

@@ -24,6 +24,14 @@ import './viz.css';
  * the row, which opens the lead as before.
  *
  * Rules (quiet, reached, outcome) live in leadRowModel.js.
+ *
+ * RESIZE FIX (29 Sep 2026, Mark's screenshot): the SVG used to sit in the
+ * cell's normal flow at its measured pixel width, so in the table's
+ * auto layout it held the column at that width — narrowing the window
+ * left the band too wide (today line and captions off-screen) until a
+ * refresh. The SVG now sits absolutely inside a fixed-height box, so it
+ * never sizes the column; the column sizes the box, the ResizeObserver
+ * sees the change, and the journey redraws at the new width live.
  */
 
 const TONE = {
@@ -57,7 +65,7 @@ export default function LeadRowJourney({ lead, isMobile, todayDn = todayDay() })
   const summary = `${r.caption.text}. ${r.callCount} ${r.callCount === 1 ? 'call' : 'calls'} in total${r.calls.length ? `, ${r.reachedCount} of the last ${r.calls.length} reached the client` : ''}.`;
 
   return (
-    <div ref={ref} className="lrj">
+    <div ref={ref} className="lrj" style={{ height: `${h}px` }}>
       {width > 0 && (
         <button ref={btnRef} type="button" className="lrj-hit" aria-label={`Journey: ${summary}`}
           onPointerEnter={open} onPointerLeave={() => setCard(null)} onFocus={open} onBlur={() => setCard(null)}>
