@@ -45,7 +45,8 @@ export async function sendAppointmentReminders() {
      FROM Appointment a
      LEFT JOIN Lead l ON a.leadId = l.id
      WHERE a.organisationId = @organisationId
-       AND a.status = 'Assigned'
+       // 30 Sep 2026 — I4: claimed/in-progress appointments get reminders too
+       AND a.status IN ('Assigned','Claimed','InProgress')
        AND a.firstAppointmentDate = CURRENT_DATE
        AND a.brokerId IS NOT NULL`,
     { organisationId: { type: sql.UniqueIdentifier, value: organisationId } }

@@ -22,3 +22,11 @@ describe('autoReturnStaleLeads', () => {
     expect(q).toMatch(/GREATEST\(\s*COALESCE\(\s*\(SELECT MAX\(ca\.callTime\) FROM CallAttempt ca WHERE ca\.leadId = l\.id\),\s*l\.createdAt\s*\),\s*l\.updatedAt\s*\)/);
   });
 });
+
+describe('sendAppointmentReminders', () => {
+  it('reminds for Assigned, Claimed and InProgress appointments', async () => {
+    const { sendAppointmentReminders } = await import('./schedulerService.js');
+    await sendAppointmentReminders();
+    expect(executeQuery.mock.calls[0][0]).toContain("a.status IN ('Assigned','Claimed','InProgress')");
+  });
+});
