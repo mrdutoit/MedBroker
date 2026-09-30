@@ -824,9 +824,9 @@ CREATE TABLE IF NOT EXISTS EventAttendee (
     CONSTRAINT PK_EventAttendee       PRIMARY KEY (id),
     CONSTRAINT FK_EventAttendee_Org   FOREIGN KEY (organisationId) REFERENCES Organisation(id),
     CONSTRAINT FK_EventAttendee_Event FOREIGN KEY (eventId) REFERENCES Event(id),
-    CONSTRAINT FK_EventAttendee_Lead  FOREIGN KEY (leadId)  REFERENCES Lead(id),
-    CONSTRAINT UQ_EventAttendee       UNIQUE (eventId, leadId)
+    CONSTRAINT FK_EventAttendee_Lead  FOREIGN KEY (leadId)  REFERENCES Lead(id)
 );
+CREATE UNIQUE INDEX IF NOT EXISTS UQ_EventAttendee_active ON EventAttendee(eventId, leadId) WHERE deletedAt IS NULL;
 
 -- Lead Portal — 24 Jul 2026. Self-service identity for a prospect/attendee,
 -- deliberately NOT an extension of "User" (staff roles) — different
