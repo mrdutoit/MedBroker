@@ -15,6 +15,12 @@ const AUDIT_ROW = {
   changeDetail: '{"email":{"from":"a@b.co","to":"c@d.co"},"idNumber":{"changed":true,"sealed":"ENC(x)"},"leadName":"Jo Soap"}',
 };
 
+const ATTENDEE_ROWS = [
+  { id: 'E1', changeDetail: '{"leadId":"L1","leadName":"Jo Soap","createdNewLead":false}' },
+  { id: 'E2', changeDetail: '{"leadId":"L1x","leadName":"Someone Else"}' }, // LIKE-prefilter false positive
+];
+const SAR_ROW = { id: 'S1', changeDetail: '{"sarId":"S1","assignedToId":null,"leadName":"Jo Soap"}' };
+
 let calls;
 beforeEach(() => {
   calls = [];
@@ -22,6 +28,8 @@ beforeEach(() => {
   executeQuery.mockImplementation(async (query, params = {}) => {
     const values = Object.fromEntries(Object.entries(params).map(([k, v]) => [k, v.value]));
     calls.push({ query, values });
+    if (/AttendeeAdded/.test(query)) return ATTENDEE_ROWS;
+    if (/entityType = 'SubjectAccessRequest'/.test(query)) return [SAR_ROW];
     if (/SELECT[\s\S]*FROM AuditLog/i.test(query)) return [AUDIT_ROW];
     return [];
   });
@@ -79,7 +87,66 @@ describe('eraseLeadPII — PII outside the Lead row', () => {
   });
 });
 
+describe('eraseLeadPII — fix round 1', () => {
+  it('deletes task notifications before the lead\'s open tasks are deleted', async () => {
+    await eraseLeadPII('L1');
+    const idx = (re) => calls.findIndex((c) => re.test(c.query));
+    expect(idx(/DELETE FROM Notification/i)).toBeGreaterThan(-1);
+    expect(idx(/DELETE FROM Task\b/i)).toBeGreaterThan(idx(/DELETE FROM Notification/i));
+  });
+
+  it('nulls the appointment address, link and feedback, and the call-attempt address', async () => {
+    await eraseLeadPII('L1');
+    const [appt] = find(/UPDATE Appointment SET/i);
+    for (const col of ['firstAppointmentAddress', 'virtualMeetingLink', 'meeting1Feedback', 'meeting2Feedback', 'meeting3Feedback']) {
+      expect(appt.query).toMatch(new RegExp(`${col} = NULL`));
+    }
+    expect(appt.values.leadId).toBe('L1');
+    const [call] = find(/UPDATE CallAttempt SET/i);
+    expect(call.query).toMatch(/appointmentAddress = NULL/);
+  });
+
+  it('blanks comments on the lead\'s tasks', async () => {
+    await eraseLeadPII('L1');
+    const [c] = find(/UPDATE TaskComment SET body = '\[Erased\]'/i);
+    expect(c.values.leadId).toBe('L1');
+  });
+
+  it('drops leadName from this lead\'s AttendeeAdded rows only', async () => {
+    await eraseLeadPII('L1');
+    const [sel] = find(/AttendeeAdded/);
+    expect(sel.values.leadIdPattern).toBe('%"leadId":"L1"%');
+    const updates = find(/UPDATE AuditLog SET changeDetail/i);
+    const e1 = updates.find((u) => u.values.id === 'E1');
+    expect(JSON.parse(e1.values.changeDetail)).toEqual({ leadId: 'L1', createdNewLead: false });
+    expect(updates.find((u) => u.values.id === 'E2')).toBeUndefined();
+  });
+
+  it('drops leadName from this lead\'s SAR audit rows, keeping the rest', async () => {
+    await eraseLeadPII('L1');
+    const [sel] = find(/entityType = 'SubjectAccessRequest'/);
+    expect(sel.values.leadId).toBe('L1');
+    const u = find(/UPDATE AuditLog SET changeDetail/i).find((x) => x.values.id === 'S1');
+    expect(JSON.parse(u.values.changeDetail)).toEqual({ sarId: 'S1', assignedToId: null });
+  });
+});
+
 describe('scrubAuditDetail', () => {
+  it('nameOnly drops leadName and leaves other keys, including notes and requestor details', () => {
+    expect(scrubAuditDetail({ leadName: 'Jo', notes: 'n', requestorName: 'Jo', email: { from: 'a', to: 'b' } }, { nameOnly: true }))
+      .toEqual({ notes: 'n', requestorName: 'Jo', email: { from: 'a', to: 'b' } });
+  });
+
+  it('reduces appointment address/feedback changes to { changed: true }', () => {
+    expect(scrubAuditDetail({
+      firstAppointmentAddress: { from: '1 Main Rd', to: '2 Main Rd' },
+      virtualMeetingLink: { from: null, to: 'https://meet/x' },
+      meeting2Feedback: { from: null, to: 'talked about his diabetes' },
+    })).toEqual({
+      firstAppointmentAddress: { changed: true }, virtualMeetingLink: { changed: true }, meeting2Feedback: { changed: true },
+    });
+  });
+
   it('drops leadName and notes, keeps non-PII keys', () => {
     expect(scrubAuditDetail({ callAttemptId: 'c1', outcome: 'NoAnswer', notes: 'has diabetes', leadName: 'Jo' }))
       .toEqual({ callAttemptId: 'c1', outcome: 'NoAnswer' });

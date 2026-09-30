@@ -19,7 +19,7 @@ vi.mock('./taskService.js', () => ({ createTask: vi.fn(), completeOpenSarTask: v
 import { executeQueryOne } from './db.js';
 import { writeAuditLog } from './auditService.js';
 import { eraseLeadPII } from './leadService.js';
-import { executeSarDeletion } from './sarService.js';
+import { executeSarDeletion, assignSarRequest } from './sarService.js';
 
 beforeEach(() => {
   executeQueryOne.mockReset();
@@ -36,5 +36,11 @@ describe('executeSarDeletion', () => {
     const entry = writeAuditLog.mock.calls.map(([e]) => e).find((e) => e.action === 'SarDeletionExecuted');
     expect(entry.changeDetail).toMatchObject({ sarId: 'S1', leadId: 'L1', outcome: 'Erased' });
     expect(entry.changeDetail).not.toHaveProperty('leadName');
+  });
+
+  it('assignSarRequest writes a SarAssigned audit without leadName', async () => {
+    await assignSarRequest('S1', null, 'admin');
+    const entry = writeAuditLog.mock.calls.map(([e]) => e).find((e) => e.action === 'SarAssigned');
+    expect(entry.changeDetail).toEqual({ sarId: 'S1', assignedToId: null });
   });
 });

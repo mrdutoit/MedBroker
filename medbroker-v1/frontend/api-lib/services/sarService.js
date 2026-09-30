@@ -520,7 +520,7 @@ export async function assignSarRequest(id, assignedToId, performedById) {
     }
   );
 
-  const changeDetail = { sarId: id, assignedToId, leadName: existing.leadName };
+  const changeDetail = { sarId: id, assignedToId }; // 30 Sep 2026 — no leadName (erasure)
   // §131 — single write, same fix as createSarRequest/updateSarStatus above.
   await writeAuditLog({
     entityType: 'SubjectAccessRequest', entityId: id, action: 'SarAssigned',

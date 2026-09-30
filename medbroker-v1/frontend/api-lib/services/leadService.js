@@ -1032,28 +1032,49 @@ const ERASED_AUDIT_FIELDS = [
   'title', 'firstName', 'lastName', 'email', 'mobileNumber', 'whatsappNumber', 'dateOfBirth',
   'hospitalOrPractice', 'universityAttended', 'yearOfAttendance', 'degreeAttained', 'occupation',
   'manualSourceName', ...SENSITIVE_LEAD_FIELDS,
+  // Appointment columns scrubbed on erasure (fix round 1).
+  'firstAppointmentAddress', 'virtualMeetingLink', 'meeting1Feedback', 'meeting2Feedback', 'meeting3Feedback',
 ];
 const DROPPED_AUDIT_KEYS = ['leadName', 'notes'];
 
 /**
  * 30 Sep 2026 — pure transform for one AuditLog.changeDetail on erasure:
  * drops leadName/notes, and reduces every identity/sensitive field change
- * (plaintext { from, to } or sealed) to { changed: true }.
+ * (plaintext { from, to } or sealed) to { changed: true }. nameOnly: drop
+ * leadName and nothing else (Event/SAR rows kept as the erasure record).
  * @param {object|null} detail
+ * @param {{ nameOnly?: boolean }} [opts]
  * @returns {object|null}
  */
-export function scrubAuditDetail(detail) {
+export function scrubAuditDetail(detail, { nameOnly = false } = {}) {
   if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return detail;
   const out = {};
   for (const [k, v] of Object.entries(detail)) {
-    if (DROPPED_AUDIT_KEYS.includes(k)) continue;
-    out[k] = ERASED_AUDIT_FIELDS.includes(k) && v != null ? { changed: true } : v;
+    if (nameOnly ? k === 'leadName' : DROPPED_AUDIT_KEYS.includes(k)) continue;
+    out[k] = !nameOnly && ERASED_AUDIT_FIELDS.includes(k) && v != null ? { changed: true } : v;
   }
   return out;
 }
 
-// 30 Sep 2026 — S-I7: the rows §12a keeps (portal account, audit, call/meeting
-// attempts, notifications) still embedded the subject's PII. Scrub it in place.
+// Rewrites changeDetail on the given AuditLog rows; skips non-JSON and unchanged rows.
+async function rewriteAuditRows(rows, transform) {
+  for (const row of rows) {
+    let detail;
+    try { detail = JSON.parse(row.changeDetail); } catch { continue; }
+    const next = transform(detail);
+    if (!next || JSON.stringify(next) === JSON.stringify(detail)) continue;
+    await executeQuery(
+      `UPDATE AuditLog SET changeDetail = @changeDetail WHERE id = @id`,
+      {
+        id:           { type: sql.UniqueIdentifier,  value: row.id },
+        changeDetail: { type: sql.NVarChar(sql.MAX), value: JSON.stringify(next) },
+      }
+    );
+  }
+}
+
+// 30 Sep 2026 — S-I7: the rows §12a keeps (portal account, audit, appointments,
+// call/meeting attempts, tasks, comments, notifications) embed the subject's PII. Scrub in place.
 // leadId is compared as text throughout so one @leadId binds consistently.
 async function scrubLeadFootprint(leadId, organisationId) {
   const params = {
@@ -1072,12 +1093,31 @@ async function scrubLeadFootprint(leadId, organisationId) {
   );
 
   await executeQuery(
-    `UPDATE CallAttempt SET notes = NULL WHERE leadId::text = @leadId AND organisationId = @organisationId`,
+    `UPDATE CallAttempt SET notes = NULL, appointmentAddress = NULL WHERE leadId::text = @leadId AND organisationId = @organisationId`,
     params
   );
   await executeQuery(
     `UPDATE MeetingAttempt SET notes = NULL
      WHERE appointmentId::text IN (${leadAppointments}) AND organisationId = @organisationId`,
+    params
+  );
+
+  // Appointment rows are kept (§12a) but their address/link/feedback describe the subject.
+  await executeQuery(
+    `UPDATE Appointment SET
+       firstAppointmentAddress = NULL, virtualMeetingLink = NULL,
+       meeting1Feedback = NULL, meeting2Feedback = NULL, meeting3Feedback = NULL, updatedAt = NOW()
+     WHERE leadId::text = @leadId AND organisationId = @organisationId`,
+    params
+  );
+
+  // Comments on the lead's tasks can name the subject; body is NOT NULL.
+  await executeQuery(
+    `UPDATE TaskComment SET body = '[Erased]'
+     WHERE organisationId = @organisationId AND taskId IN (
+       SELECT id FROM Task WHERE organisationId = @organisationId AND (
+         (entityType = 'Lead' AND entityId::text = @leadId)
+         OR (entityType = 'Appointment' AND entityId::text IN (${leadAppointments}))))`,
     params
   );
 
@@ -1111,20 +1151,25 @@ async function scrubLeadFootprint(leadId, organisationId) {
        OR (entityType = 'Appointment' AND entityId IN (${leadAppointments})))`,
     params
   );
-  for (const row of rows) {
-    let detail;
-    try { detail = JSON.parse(row.changeDetail); } catch { continue; }
-    const scrubbed = scrubAuditDetail(detail);
-    const next = JSON.stringify(scrubbed);
-    if (next === JSON.stringify(detail)) continue;
-    await executeQuery(
-      `UPDATE AuditLog SET changeDetail = @changeDetail WHERE id = @id`,
-      {
-        id:           { type: sql.UniqueIdentifier,  value: row.id },
-        changeDetail: { type: sql.NVarChar(sql.MAX), value: next },
-      }
-    );
-  }
+  await rewriteAuditRows(rows, (d) => scrubAuditDetail(d));
+
+  // Event 'AttendeeAdded' rows name the lead: prefilter by exact "leadId":"<uuid>", confirm on parsed JSON.
+  const attendeeRows = await executeQuery(
+    `SELECT id, changeDetail AS "changeDetail" FROM AuditLog
+     WHERE organisationId = @organisationId AND entityType = 'Event' AND action = 'AttendeeAdded'
+       AND changeDetail LIKE @leadIdPattern`,
+    { organisationId: params.organisationId, leadIdPattern: { type: sql.NVarChar(200), value: `%"leadId":"${leadId}"%` } }
+  );
+  await rewriteAuditRows(attendeeRows, (d) => (d?.leadId === leadId ? scrubAuditDetail(d, { nameOnly: true }) : null));
+
+  // SAR audit rows stay as the erasure record, minus the lead's name.
+  const sarRows = await executeQuery(
+    `SELECT id, changeDetail AS "changeDetail" FROM AuditLog
+     WHERE organisationId = @organisationId AND changeDetail IS NOT NULL AND entityType = 'SubjectAccessRequest'
+       AND entityId IN (SELECT id::text FROM SubjectAccessRequest WHERE leadId::text = @leadId AND organisationId = @organisationId)`,
+    params
+  );
+  await rewriteAuditRows(sarRows, (d) => scrubAuditDetail(d, { nameOnly: true }));
 }
 
 /**
@@ -1151,8 +1196,9 @@ export async function eraseLeadPII(leadId) {
   await anonymiseLeadRow(leadId, organisationId);
   // Mirrors deleteLead()'s own task cleanup — nothing needs calling an
   // erased lead back.
-  await deleteTasksForEntity({ entityType: 'Lead', entityId: leadId });
+  // 30 Sep 2026 — footprint first: its Notification delete finds task notifications via the Task rows.
   await scrubLeadFootprint(leadId, organisationId);
+  await deleteTasksForEntity({ entityType: 'Lead', entityId: leadId });
 }
 
 /**
