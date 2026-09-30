@@ -39,13 +39,13 @@ import { shortDateLabel } from './appointmentService.js';
  */
 export async function sendAppointmentReminders() {
   const organisationId = resolveOrganisationId();
+  // 30 Sep 2026 — I4: claimed/in-progress appointments get reminders too
   const rows = await executeQuery(
     `SELECT a.id, a.brokerId AS "brokerId", a.firstAppointmentTime AS "firstAppointmentTime",
             l.title, l.firstName AS "firstName", l.lastName AS "lastName"
      FROM Appointment a
      LEFT JOIN Lead l ON a.leadId = l.id
      WHERE a.organisationId = @organisationId
-       // 30 Sep 2026 — I4: claimed/in-progress appointments get reminders too
        AND a.status IN ('Assigned','Claimed','InProgress')
        AND a.firstAppointmentDate = CURRENT_DATE
        AND a.brokerId IS NOT NULL`,

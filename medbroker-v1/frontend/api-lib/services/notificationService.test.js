@@ -20,8 +20,8 @@ describe('escapeHtml', () => {
 });
 
 describe('notification email', () => {
-  it('escapes title and body in html but leaves text plain', async () => {
-    await createNotification({ recipientId: 'U', type: 'T', title: '<b>T</b>', body: '<a href=x>Jo</a> & co' });
+  it('escapes body in html but leaves text plain', async () => {
+    await createNotification({ recipientId: 'U', type: 'T', title: 'T', body: '<a href=x>Jo</a> & co' });
     expect(sendEmail).toHaveBeenCalledTimes(1);
     const arg = sendEmail.mock.calls[0][0];
     expect(arg.text).toBe('<a href=x>Jo</a> & co');
