@@ -22,7 +22,7 @@ vi.mock('../services/notificationService.js', () => ({ createNotification: vi.fn
 import { validateToken } from '../middleware/auth.js';
 import * as leads from '../services/leadService.js';
 import { writeAuditLog } from '../services/auditService.js';
-import { handleLeadById } from './leadHandlers.js';
+import { handleLeadById, handleLeadAssign, handleLeadCalls } from './leadHandlers.js';
 
 const ID = '11111111-1111-4111-8111-111111111111';
 
@@ -49,5 +49,27 @@ describe('lead PUT audit diff', () => {
     const { sealed, ...rest } = changeDetail.idNumber;
     expect(JSON.stringify(rest)).not.toMatch(/\d{13}/);
     expect(changeDetail.email).toEqual({ from: 'a@x.com', to: 'b@x.com' });
+  });
+});
+
+// 30 Sep 2026 — I7/I12: closed leads are locked against assign and call logging.
+describe('lead closed locks', () => {
+  it('assign on a Closed lead is 409', async () => {
+    validateToken.mockResolvedValue({ oid: 'admin', roles: ['Admin'] });
+    leads.getLeadById.mockResolvedValue({ id: ID, assignedAgentId: 'a', pipelineStatus: 'Closed' });
+    const res = mockRes();
+    await handleLeadAssign({ method: 'PUT', body: { agentId: '22222222-2222-4222-8222-222222222222' }, query: {}, headers: {} }, res, ID);
+    expect(res.statusCode).toBe(409);
+    expect(res.body.error).toBe('This lead is closed. Reopen it first.');
+    expect(leads.assignLead).not.toHaveBeenCalled();
+  });
+  it.each(['Closed', 'AppointmentScheduled'])('POST call on %s lead is 409', async (status) => {
+    validateToken.mockResolvedValue({ oid: 'admin', roles: ['Admin'] });
+    leads.getLeadById.mockResolvedValue({ id: ID, assignedAgentId: 'a', pipelineStatus: status });
+    const res = mockRes();
+    await handleLeadCalls({ method: 'POST', body: { outcome: 'NoAnswer' }, query: {}, headers: {} }, res, ID);
+    expect(res.statusCode).toBe(409);
+    expect(res.body.error).toBe('This lead is closed or already booked; calls can no longer be logged.');
+    expect(leads.logCallAttempt).not.toHaveBeenCalled();
   });
 });

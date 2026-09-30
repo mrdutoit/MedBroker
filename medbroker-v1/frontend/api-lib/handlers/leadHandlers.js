@@ -448,6 +448,11 @@ export async function handleLeadAssign(req, res, id) {
       }
     }
 
+    // 30 Sep 2026 — I7: closed leads are immutable; Reopen is the only way back.
+    if (lead.pipelineStatus === 'Closed') {
+      return res.status(409).json({ error: 'This lead is closed. Reopen it first.' });
+    }
+
     const previousAgentId = lead.assignedAgentId ?? null;
 
     try {
@@ -645,6 +650,11 @@ export async function handleLeadCalls(req, res, id) {
     if (req.method === 'GET') {
       const calls = await listCallAttempts(id);
       return res.status(200).json({ calls });
+    }
+
+    // 30 Sep 2026 — I12: no calls on closed or already-booked leads.
+    if (['Closed', 'AppointmentScheduled'].includes(lead.pipelineStatus)) {
+      return res.status(409).json({ error: 'This lead is closed or already booked; calls can no longer be logged.' });
     }
 
     const parsed = CallAttemptSchema.safeParse(req.body);

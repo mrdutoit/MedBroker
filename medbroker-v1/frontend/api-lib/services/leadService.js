@@ -739,7 +739,9 @@ export async function assignLead(leadId, agentId) {
 
   await executeQuery(
     `UPDATE Lead
-     SET assignedAgentId = @agentId, pipelineStatus = 'Assigned', updatedAt = NOW()
+     SET assignedAgentId = @agentId,
+         pipelineStatus = CASE WHEN pipelineStatus = 'Unassigned' THEN 'Assigned' ELSE pipelineStatus END,
+         updatedAt = NOW()
      WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
     {
       leadId:  { type: sql.UniqueIdentifier, value: leadId },
@@ -816,11 +818,18 @@ export async function logCallAttempt(leadId, agentId, attemptData) {
   let flaggedUncontactable = false;
 
   const UNREACHABLE = ['NoAnswer', 'Voicemail', 'WrongNumber'];
-  if (UNREACHABLE.includes(attemptData.outcome) && newStatus !== 'Closed') {
+  // 30 Sep 2026 — I12: not applied to booked/closed leads; window starts at the latest reopen.
+  if (UNREACHABLE.includes(attemptData.outcome) && newStatus !== 'Closed'
+      && !['AppointmentScheduled', 'Closed'].includes(currentStatus)) {
     const countResult = await executeQuery(
       `SELECT COUNT(*) AS "failedCount" FROM CallAttempt
        WHERE leadId = @leadId AND organisationId = @organisationId
-         AND outcome IN ('NoAnswer', 'Voicemail', 'WrongNumber')`,
+         AND outcome IN ('NoAnswer', 'Voicemail', 'WrongNumber')
+         AND callTime > COALESCE(
+               (SELECT MAX(al.performedAt) FROM AuditLog al
+                WHERE al.entityType = 'Lead' AND al.entityId = @leadId::text
+                  AND al.action = 'LeadReopened' AND al.organisationId = @organisationId),
+               '-infinity'::timestamptz)`,
       {
         leadId: { type: sql.UniqueIdentifier, value: leadId },
         organisationId: { type: sql.UniqueIdentifier, value: organisationId },

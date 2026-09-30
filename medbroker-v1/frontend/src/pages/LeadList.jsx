@@ -537,7 +537,7 @@ export default function LeadList() {
                               Assign
                             </button>
                           )}
-                          {canReassign && lead.pipelineStatus !== 'Unassigned' && (
+                          {canReassign && lead.pipelineStatus !== 'Unassigned' && lead.pipelineStatus !== 'Closed' && (
                             <button
                               onClick={() => { setReassignTarget(lead); setIsAssignMode(false); }}
                               style={{ ...s.linkBtn, color:'var(--mut)', marginLeft: '4px' }}

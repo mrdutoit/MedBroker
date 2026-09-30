@@ -250,9 +250,13 @@ export async function autoReturnStaleLeads() {
        AND l.deletedAt IS NULL
        AND l.pipelineStatus IN ('Assigned', 'InProgress')
        AND l.assignedAgentId IS NOT NULL
-       AND COALESCE(
-             (SELECT MAX(ca.callTime) FROM CallAttempt ca WHERE ca.leadId = l.id),
-             l.createdAt
+       -- 30 Sep 2026 — I6: a fresh assignment/reopen/edit (updatedAt) restarts the clock
+       AND GREATEST(
+             COALESCE(
+               (SELECT MAX(ca.callTime) FROM CallAttempt ca WHERE ca.leadId = l.id),
+               l.createdAt
+             ),
+             l.updatedAt
            ) < NOW() - (@months || ' months')::interval`,
     {
       organisationId: { type: sql.UniqueIdentifier, value: organisationId },
