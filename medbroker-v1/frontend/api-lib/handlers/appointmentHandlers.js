@@ -940,6 +940,13 @@ export async function handleTokenCheckout(req, res) {
  * /tokens/webhook/stripe, to avoid breaking a Stripe webhook Mark may
  * already have configured.
  */
+// 30 Sep 2026 — tokens credited come from the pack bought, never from payment metadata.
+function packFromMetadata(rawIndex) {
+  if (rawIndex === undefined || rawIndex === null || rawIndex === '') return null;
+  const i = Number(rawIndex);
+  return Number.isInteger(i) ? (TOKEN_PACKS[i] ?? null) : null;
+}
+
 export async function handleTokenWebhook(req, res, rawBody) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST, OPTIONS');
@@ -958,19 +965,25 @@ export async function handleTokenWebhook(req, res, rawBody) {
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object;
       const brokerId = session.metadata?.brokerId;
-      const tokens = Number(session.metadata?.tokens);
 
-      if (!brokerId || !Number.isInteger(tokens) || tokens <= 0) {
+      if (!brokerId) {
         // Malformed metadata — shouldn't happen for a session this app
         // itself created (createCheckoutSession always sets both), but a
         // 200 here (not 500) is still correct: retrying won't fix bad
         // metadata that was already wrong the first time, and this isn't
         // Stripe's fault to keep retrying.
-        console.error('appointments/tokens/webhook: checkout.session.completed missing brokerId/tokens metadata', session.id);
+        console.error('appointments/tokens/webhook: checkout.session.completed missing brokerId metadata', session.id);
         return res.status(200).json({ received: true, skipped: true });
       }
 
-      const packLabel = TOKEN_PACKS[Number(session.metadata?.packIndex)]?.label ?? `${tokens} tokens`;
+      const pack = packFromMetadata(session.metadata?.packIndex);
+      if (!pack) {
+        // 30 Sep 2026 — acknowledge (200) so Stripe stops retrying; nothing is credited
+        console.warn('appointments/tokens/webhook: invalid packIndex, no credit', session.id, session.metadata?.packIndex);
+        return res.status(200).json({ received: true, skipped: true });
+      }
+      const tokens = pack.tokens;
+      const packLabel = pack.label;
       const result = await creditPurchasedTokens(brokerId, tokens, session.id, `Stripe purchase — ${packLabel}`);
 
       if (result.credited) {
@@ -1034,26 +1047,37 @@ export async function handleTokenWebhookPaystack(req, res, rawBody) {
     if (event.event === 'charge.success') {
       const data = event.data;
       const brokerId = data.metadata?.brokerId;
-      const tokens = Number(data.metadata?.tokens);
-      const packIndex = Number(data.metadata?.packIndex);
       const reference = data.reference;
 
-      if (!brokerId || !Number.isInteger(tokens) || tokens <= 0 || !reference) {
-        console.error('appointments/tokens/webhook/paystack: charge.success missing brokerId/tokens/reference metadata', reference);
+      if (!brokerId || !reference) {
+        console.error('appointments/tokens/webhook/paystack: charge.success missing brokerId/reference', reference);
         return res.status(200).json({ received: true, skipped: true });
       }
+
+      const pack = packFromMetadata(data.metadata?.packIndex);
+      if (!pack) {
+        // 30 Sep 2026 — acknowledge (200) so Paystack stops retrying; nothing is credited
+        console.warn('appointments/tokens/webhook/paystack: invalid packIndex, no credit', reference, data.metadata?.packIndex);
+        return res.status(200).json({ received: true, skipped: true });
+      }
+      const tokens = pack.tokens;
 
       // Defence in depth (this function's own header) — confirm with
       // Paystack server-to-server before crediting, don't just trust the
       // webhook payload's own amount/status claims.
-      const expectedAmount = TOKEN_PACKS[packIndex]?.priceZarCents;
+      const expectedAmount = pack.priceZarCents;
       const verification = await verifyPaystackTransaction(reference);
       if (verification.status !== 'success' || verification.amount !== expectedAmount) {
         console.error('appointments/tokens/webhook/paystack: verify mismatch', { reference, verification, expectedAmount });
         return res.status(200).json({ received: true, skipped: true });
       }
+      if (verification.currency !== 'ZAR') {
+        // 30 Sep 2026 — the amount is only comparable to the ZAR price if the currency is ZAR
+        console.warn('appointments/tokens/webhook/paystack: non-ZAR currency, no credit', reference, verification.currency);
+        return res.status(200).json({ received: true, skipped: true });
+      }
 
-      const packLabel = TOKEN_PACKS[packIndex]?.label ?? `${tokens} tokens`;
+      const packLabel = pack.label;
       const result = await creditPurchasedTokens(brokerId, tokens, reference, `Paystack purchase — ${packLabel}`);
 
       if (result.credited) {

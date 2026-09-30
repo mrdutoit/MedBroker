@@ -267,17 +267,11 @@ export async function manualTopUp(brokerId, amount, performedById) {
  * event can genuinely arrive more than once. This function relies on
  * TokenTransaction's partial UNIQUE index on externalRef (WHERE
  * externalRef IS NOT NULL, schema §14b) rather than a read-then-write
- * existence check — a check-then-act here would have exactly the same
- * race window debitTokensForClaim()'s own header warns about (two
- * near-simultaneous webhook deliveries both passing an "already
- * processed?" SELECT before either has inserted anything). The INSERT
- * itself is the atomic guard: whichever delivery's INSERT lands first
- * wins and credits the ledger; every other delivery for the same
- * externalRef hits the unique index, catches the resulting 23505
- * (unique_violation) error code, and returns cleanly with
- * credited: false — not an error condition from the webhook's
- * perspective, since the correct outcome (broker has their tokens) is
- * already true.
+ * existence check — a check-then-act here would race. 30 Sep 2026: the
+ * INSERT (ON CONFLICT DO NOTHING) and the balance UPDATE are now ONE
+ * statement (CTE), so a failure can never leave the payment recorded but
+ * the balance uncredited. A duplicate delivery inserts nothing, updates no
+ * ledger row, and returns credited: false, alreadyProcessed: true.
  * @param {string} brokerId
  * @param {number} tokens
  * @param {string} externalRef - Stripe Checkout Session id, or a
@@ -289,42 +283,32 @@ export async function creditPurchasedTokens(brokerId, tokens, externalRef, descr
   const organisationId = resolveOrganisationId();
   await getCurrentTokenLedger(brokerId); // ensures the row exists (and is current-month) before crediting it
 
-  try {
-    await executeQuery(
-      `INSERT INTO TokenTransaction (id, organisationId, brokerId, type, amount, appointmentId, description, externalRef, createdAt)
-       VALUES (@id, @organisationId, @brokerId, 'Credit', @amount, NULL, @description, @externalRef, NOW())`,
-      {
-        id:             { type: sql.UniqueIdentifier, value: crypto.randomUUID() },
-        organisationId: { type: sql.UniqueIdentifier, value: organisationId },
-        brokerId:       { type: sql.UniqueIdentifier, value: brokerId },
-        amount:         { type: sql.Int, value: tokens },
-        description:    { type: sql.NVarChar(300), value: description },
-        externalRef:    { type: sql.NVarChar(255), value: externalRef },
-      }
-    );
-  } catch (err) {
-    if (err.code === '23505') {
-      // Duplicate webhook delivery for a payment already credited — the
-      // correct outcome (tokens already on the ledger) is already true,
-      // so this is a clean no-op, not an error the caller should surface.
-      return { credited: false, alreadyProcessed: true };
-    }
-    throw err;
-  }
-
-  // Only reached if the INSERT above actually landed — see this
-  // function's header for why the balance UPDATE deliberately comes
-  // AFTER the guarded insert, not before or in parallel with it.
-  await executeQuery(
-    `UPDATE TokenLedger SET balance = balance + @amount, updatedAt = NOW()
-     WHERE brokerId = @brokerId AND organisationId = @organisationId`,
+  // 30 Sep 2026 — one statement: the idempotency INSERT and the balance UPDATE
+  // can no longer be split by a failure between two calls. A duplicate
+  // externalRef inserts nothing, so the UPDATE matches no row.
+  const updated = await executeQuery(
+    `WITH ins AS (
+       INSERT INTO TokenTransaction (id, organisationId, brokerId, type, amount, appointmentId, description, externalRef, createdAt)
+       VALUES (@id, @organisationId, @brokerId, 'Credit', @amount, NULL, @description, @externalRef, NOW())
+       ON CONFLICT DO NOTHING
+       RETURNING amount
+     )
+     UPDATE TokenLedger SET balance = balance + ins.amount, updatedAt = NOW()
+     FROM ins
+     WHERE TokenLedger.brokerId = @brokerId AND TokenLedger.organisationId = @organisationId
+     RETURNING TokenLedger.id`,
     {
-      brokerId:       { type: sql.UniqueIdentifier, value: brokerId },
+      id:             { type: sql.UniqueIdentifier, value: crypto.randomUUID() },
       organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+      brokerId:       { type: sql.UniqueIdentifier, value: brokerId },
       amount:         { type: sql.Int, value: tokens },
+      description:    { type: sql.NVarChar(300), value: description },
+      externalRef:    { type: sql.NVarChar(255), value: externalRef },
     }
   );
 
+  // No row updated = the externalRef was already credited (duplicate delivery).
+  if (!updated || updated.length === 0) return { credited: false, alreadyProcessed: true };
   return { credited: true };
 }
 
