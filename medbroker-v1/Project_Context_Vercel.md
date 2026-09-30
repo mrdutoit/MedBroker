@@ -946,16 +946,20 @@ EDGE / TRANSPORT
              codebase has no acquireTokenSilent / hidden-iframe silent-
              refresh call anywhere — grepped for it, found none. CSP's
              frame-src does not govern window.open() popups at all, so
-             frame-src 'none' does not block the SSO login flow.
+             frame-src 'none' does not block the SSO login flow. However,
+             MSAL performs a fetch from the page to login.microsoftonline.com
+             for the token endpoint (OIDC discovery and token exchange),
+             which is governed by connect-src, so login.microsoftonline.com
+             is explicitly allowed there.
              Flagged regardless: this reasoning wasn't exercised
              against a real Entra tenant in the build sandbox — smoke-
              test the actual login popup once this is live before
              fully trusting it.
-       - Permissions-Policy disables camera/microphone/geolocation/
-         payment/usb/magnetometer/gyroscope, none of which this app
-         uses, plus interest-cohort (opts out of FLoC/Topics — a small,
-         free, POPIA-aligned privacy gesture, not a functional
-         requirement).
+       - Permissions-Policy allows camera=(self) for PortalCheckIn.jsx
+         QR code scanning, disables microphone/geolocation/payment/usb/
+         magnetometer/gyroscope (none of which this app uses), plus
+         interest-cohort (opts out of FLoC/Topics — a small, free,
+         POPIA-aligned privacy gesture, not a functional requirement).
        - HSTS is max-age=31536000; includeSubDomains, WITHOUT preload.
          Preload submission is a much harder-to-reverse commitment on
          the customer's actual domain (removal from browsers' built-in
