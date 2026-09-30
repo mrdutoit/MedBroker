@@ -472,7 +472,7 @@ export async function executeSarDeletion(id, performedById) {
   }
 
   const changeDetail = {
-    sarId: id, leadId: existing.leadId, leadName: existing.leadName,
+    sarId: id, leadId: existing.leadId, // 30 Sep 2026 — no leadName: this entry outlives the erasure
     ...outcome,
   };
   // §131 — single write; see createSarRequest's own comment above for
