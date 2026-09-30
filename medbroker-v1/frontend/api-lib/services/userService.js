@@ -812,12 +812,13 @@ export async function getUserByEntraObjectId(entraObjectId) {
  * @returns {Promise<Object|null>}
  */
 export async function getUserForSsoMatch(email) {
+  // 30 Sep 2026 — exact match: ILIKE treated _ and % in a UPN as wildcards
   return executeQueryOne(
     `SELECT id, displayName AS "displayName", email, role,
             isActive AS "isActive", entraObjectId AS "entraObjectId",
             avatarColour AS "avatarColour", themePreference AS "themePreference", timezone
      FROM "User"
-     WHERE email ILIKE @email AND deletedAt IS NULL AND organisationId = @organisationId`,
+     WHERE LOWER(email) = LOWER(@email) AND deletedAt IS NULL AND organisationId = @organisationId`,
     {
       email:          { type: sql.NVarChar(255),    value: email },
       organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },

@@ -145,6 +145,11 @@ export async function handleUserById(req, res, id) {
       const existing = await getUserForAdmin(id);
       if (!existing) return res.status(404).json({ error: 'User not found' });
 
+      // 30 Sep 2026 — only a GlobalAdmin may edit a GlobalAdmin (unlock/force-logout stay open to Admins for recovery)
+      if (existing.role === 'GlobalAdmin' && !claims.roles.includes('GlobalAdmin')) {
+        return res.status(403).json({ error: 'Only a GlobalAdmin can change a GlobalAdmin account.' });
+      }
+
       await updateUserFull(id, parsed.data);
 
       await writeAuditLog({
