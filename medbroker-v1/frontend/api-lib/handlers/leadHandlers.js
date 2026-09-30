@@ -12,6 +12,7 @@ import { writeAuditLog, clientIp, listAuditLogForLead } from '../services/auditS
 import { createNotification } from '../services/notificationService.js';
 import { CreateLeadSchema, UpdateLeadSchema, LeadListQuerySchema, AssignLeadSchema, CallAttemptSchema, CheckDuplicatesSchema, CreateMedicalSubscriptionSchema } from '../models/lead.js';
 import { isUuid } from '../http/helpers.js';
+import { sealChange } from '../services/sensitiveFields.js';
 
 /** GET (list) + POST (create) /api/leads */
 export async function handleLeadsCollection(req, res) {
@@ -341,7 +342,7 @@ export async function handleLeadById(req, res, id) {
             continue;
           }
           if (existing[field] !== parsed.data[field]) {
-            changeDetail[field] = { from: existing[field] ?? null, to: parsed.data[field] ?? null };
+            changeDetail[field] = await sealChange(field, { from: existing[field] ?? null, to: parsed.data[field] ?? null }); // 30 Sep 2026 — sensitive values audited encrypted
           }
         }
         // GATED 19 Aug 2026 — this call had no guard at all before now:

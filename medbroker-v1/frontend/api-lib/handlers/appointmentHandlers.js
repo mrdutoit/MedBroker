@@ -29,6 +29,7 @@ import {
 } from '../models/appointment.js';
 import { TokenCheckoutSchema } from '../models/integration.js';
 import { isUuid } from '../http/helpers.js';
+import { sealChange } from '../services/sensitiveFields.js';
 
 /**
  * True if appointments.claimModel is currently set to 'claim'. Checked at
@@ -270,7 +271,7 @@ export async function handleAppointmentById(req, res, id) {
           continue;
         }
         if (appt[field] !== parsed.data[field]) {
-          changeDetail[field] = { from: appt[field] ?? null, to: parsed.data[field] ?? null };
+          changeDetail[field] = await sealChange(field, { from: appt[field] ?? null, to: parsed.data[field] ?? null }); // 30 Sep 2026 — sensitive values audited encrypted
         }
       }
       if (Object.keys(changeDetail).length > 0) {

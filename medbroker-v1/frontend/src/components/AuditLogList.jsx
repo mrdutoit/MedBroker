@@ -150,6 +150,8 @@ function describeEntry(entry) {
     };
     const changes = Object.entries(detail).map(([field, change]) => {
       const fieldLabel = FIELD_LABELS[field] ?? field;
+      // 30 Sep 2026 — sensitive fields carry no values, only that they changed
+      if (change?.changed) return `${fieldLabel} changed`;
       return `${fieldLabel}: ${format(change?.from)} → ${format(change?.to)}`;
     });
     return changes.length ? changes.join('; ') : label;
@@ -174,6 +176,8 @@ function describeEntry(entry) {
     };
     const changes = Object.entries(detail).map(([field, change]) => {
       const fieldLabel = FIELD_LABELS[field] ?? field;
+      // 30 Sep 2026 — sensitive fields carry no values, only that they changed
+      if (change?.changed) return `${fieldLabel} changed`;
       return `${fieldLabel}: ${format(change?.from)} → ${format(change?.to)}`;
     });
     return changes.length ? changes.join('; ') : label;
