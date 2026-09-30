@@ -81,3 +81,13 @@ describe('appointment PUT broker conflict', () => {
     expect(appts.updateAppointment).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('appointment PUT closed lock', () => {
+  it.each(['ClosedWon', 'ClosedLost', 'ReturnedToLeads'])('409s on a %s appointment without saving', async (status) => {
+    appts.getAppointmentById.mockResolvedValue({ id: ID, agentId: 'a', brokerId: 'B1', status });
+    const res = await put({ currentInsurer: 'X' });
+    expect(res.statusCode).toBe(409);
+    expect(res.body).toEqual({ error: 'This appointment is closed and locked. Reopen it before editing.' });
+    expect(appts.updateAppointment).not.toHaveBeenCalled();
+  });
+});

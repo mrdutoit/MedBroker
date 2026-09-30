@@ -705,6 +705,7 @@ export async function assignBroker(id, brokerId) {
      WHERE a.id = @id AND a.organisationId = @organisationId`,
     { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } }
   );
+  if (!appt) throw { status: 404, message: 'Appointment not found' };
 
   // 30 Sep 2026 — only an Unassigned appointment can be assigned; closed ones are immutable.
   const assigned = await executeQueryOne(
@@ -1008,9 +1009,12 @@ export async function reassignAppointment(id, data) {
   const updated = await executeQueryOne(
     `UPDATE Appointment SET ${setClauses.join(', ')}, updatedAt = NOW()
      WHERE id = @id AND organisationId = @organisationId AND status NOT IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads')
+       ${fillsUnassigned ? `AND status = 'Unassigned'` : ''}
      RETURNING id`,
     params
   );
+  // 30 Sep 2026 — a fill that lost to a concurrent claim/assign must not overwrite it.
+  if (!updated && fillsUnassigned) throw { status: 409, message: 'This appointment already has a broker or is closed.' };
   if (!updated) throw { status: 409, message: 'This appointment is closed and cannot be reassigned.' };
 
   // 30 Sep 2026 — filling an Unassigned slot is an assignment: clear its Assign-broker task, as assignBroker() does.
@@ -1444,8 +1448,9 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
   // redesign exists to stop. Applies equally to a date-only save — you
   // can still only touch a row that's genuinely still awaiting a
   // decision, whether what you're saving IS that decision or not.
+  // 30 Sep 2026 — same 409 as the guarded UPDATE below loses (stale tab or race, one message).
   if (attempt.status !== 'Scheduled') {
-    throw { status: 400, message: 'This meeting attempt has already been recorded and cannot be changed — reschedules and follow-ups create a new row instead.' };
+    throw { status: 409, message: 'This meeting has already been recorded.' };
   }
 
   // 16 Aug 2026 — the date-only branch itself: a single lightweight

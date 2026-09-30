@@ -196,12 +196,12 @@ export async function handleAppointmentById(req, res, id) {
     // isLocked) already disabled these fields visually — this is the
     // server-side enforcement that was actually missing; a disabled
     // input is a UI hint, not a guarantee, and updateAppointment() had
-    // no status check of its own before this. ReturnedToLeads is
-    // deliberately NOT included here — that status already has its own
-    // separate re-assignment path back into the claim pool and isn't
-    // "closed" in the sense this lock means.
-    if (appt.status === 'ClosedWon' || appt.status === 'ClosedLost') {
-      return res.status(400).json({ error: 'This appointment is closed and locked. Reopen it before editing.' });
+    // no status check of its own before this.
+    // 30 Sep 2026 — ReturnedToLeads now locked too (owner rule: closed is
+    // immutable; reassign/assign refuse it, so the old exemption no longer
+    // holds). 409 to match the other closed-record guards.
+    if (['ClosedWon', 'ClosedLost', 'ReturnedToLeads'].includes(appt.status)) {
+      return res.status(409).json({ error: 'This appointment is closed and locked. Reopen it before editing.' });
     }
 
     const parsed = UpdateAppointmentSchema.safeParse(req.body);

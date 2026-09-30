@@ -63,6 +63,12 @@ async function rejects(p) {
 }
 
 describe('assignBroker (I8a)', () => {
+  it('404s when the appointment does not exist, before any write', async () => {
+    const err = await rejects(assignBroker('AP1', 'B2'));
+    expect(err).toEqual({ status: 404, message: 'Appointment not found' });
+    expect(writes()).toHaveLength(0);
+  });
+
   it('only assigns an Unassigned appointment; otherwise 409 and no side effects', async () => {
     one.push([/SELECT a\.firstAppointmentDate/, { firstAppointmentDate: '2026-10-01', firstAppointmentTime: '10:00' }]);
     const err = await rejects(assignBroker('AP1', 'B2'));
@@ -103,9 +109,17 @@ describe('reassignAppointment (I8b)', () => {
     await reassignAppointment('AP1', { brokerId: 'B2' });
     const upd = calls.find((c) => /UPDATE Appointment/.test(c.query));
     expect(upd.query).toMatch(/status = 'Assigned'/);
+    expect(upd.query).toMatch(/AND status = 'Unassigned'/);
   });
 
-  it('keeps the status of an Assigned appointment', async () => {
+  it('in assign mode, 409s if the Unassigned appointment was taken meanwhile', async () => {
+    one.push([/FROM Appointment WHERE id/, { status: 'Unassigned', brokerId: null, agentId: 'A1' }]);
+    const err = await rejects(reassignAppointment('AP1', { brokerId: 'B2' }));
+    expect(err).toEqual({ status: 409, message: 'This appointment already has a broker or is closed.' });
+    expect(deleteTasksForEntity).not.toHaveBeenCalled();
+  });
+
+  it('keeps the status of a Claimed appointment', async () => {
     one.push([/FROM Appointment WHERE id/, { status: 'Claimed', brokerId: 'B1', agentId: 'A1' }]);
     one.push([/UPDATE Appointment/, { id: 'AP1' }]);
     await reassignAppointment('AP1', { brokerId: 'B2' });
@@ -206,7 +220,8 @@ describe('saveMeetingAttemptOutcome (I5, I18)', () => {
 
   it('does not attach the staff caller when the attempt is already recorded', async () => {
     staff({ id: 'AP1', status: 'Unassigned', brokerId: null }, { id: 'M1', meetingNumber: 1, status: 'HeldInterested' });
-    await rejects(saveMeetingAttemptOutcome('AP1', 'M1', { status: 'HeldInterested', date: '2026-10-01' }, 'S1', true));
+    const err = await rejects(saveMeetingAttemptOutcome('AP1', 'M1', { status: 'HeldInterested', date: '2026-10-01' }, 'S1', true));
+    expect(err).toEqual({ status: 409, message: 'This meeting has already been recorded.' });
     expect(writes()).toHaveLength(0);
     expect(deleteTasksForEntity).not.toHaveBeenCalled();
   });
