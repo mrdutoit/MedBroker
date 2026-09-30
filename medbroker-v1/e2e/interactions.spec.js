@@ -443,3 +443,28 @@ test('Leads list: "Longest without contact" asks the server for the quiet sort, 
   await btn.click();
   await expect(btn).toHaveAttribute('aria-pressed', 'false');
 });
+
+test('Lead Detail: "Save call & Book Appointment" logs the call (POST /calls) before the booking modal opens (30 Sep 2026)', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/leads/lead-2');
+  await page.getByRole('button', { name: 'Log Call' }).click();
+  await page.getByRole('combobox').first().selectOption('ClientContacted');
+  const posted = page.waitForRequest(r => r.method() === 'POST' && /\/api\/leads\/lead-2\/calls$/.test(r.url()));
+  await page.getByRole('button', { name: /Save call & Book Appointment/ }).click();
+  const req = await posted;
+  expect(req.postDataJSON()).toMatchObject({ outcome: 'ClientContacted' });
+  await expect(page.getByRole('heading', { name: /Book Appointment/ })).toBeVisible();
+});
+
+test('Lead Detail: a failed call save shows the error and does not open the booking modal (30 Sep 2026)', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.route(/\/api\/leads\/lead-2\/calls$/, route => route.request().method() === 'POST'
+    ? route.fulfill({ status: 409, contentType: 'application/json', body: JSON.stringify({ error: 'Lead is closed' }) })
+    : route.fallback());
+  await page.goto('/leads/lead-2');
+  await page.getByRole('button', { name: 'Log Call' }).click();
+  await page.getByRole('combobox').first().selectOption('ClientContacted');
+  await page.getByRole('button', { name: /Save call & Book Appointment/ }).click();
+  await expect(page.getByText('Lead is closed')).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Book Appointment/ })).toHaveCount(0);
+});

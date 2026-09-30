@@ -899,7 +899,19 @@ export default function LeadDetail() {
                   <button
                     type="button"
                     onClick={async () => {
-                      // Save the call first, then open Book Appointment
+                      // 30 Sep 2026 — actually log the call (it was local-only, so the row
+                      // vanished on reload); on failure show the error and do not open the modal
+                      setSubmitting(true);
+                      setSubmitError('');
+                      try {
+                        await leadsApi.logCall(id, { outcome: callForm.outcome, notes: callForm.notes || undefined });
+                      } catch (err) {
+                        setSubmitError(err.message ?? 'Could not log the call. Please try again.');
+                        return;
+                      } finally {
+                        setSubmitting(false);
+                      }
+                      refetchAudit();
                       const newStatus = computeNewStatus(currentStatus, callForm.outcome);
                       if (newStatus !== currentStatus) setStatusOverride(newStatus);
                       setCalls(prev => [{
@@ -913,6 +925,7 @@ export default function LeadDetail() {
                       setCallForm({ outcome: '', notes: '', callbackDateTime: '' });
                       setShowBookForm(true);
                     }}
+                    disabled={submitting}
                     style={{ background:'var(--live)', color:'white', border: 'none', borderRadius: '6px', padding: '8px 14px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' }}
                   >
                     Save call &amp; Book Appointment →
