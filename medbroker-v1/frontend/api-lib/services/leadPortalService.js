@@ -161,24 +161,27 @@ export async function registerProspect(data, passwordHash) {
     throw { status: 409, message: 'An account already exists for this email — log in instead.' };
   }
 
-  let leadId = await findDuplicate(data.email, null);
-  let createdNewLead = false;
-  if (!leadId) {
-    leadId = await createLead(
-      {
-        title: data.title,
-        firstName: data.firstName,
-        lastName: data.lastName,
-        dateOfBirth: data.dateOfBirth,
-        email: data.email,
-        mobileNumber: data.mobileNumber,
-        occupation: data.occupation,
-        leadSource: 'EventAttendance',
-      },
-      null // no staff actor — self-registered
-    );
-    createdNewLead = true;
+  // 30 Sep 2026 — an existing Lead's email must never be self-claimed here (account takeover);
+  // they prove identity (email + DOB) via /portal/activate instead. Covers a lead that already has an account too.
+  const existingLeadId = await findDuplicate(data.email, null);
+  if (existingLeadId) {
+    throw { status: 409, code: 'USE_ACTIVATE', message: 'We already have your details. Please activate your account instead.' };
   }
+
+  const leadId = await createLead(
+    {
+      title: data.title,
+      firstName: data.firstName,
+      lastName: data.lastName,
+      dateOfBirth: data.dateOfBirth,
+      email: data.email,
+      mobileNumber: data.mobileNumber,
+      occupation: data.occupation,
+      leadSource: 'EventAttendance',
+    },
+    null // no staff actor — self-registered
+  );
+  const createdNewLead = true;
 
   const account = await executeQueryOne(
     `INSERT INTO LeadPortalAccount (id, organisationId, leadId, email, passwordHash, passwordSetAt)

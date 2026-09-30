@@ -47,7 +47,7 @@ function AttendanceBanner({ attendanceType, alreadyCheckedIn }) {
 
 export default function PortalCheckinConfirm() {
   const { checkinToken } = useParams();
-  const { isAuthenticated, walkInAndLogin, loading, error, setError } = useProspectAuth();
+  const { isAuthenticated, walkInAndLogin, loading, error, errorCode, setError } = useProspectAuth();
 
   const [event, setEvent] = useState(null);
   const [eventError, setEventError] = useState('');
@@ -153,7 +153,14 @@ export default function PortalCheckinConfirm() {
         Didn't register beforehand? Quick details and you're checked in.
       </p>
 
-      {error && <div style={{ ...s.errorBox, marginBottom: '16px' }}>{error}</div>}
+      {error && (
+        <div style={{ ...s.errorBox, marginBottom: '16px' }}>
+          {error}
+          {errorCode === 'USE_ACTIVATE' && (
+            <> <Link to="/portal/activate" style={{ color: 'var(--accent)' }}>Activate your account</Link></>
+          )}
+        </div>
+      )}
 
       <form onSubmit={handleWalkInSubmit}>
         <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr', gap: '10px', marginBottom: '12px' }}>

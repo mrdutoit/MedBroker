@@ -15,6 +15,7 @@ export function ProspectAuthProvider({ children }) {
   const [isAuthenticated, setIsAuthenticated] = useState(portalAuthStore.isPortalAuthenticated());
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [errorCode, setErrorCode] = useState(null); // 30 Sep 2026 — server code e.g. USE_ACTIVATE
 
   useEffect(() => {
     return portalAuthStore.onPortalUnauthorized(() => setIsAuthenticated(false));
@@ -23,6 +24,7 @@ export function ProspectAuthProvider({ children }) {
   const registerAndLogin = useCallback(async (qrToken, profileData, password) => {
     setLoading(true);
     setError(null);
+    setErrorCode(null);
     try {
       const data = await portalApi.register({ qrToken, ...profileData, password });
       portalAuthStore.setPortalAuthenticated();
@@ -30,6 +32,7 @@ export function ProspectAuthProvider({ children }) {
       return data;
     } catch (err) {
       setError(err.message ?? 'Registration failed');
+      setErrorCode(err.body?.code ?? null);
       throw err;
     } finally {
       setLoading(false);
@@ -39,6 +42,7 @@ export function ProspectAuthProvider({ children }) {
   const walkInAndLogin = useCallback(async (checkinToken, profileData, password) => {
     setLoading(true);
     setError(null);
+    setErrorCode(null);
     try {
       const data = await portalApi.walkIn({ checkinToken, ...profileData, password });
       portalAuthStore.setPortalAuthenticated();
@@ -46,6 +50,7 @@ export function ProspectAuthProvider({ children }) {
       return data;
     } catch (err) {
       setError(err.message ?? 'Could not check you in');
+      setErrorCode(err.body?.code ?? null);
       throw err;
     } finally {
       setLoading(false);
@@ -100,7 +105,7 @@ export function ProspectAuthProvider({ children }) {
   }, []);
 
   return (
-    <ProspectAuthContext.Provider value={{ isAuthenticated, registerAndLogin, activateAccount, walkInAndLogin, login, logout, loading, error, setError }}>
+    <ProspectAuthContext.Provider value={{ isAuthenticated, registerAndLogin, activateAccount, walkInAndLogin, login, logout, loading, error, errorCode, setError }}>
       {children}
     </ProspectAuthContext.Provider>
   );
