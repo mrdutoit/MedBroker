@@ -691,7 +691,8 @@ export default function AppointmentList() {
                         Assign
                       </button>
                     )}
-                    {showAssignActions && !isUnassigned && (
+                    {/* 30 Sep 2026 — closed appointments are immutable, so no Reassign */}
+                    {showAssignActions && !isUnassigned && !CLOSED_APPT_STATUSES.includes(a.status) && (
                       <button
                         onClick={() => { setAssignTarget(a); setIsAssignMode(false); }}
                         style={{ ...s.linkBtn, color:'var(--mut)', marginLeft: '4px' }}

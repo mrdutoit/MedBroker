@@ -9,7 +9,7 @@ import { validateToken, requireRole, authErrorResponse } from '../middleware/aut
 import {
   listAppointments, createAppointment, getAppointmentById, assignBroker,
   reassignAppointment, returnToLeads, reopenAppointment, saveOutcome, claimAppointment, listAvailableToClaim,
-  saveMeetingAttemptOutcome, updateAppointment,
+  saveMeetingAttemptOutcome, updateAppointment, hasBrokerConflict,
 } from '../services/appointmentService.js';
 import { findMatchingBrokers } from '../services/brokerMatchingService.js';
 import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById, getActiveUserById } from '../services/userService.js';
@@ -225,6 +225,17 @@ export async function handleAppointmentById(req, res, id) {
       }
     }
 
+    // 30 Sep 2026 — moving the slot must not double-book the broker (same check as booking/reassign).
+    const existingDate = appt.firstAppointmentDate instanceof Date
+      ? appt.firstAppointmentDate.toISOString().slice(0, 10)
+      : appt.firstAppointmentDate;
+    const newDate = parsed.data.firstAppointmentDate ?? existingDate;
+    const newTime = parsed.data.firstAppointmentTime ?? appt.firstAppointmentTime;
+    const slotMoved = newDate !== existingDate || newTime?.slice(0, 5) !== appt.firstAppointmentTime?.slice(0, 5);
+    if (slotMoved && appt.brokerId && await hasBrokerConflict(appt.brokerId, newDate, newTime, id)) {
+      return res.status(409).json({ error: 'The broker already has an appointment at that time.' });
+    }
+
     const changed = await updateAppointment(id, parsed.data);
     if (changed) {
       // Diff only the fields actually present on the request, old vs
@@ -245,11 +256,8 @@ export async function handleAppointmentById(req, res, id) {
       const changeDetail = {};
       for (const field of Object.keys(parsed.data)) {
         if (field === 'firstAppointmentDate') {
-          const existingValue = appt.firstAppointmentDate instanceof Date
-            ? appt.firstAppointmentDate.toISOString().slice(0, 10)
-            : appt.firstAppointmentDate;
-          if (existingValue !== parsed.data.firstAppointmentDate) {
-            changeDetail.firstAppointmentDate = { from: existingValue ?? null, to: parsed.data.firstAppointmentDate ?? null };
+          if (existingDate !== parsed.data.firstAppointmentDate) {
+            changeDetail.firstAppointmentDate = { from: existingDate ?? null, to: parsed.data.firstAppointmentDate ?? null };
           }
           continue;
         }

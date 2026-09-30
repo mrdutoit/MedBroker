@@ -983,7 +983,8 @@ export default function AppointmentDetail() {
   const isClosed    = appt.status === 'ClosedWon' || appt.status === 'ClosedLost';
   const isLocked     = isClosed || appt.status === 'ReturnedToLeads';
   const canReturn   = canManage && !isLocked && appt.customerSigned !== true;
-  const canReassign = canManage && !isLocked;
+  // 30 Sep 2026 — in claim mode an Unassigned appointment is filled only by a broker claim.
+  const canReassign = canManage && !isLocked && !(appt.status === 'Unassigned' && flag('appointments.claimModel', 'claim'));
 
   // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) —
   // replaces firstMeetingComplete/secondMeetingComplete (which existed

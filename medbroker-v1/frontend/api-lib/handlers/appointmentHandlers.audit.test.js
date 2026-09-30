@@ -10,6 +10,7 @@ vi.mock('../services/appointmentService.js', () => ({
   assignBroker: vi.fn(), reassignAppointment: vi.fn(), returnToLeads: vi.fn(),
   reopenAppointment: vi.fn(), saveOutcome: vi.fn(), claimAppointment: vi.fn(),
   listAvailableToClaim: vi.fn(), saveMeetingAttemptOutcome: vi.fn(), updateAppointment: vi.fn(),
+  hasBrokerConflict: vi.fn(),
 }));
 vi.mock('../services/userService.js', async (importOriginal) => ({
   ...(await importOriginal()),
