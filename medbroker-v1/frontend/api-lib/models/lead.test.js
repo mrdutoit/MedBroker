@@ -20,3 +20,22 @@ describe('CallAttemptSchema callbackDateTime', () => {
     expect(CallAttemptSchema.parse({ outcome: 'NoAnswer' }).callbackDateTime).toBeUndefined();
   });
 });
+
+// 30 Sep 2026 — I7: optional fields must be clearable with null; required ones must not be.
+import { UpdateLeadSchema } from './lead.js';
+import { UpdateAppointmentSchema } from './appointment.js';
+describe('clearable optional fields', () => {
+  const CLEARABLE = ['whatsappNumber', 'hospitalOrPractice', 'policies', 'universityAttended', 'degreeAttained', 'yearOfAttendance', 'medicalAidProvider', 'currentInsurer'];
+  it.each(CLEARABLE)('UpdateLeadSchema accepts null for %s', (f) => {
+    const r = UpdateLeadSchema.safeParse({ [f]: null });
+    expect(r.success).toBe(true);
+    expect(r.data[f]).toBeNull();
+  });
+  it.each(['email', 'mobileNumber', 'firstName', 'lastName', 'dateOfBirth', 'occupation'])('UpdateLeadSchema still rejects null for required %s', (f) => {
+    expect(UpdateLeadSchema.safeParse({ [f]: null }).success).toBe(false);
+  });
+  it('UpdateAppointmentSchema accepts null currentInsurer only', () => {
+    expect(UpdateAppointmentSchema.safeParse({ currentInsurer: null }).success).toBe(true);
+    expect(UpdateAppointmentSchema.safeParse({ meetingType: null }).success).toBe(false);
+  });
+});

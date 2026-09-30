@@ -30,13 +30,13 @@ const PAGES = {
   ],
   // isAgent -> /appointments and /appointments/* redirect to /leads instead.
   Agent: [
-    ['/leads', 'Leads'], ['/leads/lead-2', null], ['/leads/new', 'Add Lead'],
+    ['/leads', 'Leads'], ['/leads/lead-2', null], // 30 Sep 2026 — /leads/new is Admin/Supervisor/GlobalAdmin only now
     ['/events', 'Events'],
     // 27 Sep 2026 — an Agent's own report; never covered before.
     ['/reports/agent/u1', 'Agent Detail — Thandi Mokoena'], ...COMMON,
   ],
   Supervisor: [
-    ['/leads', 'Leads'], ['/leads/import', 'Import Leads'], ['/appointments', 'Appointments'],
+    ['/leads', 'Leads'], ['/leads/import', 'Import Leads'], ['/leads/new', 'Add Lead'], ['/appointments', 'Appointments'],
     ['/reports', 'Reports'], ['/events', 'Events'], ...COMMON,
   ],
   Admin: [

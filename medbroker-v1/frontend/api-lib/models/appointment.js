@@ -128,7 +128,7 @@ export const CreateAppointmentSchema = z.object({
  * appointmentHandlers.js's own comment on this has the full reasoning.
  */
 export const UpdateAppointmentSchema = z.object({
-  currentInsurer:          z.string().max(200).optional(),
+  currentInsurer:          z.string().max(200).nullable().optional(), // 30 Sep 2026 — clearable (I7)
   meetingType:              z.enum(['InPerson', 'Virtual']).optional(),
   firstAppointmentDate:    z.string().date('Must be a valid date (YYYY-MM-DD)').optional(),
   firstAppointmentTime:    z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/, 'Must be a valid time (HH:mm)').optional(),

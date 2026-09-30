@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useElementWidth } from '../../hooks/useElementWidth.js';
 import { monotonePath } from './curve.js';
 import './viz.css';
+import { formatRand } from '../../utils/formatMoney.js';
 
 /**
  * components/viz/MetricStrip.jsx — NEW, 27 Sep 2026 (app-design-pass
@@ -32,7 +33,7 @@ import './viz.css';
 
 export const fmtMetric = (v, format) => {
   if (v === null || v === undefined) return '—';
-  if (format === 'currency') return `R${(v / 1000000).toFixed(2)}m`;
+  if (format === 'currency') return formatRand(v);
   if (format === 'ratio')    return v.toFixed(1);
   if (format === 'percent')  return `${v.toFixed(1)}%`;
   if (format === 'days')     return `${v.toFixed(1)} days`;

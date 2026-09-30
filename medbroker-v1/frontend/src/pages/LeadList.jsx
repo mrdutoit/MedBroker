@@ -191,7 +191,17 @@ export default function LeadList() {
   }
   const pageSize = 25;
 
-  useEffect(() => { setPage(1); }, [activeStatus, search, agentFilter, occFilter, sourceFilter, sortKey, sortDir]);
+  // 30 Sep 2026 — reset the page in the same render as the filter change (an effect fired a second fetch).
+  const filterKey = JSON.stringify([activeStatus, search, agentFilter, occFilter, sourceFilter, sortKey, sortDir]);
+  const [prevFilterKey, setPrevFilterKey] = useState(filterKey);
+  if (prevFilterKey !== filterKey) { setPrevFilterKey(filterKey); setPage(1); }
+
+  // 30 Sep 2026 — search box is typed into instantly, but only queries the server after 300 ms idle.
+  const [searchInput, setSearchInput] = useState('');
+  useEffect(() => {
+    const t = setTimeout(() => setSearch(searchInput), 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
 
   // 'Active' groups Unassigned/Assigned/InProgress by exclusion (Converted
   // and Closed leave the working queue); 'All' applies no status filter at
@@ -343,8 +353,8 @@ export default function LeadList() {
       {/* Filters */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '14px', flexWrap: 'wrap', alignItems: 'center' }}>
         <input
-          type="text" placeholder="Search name or email…" value={search}
-          onChange={e => setSearch(e.target.value)} style={s.searchInput}
+          type="text" placeholder="Search name or email…" value={searchInput}
+          onChange={e => setSearchInput(e.target.value)} style={s.searchInput}
         />
         <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)} style={s.select}>
           <option value="">All sources</option>
@@ -375,7 +385,7 @@ export default function LeadList() {
         </button>
         {hasFilter && (
           <button
-            onClick={() => { setActiveStatus('Active'); setSearch(''); setAgentFilter(''); setOccFilter(''); setSourceFilter(''); setSortKey(null); setSortDir('asc'); }}
+            onClick={() => { setActiveStatus('Active'); setSearch(''); setSearchInput(''); setAgentFilter(''); setOccFilter(''); setSourceFilter(''); setSortKey(null); setSortDir('asc'); }}
             style={s.ghostBtn}
           >
             ✕ Clear Sort & Filters

@@ -35,9 +35,10 @@ import { s, colors, radius, shadow, type } from '../styles/tokens.js';
 // The ring and the trend are now hand-built, interactive components in
 // components/viz/; KpiCard and Sparkline are replaced by viz/MetricStrip.
 import TrendLines from './viz/TrendLines.jsx';
+import { formatRand } from '../utils/formatMoney.js';
 
 // ─── Formatting — shared with Reports.jsx, single source of truth ──────────
-export const fmt = v => `R${(v / 1000000).toFixed(2)}m`;
+export const fmt = formatRand;
 export const fmtDays = d => d === null || d === undefined ? '—' : `${d.toFixed(1)} days`;
 export const fmtRatio = v => v === null || v === undefined ? '—' : v.toFixed(1);
 export const fmtPct = v => v === null || v === undefined ? '—' : `${v.toFixed(1)}%`;

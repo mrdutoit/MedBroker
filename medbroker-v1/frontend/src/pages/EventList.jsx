@@ -107,7 +107,7 @@ export default function EventList() {
               // dates directly (year/month/day, both in local time) avoids
               // the whole class of error — same root cause and fix as
               // Tasks.jsx's daysUntil().
-              const [evY, evM, evD] = event.eventDate.split('-').map(Number);
+              const [evY, evM, evD] = String(event.eventDate).slice(0, 10).split('-').map(Number);
               const eventDateLocal = new Date(evY, evM - 1, evD);
               const todayLocal = new Date(); todayLocal.setHours(0, 0, 0, 0);
               const pastEvent = eventDateLocal < todayLocal;

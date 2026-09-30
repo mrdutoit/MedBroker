@@ -57,7 +57,8 @@ function toCsv(event, attendees) {
     a.attendedAt ? format(new Date(a.attendedAt), 'yyyy-MM-dd HH:mm') : '',
     format(new Date(a.registeredAt), 'yyyy-MM-dd HH:mm'),
   ]);
-  const esc = (v) => `"${String(v).replace(/"/g, '""')}"`;
+  // 30 Sep 2026 — prefix ' so spreadsheets don't run attendee-supplied values as formulas.
+  const esc = (v) => { let t = String(v); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return `"${t.replace(/"/g, '""')}"`; };
   return [header, ...rows].map(r => r.map(esc).join(',')).join('\n');
 }
 

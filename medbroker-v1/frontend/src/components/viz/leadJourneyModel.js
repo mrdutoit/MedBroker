@@ -4,6 +4,7 @@
  * with no React or DOM, so it's unit-tested (leadJourneyModel.test.js).
  * See LeadJourney.jsx's header for what each rule is for.
  */
+import { formatRand } from '../../utils/formatMoney.js';
 export const DAY = 86400000;
 export const HELD = new Set(['HeldInterested', 'HeldNotInterested']);
 const FRICTION = new Set(['Rescheduled', 'Cancelled', 'Missed']);
@@ -77,7 +78,7 @@ export function buildJourney(appt, todayDn) {
     const value = (appt.productsSold ?? []).reduce((t, p) => t + (p.value ?? 0), 0);
     const n = (appt.productsSold ?? []).length;
     outcome = { key: 'outcome', kind: 'outcome', tone: 'won', dn: closedDn, title: 'Signed',
-      detail: [value > 0 ? `R${(value / 1000000).toFixed(2)}m` : null, n > 0 ? plural(n, 'product') : null].filter(Boolean).join(', ') || null };
+      detail: [value > 0 ? formatRand(value) : null, n > 0 ? plural(n, 'product') : null].filter(Boolean).join(', ') || null };
   } else if (appt.status === 'ClosedLost') {
     outcome = { key: 'outcome', kind: 'outcome', tone: 'lost', dn: closedDn, title: 'Lost', detail: appt.lostReasonLabel ?? null };
   } else if (appt.status === 'ReturnedToLeads') {

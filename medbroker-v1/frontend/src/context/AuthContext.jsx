@@ -74,7 +74,7 @@ export function AuthProvider({ children }) {
       }
       return data; // caller can still check data.passwordMustChange directly too
     } catch (err) {
-      setError(err.body?.error ?? err.message ?? 'Login failed');
+      setError(err.message ?? 'Login failed'); // 30 Sep 2026 — always a string; body.error can be a zod object
       throw err;
     } finally {
       setLoading(false);
@@ -119,7 +119,7 @@ export function AuthProvider({ children }) {
       // to Microsoft, etc.) don't carry the same err.body?.error shape a
       // backend ApiError does — err.message still gives a reasonable
       // fallback either way.
-      setError(err.body?.error ?? err.message ?? 'Microsoft sign-in failed');
+      setError(err.message ?? 'Microsoft sign-in failed');
       throw err;
     } finally {
       setLoading(false);

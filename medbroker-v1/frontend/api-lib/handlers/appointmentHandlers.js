@@ -278,7 +278,7 @@ export async function handleAppointmentById(req, res, id) {
           }
           continue;
         }
-        if (appt[field] !== parsed.data[field]) {
+        if ((appt[field] ?? null) !== (parsed.data[field] ?? null)) { // 30 Sep 2026 — null and absent are both 'empty'
           changeDetail[field] = await sealChange(field, { from: appt[field] ?? null, to: parsed.data[field] ?? null }); // 30 Sep 2026 — sensitive values audited encrypted
         }
       }

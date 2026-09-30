@@ -185,7 +185,13 @@ export const CreateLeadSchema = CreateLeadShape.superRefine((data, ctx) => {
   }
 });
 
-export const UpdateLeadSchema = CreateLeadShape.partial().omit({
+// 30 Sep 2026 — I7: these optional fields can be cleared with null (update only; create stays non-null).
+const CLEARABLE_LEAD_FIELDS = ['whatsappNumber', 'hospitalOrPractice', 'policies', 'universityAttended', 'degreeAttained', 'yearOfAttendance', 'medicalAidProvider', 'currentInsurer'];
+const clearableShape = Object.fromEntries(
+  CLEARABLE_LEAD_FIELDS.map(f => [f, CreateLeadShape.shape[f].unwrap().nullable().optional()])
+);
+
+export const UpdateLeadSchema = CreateLeadShape.partial().extend(clearableShape).omit({
   leadSource: true,
   linkedEventId: true,
 });

@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { signInAs, watchErrors, expandMainForFullContent } from './fixtures.js';
+import { signInAs, watchErrors, expandMainForFullContent, mockApi } from './fixtures.js';
 
 /*
  * Regression tests for bugs that only a real browser could show — each
@@ -467,4 +467,45 @@ test('Lead Detail: a failed call save shows the error and does not open the book
   await page.getByRole('button', { name: /Save call & Book Appointment/ }).click();
   await expect(page.getByText('Lead is closed')).toBeVisible();
   await expect(page.getByRole('heading', { name: /Book Appointment/ })).toHaveCount(0);
+});
+
+test('Login: a server validation error shows a message and the form stays rendered (30 Sep 2026)', async ({ page }) => {
+  const errors = watchErrors(page);
+  await mockApi(page);
+  await page.route(/\/api\/auth\/login$/, route => route.fulfill({
+    status: 400, contentType: 'application/json',
+    body: JSON.stringify({ error: { formErrors: [], fieldErrors: { email: ['Invalid email'] } } }),
+  }));
+  await page.goto('/');
+  await page.locator('#login-email').fill('a@b.c');
+  await page.locator('#login-password').fill('whatever123');
+  await page.getByRole('button', { name: /^Sign in$/ }).click();
+  await expect(page.getByText('email: Invalid email')).toBeVisible();
+  await expect(page.locator('#login-email')).toBeVisible();
+  expect(errors.filter(e => e.startsWith('pageerror'))).toEqual([]);
+});
+
+test('Tasks: a failed create shows the error in the modal and keeps it open; "POPIA Request" is not offered (30 Sep 2026)', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.route(/\/api\/tasks$/, route => route.request().method() === 'POST'
+    ? route.fulfill({ status: 400, contentType: 'application/json', body: JSON.stringify({ error: 'Task rejected by server' }) })
+    : route.fallback());
+  // In-app navigation: a direct goto('/tasks') hits the known flag-default redirect (test.fail above).
+  await page.goto('/leads');
+  await page.getByRole('link', { name: /^Tasks/ }).first().click();
+  await page.getByRole('button', { name: /New Task/ }).click();
+  await expect(page.getByRole('heading', { name: 'New Task' })).toBeVisible();
+  await expect(page.locator('option', { hasText: 'POPIA Request' })).toHaveCount(0);
+  await page.getByPlaceholder('e.g. Follow up with Dr Smith').fill('Call back Dr Smith');
+  await page.getByRole('button', { name: /^(Create Task|Create|Save)/ }).click();
+  await expect(page.getByText('Task rejected by server')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'New Task' })).toBeVisible();
+});
+
+test('Agent typing /leads/new or /leads/import is sent back to the leads list (30 Sep 2026)', async ({ page }) => {
+  await signInAs(page, 'Agent');
+  for (const path of ['/leads/new', '/leads/import']) {
+    await page.goto(path);
+    await expect(page).toHaveURL(/\/leads$/);
+  }
 });

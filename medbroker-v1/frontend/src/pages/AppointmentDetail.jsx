@@ -799,7 +799,7 @@ function CloseAsLostModal({ appointment, onClose, onClosed }) {
 export default function AppointmentDetail() {
   const { id }          = useParams();
   const navigate        = useNavigate();
-  const { role, productsByPortfolio, displayName } = useRole();
+  const { role, productsByPortfolio, persona } = useRole();
   const { flag }        = useFlags();
   const { isMobile }    = useWindowSize();
 
@@ -1158,7 +1158,7 @@ export default function AppointmentDetail() {
           // broker IS whoever is logged in right now, so this is a
           // known value, not a guess — no refetch needed just to learn
           // our own name.
-          brokerName: result.brokerAssignedId ? displayName : prev.brokerName,
+          brokerName: result.brokerAssignedId ? persona.displayName : prev.brokerName,
         };
       });
       refetchAudit();
@@ -1251,16 +1251,16 @@ export default function AppointmentDetail() {
       // validation (idNumber's 13-digit regex, existingCover/medicalAid's
       // boolean type, the date/time regexes). Every field here starts as
       // '' or null when unset, so strip both rather than sending them.
-      const leadPayload = Object.fromEntries(
-        Object.entries(detailsForm)
-          .filter(([k]) => LEAD_DETAIL_FIELDS.includes(k))
-          .filter(([, v]) => v !== '' && v !== null)
+      // 30 Sep 2026 — I7: a clearable optional field the user emptied (it had a value) goes as null; other blanks are still stripped.
+      const CLEARABLE = ['whatsappNumber', 'hospitalOrPractice', 'policies', 'universityAttended', 'degreeAttained', 'yearOfAttendance', 'medicalAidProvider', 'currentInsurer'];
+      const toPayload = (fields) => Object.fromEntries(
+        Object.entries(detailsForm).filter(([k]) => fields.includes(k)).flatMap(([k, v]) => {
+          if (v !== '' && v !== null) return [[k, v]];
+          return CLEARABLE.includes(k) && (appt[k] ?? '') !== '' ? [[k, null]] : [];
+        })
       );
-      const apptPayload = Object.fromEntries(
-        Object.entries(detailsForm)
-          .filter(([k]) => APPOINTMENT_DETAIL_FIELDS.includes(k))
-          .filter(([, v]) => v !== '' && v !== null)
-      );
+      const leadPayload = toPayload(LEAD_DETAIL_FIELDS);
+      const apptPayload = toPayload(APPOINTMENT_DETAIL_FIELDS);
 
       // Two independent writes, two independent tables — genuinely
       // parallel, neither depends on the other's result. Both, one, or

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import './viz.css';
+import { formatRand } from '../../utils/formatMoney.js';
 
 /**
  * components/viz/ValueStroke.jsx — NEW, 27 Sep 2026 (app-design-pass,
@@ -33,7 +34,7 @@ function ramp(i, n) {
   return `color-mix(in srgb, var(--path-b) ${Math.round((1 - (t - 0.5) / 0.5) * 100)}%, var(--path-c))`;
 }
 const rand = v => `R${Math.round(v).toLocaleString('en-ZA')}`;
-const fmtM = v => `R${(v / 1000000).toFixed(2)}m`;
+const fmtM = formatRand;
 
 // variant (28 Sep 2026): 'hero' (default) is the dark signature panel;
 // 'plain' draws just the stroke and rows on the ambient page theme, for

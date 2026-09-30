@@ -341,7 +341,7 @@ export async function handleLeadById(req, res, id) {
             }
             continue;
           }
-          if (existing[field] !== parsed.data[field]) {
+          if ((existing[field] ?? null) !== (parsed.data[field] ?? null)) { // 30 Sep 2026 — null and absent are both 'empty'
             changeDetail[field] = await sealChange(field, { from: existing[field] ?? null, to: parsed.data[field] ?? null }); // 30 Sep 2026 — sensitive values audited encrypted
           }
         }
