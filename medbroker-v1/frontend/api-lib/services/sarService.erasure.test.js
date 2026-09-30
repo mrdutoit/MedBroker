@@ -18,6 +18,8 @@ vi.mock('./taskService.js', () => ({ createTask: vi.fn(), completeOpenSarTask: v
 
 import { executeQueryOne } from './db.js';
 import { writeAuditLog } from './auditService.js';
+import { createNotification } from './notificationService.js';
+import { createTask } from './taskService.js';
 import { eraseLeadPII } from './leadService.js';
 import { executeSarDeletion, assignSarRequest } from './sarService.js';
 
@@ -36,6 +38,14 @@ describe('executeSarDeletion', () => {
     const entry = writeAuditLog.mock.calls.map(([e]) => e).find((e) => e.action === 'SarDeletionExecuted');
     expect(entry.changeDetail).toMatchObject({ sarId: 'S1', leadId: 'L1', outcome: 'Erased' });
     expect(entry.changeDetail).not.toHaveProperty('leadName');
+  });
+
+  it('writes nothing naming the lead after erasure (no new tasks/notifications, no name in audit)', async () => {
+    createNotification.mockClear(); createTask.mockClear();
+    await executeSarDeletion('S1', 'admin');
+    expect(createNotification).not.toHaveBeenCalled();
+    expect(createTask).not.toHaveBeenCalled();
+    for (const [e] of writeAuditLog.mock.calls) expect(JSON.stringify(e)).not.toMatch(/Jo Soap/);
   });
 
   it('assignSarRequest writes a SarAssigned audit without leadName', async () => {

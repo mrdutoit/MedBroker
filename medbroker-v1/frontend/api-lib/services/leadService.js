@@ -1082,6 +1082,11 @@ async function scrubLeadFootprint(leadId, organisationId) {
     organisationId: { type: sql.UniqueIdentifier, value: organisationId },
   };
   const leadAppointments = `SELECT id::text FROM Appointment WHERE leadId::text = @leadId AND organisationId = @organisationId`;
+  const leadSars = `SELECT id::text FROM SubjectAccessRequest WHERE leadId::text = @leadId AND organisationId = @organisationId`;
+  // Tasks about the lead, its appointments or its SARs (SAR task titles name the lead; fix round 2).
+  const leadTaskScope = `(entityType = 'Lead' AND entityId::text = @leadId)
+       OR (entityType = 'Appointment' AND entityId::text IN (${leadAppointments}))
+       OR (entityType = 'SubjectAccessRequest' AND entityId::text IN (${leadSars}))`;
 
   // Soft-delete (the table has deletedAt), with the real email and hash replaced.
   await executeQuery(
@@ -1115,18 +1120,14 @@ async function scrubLeadFootprint(leadId, organisationId) {
   await executeQuery(
     `UPDATE TaskComment SET body = '[Erased]'
      WHERE organisationId = @organisationId AND taskId IN (
-       SELECT id FROM Task WHERE organisationId = @organisationId AND (
-         (entityType = 'Lead' AND entityId::text = @leadId)
-         OR (entityType = 'Appointment' AND entityId::text IN (${leadAppointments}))))`,
+       SELECT id FROM Task WHERE organisationId = @organisationId AND (${leadTaskScope}))`,
     params
   );
 
   // Kept (completed/appointment) task titles embed the lead's name, e.g. "Call back Jo Soap".
   await executeQuery(
     `UPDATE Task SET title = '[Erased]', detail = NULL, updatedAt = NOW()
-     WHERE organisationId = @organisationId AND (
-       (entityType = 'Lead' AND entityId::text = @leadId)
-       OR (entityType = 'Appointment' AND entityId::text IN (${leadAppointments})))`,
+     WHERE organisationId = @organisationId AND (${leadTaskScope})`,
     params
   );
 
@@ -1136,10 +1137,9 @@ async function scrubLeadFootprint(leadId, organisationId) {
      WHERE organisationId = @organisationId AND (
        (entityType = 'Lead' AND entityId = @leadId)
        OR (entityType = 'Appointment' AND entityId IN (${leadAppointments}))
+       OR (entityType = 'SubjectAccessRequest' AND entityId IN (${leadSars}))
        OR (entityType = 'Task' AND entityId IN (
-         SELECT id::text FROM Task WHERE organisationId = @organisationId AND (
-           (entityType = 'Lead' AND entityId::text = @leadId)
-           OR (entityType = 'Appointment' AND entityId::text IN (${leadAppointments}))))))`,
+         SELECT id::text FROM Task WHERE organisationId = @organisationId AND (${leadTaskScope}))))`,
     params
   );
 
@@ -1166,7 +1166,7 @@ async function scrubLeadFootprint(leadId, organisationId) {
   const sarRows = await executeQuery(
     `SELECT id, changeDetail AS "changeDetail" FROM AuditLog
      WHERE organisationId = @organisationId AND changeDetail IS NOT NULL AND entityType = 'SubjectAccessRequest'
-       AND entityId IN (SELECT id::text FROM SubjectAccessRequest WHERE leadId::text = @leadId AND organisationId = @organisationId)`,
+       AND entityId IN (${leadSars})`,
     params
   );
   await rewriteAuditRows(sarRows, (d) => scrubAuditDetail(d, { nameOnly: true }));

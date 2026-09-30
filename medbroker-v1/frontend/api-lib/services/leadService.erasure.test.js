@@ -131,6 +131,25 @@ describe('eraseLeadPII — fix round 1', () => {
   });
 });
 
+describe('eraseLeadPII — fix round 2 (SAR operational artefacts)', () => {
+  it('blanks titles/detail and comments of this lead\'s SAR tasks', async () => {
+    await eraseLeadPII('L1');
+    const sarScope = /entityType = 'SubjectAccessRequest' AND entityId::text IN \(SELECT id::text FROM SubjectAccessRequest WHERE leadId::text = @leadId AND organisationId = @organisationId\)/;
+    const [task] = find(/UPDATE Task SET title = '\[Erased\]', detail = NULL/i);
+    expect(task.query).toMatch(sarScope);
+    const [comment] = find(/UPDATE TaskComment SET body/i);
+    expect(comment.query).toMatch(sarScope);
+  });
+
+  it('deletes notifications on this lead\'s SARs and on their tasks', async () => {
+    await eraseLeadPII('L1');
+    const [c] = find(/DELETE FROM Notification/i);
+    expect(c.query).toMatch(/entityType = 'SubjectAccessRequest' AND entityId IN \(SELECT id::text FROM SubjectAccessRequest WHERE leadId::text = @leadId/);
+    // Task-typed notifications reuse the same task scope, SAR tasks included.
+    expect(c.query).toMatch(/entityType = 'Task' AND entityId IN \([\s\S]*'SubjectAccessRequest'/);
+  });
+});
+
 describe('scrubAuditDetail', () => {
   it('nameOnly drops leadName and leaves other keys, including notes and requestor details', () => {
     expect(scrubAuditDetail({ leadName: 'Jo', notes: 'n', requestorName: 'Jo', email: { from: 'a', to: 'b' } }, { nameOnly: true }))
