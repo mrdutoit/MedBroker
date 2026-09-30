@@ -31,6 +31,10 @@ describe('stripSealed', () => {
     expect(stripSealed({ idNumber: { changed: true, sealed: 'x' }, email: { from: 'a', to: 'b' } }))
       .toEqual({ idNumber: { changed: true }, email: { from: 'a', to: 'b' } });
   });
+  it('reduces legacy plaintext sensitive entries to { changed: true }', () => {
+    expect(stripSealed({ idNumber: { from: '9403140000000', to: '9403145000000' }, email: { from: 'a', to: 'b' } }))
+      .toEqual({ idNumber: { changed: true }, email: { from: 'a', to: 'b' } });
+  });
   it('passes null and non-objects through', () => {
     expect(stripSealed(null)).toBe(null);
   });

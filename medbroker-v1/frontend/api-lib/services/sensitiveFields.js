@@ -13,7 +13,11 @@ export async function sealChange(field, change) {
   return { changed: true, sealed: await encrypt(JSON.stringify({ from: change.from, to: change.to })) };
 }
 
-/** Copy of a changeDetail with every field entry's `sealed` key removed. */
+/**
+ * Copy of a changeDetail safe to show: `sealed` removed, and (30 Sep 2026)
+ * any sensitive field still in legacy plaintext { from, to } form reduced
+ * to { changed: true } so pre-fix audit rows never leak values either.
+ */
 export function stripSealed(changeDetail) {
   if (!changeDetail || typeof changeDetail !== 'object') return changeDetail;
   const out = {};
@@ -21,7 +25,7 @@ export function stripSealed(changeDetail) {
     if (k === 'sealed') continue;
     if (v && typeof v === 'object' && !Array.isArray(v)) {
       const { sealed, ...rest } = v;
-      out[k] = rest;
+      out[k] = SENSITIVE_LEAD_FIELDS.includes(k) && ('from' in rest || 'to' in rest) ? { changed: true } : rest;
     } else out[k] = v;
   }
   return out;
