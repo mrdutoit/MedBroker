@@ -13,7 +13,8 @@ import {
 } from '../services/appointmentService.js';
 import { findMatchingBrokers } from '../services/brokerMatchingService.js';
 import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById, getActiveUserById } from '../services/userService.js';
-import { getLeadDisplayNameById } from '../services/leadService.js';
+import { getLeadDisplayNameById, getLeadById } from '../services/leadService.js';
+import { assertAppointmentAccess, assertLeadBookable } from './appointmentAccess.js';
 import { writeAuditLog, clientIp, listAuditLogForAppointment } from '../services/auditService.js';
 import { getCurrentTokenLedger, manualTopUp, listTokenTransactions, creditPurchasedTokens } from '../services/tokenService.js';
 import { getSystemConfig } from '../services/systemConfigService.js';
@@ -115,6 +116,11 @@ export async function handleAppointmentsCollection(req, res) {
       const parsed = CreateAppointmentSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
+      // 30 Sep 2026 — an Agent/Supervisor may only book on a lead in their own scope.
+      const lead = await getLeadById(parsed.data.leadId);
+      if (!lead) return res.status(404).json({ error: 'Lead not found' });
+      await assertLeadBookable(claims, lead);
+
       const newId = await createAppointment(parsed.data);
 
       await writeAuditLog({
@@ -163,18 +169,7 @@ export async function handleAppointmentById(req, res, id) {
     const appt = await getAppointmentById(id);
     if (!appt) return res.status(404).json({ error: 'Appointment not found' });
 
-    if (isAgentOnly(claims.roles) && appt.agentId !== claims.oid) {
-      return res.status(403).json({ error: 'You did not book this appointment' });
-    }
-    if (claims.roles.includes('Broker') && !claims.roles.includes('Admin') && !claims.roles.includes('GlobalAdmin') && appt.brokerId !== claims.oid) {
-      return res.status(403).json({ error: 'This appointment is not assigned to you' });
-    }
-    if (isSupervisorOnly(claims.roles)) {
-      const directReports = await getDirectReportIds(claims.oid);
-      if (!directReports.includes(appt.agentId) && appt.agentId !== claims.oid) {
-        return res.status(403).json({ error: 'This appointment is outside your team' });
-      }
-    }
+    await assertAppointmentAccess(claims, appt);
 
     if (req.method === 'GET') {
       return res.status(200).json(appt);
@@ -333,6 +328,10 @@ export async function handleAppointmentAssign(req, res, id) {
     const parsed = AssignBrokerSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
+    const existing = await getAppointmentById(id);
+    if (!existing) return res.status(404).json({ error: 'Appointment not found' });
+    await assertAppointmentAccess(claims, existing);
+
     await assignBroker(id, parsed.data.brokerId);
 
     await writeAuditLog({
@@ -374,9 +373,18 @@ export async function handleAppointmentReassign(req, res, id) {
 
     const existing = await getAppointmentById(id);
     if (!existing) return res.status(404).json({ error: 'Appointment not found' });
+    await assertAppointmentAccess(claims, existing);
 
     const parsed = ReassignAppointmentSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    // 30 Sep 2026 — a Supervisor can't hand an appointment to an agent outside their team.
+    if (parsed.data.agentId && isSupervisorOnly(claims.roles)) {
+      const directReports = await getDirectReportIds(claims.oid);
+      if (parsed.data.agentId !== claims.oid && !directReports.includes(parsed.data.agentId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
 
     await reassignAppointment(id, parsed.data);
 
@@ -420,6 +428,10 @@ export async function handleAppointmentReturn(req, res, id) {
 
     if (!isUuid(id)) return res.status(400).json({ error: 'Invalid appointment ID format' });
 
+    const existing = await getAppointmentById(id);
+    if (!existing) return res.status(404).json({ error: 'Appointment not found' });
+    await assertAppointmentAccess(claims, existing);
+
     await returnToLeads(id);
 
     await writeAuditLog({
@@ -461,6 +473,10 @@ export async function handleAppointmentReopen(req, res, id) {
 
     if (!isUuid(id)) return res.status(400).json({ error: 'Invalid appointment ID format' });
 
+    const existing = await getAppointmentById(id);
+    if (!existing) return res.status(404).json({ error: 'Appointment not found' });
+    await assertAppointmentAccess(claims, existing);
+
     await reopenAppointment(id);
 
     await writeAuditLog({
@@ -499,18 +515,7 @@ export async function handleAppointmentAudit(req, res, id) {
     const appt = await getAppointmentById(id);
     if (!appt) return res.status(404).json({ error: 'Appointment not found' });
 
-    if (isAgentOnly(claims.roles) && appt.agentId !== claims.oid) {
-      return res.status(403).json({ error: 'You did not book this appointment' });
-    }
-    if (claims.roles.includes('Broker') && !claims.roles.includes('Admin') && !claims.roles.includes('GlobalAdmin') && appt.brokerId !== claims.oid) {
-      return res.status(403).json({ error: 'This appointment is not assigned to you' });
-    }
-    if (isSupervisorOnly(claims.roles)) {
-      const directReports = await getDirectReportIds(claims.oid);
-      if (!directReports.includes(appt.agentId) && appt.agentId !== claims.oid) {
-        return res.status(403).json({ error: 'This appointment is outside your team' });
-      }
-    }
+    await assertAppointmentAccess(claims, appt);
 
     // 19 Aug 2026 — merged with the Lead's own history (Mark's explicit
     // request); see listAuditLogForAppointment's own comment
@@ -545,6 +550,7 @@ export async function handleAppointmentOutcome(req, res, id) {
 
     const existing = await getAppointmentById(id);
     if (!existing) return res.status(404).json({ error: 'Appointment not found' });
+    await assertAppointmentAccess(claims, existing);
 
     const parsed = SaveOutcomeSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -605,6 +611,10 @@ export async function handleSaveMeetingAttempt(req, res, id, attemptId) {
     requireRole(claims, ['Agent', 'Supervisor', 'Admin', 'GlobalAdmin', 'Broker']);
 
     if (!isUuid(id) || !isUuid(attemptId)) return res.status(400).json({ error: 'Invalid ID format' });
+
+    const existing = await getAppointmentById(id);
+    if (!existing) return res.status(404).json({ error: 'Appointment not found' });
+    await assertAppointmentAccess(claims, existing);
 
     const parsed = SaveMeetingAttemptSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
