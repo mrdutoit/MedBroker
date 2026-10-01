@@ -607,8 +607,8 @@ function ReturnToLeadsModal({ appointment, onClose, onReturned }) {
       await appointmentsApi.returnToLeads(appointment.id);
       setDone(true);
       setTimeout(onReturned, 900);
-    } catch {
-      setError('Could not return this appointment. Please try again.');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not return this appointment. Please try again.');
       setReturning(false);
     }
   }

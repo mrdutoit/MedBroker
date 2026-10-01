@@ -199,7 +199,8 @@ export async function handleAppointmentById(req, res, id) {
     // no status check of its own before this.
     // 30 Sep 2026 — ReturnedToLeads now locked too (owner rule: closed is
     // immutable; reassign/assign refuse it, so the old exemption no longer
-    // holds). 409 to match the other closed-record guards.
+    // holds). Locked appointment answers 409 (other closed-record
+    // paths, e.g. saveOutcome, still answer 400).
     if (['ClosedWon', 'ClosedLost', 'ReturnedToLeads'].includes(appt.status)) {
       return res.status(409).json({ error: 'This appointment is closed and locked. Reopen it before editing.' });
     }

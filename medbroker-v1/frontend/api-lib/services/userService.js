@@ -801,10 +801,10 @@ export async function getUserByEntraObjectId(entraObjectId) {
 }
 
 /**
- * Look up a user by email for SSO first-login matching (case-insensitive,
- * matches the UQ_User_Email constraint's own case sensitivity — Postgres
- * treats email as case-sensitive on the unique index, so this deliberately
- * ILIKEs to find a match a case-differing SSO claim would otherwise miss).
+ * Look up a user by email for SSO first-login matching.
+ * 30 Sep 2026 — matches case-insensitively with LOWER(email) = LOWER(@email).
+ * Must NOT use ILIKE/LIKE: wildcards (`_`, `%`) in an email would match
+ * other accounts.
  * Also returns entraObjectId so the caller can tell a genuinely-unlinked
  * row (auto-link safe) apart from one already linked to a DIFFERENT
  * identity (a real mismatch — reject, don't silently relink).
