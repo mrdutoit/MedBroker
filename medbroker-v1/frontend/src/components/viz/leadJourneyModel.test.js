@@ -42,6 +42,14 @@ describe('buildJourney', () => {
     expect(j.subtitle).toBe('Booked by Thandi Mokoena on day 7. Two meetings held with Werner Hattingh, with 1 cancellation along the way. R1.24m, 3 products.');
   });
 
+  it('signed value under R1m reads as k, not R0.xxm', () => {
+    const j = buildJourney({
+      ...base, status: 'ClosedWon', leadCreatedAt: '2026-08-04', bookedAt: '2026-08-11', closedAt: '2026-08-29T10:00:00Z',
+      productsSold: [{ product: 'A', value: 920000 }], meetingAttempts: [],
+    }, T);
+    expect(j.events.at(-1).detail).toBe('R920k, 1 product');
+  });
+
   it('lost with no meeting ever held: markers only, reason in the subtitle', () => {
     const j = buildJourney({
       ...base, status: 'ClosedLost', lostReasonLabel: 'Chose a competitor', leadCreatedAt: '2026-08-20', bookedAt: '2026-08-22', closedAt: '2026-09-08',

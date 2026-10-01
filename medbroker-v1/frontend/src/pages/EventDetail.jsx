@@ -23,6 +23,7 @@ import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch } from '../hooks/useFetch.js';
 import { useRole } from '../context/RoleContext.jsx';
 import { eventsApi } from '../services/api.js';
+import { csvEscape } from '../utils/csv.js';
 import { TITLES, JOB_TITLES } from '../constants/leadOptions.js';
 
 // Mirrors ALLOWED_STATUS_TRANSITIONS in api-lib/models/event.js — kept as a
@@ -57,9 +58,7 @@ function toCsv(event, attendees) {
     a.attendedAt ? format(new Date(a.attendedAt), 'yyyy-MM-dd HH:mm') : '',
     format(new Date(a.registeredAt), 'yyyy-MM-dd HH:mm'),
   ]);
-  // 30 Sep 2026 — prefix ' so spreadsheets don't run attendee-supplied values as formulas.
-  const esc = (v) => { let t = String(v); if (/^[=+\-@\t\r]/.test(t)) t = "'" + t; return `"${t.replace(/"/g, '""')}"`; };
-  return [header, ...rows].map(r => r.map(esc).join(',')).join('\n');
+  return [header, ...rows].map(r => r.map(csvEscape).join(',')).join('\n');
 }
 
 function AddAttendeeModal({ eventId, onClose, onSaved }) {

@@ -17,6 +17,7 @@ import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useFetch } from '../hooks/useFetch.js';
 import { useRole } from '../context/RoleContext.jsx';
 import { eventsApi } from '../services/api.js';
+import { isPastEventDate } from '../utils/eventDate.js';
 
 const STATUS_STYLE = {
   Draft:     { bg: 'var(--panel2)', text: 'var(--mut)', border: 'var(--line)' },
@@ -107,10 +108,7 @@ export default function EventList() {
               // dates directly (year/month/day, both in local time) avoids
               // the whole class of error — same root cause and fix as
               // Tasks.jsx's daysUntil().
-              const [evY, evM, evD] = String(event.eventDate).slice(0, 10).split('-').map(Number);
-              const eventDateLocal = new Date(evY, evM - 1, evD);
-              const todayLocal = new Date(); todayLocal.setHours(0, 0, 0, 0);
-              const pastEvent = eventDateLocal < todayLocal;
+              const pastEvent = isPastEventDate(event.eventDate);
               const attendanceRate = event.rsvpCount > 0
                 ? Math.round((event.attendedCount / event.rsvpCount) * 100)
                 : 0;
