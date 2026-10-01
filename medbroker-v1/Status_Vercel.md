@@ -469,8 +469,12 @@ SQL for erasure, token credit and migration 039 verified on PGlite with the
 real schema; not yet run on Neon.
 
 DELIVERY: git branch fix/code-review-20260930, commits main..HEAD
-(22 commits (f970902..0819fbc) plus the docs and final-fix commits). Migration:
-frontend/db/migrations/039_event_attendee_partial_unique.sql. No ZIP.
+(22 commits (f970902..0819fbc) plus the docs and final-fix commits). Migration
+039 (DROP CONSTRAINT IF EXISTS UQ_EventAttendee; CREATE UNIQUE INDEX IF NOT
+EXISTS UQ_EventAttendee_active ON EventAttendee(eventId, leadId) WHERE
+deletedAt IS NULL) — run by hand on Neon, file then removed from the repo
+per the standing pattern (1 Oct 2026); schema.postgres.sql carries the
+partial index. No ZIP.
 New script: frontend/scripts/seal-legacy-audit-values.js. Deploy steps as
 listed in section 0.
 
