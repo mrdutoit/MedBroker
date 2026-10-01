@@ -1,3 +1,8 @@
 node_modules/
 dist/
 .env
+.DS_Store
+.env.*
+.vercel/
+playwright-report/
+test-results/
