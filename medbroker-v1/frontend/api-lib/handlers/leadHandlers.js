@@ -604,8 +604,9 @@ export async function handleLeadAudit(req, res, id) {
     // auditService.listAuditLogForLead()'s own header). This function's
     // UNION is what keeps SAR actions visible in a Lead's own Change Log
     // without it — access control for THIS lead was already checked
-    // above (agent/supervisor scoping), so this swap doesn't change who
-    // can see anything, only what's included once they're allowed to look.
+    // above (agent/supervisor scoping), so the lead scope check is
+    // unchanged. 1 Oct 2026 — what's included once they're allowed to look
+    // now also covers this lead's appointments' change-log entries.
     const entries = await listAuditLogForLead(id);
     return res.status(200).json({ entries });
 

@@ -102,8 +102,38 @@ const LEADS = { leads: [
 ], total: 5 };
 
 const APPOINTMENTS = { appointments: [
-  { id: 'appt-1', leadId: 'lead-2', firstName: 'Priya', lastName: 'Naidoo', status: 'Assigned', firstAppointmentDate: day(-2), firstAppointmentTime: '10:00', portfolio: 'Discovery' },
+  { id: 'appt-1', leadId: 'lead-2', firstName: 'Priya', lastName: 'Naidoo', status: 'Assigned', firstAppointmentDate: day(-2), firstAppointmentTime: '10:00', portfolio: 'Discovery', createdAt: iso(19) },
 ], total: 1 };
+
+// 1 Oct 2026 — Lead Detail's journey: lead-2 (the lead the Lead Detail tests
+// open) as GET /leads/:id returns it, with four calls before APPOINTMENT_DETAIL's
+// booking (19 days ago) — two not reached, then a callback, then booked.
+// createdAt matches APPOINTMENT_DETAIL.leadCreatedAt so both journeys agree.
+const LEAD_DETAIL = { ...LEADS.leads[1], portfolios: ['Discovery'], products: ['Life Insurance'],
+  createdAt: iso(26), updatedAt: iso(19), agentName: 'Thandi Mokoena' };
+const LEAD_CALLS = { calls: [
+  { id: 'call-4', outcome: 'AppointmentScheduled', attemptedAt: iso(19), callbackDateTime: null, notes: null },
+  { id: 'call-3', outcome: 'CallbackRequested', attemptedAt: iso(21), callbackDateTime: iso(20), notes: null },
+  { id: 'call-2', outcome: 'Voicemail', attemptedAt: iso(23), callbackDateTime: null, notes: null },
+  { id: 'call-1', outcome: 'NoAnswer', attemptedAt: iso(25), callbackDateTime: null, notes: null },
+] };
+
+// 1 Oct 2026 — lead-2's History (GET /leads/:id/audit): one row per
+// category, matching LEAD_CALLS and APPOINTMENT_DETAIL above — created and
+// assigned, four calls, the booking and a meeting from the appointment's own
+// change log (entityType Appointment), and an edit with a sealed ID number.
+const at = (daysAgo, mins = 0) => new Date(today.getTime() - daysAgo * 86400000 + mins * 60000).toISOString();
+const LEAD_AUDIT = { entries: [
+  { id: 'au-1', entityType: 'Lead', entityId: 'lead-2', action: 'LeadCreated', performedAt: at(26), performedByName: 'Mark du Toit', changeDetail: null },
+  { id: 'au-2', entityType: 'Lead', entityId: 'lead-2', action: 'LeadAssigned', performedAt: at(26, 5), performedByName: 'Mark du Toit', changeDetail: { agentName: 'Thandi Mokoena' } },
+  { id: 'au-3', entityType: 'Lead', entityId: 'lead-2', action: 'CallLogged', performedAt: at(25), performedByName: 'Thandi Mokoena', changeDetail: { outcome: 'NoAnswer' } },
+  { id: 'au-4', entityType: 'Lead', entityId: 'lead-2', action: 'CallLogged', performedAt: at(23), performedByName: 'Thandi Mokoena', changeDetail: { outcome: 'Voicemail' } },
+  { id: 'au-5', entityType: 'Lead', entityId: 'lead-2', action: 'CallLogged', performedAt: at(21), performedByName: 'Thandi Mokoena', changeDetail: { outcome: 'CallbackRequested' } },
+  { id: 'au-6', entityType: 'Lead', entityId: 'lead-2', action: 'LeadUpdated', performedAt: at(20), performedByName: 'Thandi Mokoena', changeDetail: { idNumber: { changed: true }, email: { from: 'priya@old.example.com', to: 'priya.naidoo@example.com' } } },
+  { id: 'au-7', entityType: 'Lead', entityId: 'lead-2', action: 'CallLogged', performedAt: at(19), performedByName: 'Thandi Mokoena', changeDetail: { outcome: 'AppointmentScheduled' } },
+  { id: 'au-8', entityType: 'Appointment', entityId: 'appt-1', action: 'AppointmentCreated', performedAt: at(19, 10), performedByName: 'Thandi Mokoena', changeDetail: null },
+  { id: 'au-9', entityType: 'Appointment', entityId: 'appt-1', action: 'MeetingAttemptSaved', performedAt: at(12), performedByName: 'Werner Hattingh', changeDetail: { meetingNumber: 1, status: 'HeldInterested' } },
+] };
 
 const APPOINTMENT_DETAIL = {
   id: 'appt-1', leadId: 'lead-2', firstName: 'Priya', lastName: 'Naidoo', dateOfBirth: '1985-04-12',
@@ -227,7 +257,9 @@ function routes() {
     }],
     ['GET', /^\/reports\/closed-won-by-product/, { rows: [] }],
     ['GET', /^\/leads\/portfolios/, PORTFOLIOS],
-    ['GET', /^\/leads\/[^/]+$/, { ...LEADS.leads[1], portfolios: ['Discovery'], products: ['Life Insurance'] }],
+    ['GET', /^\/leads\/[^/]+\/calls$/, LEAD_CALLS],
+    ['GET', /^\/leads\/[^/]+\/audit$/, LEAD_AUDIT],
+    ['GET', /^\/leads\/[^/]+$/, LEAD_DETAIL],
     ['GET', /^\/leads/, LEADS],
     ['GET', /^\/appointments\/[^/]+$/, APPOINTMENT_DETAIL],
     ['GET', /^\/appointments/, APPOINTMENTS],

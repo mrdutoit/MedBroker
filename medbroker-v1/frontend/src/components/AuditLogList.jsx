@@ -16,25 +16,11 @@
  */
 
 import { format } from 'date-fns';
+import { LOST_REASON_LABELS } from '../constants/appointmentOptions.js';
 
-// 24 Aug 2026 — mirrors the same enum's dropdown copies in
-// AppointmentDetail.jsx and Reports.jsx exactly (Appointment.lostReason,
-// migration 030, CHECK-constrained). Kept as its own small local map here
-// rather than imported from either — same "short, static, manually
-// synced" reasoning already established for this enum's other two copies.
-const LOST_REASON_LABELS = {
-  PriceTooHigh:       'Price too high',
-  ChoseCompetitor:    'Chose a competitor',
-  NoLongerInterested: 'No longer interested',
-  Uncontactable:      'Uncontactable',
-  NotEligible:        'Not eligible',
-  Other:              'Other',
-  // 24 Aug 2026 (migration 038) — see Reports.jsx's own copy of this map
-  // for the full reasoning; same label, kept in sync manually.
-  ConsentWithdrawn:   'Consent withdrawn (POPIA)',
-};
-
-const ACTION_LABELS = {
+// 1 Oct 2026 — LOST_REASON_LABELS imported from the shared constants (identical
+// values); these three exported for Lead Detail's History timeline (history/historyModel.js).
+export const ACTION_LABELS = {
   LeadCreated:                 'Lead created',
   LeadAssigned:                'Lead assigned to an agent',
   LeadReassigned:               'Lead reassigned to a different agent',
@@ -65,9 +51,62 @@ const ACTION_LABELS = {
   // builds the real message from changeDetail.lostReason, same pattern
   // as the entries immediately above.
   AppointmentClosedForErasure: 'Closed — POPIA request',
+  // 1 Oct 2026 — every other action api-lib writes, so no Change Log or
+  // History entry ever shows a raw action name (AuditLogList.test.js scans
+  // api-lib for new ones). These can reach a lead's or appointment's log:
+  AppointmentReopened:         'Appointment reopened after Closed Lost',
+  AppointmentClaimed:          'Claimed by broker',
+  MeetingAttemptSaved:         'Meeting outcome recorded',
+  SarRequestCreated:           'POPIA request created',
+  SarStatusChanged:            'POPIA request status changed',
+  SarAssigned:                 'POPIA request assigned',
+  SarDataExported:             'POPIA data exported',
+  PortalRegistration:          'Registered on the portal',
+  PortalAccountActivated:      'Portal account activated',
+  PortalProfileUpdated:        'Updated their details on the portal',
+  // ...and these belong to other entities (events, tasks, users, settings):
+  AttendeeAdded:               'Attendee added',
+  AttendeeRemoved:             'Attendee removed',
+  AttendeeCheckedIn:           'Attendee checked in',
+  AttendeeCheckInReverted:     'Attendee check-in undone',
+  PortalCheckedIn:             'Checked in on the portal',
+  PortalWalkInCheckedIn:       'Walk-in checked in on the portal',
+  EventCreated:                'Event created',
+  EventStatusChanged:          'Event status changed',
+  FeatureFlagUpdated:          'Feature flag updated',
+  IntegrationCredentialUpdated: 'Integration credentials updated',
+  SystemConfigUpdated:         'System settings updated',
+  MedicalSubscriptionCreated:  'Medical subscription created',
+  PortfolioCreated:            'Portfolio created',
+  PortfolioDeleted:            'Portfolio deleted',
+  PortfolioStatusChanged:      'Portfolio status changed',
+  ProductCreated:              'Product created',
+  ProductDeleted:              'Product deleted',
+  ProductStatusChanged:        'Product status changed',
+  TaskCreated:                 'Task created',
+  TaskUpdated:                 'Task updated',
+  TaskCompleted:               'Task completed',
+  TaskReopened:                'Task reopened',
+  TaskDeleted:                 'Task deleted',
+  TaskAutoCompleted:           'Task completed automatically',
+  TokenManualTopUp:            'Tokens topped up',
+  TokenStripeCredited:         'Tokens credited (Stripe payment)',
+  TokenPaystackCredited:       'Tokens credited (Paystack payment)',
+  UserCreated:                 'User created',
+  UserUpdated:                 'User updated',
+  UserDeactivated:             'User deactivated',
+  UserReactivated:             'User reactivated',
+  UserUnlocked:                'User unlocked',
+  UserSessionsRevoked:         'User signed out everywhere',
+  UserEmailCorrected:          'User email corrected',
+  UserIdentityLinked:          'Sign-in identity linked',
+  UserIdentityUnlinked:        'Sign-in identity unlinked',
+  SsoUserJitProvisioned:       'User created on first sign-in',
+  PasswordForceReset:          'Password reset forced',
+  ProfileUpdated:              'Profile updated',
 };
 
-const FIELD_LABELS = {
+export const FIELD_LABELS = {
   dateOfBirth: 'Date of Birth', email: 'Email', mobileNumber: 'Contact Number',
   whatsappNumber: 'WhatsApp', universityAttended: 'University', yearOfAttendance: 'Year',
   degreeAttained: 'Degree', occupation: 'Job Title', hospitalOrPractice: 'Hospital / Practice',
@@ -86,7 +125,7 @@ const FIELD_LABELS = {
   idNumber: 'ID Number',
 };
 
-function describeEntry(entry) {
+export function describeEntry(entry) {
   const label = ACTION_LABELS[entry.action] ?? entry.action;
   const detail = entry.changeDetail;
   if (!detail) return label;

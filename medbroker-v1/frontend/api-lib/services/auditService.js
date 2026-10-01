@@ -89,31 +89,47 @@ export async function listAuditLog(entityType, entityId) {
  * compiled export (sarService.compileSubjectData) — via a UNION at READ
  * time instead of a second WRITE at write time.
  *
- * Same shape and DESC ordering as listAuditLog() above (most recent
- * first — right for a UI history list); compileSubjectData wants
- * chronological order for its export narrative and reverses this array
- * itself rather than this function needing a second, ASC-ordered
- * version of the same query.
+ * 1 Oct 2026 — also returns the change log of the lead's appointments
+ * (entityType 'Appointment', matched via Appointment.leadId), so the
+ * lead's History shows appointment activity too.
+ *
+ * Same columns as listAuditLog() above plus entityType and entityId on
+ * every row, in DESC order (most recent first — right for a UI history
+ * list); compileSubjectData wants chronological order for its export
+ * narrative and reverses this array itself rather than this function
+ * needing a second, ASC-ordered version of the same query.
  * @param {string} leadId
- * @returns {Promise<Array>}
+ * @returns {Promise<Array>} rows with entityType ('Lead' |
+ *   'SubjectAccessRequest' | 'Appointment') and entityId (text)
  */
 export async function listAuditLogForLead(leadId) {
   const organisationId = resolveOrganisationId();
   const rows = await executeQuery(
     `SELECT al.id, al.action, al.changeDetail AS "changeDetail",
             al.performedAt AS "performedAt", al.performedById AS "performedById",
-            u.displayName AS "performedByName"
+            u.displayName AS "performedByName",
+            al.entityType AS "entityType", al.entityId AS "entityId"
      FROM AuditLog al
      LEFT JOIN "User" u ON al.performedById = u.id
      WHERE al.entityType = 'Lead' AND al.entityId = @leadId::text AND al.organisationId = @organisationId
      UNION ALL
      SELECT al.id, al.action, al.changeDetail AS "changeDetail",
             al.performedAt AS "performedAt", al.performedById AS "performedById",
-            u.displayName AS "performedByName"
+            u.displayName AS "performedByName",
+            al.entityType AS "entityType", al.entityId AS "entityId"
      FROM AuditLog al
      LEFT JOIN "User" u ON al.performedById = u.id
      JOIN SubjectAccessRequest sar ON al.entityType = 'SubjectAccessRequest' AND al.entityId = sar.id::text
      WHERE sar.leadId = @leadId::uuid AND al.organisationId = @organisationId
+     UNION ALL
+     SELECT al.id, al.action, al.changeDetail AS "changeDetail",
+            al.performedAt AS "performedAt", al.performedById AS "performedById",
+            u.displayName AS "performedByName",
+            al.entityType AS "entityType", al.entityId AS "entityId"
+     FROM AuditLog al
+     LEFT JOIN "User" u ON al.performedById = u.id
+     WHERE al.entityType = 'Appointment' AND al.entityId IN (SELECT id::text FROM Appointment WHERE leadId = @leadId::uuid AND organisationId = @organisationId)
+       AND al.organisationId = @organisationId
      ORDER BY "performedAt" DESC`,
     {
       leadId:         { type: sql.UniqueIdentifier, value: leadId },

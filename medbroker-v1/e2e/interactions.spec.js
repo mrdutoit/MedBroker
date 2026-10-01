@@ -380,6 +380,134 @@ test('Appointment Detail journey: headline, stretches, and a friction marker wit
   expect(errors).toEqual([]);
 });
 
+// ── Lead Detail journey, 1 Oct 2026 ─────────────────────────────────────
+
+test('Lead Detail journey: headline, calls, bands, legend, and a call dot with its detail card', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/leads/lead-2');
+  const hero = page.getByRole('region', { name: 'Priya Naidoo’s journey' });
+  await expect(hero.getByRole('heading', { name: /^Day 26: second meeting on \d{1,2} [A-Z][a-z]{2}$/ })).toBeVisible();
+  await expect(hero.getByText('Reached on the third of four calls and booked by Thandi Mokoena on day 7. One meeting held with Werner Hattingh, with 1 reschedule along the way.')).toBeVisible();
+  await expect(hero.locator('.lpj-call')).toHaveCount(4);
+  await expect(hero.locator('.lpj-band-text', { hasText: 'With the agent · 7 days' })).toBeVisible();
+  await expect(hero.locator('.lpj-band-text', { hasText: 'With the broker · Werner Hattingh · 19 days so far' })).toBeVisible();
+  const legend = hero.getByLabel('Legend');
+  for (const t of ['Call, reached', 'Call, not reached', 'Rescheduled, cancelled or no-show', 'Still to come']) await expect(legend).toContainText(t);
+  const call3 = hero.getByRole('button', { name: /^Call 3, .*, day 5, Callback requested$/ });
+  await call3.hover();
+  const card = hero.locator('.mbv-tip');
+  await expect(card).toContainText('Call 3');
+  await expect(card).toContainText('Callback requested');
+  await call3.blur();
+  await page.mouse.move(0, 0);
+  await hero.getByRole('button', { name: /^Call 1, / }).focus();
+  await expect(card).toContainText('No answer');
+  expect(errors).toEqual([]);
+});
+
+test('Lead Detail journey: a lead back with the agent after a lost appointment keeps an open journey (1 Oct 2026)', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  const ago = d => new Date(Date.now() - d * 86400000).toISOString();
+  // lead-2 is Assigned in the fixtures; its latest appointment was lost 5 days ago.
+  await page.route(/\/api\/appointments\/appt-1$/, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+    id: 'appt-1', leadId: 'lead-2', firstName: 'Priya', lastName: 'Naidoo', status: 'ClosedLost', lostReason: 'ChoseCompetitor',
+    leadCreatedAt: ago(26), createdAt: ago(19), updatedAt: ago(5), closedAt: ago(5),
+    agentName: 'Thandi Mokoena', brokerName: 'Werner Hattingh', productsSold: [],
+    meetingAttempts: [{ id: 'ma1', meetingNumber: 1, status: 'HeldNotInterested', date: ago(12).slice(0, 10), createdAt: ago(12), cancelReason: null, notes: null }],
+  }) }));
+  await page.goto('/leads/lead-2');
+  const hero = page.getByRole('region', { name: 'Priya Naidoo’s journey' });
+  await expect(hero.getByRole('heading', { name: 'Day 26, back with the agent' })).toBeVisible();
+  await expect(hero.getByRole('button', { name: /^Lost: Chose a competitor, / })).toBeAttached();
+  await expect(hero.locator('.lpj-band-text', { hasText: /5 days so far$/ })).toBeVisible(); // full or short label, by width
+  expect(errors).toEqual([]);
+});
+
+// ── Lead Detail History, 1 Oct 2026 (canvas Timeline artboard) ─────────
+
+test('Lead Detail History: replaces the call, appointment and audit cards, under the journey hero', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/leads/lead-2');
+  await expect(page.getByRole('region', { name: 'Priya Naidoo’s journey' }).getByRole('heading', { name: /^Day 26: / })).toBeVisible();
+  const history = page.getByRole('region', { name: 'History' });
+  await expect(history.getByRole('heading', { name: 'History' })).toBeVisible();
+  await expect(history.getByText('9 entries · newest first')).toBeVisible();
+  // Day headers ("d MMM yyyy"), one <ol> per day, entries in each.
+  await expect(history.locator('.tl-day').first()).toHaveText(/^\d{1,2} [A-Z][a-z]{2} \d{4}$/);
+  expect(await history.locator('ol').count()).toBeGreaterThan(3);
+  await expect(history.locator('li')).toHaveCount(9);
+  await expect(history.getByText('Call: no answer')).toBeVisible();
+  // What the old cards showed lives here now — and the cards are gone.
+  for (const old of [/^Call History/, /^Appointment History/, /^Audit Log/]) await expect(page.getByText(old)).toHaveCount(0);
+  for (const card of ['Lead Detail', 'Personal Details', 'Insurance Information', 'Education']) await expect(page.getByText(card, { exact: true })).toBeVisible();
+  expect(errors).toEqual([]);
+});
+
+test('Lead Detail History: the Calls chip shows only calls and is pressed', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/leads/lead-2');
+  const history = page.getByRole('region', { name: 'History' });
+  const all = history.getByRole('button', { name: 'All', exact: true });
+  const calls = history.getByRole('button', { name: 'Calls', exact: true });
+  await expect(all).toHaveAttribute('aria-pressed', 'true');
+  await expect(calls).toHaveAttribute('aria-pressed', 'false');
+  await calls.click();
+  await expect(calls).toHaveAttribute('aria-pressed', 'true');
+  await expect(all).toHaveAttribute('aria-pressed', 'false');
+  await expect(history.locator('li')).toHaveCount(4);
+  for (const label of await history.locator('.tl-cat').allTextContents()) expect(label).toMatch(/^Call \d$/);
+  await expect(history.getByText('Details updated')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('Lead Detail journey: failed calls load says so instead of drawing a false hero (1 Oct 2026)', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.route(/\/api\/leads\/lead-2\/calls$/, route => route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"boom"}' }));
+  await page.goto('/leads/lead-2');
+  await expect(page.getByText('Journey unavailable — couldn’t load this lead’s calls or appointments.')).toBeVisible();
+  await expect(page.getByText('No calls yet.')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Priya Naidoo’s journey' })).toHaveCount(0);
+});
+
+test('Lead Detail journey: View appointment link points at the lead\'s appointment (1 Oct 2026)', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/leads/lead-2');
+  await expect(page.getByRole('link', { name: 'View appointment →' })).toHaveAttribute('href', '/appointments/appt-1');
+  expect(errors).toEqual([]);
+});
+
+test('Lead Detail History: a chip with no entries says so', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.route(/\/api\/leads\/lead-2\/audit$/, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ entries: [
+    { id: 'x1', entityType: 'Lead', entityId: 'lead-2', action: 'CallLogged', performedAt: new Date().toISOString(), performedByName: 'Thandi Mokoena', changeDetail: { outcome: 'NoAnswer' } },
+  ] }) }));
+  await page.goto('/leads/lead-2');
+  const history = page.getByRole('region', { name: 'History' });
+  await history.getByRole('button', { name: 'Edits', exact: true }).click();
+  await expect(history.getByText('Nothing in this category yet.')).toBeVisible();
+});
+
+test('Lead Detail History: an appointment entry links to its appointment; a sealed edit shows no digits', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/leads/lead-2');
+  const history = page.getByRole('region', { name: 'History' });
+  const edit = history.locator('li', { hasText: 'Details updated' });
+  await expect(edit.getByText('ID Number changed')).toBeVisible();
+  await expect(edit).not.toContainText(/\d{6,}/);
+  await expect(edit).toContainText('priya.naidoo@example.com');
+  const booked = history.getByRole('link', { name: 'Appointment booked' });
+  await expect(booked).toHaveAttribute('href', '/appointments/appt-1');
+  await booked.click();
+  await expect(page).toHaveURL(/\/appointments\/appt-1$/);
+  expect(errors).toEqual([]);
+});
+
 // ── Leads list journey band, 28 Sep 2026 (app-design-pass) ─────────────
 
 test('Leads list journey: every caption state, and a quiet lead explains itself on focus', async ({ page }) => {
