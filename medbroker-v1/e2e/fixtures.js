@@ -135,6 +135,23 @@ const LEAD_AUDIT = { entries: [
   { id: 'au-9', entityType: 'Appointment', entityId: 'appt-1', action: 'MeetingAttemptSaved', performedAt: at(12), performedByName: 'Werner Hattingh', changeDetail: { meetingNumber: 1, status: 'HeldInterested' } },
 ] };
 
+// 1 Oct 2026 — appt-1's History (GET /appointments/:id/audit): the server
+// merges the appointment's own change log with its lead's (lead-2), so this
+// is lead-2's Lead rows (incl. the sealed ID-number edit) plus appt-1's —
+// booked, broker assigned, the first meeting rescheduled then held
+// (a meeting outcome), the second booked, and a meeting-type edit.
+const APPOINTMENT_AUDIT = { entries: [
+  ...LEAD_AUDIT.entries.filter(x => x.entityType === 'Lead'),
+  { id: 'aa-1', entityType: 'Appointment', entityId: 'appt-1', action: 'AppointmentCreated', performedAt: at(19, 10), performedByName: 'Thandi Mokoena', changeDetail: null },
+  { id: 'aa-2', entityType: 'Appointment', entityId: 'appt-1', action: 'AppointmentBrokerAssigned', performedAt: at(19, 40), performedByName: 'Mark du Toit', changeDetail: { brokerName: 'Werner Hattingh' } },
+  { id: 'aa-3', entityType: 'Appointment', entityId: 'appt-1', action: 'MeetingAttemptSaved', performedAt: at(17), performedByName: 'Werner Hattingh', changeDetail: { meetingNumber: 1, status: 'Rescheduled' } },
+  { id: 'aa-4', entityType: 'Appointment', entityId: 'appt-1', action: 'AppointmentUpdated', performedAt: at(16), performedByName: 'Werner Hattingh', changeDetail: { meetingType: { from: 'InPerson', to: 'Virtual' } } },
+  { id: 'aa-5', entityType: 'Appointment', entityId: 'appt-1', action: 'MeetingAttemptSaved', performedAt: at(12), performedByName: 'Werner Hattingh', changeDetail: { meetingNumber: 1, status: 'HeldInterested' } },
+  { id: 'aa-6', entityType: 'Appointment', entityId: 'appt-1', action: 'MeetingAttemptSaved', performedAt: at(11), performedByName: 'Werner Hattingh', changeDetail: { meetingNumber: 2, status: 'Scheduled' } },
+  // Another appointment's row (e.g. an earlier booking), so History has one link to a different page.
+  { id: 'aa-7', entityType: 'Appointment', entityId: 'appt-2', action: 'AppointmentCreated', performedAt: at(24, 30), performedByName: 'Thandi Mokoena', changeDetail: null },
+] };
+
 const APPOINTMENT_DETAIL = {
   id: 'appt-1', leadId: 'lead-2', firstName: 'Priya', lastName: 'Naidoo', dateOfBirth: '1985-04-12',
   firstAppointmentTime: '10:00', portfolio: 'Discovery',
@@ -261,6 +278,7 @@ function routes() {
     ['GET', /^\/leads\/[^/]+\/audit$/, LEAD_AUDIT],
     ['GET', /^\/leads\/[^/]+$/, LEAD_DETAIL],
     ['GET', /^\/leads/, LEADS],
+    ['GET', /^\/appointments\/[^/]+\/audit$/, APPOINTMENT_AUDIT],
     ['GET', /^\/appointments\/[^/]+$/, APPOINTMENT_DETAIL],
     ['GET', /^\/appointments/, APPOINTMENTS],
     ['GET', /^\/tasks/, TASKS],

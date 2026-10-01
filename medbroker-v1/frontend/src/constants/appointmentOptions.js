@@ -22,3 +22,6 @@ export const LOST_REASON_LABELS = {
   NoLongerInterested: 'No longer interested', Uncontactable: 'Uncontactable',
   NotEligible: 'Not eligible', Other: 'Other', ConsentWithdrawn: 'Consent withdrawn (POPIA)',
 };
+// 1 Oct 2026 — meetingType's stored codes in words, for Appointment Detail's
+// read-only value and History's edit diffs.
+export const MEETING_TYPE_LABELS = { InPerson: 'In person', Virtual: 'Virtual' };

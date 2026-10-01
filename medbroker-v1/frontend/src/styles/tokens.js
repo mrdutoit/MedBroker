@@ -214,6 +214,13 @@ export const s = {
     fontFamily: type.display, fontSize: '0.95rem', fontWeight: 700, color: colors.ink, margin: 0,
     marginBottom: '12px', paddingBottom: '10px', borderBottom: `1px solid ${colors.lineSoft}`,
   },
+  // 1 Oct 2026 — section headings on the record pages (Lead Detail,
+  // Appointment Detail): plain UI font, so both pages read the same.
+  // cardTitle (display face) stays for every other page.
+  sectionTitle: {
+    fontSize: '0.875rem', fontWeight: 600, color: colors.ink, margin: 0,
+    marginBottom: '12px', paddingBottom: '8px', borderBottom: `1px solid ${colors.line}`,
+  },
   metricCard: {
     background: colors.surface, border: `1px solid ${colors.line}`,
     borderRadius: radius.md, padding: '14px 16px', boxShadow: shadow.sm,
@@ -260,6 +267,18 @@ export const s = {
     // input/select/textarea shares this one token.
     width: '100%', border: `1px solid ${colors.inputBorder}`, borderRadius: radius.sm,
     padding: '8px 10px', fontSize: '1rem', fontFamily: 'inherit',
+    background: colors.surface, color: colors.ink,
+    boxSizing: 'border-box', outline: 'none', transition: 'border-color 0.15s, box-shadow 0.15s',
+  },
+  // 1 Oct 2026 — staff record-page fields (Lead Detail edit mode,
+  // Appointment Detail): formInput minus fontSize, always used WITH
+  // className="mb-field" (index.css), which sets 14px on desktop and 16px on
+  // phones — so the field matches the page's text without bringing back
+  // the iOS focus-zoom (see formInput above). No fontSize here on purpose:
+  // an inline one would override the class.
+  formField: {
+    width: '100%', border: `1px solid ${colors.inputBorder}`, borderRadius: radius.sm,
+    padding: '6px 10px', fontFamily: 'inherit',
     background: colors.surface, color: colors.ink,
     boxSizing: 'border-box', outline: 'none', transition: 'border-color 0.15s, box-shadow 0.15s',
   },

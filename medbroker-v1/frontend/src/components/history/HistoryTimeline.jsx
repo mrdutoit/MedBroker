@@ -4,6 +4,9 @@
  * day-grouped timeline, built to the approved canvas artboard. All the
  * rules live in historyModel.js (unit-tested); this only draws them.
  * entries: GET /leads/:id/audit rows (undefined while loading).
+ * 1 Oct 2026 — also Appointment Detail's History (GET /appointments/:id/audit):
+ * currentAppointmentId stops that appointment's own entries linking to the
+ * page they're on; subject ('lead' | 'appointment') names it in the messages.
  */
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
@@ -16,8 +19,8 @@ function Entry({ item }) {
     <li className="tl-item" style={{ '--c': item.color }}>
       <span className={`tl-dot${item.hollow ? ' hollow' : ''}`} aria-hidden="true" />
       <div className="tl-row">
-        {item.appointmentId
-          ? <Link className="tl-title" to={`/appointments/${item.appointmentId}`}>{item.title}</Link>
+        {item.href
+          ? <Link className="tl-title" to={item.href}>{item.title}</Link>
           : <span className="tl-title">{item.title}</span>}
         <span className="tl-time">{item.time}</span>
       </div>
@@ -38,10 +41,10 @@ function Entry({ item }) {
   );
 }
 
-export default function HistoryTimeline({ entries, error, onRetry }) {
+export default function HistoryTimeline({ entries, error, onRetry, currentAppointmentId = null, subject = 'lead' }) {
   const [filter, setFilter] = useState('all');
   const [expanded, setExpanded] = useState(false);
-  const history = useMemo(() => buildHistory(entries), [entries]);
+  const history = useMemo(() => buildHistory(entries, { currentAppointmentId }), [entries, currentAppointmentId]);
   const { days, hidden } = limitDays(filterDays(history.days, filter), expanded ? Infinity : HISTORY_LIMIT);
   const total = history.counts.all;
 
@@ -49,14 +52,14 @@ export default function HistoryTimeline({ entries, error, onRetry }) {
   if (error) {
     body = (
       <>
-        <div className="tl-err" role="alert">Could not load this lead’s history.</div>
+        <div className="tl-err" role="alert">Could not load this {subject}’s history.</div>
         <button type="button" className="tl-retry" onClick={onRetry}>Try again</button>
       </>
     );
   } else if (!entries) {
     body = <p className="tl-empty">Loading history…</p>;
   } else if (total === 0) {
-    body = <p className="tl-empty">No history yet. Entries appear here as the lead is assigned, called and booked.</p>;
+    body = <p className="tl-empty">No history yet.{subject === 'lead' ? ' Entries appear here as the lead is assigned, called and booked.' : ''}</p>;
   } else {
     body = (
       <>

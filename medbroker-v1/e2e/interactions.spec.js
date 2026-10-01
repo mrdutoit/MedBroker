@@ -380,6 +380,65 @@ test('Appointment Detail journey: headline, stretches, and a friction marker wit
   expect(errors).toEqual([]);
 });
 
+// ── Appointment Detail History, 1 Oct 2026 (replaces the Change Log) ────
+
+test('Appointment Detail History: replaces the Change Log, day headers, appointment and lead entries', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/appointments/appt-1');
+  const history = page.getByRole('region', { name: 'History' });
+  await expect(history.getByRole('heading', { name: 'History' })).toBeVisible();
+  await expect(history.getByText('14 entries · newest first')).toBeVisible();
+  await expect(history.locator('.tl-day').first()).toHaveText(/^\d{1,2} [A-Z][a-z]{2} \d{4}$/);
+  expect(await history.locator('ol').count()).toBeGreaterThan(3);
+  await expect(history.getByText('First meeting held, interested')).toBeVisible();
+  await expect(history.getByText('Call: no answer')).toBeVisible();
+  const edit = history.locator('li', { hasText: 'ID Number changed' });
+  await expect(edit).not.toContainText(/\d{6,}/);
+  await expect(page.getByText(/^Change Log/)).toHaveCount(0);
+  // Edit diffs show the page's words, not stored codes; an empty product list is a dash.
+  const typeEdit = history.locator('li', { hasText: 'Meeting type' });
+  await expect(typeEdit.locator('.tl-from')).toHaveText('In person');
+  await expect(typeEdit.locator('.tl-to')).toHaveText('Virtual');
+  await expect(page.getByText('Products interested').locator('..')).toContainText('—');
+  expect(errors).toEqual([]);
+});
+
+test('Appointment Detail History: this appointment\'s own entries are not links to itself', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/appointments/appt-1');
+  const history = page.getByRole('region', { name: 'History' });
+  await expect(history.locator('.tl-title', { hasText: 'Appointment booked' })).toHaveCount(2);
+  const links = history.getByRole('link');
+  await expect(links).toHaveCount(1);
+  await expect(links.first()).toHaveAttribute('href', '/appointments/appt-2');
+  await expect(history.locator('a[href="/appointments/appt-1"]')).toHaveCount(0);
+  expect(errors).toEqual([]);
+});
+
+test('Appointment Detail: section headings use the Lead Detail style; fields are 14px on desktop, 16px on phones', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/appointments/appt-1');
+  const heading = page.getByText('Personal Details', { exact: true });
+  await expect(heading).toHaveCSS('font-size', '14px');
+  await expect(heading).toHaveCSS('font-weight', '600');
+  const status = page.locator('select.mb-field').first();
+  await expect(status).toHaveCSS('font-size', '14px');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(status).toHaveCSS('font-size', '16px');
+});
+
+test('Appointment Detail edit mode: Meeting type options show labels, values unchanged (1 Oct 2026)', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/appointments/appt-1');
+  await page.getByRole('button', { name: 'Edit Details' }).click();
+  const select = page.locator('select', { has: page.locator('option[value="InPerson"]') });
+  await expect(select.locator('option[value="InPerson"]')).toHaveText('In person');
+  await expect(select.locator('option[value="Virtual"]')).toHaveText('Virtual');
+  await expect(select).toHaveValue('InPerson');
+});
+
 // ── Lead Detail journey, 1 Oct 2026 ─────────────────────────────────────
 
 test('Lead Detail journey: headline, calls, bands, legend, and a call dot with its detail card', async ({ page }) => {

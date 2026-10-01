@@ -86,6 +86,7 @@ import SplitFigures from '../components/viz/SplitFigures.jsx';
 // (designed 24 Sep 2026, delivered 27 Sep 2026). See PipelineJourney.jsx's
 // header for the concept and the data-semantics decisions.
 import PipelineJourney from '../components/viz/PipelineJourney.jsx';
+import { MEETING_TYPE_LABELS } from '../constants/appointmentOptions.js';
 
 // 14 Aug 2026 (§163) — matches AppointmentDetail.jsx's lostReason dropdown
 // labels exactly (kept as a second copy deliberately, not imported across
@@ -591,7 +592,7 @@ export default function Reports() {
                       const parts = appointmentAnalysis.byMeetingType.map((m, i) => ({
                         key: m.meetingType,
                         // Plain language, not the raw enum (27 Sep 2026).
-                        label: { InPerson: 'In person', Virtual: 'Virtual' }[m.meetingType] ?? m.meetingType,
+                        label: MEETING_TYPE_LABELS[m.meetingType] ?? m.meetingType, // 1 Oct 2026 — shared labels
                         count: m.booked, colour: MEETING_COLOURS[i % MEETING_COLOURS.length],
                       }));
                       return (

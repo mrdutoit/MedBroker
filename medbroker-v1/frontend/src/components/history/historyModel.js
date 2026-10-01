@@ -12,7 +12,7 @@
  */
 import { describeEntry, FIELD_LABELS } from '../AuditLogList.jsx';
 import { OUTCOME_LABELS } from '../../constants/leadOptions.js';
-import { LOST_REASON_LABELS } from '../../constants/appointmentOptions.js';
+import { LOST_REASON_LABELS, CANCEL_REASON_LABELS, MEETING_TYPE_LABELS } from '../../constants/appointmentOptions.js';
 import { STATUS_TEXT, MEETING_WORD, HELD, toDay, fmtDate, DAY } from '../viz/leadJourneyModel.js';
 
 export const HISTORY_LIMIT = 15;
@@ -55,10 +55,15 @@ const sastTime = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Johannesbu
 const dayLabel = dn => `${fmtDate(dn)} ${new Date(dn * DAY).getUTCFullYear()}`;
 const lowerFirst = t => t.charAt(0).toLowerCase() + t.slice(1);
 
-// A diff value as the reader should see it: "4 Mar 1990", "a, b", "—".
-function show(v) {
+// 1 Oct 2026 — fields whose stored value is a code: shown in the pages'
+// own words. Region, job title and the like are stored as words already.
+const VALUE_LABELS = { meetingType: MEETING_TYPE_LABELS, lostReason: LOST_REASON_LABELS, cancelReason: CANCEL_REASON_LABELS };
+
+// A diff value as the reader should see it: "4 Mar 1990", "a, b", "In person", "—".
+function show(v, key) {
   if (v === null || v === undefined || v === '') return '—';
-  if (Array.isArray(v)) return v.length ? v.map(show).join(', ') : '—';
+  if (Array.isArray(v)) return v.length ? v.map(x => show(x, key)).join(', ') : '—';
+  if (typeof v === 'string' && Object.hasOwn(VALUE_LABELS, key) && Object.hasOwn(VALUE_LABELS[key], v)) return VALUE_LABELS[key][v];
   if (typeof v === 'boolean') return v ? 'Yes' : 'No';
   if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}($|T)/.test(v)) return dayLabel(toDay(v));
   return String(v);
@@ -70,7 +75,7 @@ function diffOf(detail) {
     // Sensitive fields arrive sealed server-side: that they changed, no
     // values. A change with neither value says the same rather than "— → —".
     if (change?.changed || (change?.from === undefined && change?.to === undefined)) return { field, changed: true };
-    return { field, from: show(change?.from), to: show(change?.to) };
+    return { field, from: show(change?.from, key), to: show(change?.to, key) };
   });
 }
 
@@ -110,8 +115,12 @@ function colorOf(entry, category, attempt) {
   return COLOR[category];
 }
 
-/** Day groups (newest first) and per-chip counts for one lead's audit rows. */
-export function buildHistory(entries) {
+/**
+ * Day groups (newest first) and per-chip counts for one lead's audit rows.
+ * currentAppointmentId (1 Oct 2026, the Appointment page's History): that
+ * appointment's entries get no href — no link back to the page you're on.
+ */
+export function buildHistory(entries, { currentAppointmentId = null } = {}) {
   const ms = x => new Date(x.performedAt).getTime() || 0;
   const sorted = [...(entries ?? [])].sort((x, y) => ms(y) - ms(x));
 
@@ -145,6 +154,7 @@ export function buildHistory(entries) {
       hollow: isCall ? NOT_REACHED.has(d?.outcome) : FRICTION.has(attempt),
       appointmentId: entry.entityType === 'Appointment' ? entry.entityId ?? null : null,
     };
+    item.href = item.appointmentId && item.appointmentId !== currentAppointmentId ? `/appointments/${item.appointmentId}` : null;
     counts.all += 1;
     if (category in counts) counts[category] += 1;
 

@@ -156,20 +156,30 @@ export async function listAuditLogForLead(leadId) {
  * should see it reflected right there, not only by navigating to the
  * Lead's own history. This merges both entity types' entries for the
  * one appointment + its lead, sorted together.
+ *
+ * 1 Oct 2026 — every row also carries entityType ('Appointment' | 'Lead')
+ * and entityId (text), as listAuditLogForLead's do, so the Appointment
+ * page's History can tell this appointment's own entries from its lead's
+ * (and not link an entry back to the page it's already on).
+ * @param {string} appointmentId
+ * @param {string} leadId
+ * @returns {Promise<Array>} newest first, sensitive values sealed
  */
 export async function listAuditLogForAppointment(appointmentId, leadId) {
   const organisationId = resolveOrganisationId();
   const rows = await executeQuery(
     `SELECT al.id, al.action, al.changeDetail AS "changeDetail",
             al.performedAt AS "performedAt", al.performedById AS "performedById",
-            u.displayName AS "performedByName"
+            u.displayName AS "performedByName",
+            al.entityType AS "entityType", al.entityId AS "entityId"
      FROM AuditLog al
      LEFT JOIN "User" u ON al.performedById = u.id
      WHERE al.entityType = 'Appointment' AND al.entityId = @appointmentId::text AND al.organisationId = @organisationId
      UNION ALL
      SELECT al.id, al.action, al.changeDetail AS "changeDetail",
             al.performedAt AS "performedAt", al.performedById AS "performedById",
-            u.displayName AS "performedByName"
+            u.displayName AS "performedByName",
+            al.entityType AS "entityType", al.entityId AS "entityId"
      FROM AuditLog al
      LEFT JOIN "User" u ON al.performedById = u.id
      WHERE al.entityType = 'Lead' AND al.entityId = @leadId::text AND al.organisationId = @organisationId
