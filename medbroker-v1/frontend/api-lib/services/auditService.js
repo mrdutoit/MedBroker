@@ -89,13 +89,18 @@ export async function listAuditLog(entityType, entityId) {
  * compiled export (sarService.compileSubjectData) — via a UNION at READ
  * time instead of a second WRITE at write time.
  *
- * Same shape and DESC ordering as listAuditLog() above (most recent
- * first — right for a UI history list); compileSubjectData wants
- * chronological order for its export narrative and reverses this array
- * itself rather than this function needing a second, ASC-ordered
- * version of the same query.
+ * 1 Oct 2026 — also returns the change log of the lead's appointments
+ * (entityType 'Appointment', matched via Appointment.leadId), so the
+ * lead's History shows appointment activity too.
+ *
+ * Same columns as listAuditLog() above plus entityType and entityId on
+ * every row, in DESC order (most recent first — right for a UI history
+ * list); compileSubjectData wants chronological order for its export
+ * narrative and reverses this array itself rather than this function
+ * needing a second, ASC-ordered version of the same query.
  * @param {string} leadId
- * @returns {Promise<Array>}
+ * @returns {Promise<Array>} rows with entityType ('Lead' |
+ *   'SubjectAccessRequest' | 'Appointment') and entityId (text)
  */
 export async function listAuditLogForLead(leadId) {
   const organisationId = resolveOrganisationId();
