@@ -38,10 +38,10 @@ import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { REGIONS, JOB_TITLES, OUTCOME_LABELS } from '../constants/leadOptions.js';
-import AuditLogList from '../components/AuditLogList.jsx';
+import HistoryTimeline from '../components/history/HistoryTimeline.jsx';
 import LeadPathJourney from '../components/viz/LeadPathJourney.jsx';
 import { CANCEL_REASON_LABELS, LOST_REASON_LABELS } from '../constants/appointmentOptions.js';
-import { s, APPT_STATUS_META } from '../styles/tokens.js';
+import { s } from '../styles/tokens.js';
 
 // ─── Status transition machine (mirrors server-side leadStatusService.js) ─────
 function computeNewStatus(currentStatus, outcome) {
@@ -75,16 +75,6 @@ const CALL_OUTCOMES = [
   { value: 'ClientContacted',   label: 'Client contacted' },
   { value: 'NotInterested',     label: 'Not interested' },
 ];
-
-const OUTCOME_COLOURS = {
-  NoAnswer:             { bg: 'var(--panel2)', text: 'var(--mut)' },
-  Voicemail:            { bg: 'var(--panel2)', text: 'var(--mut)' },
-  WrongNumber:          { bg: 'color-mix(in srgb, #dc2626 14%, var(--panel))', text: '#dc2626' },
-  CallbackRequested:    { bg: 'color-mix(in srgb, #d97706 14%, var(--panel))', text: '#d97706' },
-  ClientContacted:      { bg: 'color-mix(in srgb, #15803d 14%, var(--panel))', text: '#15803d' },
-  NotInterested:        { bg: 'color-mix(in srgb, #dc2626 14%, var(--panel))', text: '#dc2626' },
-  AppointmentScheduled: { bg: 'color-mix(in srgb, #7c3aed 14%, var(--panel))', text: '#a78bfa' },
-};
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 function Field({ label, value, children }) {
@@ -189,7 +179,7 @@ function PortfolioPill({ portfolio }) {
 export default function LeadDetail() {
   const { id }   = useParams();
   const navigate = useNavigate();
-  const { isMobile } = useWindowSize();
+  const { isMobile, isTablet } = useWindowSize();
   const { role, persona, portfolios: allPortfolios, productsByPortfolio } = useRole();
 
   const { data: lead, loading: leadLoading, error: leadError, refetch: refetchLead } = useFetch(() => leadsApi.get(id), [id]);
@@ -225,6 +215,8 @@ export default function LeadDetail() {
   // link to its appointment history with it. This card is independent of
   // isConverted for exactly that reason — the history stays visible
   // whether the lead is currently converted, reopened, or closed.
+  // 1 Oct 2026 — that card is gone (History lists the appointments' entries
+  // and links them); the list is still fetched for the journey hero.
   const { data: apptHistoryData, error: apptHistoryError, refetch: refetchApptHistory } = useFetch(() => appointmentsApi.list({ leadId: id, pageSize: 50 }), [id]);
   const appointmentHistory = (apptHistoryData?.appointments ?? [])
     .slice()
@@ -484,7 +476,6 @@ export default function LeadDetail() {
   };
   const inputStyle = { width: '100%', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box', color: 'var(--ink)' };
   const labelStyle = { display: 'block', fontSize: '0.8125rem', fontWeight: 500, color:'var(--ink)', marginBottom: '5px' };
-  const badge = (bg, text) => ({ display: 'inline-block', padding: '2px 9px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 500, background: bg, color: text });
 
   // Still loading: show a simple loading state rather than an incomplete
   // page — otherwise every lead detail page would briefly render with
@@ -645,8 +636,9 @@ export default function LeadDetail() {
         </div>
       )}
 
-      {/* Two-column layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px' }}>
+      {/* Detail cards — 1 Oct 2026: three columns on desktop (Lead Detail,
+          Personal Details, Insurance Information; Education below), one on phone. */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : isTablet ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))', gap: '14px', alignItems: 'start' }}>
 
         {/* Lead detail overview */}
         <div style={cardStyle}>
@@ -785,14 +777,6 @@ export default function LeadDetail() {
           <EditableField label="Hospital / Practice" editing={editing} value={editing ? editForm.hospitalOrPractice : baseLead.hospitalOrPractice} onChange={v => setField('hospitalOrPractice', v)} />
         </div>
 
-        {/* Education */}
-        <div style={cardStyle}>
-          <div style={cardTitle}>Education</div>
-          <EditableField label="University" editing={editing} value={editing ? editForm.universityAttended : baseLead.universityAttended} onChange={v => setField('universityAttended', v)} />
-          <EditableField label="Year" type="number" editing={editing} value={editing ? editForm.yearOfAttendance : baseLead.yearOfAttendance} onChange={v => setField('yearOfAttendance', v)} />
-          <EditableField label="Degree" editing={editing} value={editing ? editForm.degreeAttained : baseLead.degreeAttained} onChange={v => setField('degreeAttained', v)} />
-        </div>
-
         {/* Insurance */}
         <div style={cardStyle}>
           <div style={cardTitle}>Insurance Information</div>
@@ -802,100 +786,21 @@ export default function LeadDetail() {
           <EditableField label="Medical aid provider" editing={editing} value={editing ? editForm.medicalAidProvider : baseLead.medicalAidProvider} onChange={v => setField('medicalAidProvider', v)} />
         </div>
 
-        {/* Call history */}
+        {/* Education */}
         <div style={cardStyle}>
-          <div style={cardTitle}>Call History ({calls.length})</div>
-          {calls.length === 0 && <p style={{ color:'var(--mut)', fontSize: '0.875rem' }}>No call attempts yet.</p>}
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {calls.map((call, i) => {
-              const oc = OUTCOME_COLOURS[call.outcome] ?? OUTCOME_COLOURS.NoAnswer;
-              const borderCol = call.outcome === 'CallbackRequested' ? 'color-mix(in srgb, #d97706 30%, var(--panel))'
-                : call.outcome === 'NotInterested' || call.outcome === 'WrongNumber' ? 'color-mix(in srgb, #dc2626 30%, var(--panel))'
-                : call.outcome === 'AppointmentScheduled' ? 'color-mix(in srgb, #7c3aed 30%, var(--panel))' : 'var(--line)';
-              return (
-                <div
-                  key={call.id}
-                  style={{
-                    borderLeft: `3px solid ${borderCol}`, padding: '8px 0 8px 10px',
-                    // Alternating row shading, per Mark's request.
-                    background: i % 2 === 1 ? 'var(--panel2)' : 'transparent',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ ...badge(oc.bg, oc.text) }}>
-                      {call.label ?? OUTCOME_LABELS[call.outcome] ?? call.outcome}
-                    </span>
-                    <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>
-                      {format(new Date(call.attemptedAt), 'd MMM yyyy')}
-                    </span>
-                  </div>
-                  {call.notes && <p style={{ fontSize: '0.813rem', color:'var(--mut)', marginTop: '4px' }}>{call.notes}</p>}
-                  {call.callbackDateTime && (
-                    <p style={{ fontSize: '0.75rem', color: '#d97706', marginTop: '2px' }}>
-                      Callback: {format(new Date(call.callbackDateTime), 'd MMM yyyy HH:mm')}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Appointment History — every Appointment linked to this Lead
-            (one-to-many since §35: a Closed Lost attempt followed by
-            Reopen + a second booking leaves two rows, both real history).
-            Deliberately NOT gated on isConverted — the conversion banner
-            above (and its single "View in Appointments" link) disappears
-            once a lead is reopened, which previously took the only visible
-            link to appointment history with it. This card stays visible
-            regardless of the lead's current status. */}
-        <div style={cardStyle}>
-          <div style={cardTitle}>Appointment History ({appointmentHistory.length})</div>
-          {appointmentHistory.length === 0 && <p style={{ color:'var(--mut)', fontSize: '0.875rem' }}>No appointments booked yet.</p>}
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {appointmentHistory.map((appt, i) => {
-              const meta = APPT_STATUS_META[appt.status] ?? { colour: 'var(--mut)', bg: 'var(--panel2)', border: 'var(--line)', label: appt.status };
-              const portfolios = appt.portfolios?.length ? appt.portfolios.join(', ') : (appt.portfolio ?? '—');
-              return (
-                <div
-                  key={appt.id}
-                  onClick={() => navigate(`/appointments/${appt.id}`)}
-                  style={{
-                    borderLeft: `3px solid ${meta.border}`, padding: '8px 10px',
-                    background: i % 2 === 1 ? 'var(--panel2)' : 'transparent',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ ...badge(meta.bg, meta.colour) }}>{meta.label}</span>
-                    <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>
-                      {/* 24 Aug 2026 — firstAppointmentDate is a DATE
-                          column, switched to formatDate() (see
-                          dateFormat.js's own header comment). */}
-                      {appt.firstAppointmentDate ? formatDate(appt.firstAppointmentDate) : '—'}
-                    </span>
-                  </div>
-                  <p style={{ fontSize: '0.813rem', color:'var(--mut)', marginTop: '4px' }}>
-                    {portfolios}{appt.brokerName ? ` · ${appt.brokerName}` : ''}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Audit log */}
-        <div style={cardStyle}>
-          <div style={cardTitle}>Audit Log ({auditEntries.length})</div>
-          {auditError ? (
-            <div style={{ ...s.errorBox, fontSize: '0.8125rem' }}>
-              Could not load audit history. Try refreshing the page.
-            </div>
-          ) : (
-            <AuditLogList entries={auditEntries} emptyLabel="No changes recorded yet." />
-          )}
+          <div style={cardTitle}>Education</div>
+          <EditableField label="University" editing={editing} value={editing ? editForm.universityAttended : baseLead.universityAttended} onChange={v => setField('universityAttended', v)} />
+          <EditableField label="Year" type="number" editing={editing} value={editing ? editForm.yearOfAttendance : baseLead.yearOfAttendance} onChange={v => setField('yearOfAttendance', v)} />
+          <EditableField label="Degree" editing={editing} value={editing ? editForm.degreeAttained : baseLead.degreeAttained} onChange={v => setField('degreeAttained', v)} />
         </div>
       </div>
+
+      {/* History — 1 Oct 2026 (canvas Timeline artboard), full width under the
+          detail cards. Replaces the Call History, Appointment History and
+          Audit Log cards: one feed of the lead's audit trail plus its
+          appointments' change log. Calls and appointments are still fetched
+          above — the journey hero needs them. */}
+      <HistoryTimeline entries={auditData ? auditEntries : undefined} error={auditError} onRetry={refetchAudit} />
 
       {/* ── Log Call Modal ── */}
       {showCallForm && (
@@ -995,7 +900,7 @@ export default function LeadDetail() {
           lead={baseLead}
           isMobile={isMobile}
           onClose={() => setShowBookForm(false)}
-          onBooked={() => { setBookingConfirmed(true); setShowBookForm(false); refetchApptHistory(); }}
+          onBooked={() => { setBookingConfirmed(true); setShowBookForm(false); refetchApptHistory(); refetchAudit(); /* 1 Oct 2026 — History shows the booking at once */ }}
         />
       )}
     </div>

@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url'; // 1 Oct 2026 — ESM has no __dirname (CI lint error)
 import { ACTION_LABELS, describeEntry } from './AuditLogList.jsx';
 
 // AuditLogList.test.js — 1 Oct 2026. Every audit action api-lib writes has a
@@ -23,7 +24,7 @@ const WRITTEN = [
 
 // The quoted action names in every writeAuditLog({ action: ... }) in api-lib,
 // ternaries included — so a new action that skips the list above fails here.
-function scanApiLib(dir = path.resolve(__dirname, '../../api-lib'), out = new Set()) {
+function scanApiLib(dir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../api-lib'), out = new Set()) {
   for (const f of fs.readdirSync(dir)) {
     const p = path.join(dir, f);
     if (fs.statSync(p).isDirectory()) { scanApiLib(p, out); continue; }

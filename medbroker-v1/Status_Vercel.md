@@ -117,6 +117,17 @@ found and fixed the same pattern in 12 overlay handlers across 7 files.
 CONFIRMED LIVE 27 Sep 2026 — mouseDownOnOverlayRef present in all 7
 files in commit e1c112e (verified against a fresh codeload hydration).
 
+LEAD DETAIL JOURNEY AND HISTORY — 1 Oct 2026, branch feat/lead-detail-history
+(stacked on fix/code-review-20260930; NOT YET MERGED/DEPLOYED; no migration).
+Lead Detail now opens with the lead's journey hero (calls, booking,
+meetings, outcome on a real time scale), then the detail cards in three
+columns (one on phone), then a full-width History timeline (the approved
+canvas Timeline artboard) that replaces the Call History, Appointment
+History and Audit Log cards. History merges the lead's appointments'
+change log. Full account: "SESSION 1 OCT 2026 — LEAD DETAIL JOURNEY AND
+HISTORY" in OUTSTANDING ITEMS. Merge order: fix/code-review-20260930
+first, then this branch.
+
 CODE REVIEW FIXES — 30 Sep–1 Oct 2026, branch fix/code-review-20260930 (NOT YET MERGED/DEPLOYED).
 Delivery is now a git branch, not a ZIP. Two Critical and about 30
 Important verified findings fixed (full detail in OUTSTANDING ITEMS
@@ -125,10 +136,11 @@ Neon; (2) run scripts/seal-legacy-audit-values.js once (cd frontend; node
 --env-file=.env scripts/seal-legacy-audit-values.js); (3) the existing
 scripts/backfill-encrypt-lead-fields.js is now safe to run; (4) verify the
 POPIA erasure SQL on Neon (verified on PGlite with the real schema, not yet
-on Neon); (5) live Entra SSO smoke test; (6) smoke-test one POPIA erasure on a test lead on Neon. NEXT: Lead Detail journey +
-vertical history — canvas mock-up awaiting Mark's feedback
-(https://claude.ai/artifact/21EdLnbYwHTy88mCouEeS8): rail vs below; fold
-Call/Appointment History cards?; include appointment change-log entries?
+on Neon); (5) live Entra SSO smoke test; (6) smoke-test one POPIA erasure on a test lead on Neon. NEXT: done —
+the Lead Detail journey + History mock-up was approved by Mark (1 Oct 2026:
+History below the details, full width; Call/Appointment History cards
+folded in; appointment change-log entries included) and is built on
+feat/lead-detail-history (block above).
 
 LEADS LIST FOLLOW-UPS — 29 Sep 2026, medbroker-leads-followups-20260929-0747.zip. Journey band now
 redraws live on resize (it used to need a refresh); "Source: <name>" under
@@ -352,6 +364,60 @@ replacement for it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 1 OCT 2026 — LEAD DETAIL JOURNEY AND HISTORY.
+
+Mark approved the canvas mock-up with two instructions: build History
+exactly as the Timeline artboard, "underneath the details section across
+the entire width of the screen"; detail cards in a 3-column grid on
+desktop (Lead Detail, Personal Details, Insurance Information; Education
+on row 2), one column on phone; the journey hero above them.
+
+  - BACKEND (Task 1): GET /leads/:id/audit (auditService
+    listAuditLogForLead) now also returns the audit rows of every
+    appointment booked for the lead, with entityType/entityId on each row
+    so History can link an appointment entry to /appointments/:id.
+    Side effect, deliberate: the SAR subject export, which reads the same
+    function, now also lists the lead's appointment change-log actions
+    (action names only, no values) — correct for a subject access request.
+  - JOURNEY HERO (Task 2): LeadPathJourney under the title — calls as
+    dots (reached / not reached), booking, meetings from the newest
+    appointment, outcome, today; agent and broker bands. RULING: a lead
+    that is active again after its latest appointment ended (reopened,
+    or returned to leads) keeps an OPEN journey — the appointment's end
+    is a marker ("Lost: <reason>" / "Returned to leads") and the headline
+    reads "Day N, back with the agent". The hero refreshes after booking
+    and reopen. Meeting and call notes never appear.
+  - HISTORY (Tasks 3-4): components/history/{historyModel.js,
+    HistoryTimeline.jsx, history.css}. Day groups (d MMM yyyy, SAST),
+    newest first; chips All / Calls / Appointment / Edits / Assignments
+    (real buttons, aria-pressed); first 15 entries then "Show N older
+    entries"; edits show from -> to, sealed fields (ID number etc.) only
+    "<Field> changed". RULINGS: LeadReopened shows as "Reopened" (an
+    Assignment); an appointment outcome as "Signed" or "Closed Lost:
+    <reason>". Human labels for all 64 audit actions the app writes
+    (AuditLogList ACTION_LABELS, pinned by a source-scan test) — which
+    also fixes raw action names on Appointment Detail's Change Log.
+  - LEAD DETAIL (Task 4): Call History, Appointment History and Audit Log
+    cards removed; History full width under the cards; the cards' grid
+    is 3 columns on desktop, 2 on tablet, 1 on phone. Calls and the
+    appointments list are still fetched (the journey needs them).
+    History refetches after Log Call, Save call & Book, a completed
+    booking, reopen and a details save; its "Try again" refetches it.
+    (Assign/reassign isn't on this page — done from the Leads list.)
+    AuditLogList stays in use on Appointment Detail.
+
+VERIFIED: vitest 384/384; build clean; browser suite 129/129 (3 new
+History tests: day headers and entries with the old card headings gone;
+Calls chip filters and sets aria-pressed; appointment entry links to
+/appointments/appt-1 and a sealed edit shows "ID Number changed" with no
+digits). Screenshots checked at 1440px midnight and linen, 390px midnight,
+and the Calls filter.
+
+DELIVERY: branch feat/lead-detail-history, stacked on
+fix/code-review-20260930 (merge that first). No migration.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 30 SEP–1 OCT 2026 — CODE REVIEW AND FIXES.
 
