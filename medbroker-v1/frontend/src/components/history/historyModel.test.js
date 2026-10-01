@@ -31,7 +31,9 @@ describe('buildHistory — categories', () => {
     ['SarDeletionExecuted', 'SubjectAccessRequest', 'popia'],
     ['AppointmentClosedForErasure', 'Appointment', 'popia'],
     ['SarDataExported', 'SubjectAccessRequest', 'popia'],
-    ['LeadReopened', 'Lead', 'other'],
+    ['LeadReopened', 'Lead', 'assignments'],
+    ['AppointmentClaimed', 'Appointment', 'assignments'],
+    ['PortalRegistration', 'Lead', 'other'],
   ])('%s (%s) → %s', (action, entityType, category) => {
     const detail = action === 'CallLogged' ? { outcome: 'NoAnswer' } : action === 'MeetingAttemptSaved' ? { meetingNumber: 1, status: 'Scheduled' } : null;
     expect(one(e(action, '2026-08-02T10:00:00Z', detail, { entityType })).category).toBe(category);
@@ -44,7 +46,8 @@ describe('buildHistory — categories', () => {
     expect(lbl(e('LeadUpdated', '2026-08-02T10:00:00Z', { email: { from: 'a', to: 'b' } }))).toEqual(['Edit', 'var(--na)']);
     expect(lbl(appt('AppointmentCreated', '2026-08-02T10:00:00Z'))).toEqual(['Appointment', 'var(--pl-booked)']);
     expect(lbl(e('SarDeletionExecuted', '2026-08-02T10:00:00Z', null, { entityType: 'SubjectAccessRequest' }))).toEqual(['POPIA', 'var(--danger)']);
-    expect(lbl(e('LeadReopened', '2026-08-02T10:00:00Z'))).toEqual(['Other', 'var(--mut)']);
+    expect(lbl(e('LeadReopened', '2026-08-02T10:00:00Z'))).toEqual(['Reopened', 'var(--pl-assigned)']);
+    expect(lbl(e('PortalRegistration', '2026-08-02T10:00:00Z'))).toEqual(['Other', 'var(--mut)']);
     expect(lbl(e('CallLogged', '2026-08-02T10:00:00Z', { outcome: 'NoAnswer' }))).toEqual(['Call 1', 'var(--pl-progress)']);
   });
 
@@ -69,9 +72,29 @@ describe('buildHistory — categories', () => {
 
   it('no performer (system) → meta has no name', () => {
     expect(one(appt('AppointmentClosedForErasure', '2026-08-02T10:00:00Z', { lostReason: 'ConsentWithdrawn' })).who).toBe('Anika van der Merwe');
-    const sys = one(e('LeadReopened', '2026-08-02T10:00:00Z', null, { performedByName: null }));
+    const sys = one(e('PortalRegistration', '2026-08-02T10:00:00Z', null, { performedByName: null }));
     expect(sys.who).toBeNull();
     expect(sys.meta).toBe('');
+  });
+});
+
+describe('buildHistory — reopened and outcomes', () => {
+  it('LeadReopened: assignments, label "Reopened", describeEntry title', () => {
+    expect(one(e('LeadReopened', '2026-08-02T10:00:00Z', { from: 'Closed', to: 'InProgress' }))).toMatchObject({
+      category: 'assignments', label: 'Reopened', title: 'Lead reopened after Closed Lost', color: 'var(--pl-assigned)',
+    });
+    expect(one(e('LeadAssigned', '2026-08-02T10:00:00Z')).label).toBe('Assignment');
+  });
+
+  it.each([
+    [{ newStatus: 'ClosedWon', customerSigned: true }, 'Signed', 'var(--pl-won)'],
+    [{ customerSigned: true, newStatus: 'InProgress' }, 'Signed', 'var(--pl-won)'],
+    [{ newStatus: 'ClosedLost', lostReason: 'ChoseCompetitor' }, 'Closed Lost: Chose a competitor', 'var(--pl-lost)'],
+    [{ newStatus: 'ClosedLost', lostReason: 'Mystery' }, 'Closed Lost: Mystery', 'var(--pl-lost)'],
+    [{ newStatus: 'ClosedLost', customerSigned: false }, 'Closed Lost', 'var(--pl-lost)'],
+    [{ newStatus: 'InProgress', meetings: [{ number: 1, status: 'HeldInterested' }] }, 'Meeting 1: HeldInterested; Status → InProgress', 'var(--pl-booked)'],
+  ])('AppointmentOutcomeSaved %j → "%s"', (detail, title, color) => {
+    expect(one(appt('AppointmentOutcomeSaved', '2026-09-01T10:00:00Z', detail))).toMatchObject({ category: 'appointment', label: 'Appointment', title, color });
   });
 });
 
@@ -126,6 +149,7 @@ describe('buildHistory — edits', () => {
       whatsappNumber: { from: null, to: '083 555 0142' },
       idNumber: { changed: true },
       mysteryField: { from: [], to: 'x' },
+      email: {},
     }));
     expect(i.title).toBe('Details updated');
     expect(i.label).toBe('Edit');
@@ -135,6 +159,7 @@ describe('buildHistory — edits', () => {
       { field: 'WhatsApp', from: '—', to: '083 555 0142' },
       { field: 'ID Number', changed: true },
       { field: 'mysteryField', from: '—', to: 'x' },
+      { field: 'Email', changed: true },
     ]);
   });
 
@@ -185,7 +210,7 @@ describe('buildHistory — days, times, counts', () => {
       e('LeadCreated', '2026-08-02T11:01:00Z'),
       e('LeadReopened', '2026-08-30T11:01:00Z'),
     ]);
-    expect(h.counts).toEqual({ all: 8, calls: 2, appointment: 2, edits: 1, assignments: 1 });
+    expect(h.counts).toEqual({ all: 8, calls: 2, appointment: 2, edits: 1, assignments: 2 });
   });
 
   it('empty / missing entries', () => {

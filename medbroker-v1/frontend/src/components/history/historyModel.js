@@ -12,6 +12,7 @@
  */
 import { describeEntry, FIELD_LABELS } from '../AuditLogList.jsx';
 import { OUTCOME_LABELS } from '../../constants/leadOptions.js';
+import { LOST_REASON_LABELS } from '../../constants/appointmentOptions.js';
 import { STATUS_TEXT, MEETING_WORD, HELD, toDay, fmtDate, DAY } from '../viz/leadJourneyModel.js';
 
 export const HISTORY_LIMIT = 15;
@@ -26,7 +27,10 @@ export const FILTERS = [
 const NOT_REACHED = new Set(['NoAnswer', 'Voicemail', 'WrongNumber']);
 const FRICTION = new Set(['Rescheduled', 'Cancelled', 'Missed']);
 const EDITS = new Set(['LeadUpdated', 'AppointmentUpdated']);
-const ASSIGNMENTS = new Set(['LeadAssigned', 'LeadReassigned', 'AppointmentBrokerAssigned', 'AppointmentReassigned']);
+// 1 Oct 2026 — reopening and a broker claiming hand the lead to someone, so
+// they sit with assignments (LeadReopened labelled "Reopened").
+const ASSIGNMENTS = new Set(['LeadAssigned', 'LeadReassigned', 'AppointmentBrokerAssigned', 'AppointmentReassigned', 'LeadReopened', 'AppointmentClaimed']);
+const ACTION_LABEL = { LeadReopened: 'Reopened' };
 const POPIA = new Set(['SarDeletionExecuted', 'AppointmentClosedForErasure']);
 const LABEL = { appointment: 'Appointment', edits: 'Edit', assignments: 'Assignment', created: 'Created', popia: 'POPIA', other: 'Other' };
 const COLOR = {
@@ -63,8 +67,9 @@ function show(v) {
 function diffOf(detail) {
   return Object.entries(detail ?? {}).map(([key, change]) => {
     const field = FIELD_LABELS[key] ?? key;
-    // Sensitive fields arrive sealed server-side: that they changed, no values.
-    if (change?.changed) return { field, changed: true };
+    // Sensitive fields arrive sealed server-side: that they changed, no
+    // values. A change with neither value says the same rather than "— → —".
+    if (change?.changed || (change?.from === undefined && change?.to === undefined)) return { field, changed: true };
     return { field, from: show(change?.from), to: show(change?.to) };
   });
 }
@@ -80,7 +85,29 @@ function titleOf(entry, category) {
     const word = MEETING_WORD[d.meetingNumber] ?? `Meeting ${d.meetingNumber}`;
     return `${word} meeting ${lowerFirst(STATUS_TEXT[d.status] ?? d.status)}`;
   }
+  if (entry.action === 'AppointmentOutcomeSaved') {
+    const o = outcomeOf(d);
+    if (o === 'won') return 'Signed';
+    if (o === 'lost') return d.lostReason ? `Closed Lost: ${LOST_REASON_LABELS[d.lostReason] ?? d.lostReason}` : 'Closed Lost';
+  }
   return describeEntry(entry) || 'Change recorded';
+}
+
+// 1 Oct 2026 — the handler writes no product count or value, so a signed
+// outcome is just "Signed".
+function outcomeOf(d) {
+  if (d?.newStatus === 'ClosedWon' || d?.customerSigned === true) return 'won';
+  if (d?.newStatus === 'ClosedLost') return 'lost';
+  return null;
+}
+
+function colorOf(entry, category, attempt) {
+  if (HELD.has(attempt)) return 'var(--pl-won)';
+  if (entry.action === 'AppointmentOutcomeSaved') {
+    const o = outcomeOf(entry.changeDetail);
+    if (o) return o === 'won' ? 'var(--pl-won)' : 'var(--pl-lost)';
+  }
+  return COLOR[category];
 }
 
 /** Day groups (newest first) and per-chip counts for one lead's audit rows. */
@@ -110,10 +137,10 @@ export function buildHistory(entries) {
       category,
       title: titleOf(entry, category),
       time: sastTime.format(new Date(entry.performedAt)),
-      label: isCall ? `Call ${callNo.get(entry)}` : LABEL[category],
+      label: isCall ? `Call ${callNo.get(entry)}` : ACTION_LABEL[entry.action] ?? LABEL[category],
       who,
       meta: [who, ...extra].filter(Boolean).join(' · '),
-      color: HELD.has(attempt) ? 'var(--pl-won)' : COLOR[category],
+      color: colorOf(entry, category, attempt),
       diff: category === 'edits' ? diffOf(d) : null,
       hollow: isCall ? NOT_REACHED.has(d?.outcome) : FRICTION.has(attempt),
       appointmentId: entry.entityType === 'Appointment' ? entry.entityId ?? null : null,
