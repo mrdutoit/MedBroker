@@ -102,18 +102,29 @@ export async function listAuditLogForLead(leadId) {
   const rows = await executeQuery(
     `SELECT al.id, al.action, al.changeDetail AS "changeDetail",
             al.performedAt AS "performedAt", al.performedById AS "performedById",
-            u.displayName AS "performedByName"
+            u.displayName AS "performedByName",
+            al.entityType AS "entityType", al.entityId AS "entityId"
      FROM AuditLog al
      LEFT JOIN "User" u ON al.performedById = u.id
      WHERE al.entityType = 'Lead' AND al.entityId = @leadId::text AND al.organisationId = @organisationId
      UNION ALL
      SELECT al.id, al.action, al.changeDetail AS "changeDetail",
             al.performedAt AS "performedAt", al.performedById AS "performedById",
-            u.displayName AS "performedByName"
+            u.displayName AS "performedByName",
+            al.entityType AS "entityType", al.entityId AS "entityId"
      FROM AuditLog al
      LEFT JOIN "User" u ON al.performedById = u.id
      JOIN SubjectAccessRequest sar ON al.entityType = 'SubjectAccessRequest' AND al.entityId = sar.id::text
      WHERE sar.leadId = @leadId::uuid AND al.organisationId = @organisationId
+     UNION ALL
+     SELECT al.id, al.action, al.changeDetail AS "changeDetail",
+            al.performedAt AS "performedAt", al.performedById AS "performedById",
+            u.displayName AS "performedByName",
+            al.entityType AS "entityType", al.entityId AS "entityId"
+     FROM AuditLog al
+     LEFT JOIN "User" u ON al.performedById = u.id
+     WHERE al.entityType = 'Appointment' AND al.entityId IN (SELECT id::text FROM Appointment WHERE leadId = @leadId::uuid AND organisationId = @organisationId)
+       AND al.organisationId = @organisationId
      ORDER BY "performedAt" DESC`,
     {
       leadId:         { type: sql.UniqueIdentifier, value: leadId },
