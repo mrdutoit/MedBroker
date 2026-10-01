@@ -101,6 +101,10 @@ const APPOINTMENT_JOINS = `
   LEFT JOIN Event ev                ON l.linkedEventId = ev.id
   LEFT JOIN MedicalSubscription ms  ON l.linkedSubscriptionId = ms.id`;
 
+// 30 Sep 2026 — lifecycle buckets used by the write guards below.
+const OPEN_STATUSES = ['Unassigned', 'Assigned', 'Claimed', 'InProgress'];
+const CLOSED_STATUSES = ['ClosedWon', 'ClosedLost', 'ReturnedToLeads'];
+
 /**
  * True if brokerId already has ANOTHER Appointment at the exact same
  * date+time — Mark's request, 24 Jul 2026: prevent double-booking a
@@ -451,6 +455,16 @@ export async function updateAppointment(id, data) {
      WHERE id = @id AND organisationId = @organisationId`,
     params
   );
+
+  // 30 Sep 2026 — meeting 1's date follows firstAppointmentDate until someone has recorded against it.
+  if (data.firstAppointmentDate !== undefined) {
+    await executeQuery(
+      `UPDATE MeetingAttempt SET date = @date
+       WHERE appointmentId = @id AND organisationId = @organisationId
+         AND meetingNumber = 1 AND status = 'Scheduled' AND recordedById IS NULL`,
+      { id: params.id, organisationId: params.organisationId, date: { type: sql.Date, value: data.firstAppointmentDate } }
+    );
+  }
   return true;
 }
 
@@ -492,7 +506,7 @@ export async function createAppointment(data) {
   const portfolioId = portfolioIds[0];
 
   const lead = await executeQueryOne(
-    `SELECT l.assignedAgentId AS "assignedAgentId", l.title, l.firstName AS "firstName", l.lastName AS "lastName",
+    `SELECT l.assignedAgentId AS "assignedAgentId", l.pipelineStatus AS "pipelineStatus", l.title, l.firstName AS "firstName", l.lastName AS "lastName",
             l.region, ag.supervisorId AS "agentSupervisorId", ag.region AS "agentRegion"
      FROM Lead l
      LEFT JOIN "User" ag ON l.assignedAgentId = ag.id
@@ -500,6 +514,8 @@ export async function createAppointment(data) {
     { leadId: { type: sql.UniqueIdentifier, value: data.leadId }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
   if (!lead) throw { status: 404, message: 'Lead not found' };
+  // 30 Sep 2026 — server-side twin of LeadDetail's canBook.
+  if (!['Assigned', 'InProgress'].includes(lead.pipelineStatus)) throw { status: 409, message: 'This lead is not open for booking.' };
   if (!lead.assignedAgentId) throw { status: 400, message: 'This lead has no assigned agent — assign it to an agent before booking an appointment' };
   const agentId = lead.assignedAgentId;
 
@@ -689,16 +705,20 @@ export async function assignBroker(id, brokerId) {
      WHERE a.id = @id AND a.organisationId = @organisationId`,
     { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() } }
   );
+  if (!appt) throw { status: 404, message: 'Appointment not found' };
 
-  await executeQuery(
+  // 30 Sep 2026 — only an Unassigned appointment can be assigned; closed ones are immutable.
+  const assigned = await executeQueryOne(
     `UPDATE Appointment SET brokerId = @brokerId, status = 'Assigned', updatedAt = NOW()
-     WHERE id = @id AND organisationId = @organisationId`,
+     WHERE id = @id AND organisationId = @organisationId AND status = 'Unassigned'
+     RETURNING id`,
     {
       id:       { type: sql.UniqueIdentifier, value: id },
       brokerId: { type: sql.UniqueIdentifier, value: brokerId },
       organisationId: { type: sql.UniqueIdentifier, value: resolveOrganisationId() },
     }
   );
+  if (!assigned) throw { status: 409, message: 'This appointment already has a broker or is closed.' };
 
   // TASK CLEANUP — 14 Aug 2026. Real bug Mark found: an "Assign broker"
   // task stayed open forever after the appointment already had a broker
@@ -731,6 +751,42 @@ export async function assignBroker(id, brokerId) {
 }
 
 /**
+ * Region half of the claim-eligibility rule, shared by listAvailableToClaim
+ * and claimAppointment (30 Sep 2026) so the pool and the claim agree. Needs
+ * `a` (Appointment), `ag` (the agent's "User" row) and @brokerId in scope.
+ * 14 Aug 2026 (§166) — matches against the Appointment's own
+ * carried-over region (from Lead.region at booking time) now,
+ * not the Agent's own region. That was always a PROXY for
+ * "where the client is" — correct only when the agent and
+ * client happened to share a region, which was never actually
+ * guaranteed. COALESCE falls back to ag.region ONLY when
+ * a.region is null — an appointment booked before this
+ * migration, which never had a Lead.region to carry forward at
+ * all; without the fallback, every pre-existing Unassigned
+ * appointment would silently vanish from every broker's claim
+ * pool the moment this shipped.
+ */
+const BROKER_REGION_MATCH = `EXISTS (
+  SELECT 1 FROM BrokerRegion br WHERE br.brokerId = @brokerId AND br.region = COALESCE(a.region, ag.region)
+)`;
+
+/** Product names this broker specialises in (BrokerProduct). */
+async function getBrokerProductNames(brokerId) {
+  const rows = await executeQuery(
+    `SELECT prod.name FROM BrokerProduct bp JOIN Product prod ON prod.id = bp.productId WHERE bp.brokerId = @brokerId`,
+    { brokerId: { type: sql.UniqueIdentifier, value: brokerId } }
+  );
+  return new Set(rows.map(p => p.name));
+}
+
+/** Product half of the rule — no product recorded means no product filter (see listAvailableToClaim). */
+function matchesBrokerProducts(productsInterestedIn, brokerProductNames) {
+  const interested = productsInterestedIn ? JSON.parse(productsInterestedIn) : [];
+  if (interested.length === 0) return true;
+  return interested.some((name) => brokerProductNames.has(name));
+}
+
+/**
  * §117 — brokers self-serving from the Unassigned appointment pool, when
  * appointments.claimModel = 'claim'. Broker-only at the route layer
  * (appointmentHandlers.js) — this is explicitly the SELF-service action
@@ -757,14 +813,29 @@ export async function claimAppointment(id, brokerId) {
   const appt = await executeQueryOne(
     `SELECT a.status, a.claimTokenCost AS "claimTokenCost", a.agentId AS "agentId",
             a.firstAppointmentDate AS "firstAppointmentDate", a.firstAppointmentTime AS "firstAppointmentTime",
+            a.productsInterestedIn AS "productsInterestedIn", ${BROKER_REGION_MATCH} AS "regionEligible",
             l.title, l.firstName AS "firstName", l.lastName AS "lastName"
      FROM Appointment a LEFT JOIN Lead l ON a.leadId = l.id
+     LEFT JOIN "User" ag ON a.agentId = ag.id
      WHERE a.id = @id AND a.organisationId = @organisationId`,
-    { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
+    {
+      id:             { type: sql.UniqueIdentifier, value: id },
+      brokerId:       { type: sql.UniqueIdentifier, value: brokerId },
+      organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+    }
   );
   if (!appt) throw { status: 404, message: 'Appointment not found' };
   if (appt.status !== 'Unassigned') {
     throw { status: 409, message: 'This appointment is no longer available to claim' };
+  }
+
+  // 30 Sep 2026 — same eligibility as the pool list, and no double-booking; both before the debit.
+  const brokerProductNames = await getBrokerProductNames(brokerId);
+  if (!appt.regionEligible || !matchesBrokerProducts(appt.productsInterestedIn, brokerProductNames)) {
+    throw { status: 403, message: 'You are not eligible for this appointment.' };
+  }
+  if (await hasBrokerConflict(brokerId, appt.firstAppointmentDate, appt.firstAppointmentTime, id)) {
+    throw { status: 409, message: 'You already have an appointment at that time.' };
   }
 
   const cost = appt.claimTokenCost ?? 0;
@@ -837,29 +908,12 @@ export async function claimAppointment(id, brokerId) {
 export async function listAvailableToClaim(brokerId) {
   const organisationId = resolveOrganisationId();
 
-  const brokerProducts = await executeQuery(
-    `SELECT prod.name FROM BrokerProduct bp JOIN Product prod ON prod.id = bp.productId WHERE bp.brokerId = @brokerId`,
-    { brokerId: { type: sql.UniqueIdentifier, value: brokerId } }
-  );
-  const brokerProductNames = new Set(brokerProducts.map(p => p.name));
+  const brokerProductNames = await getBrokerProductNames(brokerId);
 
   const candidates = await executeQuery(
     `SELECT ${APPOINTMENT_SELECT} ${APPOINTMENT_JOINS}
      WHERE a.status = 'Unassigned' AND a.organisationId = @organisationId
-       AND EXISTS (
-         -- 14 Aug 2026 (§166) — matches against the Appointment's own
-         -- carried-over region (from Lead.region at booking time) now,
-         -- not the Agent's own region. That was always a PROXY for
-         -- "where the client is" — correct only when the agent and
-         -- client happened to share a region, which was never actually
-         -- guaranteed. COALESCE falls back to ag.region ONLY when
-         -- a.region is null — an appointment booked before this
-         -- migration, which never had a Lead.region to carry forward at
-         -- all; without the fallback, every pre-existing Unassigned
-         -- appointment would silently vanish from every broker's claim
-         -- pool the moment this shipped.
-         SELECT 1 FROM BrokerRegion br WHERE br.brokerId = @brokerId AND br.region = COALESCE(a.region, ag.region)
-       )
+       AND ${BROKER_REGION_MATCH}
      ORDER BY a.firstAppointmentDate ASC, a.firstAppointmentTime ASC`,
     {
       brokerId:       { type: sql.UniqueIdentifier, value: brokerId },
@@ -867,11 +921,7 @@ export async function listAvailableToClaim(brokerId) {
     }
   );
 
-  return candidates.filter((appt) => {
-    const interested = appt.productsInterestedIn ? JSON.parse(appt.productsInterestedIn) : [];
-    if (interested.length === 0) return true; // no product recorded — show to every region-matched broker, see header comment
-    return interested.some((name) => brokerProductNames.has(name));
-  }).map((appt) => {
+  return candidates.filter((appt) => matchesBrokerProducts(appt.productsInterestedIn, brokerProductNames)).map((appt) => {
     // Security audit F-01 (22 Aug 2026) — leadEmail/leadMobile stripped
     // here, not just left unrendered by AppointmentList.jsx's own
     // availableAppointments mapping. APPOINTMENT_SELECT is shared with
@@ -895,7 +945,9 @@ export async function listAvailableToClaim(brokerId) {
 /**
  * Reassign broker and/or agent on an already-assigned appointment.
  * Admin/Supervisor correction — keeps existing status (unlike
- * assignBroker(), which moves Unassigned -> Assigned).
+ * assignBroker(), which moves Unassigned -> Assigned). 30 Sep 2026: except
+ * that giving an Unassigned appointment a broker (assign mode only) now
+ * also moves it to Assigned; closed appointments are refused.
  * @param {string} id
  * @param {{brokerId?: string, agentId?: string}} data
  */
@@ -907,12 +959,22 @@ export async function reassignAppointment(id, data) {
   // known before they're overwritten, to move any of their open tasks for
   // this appointment onto whoever takes over.
   const before = await executeQueryOne(
-    `SELECT brokerId AS "brokerId", agentId AS "agentId",
+    `SELECT status, brokerId AS "brokerId", agentId AS "agentId",
             firstAppointmentDate AS "firstAppointmentDate", firstAppointmentTime AS "firstAppointmentTime"
      FROM Appointment WHERE id = @id AND organisationId = @organisationId`,
     { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
   if (!before) throw { status: 404, message: 'Appointment not found' };
+  // 30 Sep 2026 — closed appointments are immutable; a broker can't be cleared to null;
+  // in claim mode an Unassigned appointment goes through the claim queue (tokens), not here.
+  if (CLOSED_STATUSES.includes(before.status)) {
+    throw { status: 409, message: 'This appointment is closed and cannot be reassigned.' };
+  }
+  if (data.brokerId === null) throw { status: 400, message: 'A broker is required.' };
+  const fillsUnassigned = before.status === 'Unassigned' && !!data.brokerId;
+  if (fillsUnassigned && (await getFlagMeta('appointments.claimModel'))?.value === 'claim') {
+    throw { status: 409, message: 'Use the claim queue for unassigned appointments.' };
+  }
 
   const setClauses = [];
   const params = { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } };
@@ -934,6 +996,7 @@ export async function reassignAppointment(id, data) {
     }
     setClauses.push('brokerId = @brokerId');
     params.brokerId = { type: sql.UniqueIdentifier, value: data.brokerId };
+    if (fillsUnassigned) setClauses.push(`status = 'Assigned'`);
   }
   if (data.agentId) {
     const agent = await getActiveUserById(data.agentId);
@@ -943,10 +1006,19 @@ export async function reassignAppointment(id, data) {
   }
   if (setClauses.length === 0) return;
 
-  await executeQuery(
-    `UPDATE Appointment SET ${setClauses.join(', ')}, updatedAt = NOW() WHERE id = @id AND organisationId = @organisationId`,
+  const updated = await executeQueryOne(
+    `UPDATE Appointment SET ${setClauses.join(', ')}, updatedAt = NOW()
+     WHERE id = @id AND organisationId = @organisationId AND status NOT IN ('ClosedWon', 'ClosedLost', 'ReturnedToLeads')
+       ${fillsUnassigned ? `AND status = 'Unassigned'` : ''}
+     RETURNING id`,
     params
   );
+  // 30 Sep 2026 — a fill that lost to a concurrent claim/assign must not overwrite it.
+  if (!updated && fillsUnassigned) throw { status: 409, message: 'This appointment already has a broker or is closed.' };
+  if (!updated) throw { status: 409, message: 'This appointment is closed and cannot be reassigned.' };
+
+  // 30 Sep 2026 — filling an Unassigned slot is an assignment: clear its Assign-broker task, as assignBroker() does.
+  if (fillsUnassigned) await deleteTasksForEntity({ entityType: 'Appointment', entityId: id });
 
   // TASK CLEANUP (§58) — a Reschedule/Outcome task assigned to the old
   // broker, or a Confirm-appointment task assigned to the old agent, is
@@ -1105,17 +1177,21 @@ export async function closeOpenAppointmentsForErasure(leadId) {
 export async function returnToLeads(id) {
   const organisationId = resolveOrganisationId();
   const appt = await executeQueryOne(
-    `SELECT id, leadId AS "leadId", customerSigned AS "customerSigned" FROM Appointment WHERE id = @id AND organisationId = @organisationId`,
+    `SELECT id, leadId AS "leadId", customerSigned AS "customerSigned", status FROM Appointment WHERE id = @id AND organisationId = @organisationId`,
     { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
   if (!appt) throw { status: 404, message: 'Appointment not found' };
+  // 30 Sep 2026 — only an open appointment can be returned (closed records are immutable).
+  if (!OPEN_STATUSES.includes(appt.status)) throw { status: 409, message: 'This appointment is closed and cannot be returned.' };
   if (appt.customerSigned === true) throw { status: 400, message: 'Cannot return a signed (ClosedWon) appointment to the leads queue' };
 
-  await executeQuery(
+  const returned = await executeQueryOne(
     `UPDATE Appointment SET status = 'ReturnedToLeads', closedAt = NOW(), updatedAt = NOW()
-     WHERE id = @id AND organisationId = @organisationId`,
+     WHERE id = @id AND organisationId = @organisationId AND status IN ('Unassigned', 'Assigned', 'Claimed', 'InProgress')
+     RETURNING id`,
     { id: { type: sql.UniqueIdentifier, value: id }, organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
   );
+  if (!returned) throw { status: 409, message: 'This appointment is closed and cannot be returned.' };
   await executeQuery(
     `UPDATE Lead SET pipelineStatus = 'Unassigned', assignedAgentId = NULL, updatedAt = NOW()
      WHERE id = @leadId AND organisationId = @organisationId`,
@@ -1360,49 +1436,6 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
   // "the work" in that sense. Flag this if it should behave differently.
   const isDateOnlySave = !data.status;
 
-  // 14 Aug 2026 — Mark's explicit request, and explicit call on the
-  // stats question he raised himself: "if they did the work, they
-  // should appear in the lists" — no filtering, no separate marker
-  // column, just a normal assignment. If nobody's claimed/been assigned
-  // this appointment yet and an Admin/Supervisor/GlobalAdmin is the one
-  // recording an outcome on it, they ARE now the broker of record, same
-  // as if an Admin had assigned them via assignBroker() — this uses
-  // that exact same status transition (-> 'Assigned', not 'Claimed';
-  // no token cost, matching assignBroker()'s own behaviour, not
-  // claimAppointment()'s — this isn't a self-serve pool claim). Not
-  // gated on the claimModel flag specifically — the real condition is
-  // "nobody's attached yet", which is the thing that actually matters,
-  // regardless of which model produced it. Excludes Agent and Broker
-  // callers deliberately: a Broker recording a meeting here should go
-  // through the real Claim flow (correct token accounting), not get a
-  // free pass around it; an Agent was never a candidate to become "the
-  // broker" at all.
-  let staffBrokerAssigned = false;
-  if (!isDateOnlySave && !appt.brokerId && isStaffCaller) {
-    await executeQuery(
-      `UPDATE Appointment SET brokerId = @recordedById, status = CASE WHEN status = 'Unassigned' THEN 'Assigned' ELSE status END, updatedAt = NOW()
-       WHERE id = @appointmentId AND organisationId = @organisationId`,
-      {
-        appointmentId: { type: sql.UniqueIdentifier, value: appointmentId },
-        organisationId: { type: sql.UniqueIdentifier, value: organisationId },
-        recordedById:  { type: sql.UniqueIdentifier, value: recordedById },
-      }
-    );
-    // Same fix as §168 (assignBroker()/claimAppointment()) — a broker
-    // just got attached, so any "Assign broker" task for this
-    // appointment has nothing left to do.
-    await deleteTasksForEntity({ entityType: 'Appointment', entityId: appointmentId });
-    // Keep the in-memory copy consistent with what's now actually in
-    // the database — the InProgress check just below reads appt.status,
-    // and while 'Unassigned' and 'Assigned' are both already in its own
-    // allow-list (so this wouldn't change that check's outcome either
-    // way), staying accurate here is one less thing to reason about if
-    // that condition ever changes later.
-    appt.brokerId = recordedById;
-    if (appt.status === 'Unassigned') appt.status = 'Assigned';
-    staffBrokerAssigned = true;
-  }
-
   const attempt = await executeQueryOne(
     `SELECT id, meetingNumber AS "meetingNumber", status FROM MeetingAttempt
      WHERE id = @attemptId AND appointmentId = @appointmentId AND organisationId = @organisationId`,
@@ -1415,8 +1448,9 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
   // redesign exists to stop. Applies equally to a date-only save — you
   // can still only touch a row that's genuinely still awaiting a
   // decision, whether what you're saving IS that decision or not.
+  // 30 Sep 2026 — same 409 as the guarded UPDATE below loses (stale tab or race, one message).
   if (attempt.status !== 'Scheduled') {
-    throw { status: 400, message: 'This meeting attempt has already been recorded and cannot be changed — reschedules and follow-ups create a new row instead.' };
+    throw { status: 409, message: 'This meeting has already been recorded.' };
   }
 
   // 16 Aug 2026 — the date-only branch itself: a single lightweight
@@ -1430,8 +1464,10 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
   // the same way any other save already would.
   if (isDateOnlySave) {
     if (!data.date) throw { status: 400, message: 'A date is required to save.' };
-    await executeQuery(
-      `UPDATE MeetingAttempt SET date = @date, notes = @notes, recordedById = @recordedById WHERE id = @attemptId`,
+    const saved = await executeQueryOne(
+      `UPDATE MeetingAttempt SET date = @date, notes = @notes, recordedById = @recordedById
+       WHERE id = @attemptId AND status = 'Scheduled'
+       RETURNING id`,
       {
         attemptId:    { type: sql.UniqueIdentifier, value: attemptId },
         date:         { type: sql.Date,             value: data.date },
@@ -1439,6 +1475,7 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
         recordedById: { type: sql.UniqueIdentifier, value: recordedById ?? null },
       }
     );
+    if (!saved) throw { status: 409, message: 'This meeting has already been recorded.' };
     return {
       attempt: {
         id: attemptId, meetingNumber: attempt.meetingNumber, date: data.date, status: 'Scheduled',
@@ -1468,9 +1505,12 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
   const cancelReasonApplicable = data.status === 'Cancelled';
   const cancelReason = cancelReasonApplicable ? (data.cancelReason ?? null) : null;
 
-  await executeQuery(
+  // 30 Sep 2026 — guarded on status so a concurrent double-submit can't both
+  // record the attempt and each create a follow-up row.
+  const recorded = await executeQueryOne(
     `UPDATE MeetingAttempt SET date = @date, status = @status, notes = @notes, followUpRequired = @followUpRequired, cancelReason = @cancelReason, recordedById = @recordedById
-     WHERE id = @attemptId`,
+     WHERE id = @attemptId AND status = 'Scheduled'
+     RETURNING id`,
     {
       attemptId:        { type: sql.UniqueIdentifier, value: attemptId },
       date:             { type: sql.Date,              value: data.date || null },
@@ -1481,11 +1521,59 @@ export async function saveMeetingAttemptOutcome(appointmentId, attemptId, data, 
       recordedById:     { type: sql.UniqueIdentifier,  value: recordedById ?? null },
     }
   );
+  if (!recorded) throw { status: 409, message: 'This meeting has already been recorded.' };
+
+  // 14 Aug 2026 — Mark's explicit request, and explicit call on the
+  // stats question he raised himself: "if they did the work, they
+  // should appear in the lists" — no filtering, no separate marker
+  // column, just a normal assignment. If nobody's claimed/been assigned
+  // this appointment yet and an Admin/Supervisor/GlobalAdmin is the one
+  // recording an outcome on it, they ARE now the broker of record, same
+  // as if an Admin had assigned them via assignBroker() — this uses
+  // that exact same status transition (-> 'Assigned', not 'Claimed';
+  // no token cost, matching assignBroker()'s own behaviour, not
+  // claimAppointment()'s — this isn't a self-serve pool claim). Not
+  // gated on the claimModel flag specifically — the real condition is
+  // "nobody's attached yet", which is the thing that actually matters,
+  // regardless of which model produced it. Excludes Agent and Broker
+  // callers deliberately: a Broker recording a meeting here should go
+  // through the real Claim flow (correct token accounting), not get a
+  // free pass around it; an Agent was never a candidate to become "the
+  // broker" at all.
+  // 30 Sep 2026 — runs only after this call has won the attempt UPDATE
+  // above, and only fills an empty broker slot (brokerId IS NULL).
+  let staffBrokerAssigned = false;
+  if (!appt.brokerId && isStaffCaller) {
+    staffBrokerAssigned = !!(await executeQueryOne(
+      `UPDATE Appointment SET brokerId = @recordedById, status = CASE WHEN status = 'Unassigned' THEN 'Assigned' ELSE status END, updatedAt = NOW()
+       WHERE id = @appointmentId AND organisationId = @organisationId AND brokerId IS NULL
+       RETURNING id`,
+      {
+        appointmentId: { type: sql.UniqueIdentifier, value: appointmentId },
+        organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+        recordedById:  { type: sql.UniqueIdentifier, value: recordedById },
+      }
+    ));
+  }
+  if (staffBrokerAssigned) {
+    // Same fix as §168 (assignBroker()/claimAppointment()) — a broker
+    // just got attached, so any "Assign broker" task for this
+    // appointment has nothing left to do.
+    await deleteTasksForEntity({ entityType: 'Appointment', entityId: appointmentId });
+    // Keep the in-memory copy consistent with what's now actually in
+    // the database — the InProgress check just below reads appt.status,
+    // and while 'Unassigned' and 'Assigned' are both already in its own
+    // allow-list (so this wouldn't change that check's outcome either
+    // way), staying accurate here is one less thing to reason about if
+    // that condition ever changes later.
+    appt.brokerId = recordedById;
+    if (appt.status === 'Unassigned') appt.status = 'Assigned';
+  }
 
   // InProgress — see this function's own header comment for the full
   // reasoning on why this moved here from computeAppointmentStatus().
   let appointmentStatus = appt.status;
-  if (attempt.meetingNumber === 1 && (data.status === 'HeldInterested' || data.status === 'HeldNotInterested') && ['Unassigned', 'Assigned'].includes(appt.status)) {
+  if (attempt.meetingNumber === 1 && (data.status === 'HeldInterested' || data.status === 'HeldNotInterested') && ['Unassigned', 'Assigned', 'Claimed'].includes(appt.status)) {
     appointmentStatus = 'InProgress';
     await executeQuery(`UPDATE Appointment SET status = @status, updatedAt = NOW() WHERE id = @appointmentId AND organisationId = @organisationId`, {
       appointmentId: { type: sql.UniqueIdentifier, value: appointmentId },

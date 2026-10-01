@@ -18,7 +18,7 @@ import { formatDate } from '../../utils/dateFormat.js';
 export default function PortalRegister() {
   const { qrToken } = useParams();
   const navigate = useNavigate();
-  const { registerAndLogin, loading, error, setError } = useProspectAuth();
+  const { registerAndLogin, loading, error, errorCode, setError } = useProspectAuth();
 
   const [event, setEvent] = useState(null);
   const [eventError, setEventError] = useState('');
@@ -82,7 +82,14 @@ export default function PortalRegister() {
         Already registered? <Link to="/portal/login" style={{ color: 'var(--accent)' }}>Log in</Link>
       </p>
 
-      {error && <div style={{ ...s.errorBox, marginBottom: '16px' }}>{error}</div>}
+      {error && (
+        <div style={{ ...s.errorBox, marginBottom: '16px' }}>
+          {error}
+          {errorCode === 'USE_ACTIVATE' && (
+            <> <Link to="/portal/activate" style={{ color: 'var(--accent)' }}>Activate your account</Link></>
+          )}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit}>
         <div style={{ display: 'grid', gridTemplateColumns: '80px 1fr 1fr', gap: '10px', marginBottom: '12px' }}>

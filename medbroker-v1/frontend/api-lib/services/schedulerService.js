@@ -39,13 +39,14 @@ import { shortDateLabel } from './appointmentService.js';
  */
 export async function sendAppointmentReminders() {
   const organisationId = resolveOrganisationId();
+  // 30 Sep 2026 — I4: claimed/in-progress appointments get reminders too
   const rows = await executeQuery(
     `SELECT a.id, a.brokerId AS "brokerId", a.firstAppointmentTime AS "firstAppointmentTime",
             l.title, l.firstName AS "firstName", l.lastName AS "lastName"
      FROM Appointment a
      LEFT JOIN Lead l ON a.leadId = l.id
      WHERE a.organisationId = @organisationId
-       AND a.status = 'Assigned'
+       AND a.status IN ('Assigned','Claimed','InProgress')
        AND a.firstAppointmentDate = CURRENT_DATE
        AND a.brokerId IS NOT NULL`,
     { organisationId: { type: sql.UniqueIdentifier, value: organisationId } }
@@ -250,9 +251,13 @@ export async function autoReturnStaleLeads() {
        AND l.deletedAt IS NULL
        AND l.pipelineStatus IN ('Assigned', 'InProgress')
        AND l.assignedAgentId IS NOT NULL
-       AND COALESCE(
-             (SELECT MAX(ca.callTime) FROM CallAttempt ca WHERE ca.leadId = l.id),
-             l.createdAt
+       -- 30 Sep 2026 — I6: a fresh assignment/reopen/edit (updatedAt) restarts the clock
+       AND GREATEST(
+             COALESCE(
+               (SELECT MAX(ca.callTime) FROM CallAttempt ca WHERE ca.leadId = l.id),
+               l.createdAt
+             ),
+             l.updatedAt
            ) < NOW() - (@months || ' months')::interval`,
     {
       organisationId: { type: sql.UniqueIdentifier, value: organisationId },

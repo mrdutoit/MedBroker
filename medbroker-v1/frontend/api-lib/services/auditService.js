@@ -11,6 +11,7 @@
 
 import { executeQuery, sql } from './db.js';
 import { resolveOrganisationId } from '../context/tenant.js';
+import { stripSealed } from './sensitiveFields.js';
 
 /**
  * @param {Object} entry
@@ -70,7 +71,7 @@ export async function listAuditLog(entityType, entityId) {
   // frontend rather than making every caller do it.
   return rows.map((r) => ({
     ...r,
-    changeDetail: r.changeDetail ? JSON.parse(r.changeDetail) : null,
+    changeDetail: r.changeDetail ? stripSealed(JSON.parse(r.changeDetail)) : null,
   }));
 }
 
@@ -121,7 +122,7 @@ export async function listAuditLogForLead(leadId) {
   );
   return rows.map((r) => ({
     ...r,
-    changeDetail: r.changeDetail ? JSON.parse(r.changeDetail) : null,
+    changeDetail: r.changeDetail ? stripSealed(JSON.parse(r.changeDetail)) : null,
   }));
 }
 
@@ -165,7 +166,7 @@ export async function listAuditLogForAppointment(appointmentId, leadId) {
   );
   return rows.map((r) => ({
     ...r,
-    changeDetail: r.changeDetail ? JSON.parse(r.changeDetail) : null,
+    changeDetail: r.changeDetail ? stripSealed(JSON.parse(r.changeDetail)) : null,
   }));
 }
 
@@ -324,7 +325,7 @@ export async function listAllAuditLog({ page = 1, pageSize = 25, ...filters } = 
   ]);
 
   return {
-    entries: rows.map(r => ({ ...r, changeDetail: r.changeDetail ? JSON.parse(r.changeDetail) : null })),
+    entries: rows.map(r => ({ ...r, changeDetail: r.changeDetail ? stripSealed(JSON.parse(r.changeDetail)) : null })),
     total,
     page,
     pageSize,
@@ -352,5 +353,5 @@ export async function exportAuditLog(filters = {}, maxRows = 5000) {
      LIMIT @maxRows`,
     { ...params, maxRows: { type: sql.Int, value: maxRows } }
   );
-  return rows.map(r => ({ ...r, changeDetail: r.changeDetail ? JSON.parse(r.changeDetail) : null }));
+  return rows.map(r => ({ ...r, changeDetail: r.changeDetail ? stripSealed(JSON.parse(r.changeDetail)) : null }));
 }

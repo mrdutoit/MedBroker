@@ -946,16 +946,20 @@ EDGE / TRANSPORT
              codebase has no acquireTokenSilent / hidden-iframe silent-
              refresh call anywhere — grepped for it, found none. CSP's
              frame-src does not govern window.open() popups at all, so
-             frame-src 'none' does not block the SSO login flow.
+             frame-src 'none' does not block the SSO login flow. However,
+             MSAL performs a fetch from the page to login.microsoftonline.com
+             for the token endpoint (OIDC discovery and token exchange),
+             which is governed by connect-src, so login.microsoftonline.com
+             is explicitly allowed there.
              Flagged regardless: this reasoning wasn't exercised
              against a real Entra tenant in the build sandbox — smoke-
              test the actual login popup once this is live before
              fully trusting it.
-       - Permissions-Policy disables camera/microphone/geolocation/
-         payment/usb/magnetometer/gyroscope, none of which this app
-         uses, plus interest-cohort (opts out of FLoC/Topics — a small,
-         free, POPIA-aligned privacy gesture, not a functional
-         requirement).
+       - Permissions-Policy allows camera=(self) for PortalCheckIn.jsx
+         QR code scanning, disables microphone/geolocation/payment/usb/
+         magnetometer/gyroscope (none of which this app uses), plus
+         interest-cohort (opts out of FLoC/Topics — a small, free,
+         POPIA-aligned privacy gesture, not a functional requirement).
        - HSTS is max-age=31536000; includeSubDomains, WITHOUT preload.
          Preload submission is a much harder-to-reverse commitment on
          the customer's actual domain (removal from browsers' built-in
@@ -1191,6 +1195,45 @@ capabilities above are now built, wired to a new SAR requestType
     fold to lowercase unless quoted), so the guard was silently a no-op
     and the second run failed. Fixed before delivery, not after Mark
     hit it against Neon.
+
+STANDING RULES ADDED 30 Sep–1 Oct 2026 (code-review fixes, branch
+fix/code-review-20260930; detail in Status_Vercel.md section 0b):
+  - ERASURE SCOPE EXTENDED (Mark's ruling: "everywhere it lives").
+    eraseLeadPII() now also clears the lead's portal account (email/hash),
+    call/meeting notes, notifications, task text (incl. SAR task titles),
+    appointment address/link/feedback, attendee and SAR audit names, and
+    sensitive audit values. The SubjectAccessRequest row, requestor and the
+    SAR audit entries are kept as the record. Verified on PGlite with the
+    real schema; verify on Neon.
+  - SENSITIVE AUDIT VALUES: changes to idNumber, existingCover,
+    currentInsurer, policies, medicalAid, medicalAidProvider are written to
+    AuditLog.changeDetail as { changed: true, sealed: <encrypted> } via
+    sealChange(); stripSealed() hides them (and any legacy plaintext
+    from/to) on every read path. Never displayed; anonymised at erasure.
+    scripts/seal-legacy-audit-values.js seals pre-existing rows (run once).
+  - PORTAL EXISTING LEAD: an email that matches an existing lead is always
+    refused at registration and sent to Activate (Mark's ruling). Known
+    consequence: USE_ACTIVATE reveals the email is a known lead.
+  - TOKENS: a claimed token is forfeited on return/reassign, never
+    refunded (Mark's ruling). Credits are atomic and idempotent; the
+    amount comes from TOKEN_PACKS[packIndex], never payment metadata.
+  - APPOINTMENT ACCESS: api-lib/handlers/appointmentAccess.js
+    (assertAppointmentAccess, assertLeadBookable) is the ONE place for
+    appointment ownership/team-scope rules. Every appointment handler that
+    reads or writes one calls it; do not add inline scope checks.
+  - CLOSED RECORDS: ReturnedToLeads is locked exactly like ClosedWon and
+    ClosedLost (no write path except Reopen and erasure); a Lead with
+    pipelineStatus 'Closed' is likewise locked.
+  - SQL COMMENTS: never put a JS // comment inside a SQL template literal
+    (it becomes part of the query and breaks it — this nearly broke every
+    reminder). api-lib/sqlTemplates.test.js scans the repo and fails on it.
+  - REPORT PERIODS are SAST calendar boundaries (UTC+02:00, no DST),
+    computed in api-lib/services/reportPeriods.js, not with server-local
+    Date methods (Vercel runs in UTC).
+  - MONEY: format with formatRand in src/utils/formatMoney.js (R4,000;
+    promotes to R1.00m at R999.5k); do not hand-roll (v/1e6).toFixed.
+  - MIGRATION 039 (partial unique index on EventAttendee so removed
+    attendees can be re-added) must be run on Neon.
 
 STILL OPEN, logged as follow-ups rather than built this session:
   - The scheduled purge once a restricted Lead's retentionExpiresAt

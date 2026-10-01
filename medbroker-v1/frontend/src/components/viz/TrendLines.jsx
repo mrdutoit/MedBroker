@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { useElementWidth } from '../../hooks/useElementWidth.js';
 import { monotonePath } from './curve.js';
 import './viz.css';
+import { formatRand } from '../../utils/formatMoney.js';
 
 /**
  * components/viz/TrendLines.jsx — NEW, 27 Sep 2026 (app-design-pass
@@ -42,8 +43,8 @@ export const TREND_SERIES = [
   { key: 'policyValue', label: 'Policy value', colour: '#d97706',        scale: 'value' },
 ];
 
-const fmtValue = v => `R${(v / 1000000).toFixed(2)}m`;
-const fmtValueTick = v => (v === 0 ? 'R0' : `R${(v / 1000000).toFixed(1)}m`);
+const fmtValue = formatRand;
+const fmtValueTick = v => (v === 0 ? 'R0' : formatRand(v));
 
 // A "nice" ceiling and tick step so gridlines land on round numbers.
 function niceScale(max, ticks = 4) {

@@ -127,11 +127,17 @@ function NewTaskModal({ onClose, onSave, assignees }) {
   // reasoning) — same vulnerable overlay-click pattern here too.
   const mouseDownOnOverlayRef = useRef(false);
 
-  function handleSave() {
+  // 30 Sep 2026 — wait for the create; close only on success, show a failure in the modal.
+  async function handleSave() {
     if (!form.title.trim()) { setError('Title is required.'); return; }
     if (!form.assignedTo) { setError('Choose someone to assign this to.'); return; }
-    onSave(form);
-    onClose();
+    setError('');
+    try {
+      await onSave(form);
+      onClose();
+    } catch (err) {
+      setError(err?.message || 'Could not create the task. Please try again.');
+    }
   }
 
   const f = (field, val) => setForm(prev => ({ ...prev, [field]: val }));
@@ -177,7 +183,7 @@ function NewTaskModal({ onClose, onSave, assignees }) {
           <div>
             <label style={s.formLabel}>Category</label>
             <select style={s.formInput} value={form.category} onChange={e => f('category', e.target.value)}>
-              {Object.entries(CATEGORY_META).map(([k, v]) => (
+              {Object.entries(CATEGORY_META).filter(([k]) => k !== 'sar').map(([k, v]) => ( // 30 Sep 2026 — 'sar' is system-generated; the API rejects it
                 <option key={k} value={k}>{v.label}</option>
               ))}
             </select>
@@ -710,21 +716,18 @@ export default function Tasks({ onTaskChange }) {
     onTaskChange?.();
   }
 
+  // 30 Sep 2026 — errors propagate to NewTaskModal, which shows them.
   async function addTask(form) {
-    try {
-      await tasksApi.create({
-        title:        form.title,
-        detail:       form.detail || undefined,
-        category:     form.category,
-        priority:     form.priority,
-        assignedToId: form.assignedTo,
-        dueDate:      form.dueDate || undefined,
-      });
-      refetchTasks();
-      onTaskChange?.();
-    } catch (err) {
-      console.error('Could not create task:', err);
-    }
+    await tasksApi.create({
+      title:        form.title,
+      detail:       form.detail || undefined,
+      category:     form.category,
+      priority:     form.priority,
+      assignedToId: form.assignedTo,
+      dueDate:      form.dueDate || undefined,
+    });
+    refetchTasks();
+    onTaskChange?.();
   }
 
   function matchesAssigneeFilter(t) {

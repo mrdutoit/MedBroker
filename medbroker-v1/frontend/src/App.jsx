@@ -328,6 +328,7 @@ function AppLayoutWrapper() {
   const isAdminOrAbove = role === 'Admin' || isGlobalAdmin;
   const isAgent        = role === 'Agent';
   const isBroker       = role === 'Broker';
+  const canManageLeads = ['Admin', 'Supervisor', 'GlobalAdmin'].includes(role); // 30 Sep 2026 — server enforces too
   const defaultPath    = isBroker ? '/appointments' : '/leads';
 
   // Reports drill-down scope. Management and Supervisors are unrestricted
@@ -383,11 +384,11 @@ function AppLayoutWrapper() {
 
         {/* Leads — hidden from Broker */}
         <Route path="/leads"        element={isBroker ? <Navigate to="/appointments" replace /> : <LeadList />} />
-        <Route path="/leads/import" element={isBroker ? <Navigate to="/appointments" replace /> : <LeadImport />} />
+        <Route path="/leads/import" element={canManageLeads ? <LeadImport /> : <Navigate to="/leads" replace />} />
         {/* 16 Aug 2026 — Manual Entry's own route, extracted out of
             LeadImport.jsx (see LeadNew.jsx's own header). Same
             role-gating as the other two Lead routes just above. */}
-        <Route path="/leads/new"    element={isBroker ? <Navigate to="/appointments" replace /> : <LeadNew />} />
+        <Route path="/leads/new"    element={canManageLeads ? <LeadNew /> : <Navigate to="/leads" replace />} />
         <Route path="/leads/:id"    element={isBroker ? <Navigate to="/appointments" replace /> : <LeadDetail />} />
 
         {/* Appointments — hidden from Agent */}

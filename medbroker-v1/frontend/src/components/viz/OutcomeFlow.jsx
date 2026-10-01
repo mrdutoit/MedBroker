@@ -2,6 +2,7 @@ import { useId, useRef, useState } from 'react';
 import { useElementWidth } from '../../hooks/useElementWidth.js';
 import ReasonRows from './ReasonRows.jsx';
 import './viz.css';
+import { formatRand } from '../../utils/formatMoney.js';
 
 /**
  * components/viz/OutcomeFlow.jsx — NEW, 27 Sep 2026 (app-design-pass,
@@ -50,7 +51,7 @@ function sortRows(rows) {
   });
 }
 
-const fmtValue = v => `R${(v / 1000000).toFixed(2)}m`;
+const fmtValue = formatRand;
 const pct = (n, d) => (d > 0 ? `${Math.round((n / d) * 100)}%` : '—');
 
 export default function OutcomeFlow({ wonByRegion, lostByRegion, lossReasons, policyValue, isMobile }) {

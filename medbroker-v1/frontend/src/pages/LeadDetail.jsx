@@ -377,8 +377,13 @@ export default function LeadDetail() {
       // the checkbox selection is always accurate, empty or not — and
       // [] !== '' / [] !== null, so this filter already passes it through
       // correctly either way, including the genuine "clear all" case.
+      // 30 Sep 2026 — I7: a clearable optional field the user emptied (it had a value) goes as null; everything else blank is still stripped.
+      const CLEARABLE = ['whatsappNumber', 'hospitalOrPractice', 'policies', 'universityAttended', 'degreeAttained', 'yearOfAttendance', 'medicalAidProvider', 'currentInsurer'];
       const payload = Object.fromEntries(
-        Object.entries(editForm).filter(([, v]) => v !== '' && v !== null)
+        Object.entries(editForm).flatMap(([k, v]) => {
+          if (v !== '' && v !== null) return [[k, v]];
+          return CLEARABLE.includes(k) && (baseLead[k] ?? '') !== '' ? [[k, null]] : [];
+        })
       );
       await leadsApi.update(id, payload);
       setEditing(false);
@@ -899,7 +904,19 @@ export default function LeadDetail() {
                   <button
                     type="button"
                     onClick={async () => {
-                      // Save the call first, then open Book Appointment
+                      // 30 Sep 2026 — actually log the call (it was local-only, so the row
+                      // vanished on reload); on failure show the error and do not open the modal
+                      setSubmitting(true);
+                      setSubmitError('');
+                      try {
+                        await leadsApi.logCall(id, { outcome: callForm.outcome, notes: callForm.notes || undefined });
+                      } catch (err) {
+                        setSubmitError(err.message ?? 'Could not log the call. Please try again.');
+                        return;
+                      } finally {
+                        setSubmitting(false);
+                      }
+                      refetchAudit();
                       const newStatus = computeNewStatus(currentStatus, callForm.outcome);
                       if (newStatus !== currentStatus) setStatusOverride(newStatus);
                       setCalls(prev => [{
@@ -913,6 +930,7 @@ export default function LeadDetail() {
                       setCallForm({ outcome: '', notes: '', callbackDateTime: '' });
                       setShowBookForm(true);
                     }}
+                    disabled={submitting}
                     style={{ background:'var(--live)', color:'white', border: 'none', borderRadius: '6px', padding: '8px 14px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' }}
                   >
                     Save call &amp; Book Appointment →

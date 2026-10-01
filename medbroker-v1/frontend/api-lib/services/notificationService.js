@@ -15,6 +15,16 @@ import { getFlagMeta } from './flagService.js';
 import { getUserEmailById } from './userService.js';
 import { sendEmail } from './emailService.js';
 
+// 30 Sep 2026 — I17: lead names/task titles are user-controlled; escape before HTML.
+export function escapeHtml(value) {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 /**
  * Low-level insert — every real notification type funnels through this
  * one function: LeadAssigned/AppointmentAssigned (action-driven, §61)
@@ -81,9 +91,9 @@ async function maybeSendNotificationEmail({ recipientId, title, body }) {
 
   await sendEmail({
     to: email,
-    subject: title,
+    subject: title, // subject is a plain header, not HTML
     text: body,
-    html: `<p>${body}</p><p style="color:#888;font-size:12px;margin-top:24px;">This is an automated notification from MedBroker.</p>`,
+    html: `<p>${escapeHtml(body)}</p><p style="color:#888;font-size:12px;margin-top:24px;">This is an automated notification from MedBroker.</p>`,
   });
 }
 

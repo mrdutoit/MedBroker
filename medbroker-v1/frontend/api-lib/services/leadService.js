@@ -43,6 +43,7 @@ import { computeLeadStatus } from './leadStatusService.js';
 import { getActiveUserById, resolvePortfolioIds, resolveProductIds } from './userService.js';
 import { createTask, deleteTasksForEntity, reassignTasksForEntity, completeOpenCallbackTasksForLead } from './taskService.js';
 import { writeAuditLog } from './auditService.js';
+import { SENSITIVE_LEAD_FIELDS } from './sensitiveFields.js';
 import { config } from '../config.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 
@@ -738,7 +739,9 @@ export async function assignLead(leadId, agentId) {
 
   await executeQuery(
     `UPDATE Lead
-     SET assignedAgentId = @agentId, pipelineStatus = 'Assigned', updatedAt = NOW()
+     SET assignedAgentId = @agentId,
+         pipelineStatus = CASE WHEN pipelineStatus = 'Unassigned' THEN 'Assigned' ELSE pipelineStatus END,
+         updatedAt = NOW()
      WHERE id = @leadId AND deletedAt IS NULL AND organisationId = @organisationId`,
     {
       leadId:  { type: sql.UniqueIdentifier, value: leadId },
@@ -815,11 +818,18 @@ export async function logCallAttempt(leadId, agentId, attemptData) {
   let flaggedUncontactable = false;
 
   const UNREACHABLE = ['NoAnswer', 'Voicemail', 'WrongNumber'];
-  if (UNREACHABLE.includes(attemptData.outcome) && newStatus !== 'Closed') {
+  // 30 Sep 2026 — I12: not applied to booked/closed leads; window starts at the latest reopen.
+  if (UNREACHABLE.includes(attemptData.outcome) && newStatus !== 'Closed'
+      && !['AppointmentScheduled', 'Closed'].includes(currentStatus)) {
     const countResult = await executeQuery(
       `SELECT COUNT(*) AS "failedCount" FROM CallAttempt
        WHERE leadId = @leadId AND organisationId = @organisationId
-         AND outcome IN ('NoAnswer', 'Voicemail', 'WrongNumber')`,
+         AND outcome IN ('NoAnswer', 'Voicemail', 'WrongNumber')
+         AND callTime > COALESCE(
+               (SELECT MAX(al.performedAt) FROM AuditLog al
+                WHERE al.entityType = 'Lead' AND al.entityId = @leadId::text
+                  AND al.action = 'LeadReopened' AND al.organisationId = @organisationId),
+               '-infinity'::timestamptz)`,
       {
         leadId: { type: sql.UniqueIdentifier, value: leadId },
         organisationId: { type: sql.UniqueIdentifier, value: organisationId },
@@ -958,14 +968,9 @@ export async function getLeadRetentionPosition(leadId) {
 // link rows are left in place for the same reason — they record which
 // products were of interest, not who the person was.
 //
-// KNOWN LIMITATION, deliberately not addressed here: CallAttempt.notes
-// and MeetingAttempt.notes are free text and can incidentally contain
-// PII a staff member typed in ("mentioned he has diabetes"). Automated
-// redaction of free text risks either destroying genuinely useful
-// records or leaving PII behind on a false negative — neither is
-// acceptable for a POPIA-facing feature, so this is flagged as a real,
-// known gap rather than papered over with a naive find-and-replace.
-// Logged in Status_Vercel.md as a follow-up item, not fixed here.
+// 30 Sep 2026 — CallAttempt/MeetingAttempt notes are no longer a known gap:
+// eraseLeadPII() nulls them outright (see scrubLeadFootprint below) rather
+// than attempting free-text redaction.
 async function anonymiseLeadRow(leadId, organisationId) {
   await executeQuery(
     `UPDATE Lead SET
@@ -1030,6 +1035,152 @@ async function anonymiseLeadRow(leadId, organisationId) {
   );
 }
 
+// 30 Sep 2026 — S-I7: audit keys that carry the data subject's identity.
+// Covers every Lead column anonymiseLeadRow() wipes, plus the encrypted set.
+const ERASED_AUDIT_FIELDS = [
+  'title', 'firstName', 'lastName', 'email', 'mobileNumber', 'whatsappNumber', 'dateOfBirth',
+  'hospitalOrPractice', 'universityAttended', 'yearOfAttendance', 'degreeAttained', 'occupation',
+  'manualSourceName', ...SENSITIVE_LEAD_FIELDS,
+  // Appointment columns scrubbed on erasure (fix round 1).
+  'firstAppointmentAddress', 'virtualMeetingLink', 'meeting1Feedback', 'meeting2Feedback', 'meeting3Feedback',
+];
+const DROPPED_AUDIT_KEYS = ['leadName', 'notes'];
+
+/**
+ * 30 Sep 2026 — pure transform for one AuditLog.changeDetail on erasure:
+ * drops leadName/notes, and reduces every identity/sensitive field change
+ * (plaintext { from, to } or sealed) to { changed: true }. nameOnly: drop
+ * leadName and nothing else (Event/SAR rows kept as the erasure record).
+ * @param {object|null} detail
+ * @param {{ nameOnly?: boolean }} [opts]
+ * @returns {object|null}
+ */
+export function scrubAuditDetail(detail, { nameOnly = false } = {}) {
+  if (!detail || typeof detail !== 'object' || Array.isArray(detail)) return detail;
+  const out = {};
+  for (const [k, v] of Object.entries(detail)) {
+    if (nameOnly ? k === 'leadName' : DROPPED_AUDIT_KEYS.includes(k)) continue;
+    out[k] = !nameOnly && ERASED_AUDIT_FIELDS.includes(k) && v != null ? { changed: true } : v;
+  }
+  return out;
+}
+
+// Rewrites changeDetail on the given AuditLog rows; skips non-JSON and unchanged rows.
+async function rewriteAuditRows(rows, transform) {
+  for (const row of rows) {
+    let detail;
+    try { detail = JSON.parse(row.changeDetail); } catch { continue; }
+    const next = transform(detail);
+    if (!next || JSON.stringify(next) === JSON.stringify(detail)) continue;
+    await executeQuery(
+      `UPDATE AuditLog SET changeDetail = @changeDetail WHERE id = @id`,
+      {
+        id:           { type: sql.UniqueIdentifier,  value: row.id },
+        changeDetail: { type: sql.NVarChar(sql.MAX), value: JSON.stringify(next) },
+      }
+    );
+  }
+}
+
+// 30 Sep 2026 — S-I7: the rows §12a keeps (portal account, audit, appointments,
+// call/meeting attempts, tasks, comments, notifications) embed the subject's PII. Scrub in place.
+// leadId is compared as text throughout so one @leadId binds consistently.
+async function scrubLeadFootprint(leadId, organisationId) {
+  const params = {
+    leadId:         { type: sql.NVarChar(100),    value: leadId },
+    organisationId: { type: sql.UniqueIdentifier, value: organisationId },
+  };
+  const leadAppointments = `SELECT id::text FROM Appointment WHERE leadId::text = @leadId AND organisationId = @organisationId`;
+  const leadSars = `SELECT id::text FROM SubjectAccessRequest WHERE leadId::text = @leadId AND organisationId = @organisationId`;
+  // Tasks about the lead, its appointments or its SARs (SAR task titles name the lead; fix round 2).
+  const leadTaskScope = `(entityType = 'Lead' AND entityId::text = @leadId)
+       OR (entityType = 'Appointment' AND entityId::text IN (${leadAppointments}))
+       OR (entityType = 'SubjectAccessRequest' AND entityId::text IN (${leadSars}))`;
+
+  // Soft-delete (the table has deletedAt), with the real email and hash replaced.
+  await executeQuery(
+    `UPDATE LeadPortalAccount SET
+       email = @erasedEmail, passwordHash = '', isLocked = TRUE,
+       deletedAt = COALESCE(deletedAt, NOW()), updatedAt = NOW()
+     WHERE leadId::text = @leadId AND organisationId = @organisationId`,
+    { ...params, erasedEmail: { type: sql.NVarChar(255), value: `erased-${leadId}@erased.invalid` } }
+  );
+
+  await executeQuery(
+    `UPDATE CallAttempt SET notes = NULL, appointmentAddress = NULL WHERE leadId::text = @leadId AND organisationId = @organisationId`,
+    params
+  );
+  await executeQuery(
+    `UPDATE MeetingAttempt SET notes = NULL
+     WHERE appointmentId::text IN (${leadAppointments}) AND organisationId = @organisationId`,
+    params
+  );
+
+  // Appointment rows are kept (§12a) but their address/link/feedback describe the subject.
+  await executeQuery(
+    `UPDATE Appointment SET
+       firstAppointmentAddress = NULL, virtualMeetingLink = NULL,
+       meeting1Feedback = NULL, meeting2Feedback = NULL, meeting3Feedback = NULL, updatedAt = NOW()
+     WHERE leadId::text = @leadId AND organisationId = @organisationId`,
+    params
+  );
+
+  // Comments on the lead's tasks can name the subject; body is NOT NULL.
+  await executeQuery(
+    `UPDATE TaskComment SET body = '[Erased]'
+     WHERE organisationId = @organisationId AND taskId IN (
+       SELECT id FROM Task WHERE organisationId = @organisationId AND (${leadTaskScope}))`,
+    params
+  );
+
+  // Kept (completed/appointment) task titles embed the lead's name, e.g. "Call back Jo Soap".
+  await executeQuery(
+    `UPDATE Task SET title = '[Erased]', detail = NULL, updatedAt = NOW()
+     WHERE organisationId = @organisationId AND (${leadTaskScope})`,
+    params
+  );
+
+  // Notification has entityType/entityId; Task-typed ones are matched via the task's own entity.
+  await executeQuery(
+    `DELETE FROM Notification
+     WHERE organisationId = @organisationId AND (
+       (entityType = 'Lead' AND entityId = @leadId)
+       OR (entityType = 'Appointment' AND entityId IN (${leadAppointments}))
+       OR (entityType = 'SubjectAccessRequest' AND entityId IN (${leadSars}))
+       OR (entityType = 'Task' AND entityId IN (
+         SELECT id::text FROM Task WHERE organisationId = @organisationId AND (${leadTaskScope}))))`,
+    params
+  );
+
+  // AuditLog.changeDetail is JSON text: read, transform in JS, write back per row.
+  const rows = await executeQuery(
+    `SELECT id, changeDetail AS "changeDetail" FROM AuditLog
+     WHERE organisationId = @organisationId AND changeDetail IS NOT NULL AND (
+       (entityType = 'Lead' AND entityId = @leadId)
+       OR (entityType = 'Appointment' AND entityId IN (${leadAppointments})))`,
+    params
+  );
+  await rewriteAuditRows(rows, (d) => scrubAuditDetail(d));
+
+  // Event 'AttendeeAdded' rows name the lead: prefilter by exact "leadId":"<uuid>", confirm on parsed JSON.
+  const attendeeRows = await executeQuery(
+    `SELECT id, changeDetail AS "changeDetail" FROM AuditLog
+     WHERE organisationId = @organisationId AND entityType = 'Event' AND action = 'AttendeeAdded'
+       AND changeDetail LIKE @leadIdPattern`,
+    { organisationId: params.organisationId, leadIdPattern: { type: sql.NVarChar(200), value: `%"leadId":"${leadId}"%` } }
+  );
+  await rewriteAuditRows(attendeeRows, (d) => (d?.leadId === leadId ? scrubAuditDetail(d, { nameOnly: true }) : null));
+
+  // SAR audit rows stay as the erasure record, minus the lead's name.
+  const sarRows = await executeQuery(
+    `SELECT id, changeDetail AS "changeDetail" FROM AuditLog
+     WHERE organisationId = @organisationId AND changeDetail IS NOT NULL AND entityType = 'SubjectAccessRequest'
+       AND entityId IN (${leadSars})`,
+    params
+  );
+  await rewriteAuditRows(sarRows, (d) => scrubAuditDetail(d, { nameOnly: true }));
+}
+
 /**
  * §12a (20 Aug 2026) — TRUE erasure path: no live FAIS obligation, so
  * POPIA s14(5)'s "destroy/delete in a manner that prevents reconstruction
@@ -1054,6 +1205,8 @@ export async function eraseLeadPII(leadId) {
   await anonymiseLeadRow(leadId, organisationId);
   // Mirrors deleteLead()'s own task cleanup — nothing needs calling an
   // erased lead back.
+  // 30 Sep 2026 — footprint first: its Notification delete finds task notifications via the Task rows.
+  await scrubLeadFootprint(leadId, organisationId);
   await deleteTasksForEntity({ entityType: 'Lead', entityId: leadId });
 }
 

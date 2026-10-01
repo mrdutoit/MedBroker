@@ -8,15 +8,15 @@
 # never touches Vercel or Neon — Vercel still deploys exactly as before,
 # whether the tests pass or not. It is a smoke alarm, not a gate.
 #
-# Two jobs, in parallel:
-#   unit  vitest — the 57 service-layer tests (database mocked)
+# Three jobs, in parallel:
+#   lint  eslint runs as its own job (errors fail it, warnings don't)
+#   unit  vitest — the vitest suite (database mocked)
 #   e2e   Playwright in real Chromium against the BUILT frontend, every
 #         /api/* call answered from e2e/fixtures.js (no database, no
 #         secrets), desktop + phone viewport, every page for every role
 #
 # No integration job: this repo has no tests against a real database yet
-# (checked, not assumed). No lint job: `npm run lint` carries one known
-# pre-existing error and would fail every run until that is fixed.
+# (checked, not assumed).
 # A failed e2e run uploads the HTML report (screenshots + traces) as an
 # artifact named "playwright-report" on the run's summary page.
 #
@@ -34,6 +34,19 @@ defaults:
     working-directory: medbroker-v1
 
 jobs:
+  lint:
+    name: Lint (eslint)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: medbroker-v1/frontend/package-lock.json
+      - run: npm ci --prefix frontend
+      - run: npm run lint --prefix frontend
+
   unit:
     name: Unit tests (vitest)
     runs-on: ubuntu-latest

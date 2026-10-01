@@ -127,7 +127,7 @@ export async function handlePortalRegister(req, res) {
     return res.status(201).json({});
 
   } catch (err) {
-    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (err.status) return res.status(err.status).json(err.code ? { error: err.message, code: err.code } : { error: err.message });
     console.error('portal/register error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -165,7 +165,7 @@ export async function handlePortalActivate(req, res) {
     return res.status(201).json({});
 
   } catch (err) {
-    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (err.status) return res.status(err.status).json(err.code ? { error: err.message, code: err.code } : { error: err.message });
     console.error('portal/activate error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }
@@ -292,7 +292,7 @@ export async function handlePortalWalkIn(req, res) {
     return res.status(201).json({ attendanceType: 'walkin' });
 
   } catch (err) {
-    if (err.status) return res.status(err.status).json({ error: err.message });
+    if (err.status) return res.status(err.status).json(err.code ? { error: err.message, code: err.code } : { error: err.message });
     console.error('portal/walkin error:', err);
     return res.status(500).json({ error: 'Internal server error' });
   }

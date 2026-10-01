@@ -1,6 +1,6 @@
 MedBroker Lead Management System — Project Status (VERCEL VERSION)
 ==================================================
-Last updated: 27 September 2026
+Last updated: 1 October 2026
 Scope: this file tracks ONLY the Vercel + Neon Postgres deployment —
 frontend/api/ + frontend/api-lib/ + frontend/src/. It does NOT cover the
 separate Azure Functions/Azure SQL codebase (api/src/, infra/), which is
@@ -116,6 +116,19 @@ accident. Checked scope before fixing just the one instance reported:
 found and fixed the same pattern in 12 overlay handlers across 7 files.
 CONFIRMED LIVE 27 Sep 2026 — mouseDownOnOverlayRef present in all 7
 files in commit e1c112e (verified against a fresh codeload hydration).
+
+CODE REVIEW FIXES — 30 Sep–1 Oct 2026, branch fix/code-review-20260930 (NOT YET MERGED/DEPLOYED).
+Delivery is now a git branch, not a ZIP. Two Critical and about 30
+Important verified findings fixed (full detail in OUTSTANDING ITEMS
+immediately below, first entry). DEPLOY STEPS: (1) run migration 039 on
+Neon; (2) run scripts/seal-legacy-audit-values.js once (cd frontend; node
+--env-file=.env scripts/seal-legacy-audit-values.js); (3) the existing
+scripts/backfill-encrypt-lead-fields.js is now safe to run; (4) verify the
+POPIA erasure SQL on Neon (verified on PGlite with the real schema, not yet
+on Neon); (5) live Entra SSO smoke test; (6) smoke-test one POPIA erasure on a test lead on Neon. NEXT: Lead Detail journey +
+vertical history — canvas mock-up awaiting Mark's feedback
+(https://claude.ai/artifact/21EdLnbYwHTy88mCouEeS8): rail vs below; fold
+Call/Appointment History cards?; include appointment change-log entries?
 
 LEADS LIST FOLLOW-UPS — 29 Sep 2026, medbroker-leads-followups-20260929-0747.zip. Journey band now
 redraws live on resize (it used to need a refresh); "Source: <name>" under
@@ -339,6 +352,133 @@ replacement for it.
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 0b. OUTSTANDING ITEMS — by priority
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SESSION 30 SEP–1 OCT 2026 — CODE REVIEW AND FIXES.
+
+Mark asked for a review of the Vercel codebase. Four parallel reviewers
+(backend security, backend logic, frontend, tests/CI), then each finding
+independently verified against the working tree (traced router -> handler
+-> service -> SQL); Critical and Important only, plus confirmed frontend
+Minors. Findings that did not hold up were downgraded or dropped. Fixed
+on branch fix/code-review-20260930, one commit per area, each reviewed.
+
+  SECURITY
+  - Appointment access: any Agent/Broker could record an outcome or meeting
+    attempt on, or assign/reassign/return/reopen/create against, someone
+    else's appointment. One helper (assertAppointmentAccess) now gates every
+    appointment write; 403 otherwise. (S-C1, S-I4, S-I5)
+  - Portal: an existing lead registering on the portal could be bound to
+    their own record by email alone. Now always refused and sent to
+    Activate. (S-C2)
+  - Admins can no longer modify GlobalAdmins; SSO email match is exact (no
+    LIKE wildcard in a UPN). (S-I2, S-I3)
+  - Sensitive audit values (ID number, cover, insurer, policies, medical
+    aid) are stored sealed, never shown in UI/API/CSV. (S-I6)
+  - CSP: same-origin camera allowed (QR check-in) and Entra token calls.
+
+  POPIA
+  - Erasure now also clears the portal account, notes, notifications, task
+    text (incl. SAR tasks), appointment address/feedback/link, attendee and
+    SAR audit names, and audit values. SAR row, requestor and SAR audit
+    kept as the record. Ordering bug fixed (open-task notifications). (S-I7)
+
+  DATA CORRECTNESS
+  - Reassigning a lead keeps its status; closed leads locked; reopened and
+    auto-return clocks reset; uncontactable rule no longer fires on booked
+    leads. (L-I6, L-I7, L-I12)
+  - Appointments: lifecycle guards on assign/return/reopen; broker
+    conflicts checked on claim and edit; meeting-1 date syncs; Returned-
+    ToLeads locked like ClosedWon/ClosedLost; race and 404 guards. (L-I8 to L-I10)
+  - Reports: SAST calendar period boundaries; prior period no longer
+    collapses on the 29th-31st. (L-I2, getPriorPeriodRange)
+  - Callbacks stored as SAST (09:00 typed = 07:00Z); "Save call & Book"
+    now saves the call. (L-I16, F-I4)
+  - Tokens: atomic idempotent credit (no lost credit on retry); tokens come
+    from the pack, not payment metadata. (L-I14, L-I8 hardening)
+  - Event attendees can be re-added after removal (migration 039, partial
+    unique index). (L-I13)
+  - Reminders now cover Claimed/InProgress; email HTML escaped; backfill
+    script non-destructive. (L-I4, L-I15, L-I17) A '//' comment inside the
+    reminder SQL was caught in review (it would have failed every
+    reminder); a repo-wide guard test now prevents it.
+
+  FRONTEND
+  - Login errors readable; stale list fetches discarded and search
+    debounced; Tasks category list matches the server; clearing a field
+    now clears it; money formatter (R4,000 not R0.00m); EventList dates;
+    CSV formula escaping on event export; AppointmentDetail displayName.
+    (F-I1, F-I5, F-I6, F-I7, F-M2 to F-M4, F-M14)
+
+  API STATUS CHANGE
+  - The edit-lock and recorded-meeting responses are now 409 (were 400);
+    no client depends on them.
+
+  HOUSEKEEPING
+  - CI lint job; .gitignore; .DS_Store untracked.
+
+OWNER RULINGS (Mark, 30 Sep 2026):
+  - An existing lead registering on the portal is ALWAYS refused and sent
+    to Activate.
+  - A claimed token is NEVER refunded on return/reassign (forfeited).
+  - POPIA erasure is extended everywhere the lead's data lives.
+  - Sensitive audit values are kept encrypted, never shown, and anonymised
+    at erasure.
+
+CONTROLLER RULINGS — for Mark to confirm (cost if wrong):
+  - Commit trailers name the model that wrote each commit. Cosmetic.
+  - Legacy plaintext sensitive audit values are hidden on read AND sealed
+    at rest by a manual idempotent script. Cost: one extra script run at
+    deploy.
+  - SAR task titles and SAR notifications naming an erased lead are
+    operational, not the retained SAR record, so they are blanked/deleted
+    on erasure. Cost: operators lose a task title for a fulfilled request.
+  - PUT /appointments/:id closed lock now includes ReturnedToLeads, and
+    Edit Details gates on the full set (your recorded "no changes in a
+    closed state" rule). Cost: a returned appointment's details can no
+    longer be edited (reopen or rebook instead).
+  - formatRand promotes to millions when Math.round(v/1000) >= 1000
+    (R1.00m, never R1000k). Cost: none visible.
+
+DEFERRED / NOT FIXED:
+  - Agent-report join blow-up at scale (L-I3): leads x calls x appointments
+    rows per agent; counts are correct (COUNT DISTINCT), cost grows with
+    volume. Fix when volumes warrant.
+  - Reminder batching at volume (L-I19): serial per-notification path.
+  - Paystack public-key exposure: plausible only; token amount now comes
+    from the pack, which removes the useful part.
+  - Lead portal profile update still lets a prospect correct email/mobile
+    on a Closed lead (pre-existing; probably right under POPIA's right to
+    correction — Mark to confirm).
+  - Forced password change is not enforced server-side (§72 decision, Mark's);
+    revisit when the force-reset path is built.
+  - USE_ACTIVATE reveals that an email belongs to a known lead — a
+    consequence of the portal ruling; consider rate-limiting.
+  - Deferred minors (3-5 lines): extra handler tests (assign/return/reopen,
+    Stripe missing packIndex, token param asserts); seal/backfill script
+    direct-run guard fails on paths with spaces and has no dry-run; erasure
+    leadId::text comparisons and per-row audit UPDATE; formatRand negatives;
+    Reassign still shown on AppointmentScheduled rows; admin cannot change
+    agent on Unassigned appointment from UI in claim mode;
+    CSP connect-src covers login.microsoftonline.com only (a ciamlogin.com
+    authority would be blocked). Full list in the ledger,
+    .superpowers/sdd/2026-09-30-code-review-fixes/progress.md.
+
+VERIFIED (counts at Task 15; the final review may change them): vitest
+252/252; browser suite 124/124; lint 0 errors, 168 warnings; build clean.
+SQL for erasure, token credit and migration 039 verified on PGlite with the
+real schema; not yet run on Neon.
+
+DELIVERY: git branch fix/code-review-20260930, commits main..HEAD
+(22 commits (f970902..0819fbc) plus the docs and final-fix commits). Migration
+039 (DROP CONSTRAINT IF EXISTS UQ_EventAttendee; CREATE UNIQUE INDEX IF NOT
+EXISTS UQ_EventAttendee_active ON EventAttendee(eventId, leadId) WHERE
+deletedAt IS NULL) — run by hand on Neon, file then removed from the repo
+per the standing pattern (1 Oct 2026); schema.postgres.sql carries the
+partial index. No ZIP.
+New script: frontend/scripts/seal-legacy-audit-values.js. Deploy steps as
+listed in section 0.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 SESSION 29 SEP 2026 — LEADS LIST FOLLOW-UPS.
 

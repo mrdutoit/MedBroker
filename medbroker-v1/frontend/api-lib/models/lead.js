@@ -185,7 +185,13 @@ export const CreateLeadSchema = CreateLeadShape.superRefine((data, ctx) => {
   }
 });
 
-export const UpdateLeadSchema = CreateLeadShape.partial().omit({
+// 30 Sep 2026 — I7: these optional fields can be cleared with null (update only; create stays non-null).
+const CLEARABLE_LEAD_FIELDS = ['whatsappNumber', 'hospitalOrPractice', 'policies', 'universityAttended', 'degreeAttained', 'yearOfAttendance', 'medicalAidProvider', 'currentInsurer'];
+const clearableShape = Object.fromEntries(
+  CLEARABLE_LEAD_FIELDS.map(f => [f, CreateLeadShape.shape[f].unwrap().nullable().optional()])
+);
+
+export const UpdateLeadSchema = CreateLeadShape.partial().extend(clearableShape).omit({
   leadSource: true,
   linkedEventId: true,
 });
@@ -223,7 +229,11 @@ export const CallAttemptSchema = z.object({
   // callback field) produces "YYYY-MM-DDTHH:mm", no timezone offset. The
   // default z.string().datetime() requires one and rejects that format;
   // confirmed by testing the actual value the input produces, not assumed.
-  callbackDateTime: z.string().datetime({ local: true }).optional(),
+  // 30 Sep 2026 — an offset-less value is SAST wall-clock (Vercel parses it as
+  // UTC, storing it 2h late), so pin +02:00; Z and ±hh:mm values pass unchanged.
+  callbackDateTime: z.string().datetime({ local: true, offset: true })
+    .transform(v => (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2})?$/.test(v) ? `${v}+02:00` : v))
+    .optional(),
 });
 
 export const LeadListQuerySchema = z.object({

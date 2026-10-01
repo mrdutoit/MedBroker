@@ -45,79 +45,9 @@ import { executeQuery, sql } from './db.js';
 import { resolveOrganisationId } from '../context/tenant.js';
 import { getDirectReportIds } from './userService.js';
 
-// ─── Period → date range ────────────────────────────────────────────────────
-/**
- * @param {'Monthly'|'Quarterly'|'Yearly'} period
- * @param {Date} [referenceDate] - a date within the period instance to view.
- * Defaults to the actual current moment, i.e. "the period we're in right
- * now". When this falls within the SAME month/quarter/year as today, `end`
- * is the actual current moment (a progressive "to date" view of an ongoing
- * period). When it's an earlier period, `end` is that period's own actual
- * last moment — a completed month/quarter/year shouldn't have its range
- * artificially truncated at today, or activity in its later days would be
- * silently excluded.
- */
-export function getPeriodRange(period, referenceDate = new Date()) {
-  const actualNow = new Date();
-  const start = new Date(referenceDate);
-  let end;
-
-  if (period === 'Monthly') {
-    start.setDate(1);
-    const isCurrent = start.getFullYear() === actualNow.getFullYear() && start.getMonth() === actualNow.getMonth();
-    end = isCurrent ? actualNow : new Date(start.getFullYear(), start.getMonth() + 1, 0, 23, 59, 59, 999);
-  } else if (period === 'Quarterly') {
-    const qStartMonth = Math.floor(referenceDate.getMonth() / 3) * 3;
-    start.setMonth(qStartMonth, 1);
-    const actualQStartMonth = Math.floor(actualNow.getMonth() / 3) * 3;
-    const isCurrent = start.getFullYear() === actualNow.getFullYear() && qStartMonth === actualQStartMonth;
-    end = isCurrent ? actualNow : new Date(start.getFullYear(), qStartMonth + 3, 0, 23, 59, 59, 999);
-  } else {
-    start.setMonth(0, 1);
-    const isCurrent = start.getFullYear() === actualNow.getFullYear();
-    end = isCurrent ? actualNow : new Date(start.getFullYear(), 11, 31, 23, 59, 59, 999);
-  }
-  start.setHours(0, 0, 0, 0);
-  return { start, end };
-}
-
-// ─── Period → trend buckets ─────────────────────────────────────────────────
-// Monthly: weeks within the viewed month. Quarterly/Yearly: months within
-// the viewed quarter/year. Small N (<=12) — one pair of COUNT queries per
-// bucket in getReportSummary() below is simpler and far more maintainable
-// than dynamic SQL date-bucketing for a low-traffic internal report; not a
-// performance concern at this scale.
-function getTrendBuckets(period, referenceDate = new Date()) {
-  const { start, end } = getPeriodRange(period, referenceDate);
-  const buckets = [];
-  if (period === 'Monthly') {
-    let weekStart = new Date(start);
-    let weekNum = 1;
-    while (weekStart.getMonth() === start.getMonth()) {
-      const weekEnd = new Date(weekStart);
-      weekEnd.setDate(weekEnd.getDate() + 6);
-      weekEnd.setHours(23, 59, 59, 999);
-      const clampedEnd = weekEnd > end ? end : weekEnd;
-      buckets.push({ label: `W${weekNum}`, start: new Date(weekStart), end: clampedEnd });
-      weekStart = new Date(weekStart);
-      weekStart.setDate(weekStart.getDate() + 7);
-      weekNum += 1;
-      if (weekNum > 5) break; // a month never spans more than 5 week-buckets this way
-    }
-  } else {
-    const monthCount = period === 'Quarterly' ? 3 : 12;
-    for (let i = 0; i < monthCount; i++) {
-      const monthStart = new Date(start.getFullYear(), start.getMonth() + i, 1);
-      const monthEnd = new Date(start.getFullYear(), start.getMonth() + i + 1, 0, 23, 59, 59, 999);
-      const label = monthStart.toLocaleDateString('en-ZA', { month: 'short' });
-      // Future months (haven't started yet, relative to the viewed period's
-      // own end) still get a bucket — zero activity, same as before — but
-      // no query needed for them, they're always 0.
-      buckets.push({ label, start: monthStart, end: monthEnd, future: monthStart > end });
-    }
-  }
-  return buckets;
-}
+// 30 Sep 2026 — period maths lives in reportPeriods.js (pure, SAST boundaries)
+import { getPeriodRange, getPriorPeriodRange, getTrendBuckets } from './reportPeriods.js';
+export { getPeriodRange, getPriorPeriodRange };
 
 /**
  * Pipeline status breakdown + trend chart data for the current period.
@@ -1208,25 +1138,6 @@ export async function getClosedWonByProductReport(period, referenceDate) {
 // KPI deltas, an extended multi-series trend, stage-to-stage pipeline
 // conversion, and the insights rules.
 // ═══════════════════════════════════════════════════════════════════════════
-
-/**
- * Prior-period range for period-over-period comparison. Deliberately the
- * full CALENDAR prior period (last month/quarter/year), not a trailing
- * same-duration window ending yesterday — matches how Stripe/Linear-style
- * dashboards frame "vs last period" (the brief's own named reference
- * points), and reuses getPeriodRange() unmodified rather than needing new
- * range-calculation logic: shifting referenceDate back one period unit
- * before calling it means getPeriodRange's own isCurrent check naturally
- * returns false, giving the shifted period's real full end date rather
- * than truncating at today.
- */
-export function getPriorPeriodRange(period, referenceDate = new Date()) {
-  const shifted = new Date(referenceDate);
-  if (period === 'Monthly') shifted.setMonth(shifted.getMonth() - 1);
-  else if (period === 'Quarterly') shifted.setMonth(shifted.getMonth() - 3);
-  else shifted.setFullYear(shifted.getFullYear() - 1);
-  return getPeriodRange(period, shifted);
-}
 
 // Named fragment, not duplicated inline — was copy-pasted in two places
 // before filters existed (Lead Source table, and now the source filter

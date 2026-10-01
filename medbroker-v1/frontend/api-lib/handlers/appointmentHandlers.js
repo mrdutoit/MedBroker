@@ -9,11 +9,12 @@ import { validateToken, requireRole, authErrorResponse } from '../middleware/aut
 import {
   listAppointments, createAppointment, getAppointmentById, assignBroker,
   reassignAppointment, returnToLeads, reopenAppointment, saveOutcome, claimAppointment, listAvailableToClaim,
-  saveMeetingAttemptOutcome, updateAppointment,
+  saveMeetingAttemptOutcome, updateAppointment, hasBrokerConflict,
 } from '../services/appointmentService.js';
 import { findMatchingBrokers } from '../services/brokerMatchingService.js';
 import { getDirectReportIds, isSupervisorOnly, isAgentOnly, getUserDisplayNameById, getActiveUserById } from '../services/userService.js';
-import { getLeadDisplayNameById } from '../services/leadService.js';
+import { getLeadDisplayNameById, getLeadById } from '../services/leadService.js';
+import { assertAppointmentAccess, assertLeadBookable } from './appointmentAccess.js';
 import { writeAuditLog, clientIp, listAuditLogForAppointment } from '../services/auditService.js';
 import { getCurrentTokenLedger, manualTopUp, listTokenTransactions, creditPurchasedTokens } from '../services/tokenService.js';
 import { getSystemConfig } from '../services/systemConfigService.js';
@@ -28,6 +29,7 @@ import {
 } from '../models/appointment.js';
 import { TokenCheckoutSchema } from '../models/integration.js';
 import { isUuid } from '../http/helpers.js';
+import { sealChange } from '../services/sensitiveFields.js';
 
 /**
  * True if appointments.claimModel is currently set to 'claim'. Checked at
@@ -115,6 +117,11 @@ export async function handleAppointmentsCollection(req, res) {
       const parsed = CreateAppointmentSchema.safeParse(req.body);
       if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
+      // 30 Sep 2026 — an Agent/Supervisor may only book on a lead in their own scope.
+      const lead = await getLeadById(parsed.data.leadId);
+      if (!lead) return res.status(404).json({ error: 'Lead not found' });
+      await assertLeadBookable(claims, lead);
+
       const newId = await createAppointment(parsed.data);
 
       await writeAuditLog({
@@ -163,18 +170,7 @@ export async function handleAppointmentById(req, res, id) {
     const appt = await getAppointmentById(id);
     if (!appt) return res.status(404).json({ error: 'Appointment not found' });
 
-    if (isAgentOnly(claims.roles) && appt.agentId !== claims.oid) {
-      return res.status(403).json({ error: 'You did not book this appointment' });
-    }
-    if (claims.roles.includes('Broker') && !claims.roles.includes('Admin') && !claims.roles.includes('GlobalAdmin') && appt.brokerId !== claims.oid) {
-      return res.status(403).json({ error: 'This appointment is not assigned to you' });
-    }
-    if (isSupervisorOnly(claims.roles)) {
-      const directReports = await getDirectReportIds(claims.oid);
-      if (!directReports.includes(appt.agentId) && appt.agentId !== claims.oid) {
-        return res.status(403).json({ error: 'This appointment is outside your team' });
-      }
-    }
+    await assertAppointmentAccess(claims, appt);
 
     if (req.method === 'GET') {
       return res.status(200).json(appt);
@@ -200,12 +196,13 @@ export async function handleAppointmentById(req, res, id) {
     // isLocked) already disabled these fields visually — this is the
     // server-side enforcement that was actually missing; a disabled
     // input is a UI hint, not a guarantee, and updateAppointment() had
-    // no status check of its own before this. ReturnedToLeads is
-    // deliberately NOT included here — that status already has its own
-    // separate re-assignment path back into the claim pool and isn't
-    // "closed" in the sense this lock means.
-    if (appt.status === 'ClosedWon' || appt.status === 'ClosedLost') {
-      return res.status(400).json({ error: 'This appointment is closed and locked. Reopen it before editing.' });
+    // no status check of its own before this.
+    // 30 Sep 2026 — ReturnedToLeads now locked too (owner rule: closed is
+    // immutable; reassign/assign refuse it, so the old exemption no longer
+    // holds). Locked appointment answers 409 (other closed-record
+    // paths, e.g. saveOutcome, still answer 400).
+    if (['ClosedWon', 'ClosedLost', 'ReturnedToLeads'].includes(appt.status)) {
+      return res.status(409).json({ error: 'This appointment is closed and locked. Reopen it before editing.' });
     }
 
     const parsed = UpdateAppointmentSchema.safeParse(req.body);
@@ -229,6 +226,17 @@ export async function handleAppointmentById(req, res, id) {
       }
     }
 
+    // 30 Sep 2026 — moving the slot must not double-book the broker (same check as booking/reassign).
+    const existingDate = appt.firstAppointmentDate instanceof Date
+      ? appt.firstAppointmentDate.toISOString().slice(0, 10)
+      : appt.firstAppointmentDate;
+    const newDate = parsed.data.firstAppointmentDate ?? existingDate;
+    const newTime = parsed.data.firstAppointmentTime ?? appt.firstAppointmentTime;
+    const slotMoved = newDate !== existingDate || newTime?.slice(0, 5) !== appt.firstAppointmentTime?.slice(0, 5);
+    if (slotMoved && appt.brokerId && await hasBrokerConflict(appt.brokerId, newDate, newTime, id)) {
+      return res.status(409).json({ error: 'The broker already has an appointment at that time.' });
+    }
+
     const changed = await updateAppointment(id, parsed.data);
     if (changed) {
       // Diff only the fields actually present on the request, old vs
@@ -249,11 +257,8 @@ export async function handleAppointmentById(req, res, id) {
       const changeDetail = {};
       for (const field of Object.keys(parsed.data)) {
         if (field === 'firstAppointmentDate') {
-          const existingValue = appt.firstAppointmentDate instanceof Date
-            ? appt.firstAppointmentDate.toISOString().slice(0, 10)
-            : appt.firstAppointmentDate;
-          if (existingValue !== parsed.data.firstAppointmentDate) {
-            changeDetail.firstAppointmentDate = { from: existingValue ?? null, to: parsed.data.firstAppointmentDate ?? null };
+          if (existingDate !== parsed.data.firstAppointmentDate) {
+            changeDetail.firstAppointmentDate = { from: existingDate ?? null, to: parsed.data.firstAppointmentDate ?? null };
           }
           continue;
         }
@@ -274,8 +279,8 @@ export async function handleAppointmentById(req, res, id) {
           }
           continue;
         }
-        if (appt[field] !== parsed.data[field]) {
-          changeDetail[field] = { from: appt[field] ?? null, to: parsed.data[field] ?? null };
+        if ((appt[field] ?? null) !== (parsed.data[field] ?? null)) { // 30 Sep 2026 — null and absent are both 'empty'
+          changeDetail[field] = await sealChange(field, { from: appt[field] ?? null, to: parsed.data[field] ?? null }); // 30 Sep 2026 — sensitive values audited encrypted
         }
       }
       if (Object.keys(changeDetail).length > 0) {
@@ -333,6 +338,10 @@ export async function handleAppointmentAssign(req, res, id) {
     const parsed = AssignBrokerSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
 
+    const existing = await getAppointmentById(id);
+    if (!existing) return res.status(404).json({ error: 'Appointment not found' });
+    await assertAppointmentAccess(claims, existing);
+
     await assignBroker(id, parsed.data.brokerId);
 
     await writeAuditLog({
@@ -374,9 +383,18 @@ export async function handleAppointmentReassign(req, res, id) {
 
     const existing = await getAppointmentById(id);
     if (!existing) return res.status(404).json({ error: 'Appointment not found' });
+    await assertAppointmentAccess(claims, existing);
 
     const parsed = ReassignAppointmentSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
+
+    // 30 Sep 2026 — a Supervisor can't hand an appointment to an agent outside their team.
+    if (parsed.data.agentId && isSupervisorOnly(claims.roles)) {
+      const directReports = await getDirectReportIds(claims.oid);
+      if (parsed.data.agentId !== claims.oid && !directReports.includes(parsed.data.agentId)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+    }
 
     await reassignAppointment(id, parsed.data);
 
@@ -420,6 +438,10 @@ export async function handleAppointmentReturn(req, res, id) {
 
     if (!isUuid(id)) return res.status(400).json({ error: 'Invalid appointment ID format' });
 
+    const existing = await getAppointmentById(id);
+    if (!existing) return res.status(404).json({ error: 'Appointment not found' });
+    await assertAppointmentAccess(claims, existing);
+
     await returnToLeads(id);
 
     await writeAuditLog({
@@ -461,6 +483,10 @@ export async function handleAppointmentReopen(req, res, id) {
 
     if (!isUuid(id)) return res.status(400).json({ error: 'Invalid appointment ID format' });
 
+    const existing = await getAppointmentById(id);
+    if (!existing) return res.status(404).json({ error: 'Appointment not found' });
+    await assertAppointmentAccess(claims, existing);
+
     await reopenAppointment(id);
 
     await writeAuditLog({
@@ -499,18 +525,7 @@ export async function handleAppointmentAudit(req, res, id) {
     const appt = await getAppointmentById(id);
     if (!appt) return res.status(404).json({ error: 'Appointment not found' });
 
-    if (isAgentOnly(claims.roles) && appt.agentId !== claims.oid) {
-      return res.status(403).json({ error: 'You did not book this appointment' });
-    }
-    if (claims.roles.includes('Broker') && !claims.roles.includes('Admin') && !claims.roles.includes('GlobalAdmin') && appt.brokerId !== claims.oid) {
-      return res.status(403).json({ error: 'This appointment is not assigned to you' });
-    }
-    if (isSupervisorOnly(claims.roles)) {
-      const directReports = await getDirectReportIds(claims.oid);
-      if (!directReports.includes(appt.agentId) && appt.agentId !== claims.oid) {
-        return res.status(403).json({ error: 'This appointment is outside your team' });
-      }
-    }
+    await assertAppointmentAccess(claims, appt);
 
     // 19 Aug 2026 — merged with the Lead's own history (Mark's explicit
     // request); see listAuditLogForAppointment's own comment
@@ -545,6 +560,7 @@ export async function handleAppointmentOutcome(req, res, id) {
 
     const existing = await getAppointmentById(id);
     if (!existing) return res.status(404).json({ error: 'Appointment not found' });
+    await assertAppointmentAccess(claims, existing);
 
     const parsed = SaveOutcomeSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -605,6 +621,10 @@ export async function handleSaveMeetingAttempt(req, res, id, attemptId) {
     requireRole(claims, ['Agent', 'Supervisor', 'Admin', 'GlobalAdmin', 'Broker']);
 
     if (!isUuid(id) || !isUuid(attemptId)) return res.status(400).json({ error: 'Invalid ID format' });
+
+    const existing = await getAppointmentById(id);
+    if (!existing) return res.status(404).json({ error: 'Appointment not found' });
+    await assertAppointmentAccess(claims, existing);
 
     const parsed = SaveMeetingAttemptSchema.safeParse(req.body);
     if (!parsed.success) return res.status(400).json({ error: parsed.error.flatten() });
@@ -921,6 +941,13 @@ export async function handleTokenCheckout(req, res) {
  * /tokens/webhook/stripe, to avoid breaking a Stripe webhook Mark may
  * already have configured.
  */
+// 30 Sep 2026 — tokens credited come from the pack bought, never from payment metadata.
+function packFromMetadata(rawIndex) {
+  if (rawIndex === undefined || rawIndex === null || rawIndex === '') return null;
+  const i = Number(rawIndex);
+  return Number.isInteger(i) ? (TOKEN_PACKS[i] ?? null) : null;
+}
+
 export async function handleTokenWebhook(req, res, rawBody) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST, OPTIONS');
@@ -939,19 +966,25 @@ export async function handleTokenWebhook(req, res, rawBody) {
     if (event.type === 'checkout.session.completed') {
       const session = event.data.object;
       const brokerId = session.metadata?.brokerId;
-      const tokens = Number(session.metadata?.tokens);
 
-      if (!brokerId || !Number.isInteger(tokens) || tokens <= 0) {
+      if (!brokerId) {
         // Malformed metadata — shouldn't happen for a session this app
         // itself created (createCheckoutSession always sets both), but a
         // 200 here (not 500) is still correct: retrying won't fix bad
         // metadata that was already wrong the first time, and this isn't
         // Stripe's fault to keep retrying.
-        console.error('appointments/tokens/webhook: checkout.session.completed missing brokerId/tokens metadata', session.id);
+        console.error('appointments/tokens/webhook: checkout.session.completed missing brokerId metadata', session.id);
         return res.status(200).json({ received: true, skipped: true });
       }
 
-      const packLabel = TOKEN_PACKS[Number(session.metadata?.packIndex)]?.label ?? `${tokens} tokens`;
+      const pack = packFromMetadata(session.metadata?.packIndex);
+      if (!pack) {
+        // 30 Sep 2026 — acknowledge (200) so Stripe stops retrying; nothing is credited
+        console.warn('appointments/tokens/webhook: invalid packIndex, no credit', session.id, session.metadata?.packIndex);
+        return res.status(200).json({ received: true, skipped: true });
+      }
+      const tokens = pack.tokens;
+      const packLabel = pack.label;
       const result = await creditPurchasedTokens(brokerId, tokens, session.id, `Stripe purchase — ${packLabel}`);
 
       if (result.credited) {
@@ -1015,26 +1048,37 @@ export async function handleTokenWebhookPaystack(req, res, rawBody) {
     if (event.event === 'charge.success') {
       const data = event.data;
       const brokerId = data.metadata?.brokerId;
-      const tokens = Number(data.metadata?.tokens);
-      const packIndex = Number(data.metadata?.packIndex);
       const reference = data.reference;
 
-      if (!brokerId || !Number.isInteger(tokens) || tokens <= 0 || !reference) {
-        console.error('appointments/tokens/webhook/paystack: charge.success missing brokerId/tokens/reference metadata', reference);
+      if (!brokerId || !reference) {
+        console.error('appointments/tokens/webhook/paystack: charge.success missing brokerId/reference', reference);
         return res.status(200).json({ received: true, skipped: true });
       }
+
+      const pack = packFromMetadata(data.metadata?.packIndex);
+      if (!pack) {
+        // 30 Sep 2026 — acknowledge (200) so Paystack stops retrying; nothing is credited
+        console.warn('appointments/tokens/webhook/paystack: invalid packIndex, no credit', reference, data.metadata?.packIndex);
+        return res.status(200).json({ received: true, skipped: true });
+      }
+      const tokens = pack.tokens;
 
       // Defence in depth (this function's own header) — confirm with
       // Paystack server-to-server before crediting, don't just trust the
       // webhook payload's own amount/status claims.
-      const expectedAmount = TOKEN_PACKS[packIndex]?.priceZarCents;
+      const expectedAmount = pack.priceZarCents;
       const verification = await verifyPaystackTransaction(reference);
       if (verification.status !== 'success' || verification.amount !== expectedAmount) {
         console.error('appointments/tokens/webhook/paystack: verify mismatch', { reference, verification, expectedAmount });
         return res.status(200).json({ received: true, skipped: true });
       }
+      if (verification.currency !== 'ZAR') {
+        // 30 Sep 2026 — the amount is only comparable to the ZAR price if the currency is ZAR
+        console.warn('appointments/tokens/webhook/paystack: non-ZAR currency, no credit', reference, verification.currency);
+        return res.status(200).json({ received: true, skipped: true });
+      }
 
-      const packLabel = TOKEN_PACKS[packIndex]?.label ?? `${tokens} tokens`;
+      const packLabel = pack.label;
       const result = await creditPurchasedTokens(brokerId, tokens, reference, `Paystack purchase — ${packLabel}`);
 
       if (result.credited) {

@@ -607,8 +607,8 @@ function ReturnToLeadsModal({ appointment, onClose, onReturned }) {
       await appointmentsApi.returnToLeads(appointment.id);
       setDone(true);
       setTimeout(onReturned, 900);
-    } catch {
-      setError('Could not return this appointment. Please try again.');
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : 'Could not return this appointment. Please try again.');
       setReturning(false);
     }
   }
@@ -799,7 +799,7 @@ function CloseAsLostModal({ appointment, onClose, onClosed }) {
 export default function AppointmentDetail() {
   const { id }          = useParams();
   const navigate        = useNavigate();
-  const { role, productsByPortfolio, displayName } = useRole();
+  const { role, productsByPortfolio, persona } = useRole();
   const { flag }        = useFlags();
   const { isMobile }    = useWindowSize();
 
@@ -983,7 +983,8 @@ export default function AppointmentDetail() {
   const isClosed    = appt.status === 'ClosedWon' || appt.status === 'ClosedLost';
   const isLocked     = isClosed || appt.status === 'ReturnedToLeads';
   const canReturn   = canManage && !isLocked && appt.customerSigned !== true;
-  const canReassign = canManage && !isLocked;
+  // 30 Sep 2026 — in claim mode an Unassigned appointment is filled only by a broker claim.
+  const canReassign = canManage && !isLocked && !(appt.status === 'Unassigned' && flag('appointments.claimModel', 'claim'));
 
   // 14 Aug 2026 (§138 spec, session 20; §164 build, session 23) —
   // replaces firstMeetingComplete/secondMeetingComplete (which existed
@@ -1157,7 +1158,7 @@ export default function AppointmentDetail() {
           // broker IS whoever is logged in right now, so this is a
           // known value, not a guess — no refetch needed just to learn
           // our own name.
-          brokerName: result.brokerAssignedId ? displayName : prev.brokerName,
+          brokerName: result.brokerAssignedId ? persona.displayName : prev.brokerName,
         };
       });
       refetchAudit();
@@ -1186,9 +1187,9 @@ export default function AppointmentDetail() {
     // Defense-in-depth, matching this file's own established pattern of
     // checking at both the trigger and the action (the isLocked-gated
     // Outcome card below does the same) — the button that calls this is
-    // already hidden when isClosed, but this guard means the function
+    // already hidden when isLocked, but this guard means the function
     // itself is also safe if anything else ever calls it.
-    if (isClosed) return;
+    if (isLocked) return;
     setDetailsForm({
       // Lead-owned — Lead Details card
       occupation:          appt.occupation ?? '',
@@ -1250,16 +1251,16 @@ export default function AppointmentDetail() {
       // validation (idNumber's 13-digit regex, existingCover/medicalAid's
       // boolean type, the date/time regexes). Every field here starts as
       // '' or null when unset, so strip both rather than sending them.
-      const leadPayload = Object.fromEntries(
-        Object.entries(detailsForm)
-          .filter(([k]) => LEAD_DETAIL_FIELDS.includes(k))
-          .filter(([, v]) => v !== '' && v !== null)
+      // 30 Sep 2026 — I7: a clearable optional field the user emptied (it had a value) goes as null; other blanks are still stripped.
+      const CLEARABLE = ['whatsappNumber', 'hospitalOrPractice', 'policies', 'universityAttended', 'degreeAttained', 'yearOfAttendance', 'medicalAidProvider', 'currentInsurer'];
+      const toPayload = (fields) => Object.fromEntries(
+        Object.entries(detailsForm).filter(([k]) => fields.includes(k)).flatMap(([k, v]) => {
+          if (v !== '' && v !== null) return [[k, v]];
+          return CLEARABLE.includes(k) && (appt[k] ?? '') !== '' ? [[k, null]] : [];
+        })
       );
-      const apptPayload = Object.fromEntries(
-        Object.entries(detailsForm)
-          .filter(([k]) => APPOINTMENT_DETAIL_FIELDS.includes(k))
-          .filter(([, v]) => v !== '' && v !== null)
-      );
+      const leadPayload = toPayload(LEAD_DETAIL_FIELDS);
+      const apptPayload = toPayload(APPOINTMENT_DETAIL_FIELDS);
 
       // Two independent writes, two independent tables — genuinely
       // parallel, neither depends on the other's result. Both, one, or
@@ -1318,16 +1319,11 @@ export default function AppointmentDetail() {
                 nothing stopped anyone from entering edit mode and interacting
                 with the fields first, which is exactly what "still editable"
                 means from where Mark's sitting, regardless of what the save
-                attempt would eventually do. Deliberately !isClosed here, not
-                !isLocked — isLocked also covers ReturnedToLeads, a status the
-                backend lock deliberately does NOT block (see that check's own
-                comment); gating on the broader isLocked would have hidden this
-                button for a status the server would still accept a save for,
-                the same class of frontend/backend mismatch in the other
-                direction. startEditingDetails() is this button's only caller
-                (setEditingDetails(true) has no other call site in this file)
-                — checked before assuming this one fix is sufficient. */}
-            {!editingDetails && !isClosed && (
+                attempt would eventually do. startEditingDetails() is this
+                button's only caller (setEditingDetails(true) has no other call
+                site in this file). 30 Sep 2026 — now !isLocked: the server lock
+                covers ReturnedToLeads too. */}
+            {!editingDetails && !isLocked && (
               <button style={s.secondaryBtn} onClick={startEditingDetails}>
                 Edit Details
               </button>

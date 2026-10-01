@@ -37,6 +37,35 @@
 import { executeQuery, sql } from '../api-lib/services/db.js';
 import { encrypt, encryptBoolean } from '../api-lib/services/encryption.js';
 
+// 30 Sep 2026 — I15: an existing encrypted value always wins (updateLead writes
+// only *Encrypted columns), so the backfill never overwrites newer data.
+const COLUMNS = ['existingCover', 'currentInsurer', 'policies', 'medicalAid', 'medicalAidProvider'];
+
+export function buildUpdateSql() {
+  const sets = COLUMNS.map((c) => `${c}Encrypted = COALESCE(${c}Encrypted, @${c}Encrypted)`);
+  const nulls = COLUMNS.map((c) => `${c} = NULL`);
+  return `UPDATE Lead SET
+         ${sets.join(',\n         ')},
+         ${nulls.join(',\n         ')}
+       WHERE id = @id AND organisationId = @organisationId`;
+}
+
+export async function buildRowParams(row) {
+  const enc = {
+    existingCover:      await encryptBoolean(row.existingCover),
+    currentInsurer:     row.currentInsurer ? await encrypt(row.currentInsurer) : null,
+    policies:           row.policies ? await encrypt(row.policies) : null,
+    medicalAid:         await encryptBoolean(row.medicalAid),
+    medicalAidProvider: row.medicalAidProvider ? await encrypt(row.medicalAidProvider) : null,
+  };
+  const params = {
+    id:             { type: sql.UniqueIdentifier, value: row.id },
+    organisationId: { type: sql.UniqueIdentifier, value: row.organisationId },
+  };
+  for (const c of COLUMNS) params[`${c}Encrypted`] = { type: sql.NVarChar(sql.MAX), value: enc[c] };
+  return params;
+}
+
 async function main() {
   const rows = await executeQuery(
     `SELECT id, organisationId AS "organisationId",
@@ -52,44 +81,19 @@ async function main() {
 
   let done = 0;
   for (const row of rows) {
-    const existingCoverEncrypted = await encryptBoolean(row.existingCover);
-    const currentInsurerEncrypted = row.currentInsurer ? await encrypt(row.currentInsurer) : null;
-    const policiesEncrypted = row.policies ? await encrypt(row.policies) : null;
-    const medicalAidEncrypted = await encryptBoolean(row.medicalAid);
-    const medicalAidProviderEncrypted = row.medicalAidProvider ? await encrypt(row.medicalAidProvider) : null;
-
-    await executeQuery(
-      `UPDATE Lead SET
-         existingCoverEncrypted = @existingCoverEncrypted,
-         currentInsurerEncrypted = @currentInsurerEncrypted,
-         policiesEncrypted = @policiesEncrypted,
-         medicalAidEncrypted = @medicalAidEncrypted,
-         medicalAidProviderEncrypted = @medicalAidProviderEncrypted,
-         existingCover = NULL,
-         currentInsurer = NULL,
-         policies = NULL,
-         medicalAid = NULL,
-         medicalAidProvider = NULL
-       WHERE id = @id AND organisationId = @organisationId`,
-      {
-        id:                          { type: sql.UniqueIdentifier, value: row.id },
-        organisationId:              { type: sql.UniqueIdentifier, value: row.organisationId },
-        existingCoverEncrypted:      { type: sql.NVarChar(sql.MAX), value: existingCoverEncrypted },
-        currentInsurerEncrypted:     { type: sql.NVarChar(sql.MAX), value: currentInsurerEncrypted },
-        policiesEncrypted:           { type: sql.NVarChar(sql.MAX), value: policiesEncrypted },
-        medicalAidEncrypted:         { type: sql.NVarChar(sql.MAX), value: medicalAidEncrypted },
-        medicalAidProviderEncrypted: { type: sql.NVarChar(sql.MAX), value: medicalAidProviderEncrypted },
-      }
-    );
+    await executeQuery(buildUpdateSql(), await buildRowParams(row));
     done += 1;
   }
 
   console.log(`Backfilled ${done} row(s). Plaintext columns are now NULL on every row this script touched.`);
 }
 
-main()
-  .then(() => process.exit(0))
-  .catch((err) => {
-    console.error('Backfill failed:', err);
-    process.exit(1);
-  });
+// Only run when invoked directly, so tests can import the builders.
+if (import.meta.url === `file://${process.argv[1]}`) {
+  main()
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error('Backfill failed:', err);
+      process.exit(1);
+    });
+}

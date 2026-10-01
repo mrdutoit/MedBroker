@@ -12,6 +12,7 @@ import { writeAuditLog, clientIp, listAuditLogForLead } from '../services/auditS
 import { createNotification } from '../services/notificationService.js';
 import { CreateLeadSchema, UpdateLeadSchema, LeadListQuerySchema, AssignLeadSchema, CallAttemptSchema, CheckDuplicatesSchema, CreateMedicalSubscriptionSchema } from '../models/lead.js';
 import { isUuid } from '../http/helpers.js';
+import { sealChange } from '../services/sensitiveFields.js';
 
 /** GET (list) + POST (create) /api/leads */
 export async function handleLeadsCollection(req, res) {
@@ -340,8 +341,8 @@ export async function handleLeadById(req, res, id) {
             }
             continue;
           }
-          if (existing[field] !== parsed.data[field]) {
-            changeDetail[field] = { from: existing[field] ?? null, to: parsed.data[field] ?? null };
+          if ((existing[field] ?? null) !== (parsed.data[field] ?? null)) { // 30 Sep 2026 — null and absent are both 'empty'
+            changeDetail[field] = await sealChange(field, { from: existing[field] ?? null, to: parsed.data[field] ?? null }); // 30 Sep 2026 — sensitive values audited encrypted
           }
         }
         // GATED 19 Aug 2026 — this call had no guard at all before now:
@@ -445,6 +446,11 @@ export async function handleLeadAssign(req, res, id) {
       if (!directReports.includes(parsed.data.agentId)) {
         return res.status(403).json({ error: 'Target agent is not one of your direct reports' });
       }
+    }
+
+    // 30 Sep 2026 — I7: closed leads are immutable; Reopen is the only way back.
+    if (lead.pipelineStatus === 'Closed') {
+      return res.status(409).json({ error: 'This lead is closed. Reopen it first.' });
     }
 
     const previousAgentId = lead.assignedAgentId ?? null;
@@ -644,6 +650,11 @@ export async function handleLeadCalls(req, res, id) {
     if (req.method === 'GET') {
       const calls = await listCallAttempts(id);
       return res.status(200).json({ calls });
+    }
+
+    // 30 Sep 2026 — I12: no calls on closed or already-booked leads.
+    if (['Closed', 'AppointmentScheduled'].includes(lead.pipelineStatus)) {
+      return res.status(409).json({ error: 'This lead is closed or already booked; calls can no longer be logged.' });
     }
 
     const parsed = CallAttemptSchema.safeParse(req.body);
