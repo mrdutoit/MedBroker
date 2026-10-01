@@ -464,6 +464,34 @@ test('Lead Detail History: the Calls chip shows only calls and is pressed', asyn
   expect(errors).toEqual([]);
 });
 
+test('Lead Detail journey: failed calls load says so instead of drawing a false hero (1 Oct 2026)', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.route(/\/api\/leads\/lead-2\/calls$/, route => route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"boom"}' }));
+  await page.goto('/leads/lead-2');
+  await expect(page.getByText('Journey unavailable — couldn’t load this lead’s calls or appointments.')).toBeVisible();
+  await expect(page.getByText('No calls yet.')).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Priya Naidoo’s journey' })).toHaveCount(0);
+});
+
+test('Lead Detail journey: View appointment link points at the lead\'s appointment (1 Oct 2026)', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/leads/lead-2');
+  await expect(page.getByRole('link', { name: 'View appointment →' })).toHaveAttribute('href', '/appointments/appt-1');
+  expect(errors).toEqual([]);
+});
+
+test('Lead Detail History: a chip with no entries says so', async ({ page }) => {
+  await signInAs(page, 'GlobalAdmin');
+  await page.route(/\/api\/leads\/lead-2\/audit$/, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ entries: [
+    { id: 'x1', entityType: 'Lead', entityId: 'lead-2', action: 'CallLogged', performedAt: new Date().toISOString(), performedByName: 'Thandi Mokoena', changeDetail: { outcome: 'NoAnswer' } },
+  ] }) }));
+  await page.goto('/leads/lead-2');
+  const history = page.getByRole('region', { name: 'History' });
+  await history.getByRole('button', { name: 'Edits', exact: true }).click();
+  await expect(history.getByText('Nothing in this category yet.')).toBeVisible();
+});
+
 test('Lead Detail History: an appointment entry links to its appointment; a sealed edit shows no digits', async ({ page }) => {
   const errors = watchErrors(page);
   await signInAs(page, 'GlobalAdmin');

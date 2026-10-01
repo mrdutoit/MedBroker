@@ -28,7 +28,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import { useParams, useNavigate, Link } from 'react-router';
 import { useFetch } from '../hooks/useFetch.js';
 import { leadsApi, appointmentsApi, brokerMatchingApi, ApiError } from '../services/api.js';
 import { formatDistanceToNow, format } from 'date-fns';
@@ -436,7 +436,7 @@ export default function LeadDetail() {
       // logCallAttempt(), added §138) was always correct; this call was
       // simply missing, unlike the reopen/reassign handlers on this same
       // page which both already call refetchAudit(). Without it the
-      // Audit Log card stayed stale until the next full page load.
+      // History stayed stale until the next full page load.
       refetchAudit();
       // Compute new status from transition machine and apply locally
       const newStatus = computeNewStatus(currentStatus, callForm.outcome);
@@ -609,17 +609,36 @@ export default function LeadDetail() {
           "not booked yet" for a lead that is booked. */}
       {lead && (callsLoaded || callsError) && (apptHistoryData || apptHistoryError) && (!latestApptId || journeyAppt || latestApptError) && (
         <div style={{ marginBottom: '16px' }}>
-          <LeadPathJourney
-            isMobile={isMobile}
-            lead={{
-              createdAt: baseLead.createdAt, updatedAt: baseLead.updatedAt, pipelineStatus: currentStatus,
-              sourceLabel: baseLead.sourceLabel, agentName: baseLead.agentName,
-              firstName: baseLead.firstName, lastName: baseLead.lastName,
-            }}
-            calls={calls}
-            appointments={appointmentHistory}
-            latestAppt={journeyAppt}
-          />
+          {/* 1 Oct 2026 — if the calls or appointments failed to load the
+              hero would state false things ("No calls yet."), so it says so
+              instead of drawing. */}
+          {(callsError || apptHistoryError) ? (
+            <div role="alert" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '6px', padding: '10px 14px', fontSize: '0.8125rem', color: 'var(--mut)' }}>
+              Journey unavailable — couldn’t load this lead’s calls or appointments.
+            </div>
+          ) : (
+            <>
+              {/* 1 Oct 2026 — always-present way to the newest appointment,
+                  whether or not the lead is currently converted. */}
+              {appointmentHistory.length > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '6px', fontSize: '0.8125rem' }}>
+                  <Link to={`/appointments/${appointmentHistory[0].id}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>View appointment →</Link>
+                  {appointmentHistory.length > 1 && <span style={{ color: 'var(--mut)', marginLeft: '6px' }}>({appointmentHistory.length} appointments)</span>}
+                </div>
+              )}
+              <LeadPathJourney
+                isMobile={isMobile}
+                lead={{
+                  createdAt: baseLead.createdAt, updatedAt: baseLead.updatedAt, pipelineStatus: currentStatus,
+                  sourceLabel: baseLead.sourceLabel, agentName: baseLead.agentName,
+                  firstName: baseLead.firstName, lastName: baseLead.lastName,
+                }}
+                calls={calls}
+                appointments={appointmentHistory}
+                latestAppt={journeyAppt}
+              />
+            </>
+          )}
         </div>
       )}
 
