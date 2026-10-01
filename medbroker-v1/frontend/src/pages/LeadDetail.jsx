@@ -41,7 +41,6 @@ import { REGIONS, JOB_TITLES, OUTCOME_LABELS } from '../constants/leadOptions.js
 import HistoryTimeline from '../components/history/HistoryTimeline.jsx';
 import LeadPathJourney from '../components/viz/LeadPathJourney.jsx';
 import { CANCEL_REASON_LABELS, LOST_REASON_LABELS } from '../constants/appointmentOptions.js';
-import { s } from '../styles/tokens.js';
 
 // ─── Status transition machine (mirrors server-side leadStatusService.js) ─────
 function computeNewStatus(currentStatus, outcome) {
@@ -179,7 +178,7 @@ function PortfolioPill({ portfolio }) {
 export default function LeadDetail() {
   const { id }   = useParams();
   const navigate = useNavigate();
-  const { isMobile, isTablet } = useWindowSize();
+  const { isMobile } = useWindowSize();
   const { role, persona, portfolios: allPortfolios, productsByPortfolio } = useRole();
 
   const { data: lead, loading: leadLoading, error: leadError, refetch: refetchLead } = useFetch(() => leadsApi.get(id), [id]);
@@ -466,7 +465,9 @@ export default function LeadDetail() {
     }
   }
 
-  const cardStyle = { background:'var(--panel)', border: '1px solid var(--line)', borderRadius: '8px', padding: '16px 18px', marginBottom: '14px' };
+  // 1 Oct 2026 — no marginBottom: spacing comes from the grid's gap, so the
+  // cards can stretch to equal heights in their row.
+  const cardStyle = { background:'var(--panel)', border: '1px solid var(--line)', borderRadius: '8px', padding: '16px 18px' };
   const cardTitle = { fontSize: '0.875rem', fontWeight: 600, color:'var(--ink)', marginBottom: '12px', paddingBottom: '8px', borderBottom:'1px solid var(--line)' };
   const btn = {
     primary:   { background:'var(--accent)', color:'white', border:'none', borderRadius:'var(--r-sm,8px)', padding:'8px 14px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' },
@@ -655,9 +656,12 @@ export default function LeadDetail() {
         </div>
       )}
 
-      {/* Detail cards — 1 Oct 2026: three columns on desktop (Lead Detail,
-          Personal Details, Insurance Information; Education below), one on phone. */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : isTablet ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))', gap: '14px', alignItems: 'start' }}>
+      {/* Detail cards — 1 Oct 2026 (Mark): a 2 × 2 grid filling the width —
+          Lead Detail + Personal Details on top, Insurance Information +
+          Education below — with the two cards in each row stretched to the
+          same height (the first build left Education alone in a 3-column row
+          and every card a different height). One column on phone. */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : 'repeat(2, minmax(0, 1fr))', gap: '14px', alignItems: 'stretch', marginBottom: '14px' }}>
 
         {/* Lead detail overview */}
         <div style={cardStyle}>
@@ -711,7 +715,8 @@ export default function LeadDetail() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom:'1px solid var(--line)', fontSize: '0.875rem', gap: '12px' }}>
               <span style={{ color:'var(--mut)', flexShrink: 0 }}>Region</span>
               <select
-                style={{ ...s.formInput, width: 'auto', minWidth: '160px' }}
+                // 1 Oct 2026 — same size as the other edit fields (EditableField's inputStyle); s.formInput's larger text stood out.
+                style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '5px 8px', fontSize: '0.8125rem', fontFamily: 'inherit', color: 'var(--ink)', width: 'auto', minWidth: '160px' }}
                 value={editForm.region}
                 onChange={e => setField('region', e.target.value)}
               >
