@@ -16,25 +16,11 @@
  */
 
 import { format } from 'date-fns';
+import { LOST_REASON_LABELS } from '../constants/appointmentOptions.js';
 
-// 24 Aug 2026 — mirrors the same enum's dropdown copies in
-// AppointmentDetail.jsx and Reports.jsx exactly (Appointment.lostReason,
-// migration 030, CHECK-constrained). Kept as its own small local map here
-// rather than imported from either — same "short, static, manually
-// synced" reasoning already established for this enum's other two copies.
-const LOST_REASON_LABELS = {
-  PriceTooHigh:       'Price too high',
-  ChoseCompetitor:    'Chose a competitor',
-  NoLongerInterested: 'No longer interested',
-  Uncontactable:      'Uncontactable',
-  NotEligible:        'Not eligible',
-  Other:              'Other',
-  // 24 Aug 2026 (migration 038) — see Reports.jsx's own copy of this map
-  // for the full reasoning; same label, kept in sync manually.
-  ConsentWithdrawn:   'Consent withdrawn (POPIA)',
-};
-
-const ACTION_LABELS = {
+// 1 Oct 2026 — LOST_REASON_LABELS imported from the shared constants (identical
+// values); these three exported for Lead Detail's History timeline (history/historyModel.js).
+export const ACTION_LABELS = {
   LeadCreated:                 'Lead created',
   LeadAssigned:                'Lead assigned to an agent',
   LeadReassigned:               'Lead reassigned to a different agent',
@@ -67,7 +53,7 @@ const ACTION_LABELS = {
   AppointmentClosedForErasure: 'Closed — POPIA request',
 };
 
-const FIELD_LABELS = {
+export const FIELD_LABELS = {
   dateOfBirth: 'Date of Birth', email: 'Email', mobileNumber: 'Contact Number',
   whatsappNumber: 'WhatsApp', universityAttended: 'University', yearOfAttendance: 'Year',
   degreeAttained: 'Degree', occupation: 'Job Title', hospitalOrPractice: 'Hospital / Practice',
@@ -86,7 +72,7 @@ const FIELD_LABELS = {
   idNumber: 'ID Number',
 };
 
-function describeEntry(entry) {
+export function describeEntry(entry) {
   const label = ACTION_LABELS[entry.action] ?? entry.action;
   const detail = entry.changeDetail;
   if (!detail) return label;

@@ -8,7 +8,7 @@ import { formatRand } from '../../utils/formatMoney.js';
 export const DAY = 86400000;
 export const HELD = new Set(['HeldInterested', 'HeldNotInterested']);
 const FRICTION = new Set(['Rescheduled', 'Cancelled', 'Missed']);
-const MEETING_WORD = ['', 'First', 'Second', 'Third', 'Fourth', 'Fifth'];
+export const MEETING_WORD = ['', 'First', 'Second', 'Third', 'Fourth', 'Fifth']; // 1 Oct 2026 — exported for history/historyModel.js
 export const STATUS_TEXT = {
   HeldInterested: 'Held, interested', HeldNotInterested: 'Held, not interested',
   Scheduled: 'Scheduled', Rescheduled: 'Rescheduled', Cancelled: 'Cancelled', Missed: 'No-show',
