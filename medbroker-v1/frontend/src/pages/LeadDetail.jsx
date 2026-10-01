@@ -35,6 +35,7 @@ import { formatDistanceToNow, format } from 'date-fns';
 import { formatDate } from '../utils/dateFormat.js';
 import DatePicker from '../components/DatePicker.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
+import { s } from '../styles/tokens.js';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
 import { REGIONS, JOB_TITLES, OUTCOME_LABELS } from '../constants/leadOptions.js';
@@ -92,7 +93,9 @@ function Field({ label, value, children }) {
 // are editable on the Lead creation form. `type` selects the control:
 // 'text' | 'date' | 'number' | 'select' | 'textarea' | 'bool'.
 function EditableField({ label, editing, type = 'text', value, onChange, options }) {
-  const inputStyle = { border: '1px solid var(--line)', borderRadius: '6px', padding: '5px 8px', fontSize: '0.8125rem', fontFamily: 'inherit', textAlign: 'right', width: '60%', boxSizing: 'border-box', color: 'var(--ink)' };
+  // 1 Oct 2026 — s.formField + the mb-field class: 14px desktop, 16px on
+  // phones (no iOS focus-zoom); the same rule as Appointment Detail's fields.
+  const inputStyle = { ...s.formField, textAlign: 'right', width: '60%' };
 
   if (!editing) {
     let display = value;
@@ -109,23 +112,23 @@ function EditableField({ label, editing, type = 'text', value, onChange, options
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom:'1px solid var(--line)', fontSize: '0.875rem', gap: '12px' }}>
       <span style={{ color:'var(--mut)', flexShrink: 0 }}>{label}</span>
       {type === 'select' && (
-        <select style={inputStyle} value={value ?? ''} onChange={e => onChange(e.target.value)}>
+        <select className="mb-field" style={inputStyle} value={value ?? ''} onChange={e => onChange(e.target.value)}>
           <option value="">—</option>
           {options.map(o => <option key={o} value={o}>{o}</option>)}
         </select>
       )}
       {type === 'bool' && (
-        <select style={inputStyle} value={value === null || value === undefined ? '' : value ? 'Yes' : 'No'} onChange={e => onChange(e.target.value === '' ? null : e.target.value === 'Yes')}>
+        <select className="mb-field" style={inputStyle} value={value === null || value === undefined ? '' : value ? 'Yes' : 'No'} onChange={e => onChange(e.target.value === '' ? null : e.target.value === 'Yes')}>
           <option value="">—</option>
           <option value="Yes">Yes</option>
           <option value="No">No</option>
         </select>
       )}
       {type === 'textarea' && (
-        <textarea style={{ ...inputStyle, height: '48px', resize: 'vertical' }} value={value ?? ''} onChange={e => onChange(e.target.value)} />
+        <textarea className="mb-field" style={{ ...inputStyle, height: '48px', resize: 'vertical' }} value={value ?? ''} onChange={e => onChange(e.target.value)} />
       )}
       {(type === 'text' || type === 'number') && (
-        <input type={type} style={inputStyle} value={value ?? ''} onChange={e => onChange(type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} />
+        <input type={type} className="mb-field" style={inputStyle} value={value ?? ''} onChange={e => onChange(type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} />
       )}
       {/* 25 Aug 2026 — split out of the shared text/date/number native
           <input> above: type='date' now goes through the custom
@@ -136,7 +139,7 @@ function EditableField({ label, editing, type = 'text', value, onChange, options
           same contract this field already exposes to ITS OWN callers, so
           nothing above this component changes. */}
       {type === 'date' && (
-        <DatePicker style={{ ...inputStyle, width: '170px' }} value={value ?? ''} onChange={onChange} />
+        <DatePicker compact style={{ ...inputStyle, width: '170px' }} value={value ?? ''} onChange={onChange} />
       )}
     </div>
   );
@@ -468,7 +471,8 @@ export default function LeadDetail() {
   // 1 Oct 2026 — no marginBottom: spacing comes from the grid's gap, so the
   // cards can stretch to equal heights in their row.
   const cardStyle = { background:'var(--panel)', border: '1px solid var(--line)', borderRadius: '8px', padding: '16px 18px' };
-  const cardTitle = { fontSize: '0.875rem', fontWeight: 600, color:'var(--ink)', marginBottom: '12px', paddingBottom: '8px', borderBottom:'1px solid var(--line)' };
+  // 1 Oct 2026 — the shared record-page heading (tokens.js), so Appointment Detail matches.
+  const cardTitle = s.sectionTitle;
   const btn = {
     primary:   { background:'var(--accent)', color:'white', border:'none', borderRadius:'var(--r-sm,8px)', padding:'8px 14px', cursor: 'pointer', fontSize: '0.875rem', fontWeight: 500, fontFamily: 'inherit' },
     secondary: { background:'var(--panel)', color:'var(--ink)', border: '1px solid var(--line)', borderRadius: '6px', padding: '7px 12px', cursor: 'pointer', fontSize: '0.875rem', fontFamily: 'inherit' },
@@ -501,7 +505,7 @@ export default function LeadDetail() {
     return (
       <div style={{ padding: isMobile ? '16px' : '24px' }}>
         <button onClick={() => navigate('/leads')} style={btn.back}>← Back to Leads</button>
-        <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '14px 16px', marginTop: '12px', color: '#dc2626', fontSize: '0.875rem' }}>
+        <div style={{ background: 'color-mix(in srgb, var(--danger) 14%, var(--panel))', border: '1px solid color-mix(in srgb, var(--danger) 30%, var(--panel))', borderRadius: '6px', padding: '14px 16px', marginTop: '12px', color: 'var(--danger)', fontSize: '0.875rem' }}>
           <strong>Could not load this lead.</strong>
           <p style={{ margin: '6px 0 10px' }}>{leadError instanceof ApiError ? leadError.message : 'An unexpected error occurred.'}</p>
           <button onClick={refetchLead} style={{ ...btn.secondary, background: 'white' }}>Try again</button>
@@ -533,11 +537,11 @@ export default function LeadDetail() {
           which is what the new branch below keys off. */}
       {(isConverted || isClosed) && (
         <div style={{
-          background: (baseLead.appointmentStatus === 'ClosedLost' || (isClosed && !baseLead.appointmentStatus)) ? 'color-mix(in srgb, #dc2626 14%, var(--panel))' : 'color-mix(in srgb, #15803d 14%, var(--panel))',
-          border: `1px solid ${(baseLead.appointmentStatus === 'ClosedLost' || (isClosed && !baseLead.appointmentStatus)) ? 'color-mix(in srgb, #dc2626 30%, var(--panel))' : 'color-mix(in srgb, #15803d 30%, var(--panel))'}`,
+          background: (baseLead.appointmentStatus === 'ClosedLost' || (isClosed && !baseLead.appointmentStatus)) ? 'color-mix(in srgb, var(--danger) 14%, var(--panel))' : 'color-mix(in srgb, var(--pl-won) 14%, var(--panel))',
+          border: `1px solid ${(baseLead.appointmentStatus === 'ClosedLost' || (isClosed && !baseLead.appointmentStatus)) ? 'color-mix(in srgb, var(--danger) 30%, var(--panel))' : 'color-mix(in srgb, var(--pl-won) 30%, var(--panel))'}`,
           borderRadius: '6px', padding: '10px 14px', marginBottom: '16px',
           display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px',
-          fontSize: '0.875rem', color: (baseLead.appointmentStatus === 'ClosedLost' || (isClosed && !baseLead.appointmentStatus)) ? '#dc2626' : '#15803d', flexWrap: 'wrap',
+          fontSize: '0.875rem', color: (baseLead.appointmentStatus === 'ClosedLost' || (isClosed && !baseLead.appointmentStatus)) ? 'var(--danger)' : 'var(--pl-won)', flexWrap: 'wrap',
         }}>
           <span>
             {baseLead.appointmentStatus === 'ClosedWon' && <>🏆 <strong>Closed Won.</strong> This lead is locked — the deal is done.</>}
@@ -547,7 +551,7 @@ export default function LeadDetail() {
           </span>
           <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
             {canReopen && (
-              <button onClick={handleReopenLead} disabled={reopening} style={{ background: 'none', color: '#dc2626', border: '1px solid #dc2626', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap', opacity: reopening ? 0.6 : 1 }}>
+              <button onClick={handleReopenLead} disabled={reopening} style={{ background: 'none', color: 'var(--danger)', border: '1px solid var(--danger)', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap', opacity: reopening ? 0.6 : 1 }}>
                 {reopening ? 'Reopening…' : '↺ Reopen Lead'}
               </button>
             )}
@@ -569,7 +573,7 @@ export default function LeadDetail() {
         </div>
       )}
       {reopenError && (
-        <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.8125rem', marginBottom: '14px' }}>{reopenError}</div>
+        <div style={{ background: 'color-mix(in srgb, var(--danger) 14%, var(--panel))', border: '1px solid color-mix(in srgb, var(--danger) 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: 'var(--danger)', fontSize: '0.8125rem', marginBottom: '14px' }}>{reopenError}</div>
       )}
 
       {/* Header */}
@@ -645,7 +649,7 @@ export default function LeadDetail() {
 
       {/* Edit save error */}
       {editError && (
-        <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.8125rem', marginBottom: '14px' }}>{editError}</div>
+        <div style={{ background: 'color-mix(in srgb, var(--danger) 14%, var(--panel))', border: '1px solid color-mix(in srgb, var(--danger) 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: 'var(--danger)', fontSize: '0.8125rem', marginBottom: '14px' }}>{editError}</div>
       )}
 
       {/* Status transition hint */}
@@ -715,8 +719,9 @@ export default function LeadDetail() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom:'1px solid var(--line)', fontSize: '0.875rem', gap: '12px' }}>
               <span style={{ color:'var(--mut)', flexShrink: 0 }}>Region</span>
               <select
-                // 1 Oct 2026 — same size as the other edit fields (EditableField's inputStyle); s.formInput's larger text stood out.
-                style={{ border: '1px solid var(--line)', borderRadius: '6px', padding: '5px 8px', fontSize: '0.8125rem', fontFamily: 'inherit', color: 'var(--ink)', width: 'auto', minWidth: '160px' }}
+                // 1 Oct 2026 — the same compact field as EditableField (14px desktop, 16px phone).
+                className="mb-field"
+                style={{ ...s.formField, width: 'auto', minWidth: '160px' }}
                 value={editForm.region}
                 onChange={e => setField('region', e.target.value)}
               >
@@ -746,10 +751,10 @@ export default function LeadDetail() {
                           style={{
                             display: 'flex', alignItems: 'center', gap: '4px',
                             cursor: 'pointer', padding: '3px 9px',
-                            border: `1px solid ${checked ? 'color-mix(in srgb, #15803d 30%, var(--panel))' : 'var(--line)'}`,
+                            border: `1px solid ${checked ? 'color-mix(in srgb, var(--pl-won) 30%, var(--panel))' : 'var(--line)'}`,
                             borderRadius: '20px', fontSize: '0.75rem',
-                            background: checked ? 'color-mix(in srgb, #15803d 10%, var(--panel))' : 'var(--panel)',
-                            color: checked ? '#15803d' : 'var(--ink)',
+                            background: checked ? 'color-mix(in srgb, var(--pl-won) 10%, var(--panel))' : 'var(--panel)',
+                            color: checked ? 'var(--pl-won)' : 'var(--ink)',
                             userSelect: 'none',
                           }}
                         >
@@ -759,7 +764,7 @@ export default function LeadDetail() {
                             onChange={() => setField('products', checked
                               ? editForm.products.filter(x => x !== prod)
                               : [...editForm.products, prod])}
-                            style={{ accentColor: '#15803d' }}
+                            style={{ accentColor: 'var(--pl-won)' }}
                           />
                           {prod}
                         </label>
@@ -772,7 +777,7 @@ export default function LeadDetail() {
               {baseLead.products?.length
                 ? <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                     {baseLead.products.map(p => (
-                      <span key={p} style={{ fontSize: '0.75rem', padding: '2px 10px', borderRadius: '999px', background: 'color-mix(in srgb, #15803d 14%, transparent)', color: '#15803d', fontWeight: 600 }}>
+                      <span key={p} style={{ fontSize: '0.75rem', padding: '2px 10px', borderRadius: '999px', background: 'color-mix(in srgb, var(--pl-won) 14%, transparent)', color: 'var(--pl-won)', fontWeight: 600 }}>
                         {p}
                       </span>
                     ))}
@@ -865,8 +870,8 @@ export default function LeadDetail() {
                 </div>
               )}
               {callForm.outcome === 'ClientContacted' && (
-                <div style={{ background: 'color-mix(in srgb, #15803d 14%, var(--panel))', border: '1px solid color-mix(in srgb, #15803d 30%, var(--panel))', borderRadius: '6px', padding: '12px 14px', marginBottom: '12px' }}>
-                  <div style={{ fontWeight: 600, fontSize: '0.875rem', color: '#15803d', marginBottom: '6px' }}>
+                <div style={{ background: 'color-mix(in srgb, var(--pl-won) 14%, var(--panel))', border: '1px solid color-mix(in srgb, var(--pl-won) 30%, var(--panel))', borderRadius: '6px', padding: '12px 14px', marginBottom: '12px' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.875rem', color: 'var(--pl-won)', marginBottom: '6px' }}>
                     🎉 Client contacted — would you like to book an appointment?
                   </div>
                   <p style={{ fontSize: '0.8125rem', color:'var(--ink)', margin: '0 0 10px' }}>
@@ -908,7 +913,7 @@ export default function LeadDetail() {
                   </button>
                 </div>
               )}
-              {submitError && <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.875rem', marginBottom: '12px' }}>{submitError}</div>}
+              {submitError && <div style={{ background: 'color-mix(in srgb, var(--danger) 14%, var(--panel))', border: '1px solid color-mix(in srgb, var(--danger) 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: 'var(--danger)', fontSize: '0.875rem', marginBottom: '12px' }}>{submitError}</div>}
               <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
                 <button type="button" onClick={() => setShowCallForm(false)} style={btn.ghost}>Cancel</button>
                 <button type="submit" disabled={submitting} style={btn.primary}>{submitting ? 'Saving…' : 'Save Call'}</button>
@@ -1127,7 +1132,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
               </label>
             ))}
           </div>
-          {fieldErrors.portfolios && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.portfolios}</div>}
+          {fieldErrors.portfolios && <div style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.portfolios}</div>}
         </div>
 
         {portfolios.length > 0 && (
@@ -1137,8 +1142,8 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
               {availableProducts.map((prod) => {
                 const checked = products.includes(prod);
                 return (
-                  <label key={prod} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', cursor: 'pointer', padding: '3px 8px', borderRadius: '20px', background: checked ? 'color-mix(in srgb, #15803d 14%, var(--panel))' : 'var(--panel2)', color: checked ? '#15803d' : 'var(--ink)', border: `1px solid ${checked ? 'color-mix(in srgb, #15803d 30%, var(--panel))' : 'var(--line)'}` }}>
-                    <input type="checkbox" checked={checked} onChange={() => toggleProduct(prod)} style={{ accentColor: '#15803d' }} />
+                  <label key={prod} style={{ display: 'flex', alignItems: 'center', gap: '4px', fontSize: '0.75rem', cursor: 'pointer', padding: '3px 8px', borderRadius: '20px', background: checked ? 'color-mix(in srgb, var(--pl-won) 14%, var(--panel))' : 'var(--panel2)', color: checked ? 'var(--pl-won)' : 'var(--ink)', border: `1px solid ${checked ? 'color-mix(in srgb, var(--pl-won) 30%, var(--panel))' : 'var(--line)'}` }}>
+                    <input type="checkbox" checked={checked} onChange={() => toggleProduct(prod)} style={{ accentColor: 'var(--pl-won)' }} />
                     {prod}
                   </label>
                 );
@@ -1168,17 +1173,17 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
                 native required attribute (this input never had one) —
                 nothing to compensate for. */}
             <DatePicker style={inputStyle} value={date} onChange={(v) => { setDate(v); setSearched(false); }} />
-            {fieldErrors.date && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.date}</div>}
+            {fieldErrors.date && <div style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.date}</div>}
           </div>
           <div>
             <label style={labelStyle}>Time *</label>
             <input type="time" style={inputStyle} value={time} onChange={(e) => { setTime(e.target.value); setSearched(false); }} />
-            {fieldErrors.time && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.time}</div>}
+            {fieldErrors.time && <div style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.time}</div>}
           </div>
         </div>
 
         {isClaimModel ? (
-          <div style={{ background: 'color-mix(in srgb, #15803d 14%, var(--panel))', border: '1px solid color-mix(in srgb, #15803d 30%, var(--panel))', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: '#15803d' }}>
+          <div style={{ background: 'color-mix(in srgb, var(--pl-won) 14%, var(--panel))', border: '1px solid color-mix(in srgb, var(--pl-won) 30%, var(--panel))', borderRadius: '6px', padding: '9px 12px', marginBottom: '14px', fontSize: '0.8125rem', color: 'var(--pl-won)' }}>
             ⚡ Claim model is active — this appointment will be booked Unassigned and made available for brokers to claim. Brokers aren't picked manually while claim model is on.
           </div>
         ) : (
@@ -1206,7 +1211,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
           {searching ? 'Searching…' : 'Find available brokers'}
         </button>
 
-        {searchError && <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.8125rem', marginBottom: '14px' }}>{searchError}</div>}
+        {searchError && <div style={{ background: 'color-mix(in srgb, var(--danger) 14%, var(--panel))', border: '1px solid color-mix(in srgb, var(--danger) 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: 'var(--danger)', fontSize: '0.8125rem', marginBottom: '14px' }}>{searchError}</div>}
 
         {/* Step 2: broker selection, once searched */}
         {searched && (
@@ -1229,7 +1234,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
                   <div style={{ fontWeight: 500, fontSize: '0.875rem' }}>{b.displayName}</div>
                   <div style={{ fontSize: '0.75rem', color:'var(--mut)' }}>{b.upcomingAppointments} upcoming appointment{b.upcomingAppointments !== 1 ? 's' : ''}</div>
                 </div>
-                {i === 0 && <span style={{ fontSize: '0.688rem', background: 'color-mix(in srgb, #15803d 14%, var(--panel))', color: '#15803d', borderRadius: '4px', padding: '2px 6px' }}>Most available</span>}
+                {i === 0 && <span style={{ fontSize: '0.688rem', background: 'color-mix(in srgb, var(--pl-won) 14%, var(--panel))', color: 'var(--pl-won)', borderRadius: '4px', padding: '2px 6px' }}>Most available</span>}
               </label>
             ))}
 
@@ -1248,7 +1253,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
                 This appointment will be booked as Unassigned and routed to a Supervisor to find a broker.
               </div>
             )}
-            {fieldErrors.broker && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.broker}</div>}
+            {fieldErrors.broker && <div style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.broker}</div>}
           </div>
         )}
         </>
@@ -1275,13 +1280,13 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
           <div style={{ marginBottom: '10px' }}>
             <label style={labelStyle}>Address *</label>
             <input style={inputStyle} value={address} onChange={(e) => setAddress(e.target.value)} placeholder="123 Rivonia Rd, Sandton" />
-            {fieldErrors.address && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.address}</div>}
+            {fieldErrors.address && <div style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.address}</div>}
           </div>
         ) : (
           <div style={{ marginBottom: '10px' }}>
             <label style={labelStyle}>Meeting link *</label>
             <input style={inputStyle} value={virtualMeetingLink} onChange={(e) => setVirtualMeetingLink(e.target.value)} placeholder="https://teams.microsoft.com/..." />
-            {fieldErrors.virtualMeetingLink && <div style={{ color: '#dc2626', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.virtualMeetingLink}</div>}
+            {fieldErrors.virtualMeetingLink && <div style={{ color: 'var(--danger)', fontSize: '0.75rem', marginTop: '3px' }}>{fieldErrors.virtualMeetingLink}</div>}
           </div>
         )}
         <div style={{ marginBottom: '16px' }}>
@@ -1289,7 +1294,7 @@ function BookAppointmentModal({ lead, isMobile, onClose, onBooked }) {
           <input style={inputStyle} value={currentInsurer} onChange={(e) => setCurrentInsurer(e.target.value)} placeholder="e.g. Old Mutual, Momentum" />
         </div>
 
-        {submitError && <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.875rem', marginBottom: '12px' }}>{submitError}</div>}
+        {submitError && <div style={{ background: 'color-mix(in srgb, var(--danger) 14%, var(--panel))', border: '1px solid color-mix(in srgb, var(--danger) 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: 'var(--danger)', fontSize: '0.875rem', marginBottom: '12px' }}>{submitError}</div>}
 
         <div style={{ display: 'flex', gap: '8px', justifyContent: 'flex-end' }}>
           <button onClick={onClose} style={btn.ghost} disabled={submitting}>Cancel</button>

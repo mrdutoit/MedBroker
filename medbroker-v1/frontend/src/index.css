@@ -31,3 +31,13 @@ button, input, select, textarea { font-family: inherit; }
     scroll-behavior: auto !important;
   }
 }
+
+/* 1 Oct 2026 — staff record-page form fields (paired with s.formField, which
+   sets no font-size): 14px on desktop to match the page's text; 16px below
+   768px — the app's isMobile breakpoint (hooks/useWindowSize.js) — because
+   iOS Safari zooms into any field under 16px on focus (the Lead Portal bug
+   of 3 Aug 2026; see s.formInput in styles/tokens.js). */
+.mb-field { font-size: 0.875rem; }
+@media (max-width: 767px) {
+  .mb-field { font-size: 1rem; }
+}

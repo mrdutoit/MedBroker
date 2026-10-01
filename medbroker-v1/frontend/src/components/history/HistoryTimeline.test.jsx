@@ -37,4 +37,21 @@ describe('HistoryTimeline', () => {
     expect(out).toContain('Show 2 older entries');
     expect(out.match(/class="tl-item"/g)).toHaveLength(15);
   });
+
+  // 1 Oct 2026 — on the Appointment page its own entries are not links.
+  it('currentAppointmentId: that appointment’s entries are plain text; others link', () => {
+    const entries = [
+      row(0, { action: 'AppointmentCreated', entityType: 'Appointment', entityId: 'appt-9', changeDetail: null }),
+      row(1, { action: 'AppointmentCreated', entityType: 'Appointment', entityId: 'appt-4', changeDetail: null }),
+    ];
+    const out = html({ entries, currentAppointmentId: 'appt-9' });
+    expect(out).not.toContain('href="/appointments/appt-9"');
+    expect(out).toContain('<span class="tl-title">Appointment booked</span>');
+    expect(out).toContain('href="/appointments/appt-4"');
+  });
+
+  it('subject names the page in the error and empty states', () => {
+    expect(html({ entries: undefined, error: 'boom', onRetry: () => {}, subject: 'appointment' })).toContain('Could not load this appointment’s history.');
+    expect(html({ entries: [], subject: 'appointment' })).toContain('No history yet.');
+  });
 });

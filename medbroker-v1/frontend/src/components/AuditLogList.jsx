@@ -123,6 +123,8 @@ export const FIELD_LABELS = {
   firstAppointmentDate: 'Appointment date', firstAppointmentTime: 'Appointment time',
   firstAppointmentAddress: 'Address', virtualMeetingLink: 'Meeting link',
   idNumber: 'ID Number',
+  // 1 Oct 2026 — editable lead fields that showed as raw keys in History.
+  title: 'Title', firstName: 'First name', lastName: 'Last name', region: 'Region', products: 'Products',
 };
 
 export function describeEntry(entry) {

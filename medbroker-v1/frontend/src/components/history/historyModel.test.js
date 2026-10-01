@@ -63,6 +63,21 @@ describe('buildHistory — categories', () => {
     expect(one(e('LeadCreated', '2026-08-02T10:00:00Z')).appointmentId).toBeNull();
   });
 
+  // 1 Oct 2026 — the Appointment page's own History: an entry for the
+  // appointment you're already on is plain text; other appointments link.
+  it('href: appointment rows link to their appointment; lead rows never do', () => {
+    expect(one(appt('AppointmentCreated', '2026-08-02T10:00:00Z')).href).toBe('/appointments/appt-9');
+    expect(one(e('LeadCreated', '2026-08-02T10:00:00Z')).href).toBeNull();
+  });
+
+  it('href: no link to the current appointment, a link to any other', () => {
+    const rows = [appt('AppointmentCreated', '2026-08-02T10:00:00Z'),
+      e('AppointmentCreated', '2026-08-01T10:00:00Z', null, { entityType: 'Appointment', entityId: 'appt-4' })];
+    const [mine, other] = all(buildHistory(rows, { currentAppointmentId: 'appt-9' }));
+    expect(mine).toMatchObject({ appointmentId: 'appt-9', href: null });
+    expect(other).toMatchObject({ appointmentId: 'appt-4', href: '/appointments/appt-4' });
+  });
+
   it('describeEntry titles for assignments; who is the performer', () => {
     const i = one(e('LeadReassigned', '2026-08-02T10:00:00Z', { previousAgentName: 'Thabo Molefe', newAgentName: 'Zanele Khumalo' }, { performedByName: 'Lindiwe Dube' }));
     expect(i.title).toBe('Lead reassigned from Thabo Molefe to Zanele Khumalo');
@@ -166,6 +181,29 @@ describe('buildHistory — edits', () => {
   it('appointment edits format the appointment date too', () => {
     const i = one(appt('AppointmentUpdated', '2026-09-18T12:12:00Z', { firstAppointmentDate: { from: '2026-08-28', to: '2026-10-07' } }));
     expect(i.diff).toEqual([{ field: 'Appointment date', from: '28 Aug 2026', to: '7 Oct 2026' }]);
+  });
+
+  // 1 Oct 2026 — stored codes read as the words the pages use.
+  it('enum values show their labels; booleans Yes/No; unknown values pass through', () => {
+    const i = one(appt('AppointmentUpdated', '2026-09-18T12:12:00Z', {
+      meetingType: { from: 'InPerson', to: 'Virtual' },
+    }));
+    expect(i.diff).toEqual([{ field: 'Meeting type', from: 'In person', to: 'Virtual' }]);
+    const l = one(e('LeadUpdated', '2026-09-18T12:12:00Z', {
+      existingCover: { from: true, to: false },
+      medicalAid: { from: null, to: true },
+      region: { from: 'Gauteng', to: 'Western Cape' },
+      meetingType: { from: 'Hybrid', to: 'InPerson' },
+    }));
+    expect(l.diff).toEqual([
+      { field: 'Existing cover', from: 'Yes', to: 'No' },
+      { field: 'Medical aid', from: '—', to: 'Yes' },
+      { field: 'Region', from: 'Gauteng', to: 'Western Cape' },
+      { field: 'Meeting type', from: 'Hybrid', to: 'In person' },
+    ]);
+    // Inherited keys never count as labels.
+    expect(one(appt('AppointmentUpdated', '2026-09-18T12:12:00Z', { meetingType: { from: 'toString', to: 'constructor' } })).diff)
+      .toEqual([{ field: 'Meeting type', from: 'toString', to: 'constructor' }]);
   });
 
   it('an edit with no detail still has a title and an empty diff', () => {

@@ -96,8 +96,11 @@ function typedFromParts(parts) {
  * @param {boolean} [disabled]
  * @param {object} [style] - merged over the default formInput style
  * @param {string} [placeholder]
+ * @param {boolean} [compact] - 1 Oct 2026: staff record-page size —
+ *   s.formField + the mb-field class (14px desktop, 16px phone) instead of
+ *   formInput's fixed 16px. Don't pass a fontSize in `style` with it.
  */
-export default function DatePicker({ value, onChange, disabled, style, placeholder }) {
+export default function DatePicker({ value, onChange, disabled, style, placeholder, compact = false }) {
   const parts = parseISO(value);
   const today = todayParts();
   const [open, setOpen] = useState(false);
@@ -189,8 +192,9 @@ export default function DatePicker({ value, onChange, disabled, style, placehold
         type="text"
         inputMode="numeric"
         placeholder={placeholder ?? 'DD-MM-YYYY'}
+        className={compact ? 'mb-field' : undefined}
         style={{
-          ...s.formInput, ...style,
+          ...(compact ? s.formField : s.formInput), ...style,
           paddingRight: '30px',
           borderColor: typedInvalid ? colors.danger : (style?.borderColor ?? colors.inputBorder),
           cursor: disabled ? 'not-allowed' : 'text',

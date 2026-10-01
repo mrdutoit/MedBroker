@@ -52,12 +52,12 @@ import { useFetch }                           from '../hooks/useFetch.js';
 import { appointmentsApi, usersApi, leadsApi, ApiError } from '../services/api';
 import { s, APPT_STATUS_META, MEETING_STATUS_META, MEETING_STATUS_LABELS } from '../styles/tokens.js';
 import { formatDate, formatTime }             from '../utils/dateFormat.js';
-import AuditLogList                           from '../components/AuditLogList.jsx';
+import HistoryTimeline                        from '../components/history/HistoryTimeline.jsx';
 import DatePicker                             from '../components/DatePicker.jsx';
 // 28 Sep 2026 — app-design-pass: the page's signature panel, this one
 // lead's journey (canvas mock-up approved by Mark unchanged).
 import LeadJourney                            from '../components/viz/LeadJourney.jsx';
-import { CANCEL_REASONS, CANCEL_REASON_LABELS, LOST_REASON_LABELS } from '../constants/appointmentOptions.js';
+import { CANCEL_REASONS, CANCEL_REASON_LABELS, LOST_REASON_LABELS, MEETING_TYPE_LABELS } from '../constants/appointmentOptions.js';
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 // In production: fetched from GET /api/appointments/:id
@@ -136,8 +136,11 @@ function FieldRow({ label, children }) {
 // instead of that one's Field for the non-editing render — the two
 // already share the identical row styling, so nothing visually changes
 // when editingDetails is false.
-function EditableFieldRow({ label, editing, type = 'text', value, onChange, options, displayValue }) {
-  const inputStyle = { border: '1px solid var(--line)', borderRadius: '6px', padding: '5px 8px', fontSize: '0.8125rem', fontFamily: 'inherit', textAlign: 'right', width: '60%', boxSizing: 'border-box', color: 'var(--ink)' };
+// optionLabels (1 Oct 2026): words for a select's stored codes, e.g. MEETING_TYPE_LABELS.
+function EditableFieldRow({ label, editing, type = 'text', value, onChange, options, optionLabels, displayValue }) {
+  // 1 Oct 2026 — s.formField + className="mb-field": 14px desktop, 16px on
+  // phones (no iOS focus-zoom), the same as every other field on this page.
+  const inputStyle = { ...s.formField, textAlign: 'right', width: '60%' };
 
   if (!editing) {
     let display = displayValue !== undefined ? displayValue : value;
@@ -150,20 +153,20 @@ function EditableFieldRow({ label, editing, type = 'text', value, onChange, opti
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '7px 0', borderBottom:'1px solid var(--line)', fontSize: '0.875rem', gap: '12px' }}>
       <span style={{ color:'var(--mut)', flexShrink: 0 }}>{label}</span>
       {type === 'select' && (
-        <select style={inputStyle} value={value ?? ''} onChange={e => onChange(e.target.value)}>
+        <select className="mb-field" style={inputStyle} value={value ?? ''} onChange={e => onChange(e.target.value)}>
           <option value="">—</option>
-          {options.map(o => <option key={o} value={o}>{o}</option>)}
+          {options.map(o => <option key={o} value={o}>{optionLabels?.[o] ?? o}</option>)}
         </select>
       )}
       {type === 'bool' && (
-        <select style={inputStyle} value={value === null || value === undefined ? '' : value ? 'Yes' : 'No'} onChange={e => onChange(e.target.value === '' ? null : e.target.value === 'Yes')}>
+        <select className="mb-field" style={inputStyle} value={value === null || value === undefined ? '' : value ? 'Yes' : 'No'} onChange={e => onChange(e.target.value === '' ? null : e.target.value === 'Yes')}>
           <option value="">—</option>
           <option value="Yes">Yes</option>
           <option value="No">No</option>
         </select>
       )}
       {(type === 'text' || type === 'number' || type === 'time') && (
-        <input type={type === 'time' ? 'time' : type} style={inputStyle} value={value ?? ''} onChange={e => onChange(type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} />
+        <input type={type === 'time' ? 'time' : type} className="mb-field" style={inputStyle} value={value ?? ''} onChange={e => onChange(type === 'number' ? (e.target.value === '' ? '' : Number(e.target.value)) : e.target.value)} />
       )}
       {/* 25 Aug 2026 — split out of the shared text/date/number/time
           native <input> above: type='date' now goes through the custom
@@ -173,7 +176,7 @@ function EditableFieldRow({ label, editing, type = 'text', value, onChange, opti
           exposes to ITS OWN callers, so nothing above this component
           changes. */}
       {type === 'date' && (
-        <DatePicker style={{ ...inputStyle, width: '170px' }} value={value ?? ''} onChange={onChange} />
+        <DatePicker compact style={{ ...inputStyle, width: '170px' }} value={value ?? ''} onChange={onChange} />
       )}
     </div>
   );
@@ -290,7 +293,7 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
 
   return (
     <div style={{ ...s.card, marginBottom: '12px', opacity: disabled ? 0.6 : 1 }}>
-      <div style={{ ...s.cardTitle }}>{titles[meetingNumber] ?? `Meeting ${meetingNumber}`}</div>
+      <div style={{ ...s.sectionTitle }}>{titles[meetingNumber] ?? `Meeting ${meetingNumber}`}</div>
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '12px' }}>
         <div>
           <label style={s.formLabel}>Date</label>
@@ -304,6 +307,7 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
               through via the style prop, same as before — DatePicker
               merges it onto its own input exactly like s.formInput. */}
           <DatePicker
+            compact
             style={{
               // 14 Aug 2026 (§166 follow-up) — Mark's explicit follow-up:
               // the field WAS already disabled (functionally read-only),
@@ -352,7 +356,7 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
         </div>
         <div>
           <label style={s.formLabel}>Status</label>
-          <select style={s.formInput} value={status} disabled={disabled} onChange={e => setStatus(e.target.value)}>
+          <select className="mb-field" style={s.formField} value={status} disabled={disabled} onChange={e => setStatus(e.target.value)}>
             <option value="">Please select</option>
             {MEETING_ATTEMPT_STATUSES.map(st => <option key={st.value} value={st.value}>{st.label}</option>)}
           </select>
@@ -362,7 +366,7 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
         <div style={{ marginBottom: '12px' }}>
           <label style={s.formLabel}>Follow-up required?</label>
           <select
-            style={s.formInput} disabled={disabled}
+            className="mb-field" style={s.formField} disabled={disabled}
             value={followUpRequired === null ? '' : followUpRequired ? 'Yes' : 'No'}
             onChange={e => setFollowUpRequired(e.target.value === '' ? null : e.target.value === 'Yes')}
           >
@@ -376,7 +380,7 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
         <div style={{ marginBottom: '12px' }}>
           <label style={s.formLabel}>Reason for cancellation</label>
           <select
-            style={s.formInput} disabled={disabled}
+            className="mb-field" style={s.formField} disabled={disabled}
             value={cancelReason ?? ''}
             onChange={e => setCancelReason(e.target.value || null)}
           >
@@ -388,7 +392,7 @@ function MeetingAttemptForm({ attempt, meetingNumber, isLastMeeting, onSave, sav
       <div>
         <label style={s.formLabel}>Notes</label>
         <textarea
-          style={{ ...s.formInput, height: '60px', resize: 'vertical' }}
+          className="mb-field" style={{ ...s.formField, height: '60px', resize: 'vertical' }}
           placeholder="Notes from the meeting…" value={notes} disabled={disabled}
           onChange={e => setNotes(e.target.value)}
         />
@@ -521,7 +525,7 @@ function ReassignBrokerModal({ appointment, brokers, agents, onSaved, onClose })
               Current: {appointment.agentName}
             </p>
           )}
-          <select style={s.formInput} value={agent} onChange={e => setAgent(e.target.value)} disabled={saved}>
+          <select className="mb-field" style={s.formField} value={agent} onChange={e => setAgent(e.target.value)} disabled={saved}>
             <option value="">Select agent…</option>
             {agents.map((a) => (
               <option key={a.id} value={a.id}>{a.displayName}</option>
@@ -538,7 +542,7 @@ function ReassignBrokerModal({ appointment, brokers, agents, onSaved, onClose })
             </p>
           )}
           <select
-            style={s.formInput}
+            className="mb-field" style={s.formField}
             value={broker}
             onChange={e => setBroker(e.target.value)}
             disabled={saved}
@@ -741,7 +745,7 @@ function CloseAsLostModal({ appointment, onClose, onClosed }) {
         </p>
         <div style={{ marginBottom: '16px' }}>
           <label style={s.formLabel}>Reason for loss</label>
-          <select style={s.formInput} value={reason} disabled={saving || done} onChange={e => setReason(e.target.value)}>
+          <select className="mb-field" style={s.formField} value={reason} disabled={saving || done} onChange={e => setReason(e.target.value)}>
             <option value="">Please select</option>
             <option value="PriceTooHigh">Price too high</option>
             <option value="ChoseCompetitor">Chose a competitor</option>
@@ -803,7 +807,7 @@ export default function AppointmentDetail() {
   const realBrokers = brokersData?.users ?? [];
   const { data: agentsData } = useFetch(() => usersApi.list({ role: 'Agent' }), []);
   const realAgents = agentsData?.users ?? [];
-  // Change Log — GET /api/appointments/:id/audit, same generic AuditLog
+  // History (was the Change Log) — GET /api/appointments/:id/audit, same generic AuditLog
   // table the Lead side reads from. Refetched alongside the appointment
   // itself whenever an action (outcome save, reassign, meeting held) writes
   // a new entry, via the same refetchAppt-triggered re-render pattern.
@@ -1328,7 +1332,7 @@ export default function AppointmentDetail() {
             )}
             {canReturn && (
               <button
-                style={{ ...s.secondaryBtn, color: '#dc2626', borderColor: '#fca5a5' }}
+                style={{ ...s.secondaryBtn, color: 'var(--danger)', borderColor: '#fca5a5' }}
                 onClick={() => setShowReturnConfirm(true)}
               >
                 Return to Leads
@@ -1359,7 +1363,7 @@ export default function AppointmentDetail() {
       {/* ── Detail cards ────────────────────────────────────────────────────── */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px', marginBottom: '14px' }}>
         <div style={s.card}>
-          <div style={s.cardTitle}>Lead Details</div>
+          <div style={s.sectionTitle}>Lead Details</div>
           <FieldRow label="Name">{appt.leadName}</FieldRow>
           <FieldRow label="Region">{appt.region || '—'}</FieldRow>
           <EditableFieldRow label="Occupation" editing={editingDetails} value={editingDetails ? detailsForm.occupation : appt.occupation} onChange={v => setDetailsField('occupation', v)} />
@@ -1373,10 +1377,10 @@ export default function AppointmentDetail() {
               correctly route it to appointmentsApi.update(), not
               leadsApi.update(), via APPOINTMENT_DETAIL_FIELDS above. */}
           <EditableFieldRow label="Current insurer" editing={editingDetails} value={editingDetails ? detailsForm.currentInsurer : appt.currentInsurer} onChange={v => setDetailsField('currentInsurer', v)} />
-          <FieldRow label="Products interested">{appt.productsInterested.join(', ')}</FieldRow>
+          <FieldRow label="Products interested">{appt.productsInterested.length ? appt.productsInterested.join(', ') : '—'}</FieldRow>
         </div>
         <div style={s.card}>
-          <div style={s.cardTitle}>Appointment Details</div>
+          <div style={s.sectionTitle}>Appointment Details</div>
           <FieldRow label="Status"><StatusChip status={appt.status} /></FieldRow>
           <FieldRow label="Portfolio">
             <div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
@@ -1387,7 +1391,7 @@ export default function AppointmentDetail() {
             <>
               <EditableFieldRow label="First appt date" type="date" editing value={detailsForm.firstAppointmentDate} onChange={v => setDetailsField('firstAppointmentDate', v)} />
               <EditableFieldRow label="First appt time" type="time" editing value={detailsForm.firstAppointmentTime} onChange={v => setDetailsField('firstAppointmentTime', v)} />
-              <EditableFieldRow label="Meeting type" type="select" options={['InPerson', 'Virtual']} editing value={detailsForm.meetingType} onChange={v => setDetailsField('meetingType', v)} />
+              <EditableFieldRow label="Meeting type" type="select" options={Object.keys(MEETING_TYPE_LABELS)} optionLabels={MEETING_TYPE_LABELS} editing value={detailsForm.meetingType} onChange={v => setDetailsField('meetingType', v)} />
               {detailsForm.meetingType === 'Virtual' ? (
                 <EditableFieldRow label="Meeting link" editing value={detailsForm.virtualMeetingLink} onChange={v => setDetailsField('virtualMeetingLink', v)} />
               ) : (
@@ -1397,7 +1401,7 @@ export default function AppointmentDetail() {
           ) : (
             <>
               <FieldRow label="First appt date">{formatDate(appt.firstDate)} · {formatTime(appt.firstTime)}</FieldRow>
-              <FieldRow label="Meeting type">{appt.meetingType === 'Virtual' ? 'Virtual' : 'In person'}</FieldRow>
+              <FieldRow label="Meeting type">{MEETING_TYPE_LABELS[appt.meetingType] ?? MEETING_TYPE_LABELS.InPerson}</FieldRow>
               {appt.meetingType === 'Virtual' ? (
                 <FieldRow label="Meeting link">
                   {appt.virtualMeetingLink ? (
@@ -1436,20 +1440,20 @@ export default function AppointmentDetail() {
           list and claim pool also use. */}
       <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr 1fr', gap: '14px', marginBottom: '14px' }}>
         <div style={s.card}>
-          <div style={s.cardTitle}>Personal Details</div>
+          <div style={s.sectionTitle}>Personal Details</div>
           <EditableFieldRow label="Date of Birth" type="date" editing={editingDetails} value={editingDetails ? detailsForm.dateOfBirth : appt.dateOfBirth} onChange={v => setDetailsField('dateOfBirth', v)} />
           <EditableFieldRow label="ID Number" editing={editingDetails} value={editingDetails ? detailsForm.idNumber : appt.idNumber} onChange={v => setDetailsField('idNumber', v.replace(/\D/g, '').slice(0, 13))} />
           <EditableFieldRow label="WhatsApp" editing={editingDetails} value={editingDetails ? detailsForm.whatsappNumber : appt.whatsappNumber} onChange={v => setDetailsField('whatsappNumber', v)} />
           <EditableFieldRow label="Hospital / Practice" editing={editingDetails} value={editingDetails ? detailsForm.hospitalOrPractice : appt.hospitalOrPractice} onChange={v => setDetailsField('hospitalOrPractice', v)} />
         </div>
         <div style={s.card}>
-          <div style={s.cardTitle}>Education</div>
+          <div style={s.sectionTitle}>Education</div>
           <EditableFieldRow label="University" editing={editingDetails} value={editingDetails ? detailsForm.universityAttended : appt.universityAttended} onChange={v => setDetailsField('universityAttended', v)} />
           <EditableFieldRow label="Year" type="number" editing={editingDetails} value={editingDetails ? detailsForm.yearOfAttendance : appt.yearOfAttendance} onChange={v => setDetailsField('yearOfAttendance', v)} />
           <EditableFieldRow label="Degree" editing={editingDetails} value={editingDetails ? detailsForm.degreeAttained : appt.degreeAttained} onChange={v => setDetailsField('degreeAttained', v)} />
         </div>
         <div style={s.card}>
-          <div style={s.cardTitle}>Insurance Information</div>
+          <div style={s.sectionTitle}>Insurance Information</div>
           <EditableFieldRow label="Existing cover" type="bool" editing={editingDetails} value={editingDetails ? detailsForm.existingCover : appt.existingCover} onChange={v => setDetailsField('existingCover', v)} />
           <EditableFieldRow label="Current policies" editing={editingDetails} value={editingDetails ? detailsForm.policies : appt.policies} onChange={v => setDetailsField('policies', v)} />
           <EditableFieldRow label="Medical aid" type="bool" editing={editingDetails} value={editingDetails ? detailsForm.medicalAid : appt.medicalAid} onChange={v => setDetailsField('medicalAid', v)} />
@@ -1467,7 +1471,7 @@ export default function AppointmentDetail() {
           not-yet-saved form. This sits above the whole section instead,
           independent of whichever form comes next. */}
       {justSavedAttempt && (
-        <div style={{ ...s.noticeInfo, marginBottom: '12px', color: '#15803d', background: 'color-mix(in srgb, #15803d 10%, var(--panel))' }}>
+        <div style={{ ...s.noticeInfo, marginBottom: '12px', color: 'var(--pl-won)', background: 'color-mix(in srgb, var(--pl-won) 10%, var(--panel))' }}>
           {staffBrokerAssigned
             ? `✓ Meeting saved. You've been assigned as the broker for this appointment, since nobody had claimed it yet.`
             : '✓ Meeting saved'}
@@ -1492,7 +1496,7 @@ export default function AppointmentDetail() {
           <div key={n}>
             {historyAttempts.length > 0 && (
               <div style={{ ...s.card, marginBottom: '12px' }}>
-                <div style={s.cardTitle}>{{ 1: 'First Meeting', 2: 'Second Meeting', 3: 'Third Meeting' }[n] ?? `Meeting ${n}`}</div>
+                <div style={s.sectionTitle}>{{ 1: 'First Meeting', 2: 'Second Meeting', 3: 'Third Meeting' }[n] ?? `Meeting ${n}`}</div>
                 <div style={{ display: 'flex', flexDirection: 'column' }}>
                   {historyAttempts.map((a, i) => <MeetingAttemptHistoryRow key={a.id} attempt={a} index={i} />)}
                 </div>
@@ -1526,7 +1530,7 @@ export default function AppointmentDetail() {
             </div>
           </div>
           <button
-            style={{ ...s.secondaryBtn, color: '#dc2626', borderColor: '#fca5a5', whiteSpace: 'nowrap' }}
+            style={{ ...s.secondaryBtn, color: 'var(--danger)', borderColor: '#fca5a5', whiteSpace: 'nowrap' }}
             onClick={() => setShowCloseLost(true)}
           >
             Close as Lost
@@ -1557,7 +1561,7 @@ export default function AppointmentDetail() {
           making this change, not assumed. */}
       {(outcomeDue || isLocked) && (
       <div style={{ ...s.card, opacity: isLocked ? 0.75 : 1 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', ...s.cardTitle }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', ...s.sectionTitle }}>
           <span>Appointment Outcome</span>
           {isLocked && (
             <span style={{ ...s.badge, background: 'var(--panel2)', color: 'var(--mut)', fontWeight: 600 }}>
@@ -1580,7 +1584,7 @@ export default function AppointmentDetail() {
               <button
                 onClick={handleReopenAppointment}
                 disabled={reopening}
-                style={{ background: 'none', color: '#dc2626', border: '1px solid #dc2626', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap', opacity: reopening ? 0.6 : 1 }}
+                style={{ background: 'none', color: 'var(--danger)', border: '1px solid var(--danger)', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.8125rem', fontFamily: 'inherit', whiteSpace: 'nowrap', opacity: reopening ? 0.6 : 1 }}
               >
                 {reopening ? 'Reopening…' : '↺ Reopen Appointment'}
               </button>
@@ -1588,7 +1592,7 @@ export default function AppointmentDetail() {
           </div>
         )}
         {reopenError && (
-          <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.8125rem', marginBottom: '14px' }}>{reopenError}</div>
+          <div style={{ background: 'color-mix(in srgb, var(--danger) 14%, var(--panel))', border: '1px solid color-mix(in srgb, var(--danger) 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: 'var(--danger)', fontSize: '0.8125rem', marginBottom: '14px' }}>{reopenError}</div>
         )}
         {appt.status === 'ReturnedToLeads' && (
           <div style={{ ...s.noticeInfo, marginBottom: '14px' }}>
@@ -1599,7 +1603,7 @@ export default function AppointmentDetail() {
           <div>
             <label style={s.formLabel}>Customer Signed?</label>
             <select
-              style={{ ...s.formInput, opacity: isLocked ? 0.6 : 1 }}
+              className="mb-field" style={{ ...s.formField, opacity: isLocked ? 0.6 : 1 }}
               value={effectiveCustomerSigned === null ? '' : effectiveCustomerSigned ? 'Yes' : 'No'}
               disabled={isLocked}
               onChange={e => handleOutcomeChange('customerSigned', e.target.value === '' ? null : e.target.value === 'Yes')}
@@ -1629,7 +1633,7 @@ export default function AppointmentDetail() {
             <div>
               <label style={s.formLabel}>Reason for loss</label>
               <select
-                style={{ ...s.formInput, opacity: isLocked ? 0.6 : 1 }}
+                className="mb-field" style={{ ...s.formField, opacity: isLocked ? 0.6 : 1 }}
                 value={appt.lostReason ?? ''}
                 disabled={isLocked}
                 onChange={e => handleOutcomeChange('lostReason', e.target.value || null)}
@@ -1662,7 +1666,7 @@ export default function AppointmentDetail() {
           <div>
             <label style={s.formLabel}>Broker Switch?</label>
             <select
-              style={{ ...s.formInput, opacity: isLocked ? 0.6 : 1 }}
+              className="mb-field" style={{ ...s.formField, opacity: isLocked ? 0.6 : 1 }}
               value={appt.brokerSwitch === null ? '' : appt.brokerSwitch ? 'Yes' : 'No'}
               disabled={isLocked}
               onChange={e => handleOutcomeChange('brokerSwitch', e.target.value === '' ? null : e.target.value === 'Yes')}
@@ -1695,7 +1699,7 @@ export default function AppointmentDetail() {
                       <span style={{ fontSize: '0.8125rem', color: 'var(--mut)' }}>R</span>
                       <input
                         type="number" min="0" step="0.01" placeholder="Policy value"
-                        style={{ ...s.formInput, width: '140px', opacity: isLocked ? 0.6 : 1 }}
+                        className="mb-field" style={{ ...s.formField, width: '140px', opacity: isLocked ? 0.6 : 1 }}
                         value={entry.value ?? ''}
                         disabled={isLocked}
                         onChange={e => handleProductValueChange(product, e.target.value)}
@@ -1723,7 +1727,7 @@ export default function AppointmentDetail() {
               {savingOutcome ? 'Saving…' : 'Save Outcome'}
             </button>
             {outcomeSaved && (
-              <span style={{ fontSize: '0.8125rem', color: '#15803d' }}>✓ Outcome saved</span>
+              <span style={{ fontSize: '0.8125rem', color: 'var(--pl-won)' }}>✓ Outcome saved</span>
             )}
           </div>
         )}
@@ -1731,30 +1735,30 @@ export default function AppointmentDetail() {
           <div style={{ ...s.noticeWarn, marginTop: '10px' }}>{outcomeError}</div>
         )}
         {appt.customerSigned === true && (
-          <p style={{ fontSize: '0.8125rem', color: '#15803d', marginTop: '10px', fontWeight: 500 }}>
+          <p style={{ fontSize: '0.8125rem', color: 'var(--pl-won)', marginTop: '10px', fontWeight: 500 }}>
             ✓ This appointment is closed — ClosedWon
           </p>
 
         )}
         {appt.customerSigned === false && (
-          <p style={{ fontSize: '0.8125rem', color: '#dc2626', marginTop: '10px', fontWeight: 500 }}>
+          <p style={{ fontSize: '0.8125rem', color: 'var(--danger)', marginTop: '10px', fontWeight: 500 }}>
             This appointment is closed — ClosedLost
           </p>
         )}
       </div>
       )}
 
-      {/* ── Change Log ──────────────────────────────────────────────────────── */}
-      <div style={s.card}>
-        <div style={s.cardTitle}>Change Log ({auditEntries.length})</div>
-        {auditError ? (
-          <div style={{ ...s.errorBox, fontSize: '0.8125rem' }}>
-            Could not load the change log. Try refreshing the page.
-          </div>
-        ) : (
-          <AuditLogList entries={auditEntries} emptyLabel="No changes recorded yet." />
-        )}
-      </div>
+      {/* ── History ─────────────────────────────────────────────────────────
+          1 Oct 2026 — replaces the Change Log card: the same entries (this
+          appointment's and its lead's) as Lead Detail's day-grouped
+          timeline. This appointment's own entries aren't links to itself. */}
+      <HistoryTimeline
+        entries={auditData ? auditEntries : undefined}
+        error={auditError}
+        onRetry={refetchAudit}
+        currentAppointmentId={id}
+        subject="appointment"
+      />
 
       {/* ── Reassign Broker / Agent modal ────────────────────────────────────── */}
       {showReassign && (
