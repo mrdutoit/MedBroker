@@ -8,7 +8,7 @@ import { formatRand } from '../../utils/formatMoney.js';
 export const DAY = 86400000;
 export const HELD = new Set(['HeldInterested', 'HeldNotInterested']);
 const FRICTION = new Set(['Rescheduled', 'Cancelled', 'Missed']);
-const MEETING_WORD = ['', 'First', 'Second', 'Third', 'Fourth', 'Fifth'];
+export const MEETING_WORD = ['', 'First', 'Second', 'Third', 'Fourth', 'Fifth']; // 1 Oct 2026 — exported for history/historyModel.js
 export const STATUS_TEXT = {
   HeldInterested: 'Held, interested', HeldNotInterested: 'Held, not interested',
   Scheduled: 'Scheduled', Rescheduled: 'Rescheduled', Cancelled: 'Cancelled', Missed: 'No-show',
@@ -136,7 +136,9 @@ export function buildJourney(appt, todayDn) {
     else what = plural(d, 'day');
     spans.push({ from: a.rel, to: b.rel, long: counts.length ? `${what}, ${counts.join(', ')}` : what, short: plural(d, 'day') });
   }
-  return { events, spans, todayRel, endRel, open, title, subtitle: parts.join(' '), firstName: appt.firstName };
+  // 1 Oct 2026 — meetingSentence/bookedRel let Lead Detail's journey (leadPathModel.js) reuse these rules.
+  return { events, spans, todayRel, endRel, open, title, subtitle: parts.join(' '), firstName: appt.firstName,
+    meetingSentence: parts.slice(1).join(' '), bookedRel };
 }
 
 

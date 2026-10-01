@@ -28,7 +28,7 @@
  */
 
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate } from 'react-router';
+import { useParams, useNavigate, Link } from 'react-router';
 import { useFetch } from '../hooks/useFetch.js';
 import { leadsApi, appointmentsApi, brokerMatchingApi, ApiError } from '../services/api.js';
 import { formatDistanceToNow, format } from 'date-fns';
@@ -37,9 +37,11 @@ import DatePicker from '../components/DatePicker.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
-import { REGIONS, JOB_TITLES } from '../constants/leadOptions.js';
-import AuditLogList from '../components/AuditLogList.jsx';
-import { s, APPT_STATUS_META } from '../styles/tokens.js';
+import { REGIONS, JOB_TITLES, OUTCOME_LABELS } from '../constants/leadOptions.js';
+import HistoryTimeline from '../components/history/HistoryTimeline.jsx';
+import LeadPathJourney from '../components/viz/LeadPathJourney.jsx';
+import { CANCEL_REASON_LABELS, LOST_REASON_LABELS } from '../constants/appointmentOptions.js';
+import { s } from '../styles/tokens.js';
 
 // ─── Status transition machine (mirrors server-side leadStatusService.js) ─────
 function computeNewStatus(currentStatus, outcome) {
@@ -73,26 +75,6 @@ const CALL_OUTCOMES = [
   { value: 'ClientContacted',   label: 'Client contacted' },
   { value: 'NotInterested',     label: 'Not interested' },
 ];
-
-const OUTCOME_COLOURS = {
-  NoAnswer:             { bg: 'var(--panel2)', text: 'var(--mut)' },
-  Voicemail:            { bg: 'var(--panel2)', text: 'var(--mut)' },
-  WrongNumber:          { bg: 'color-mix(in srgb, #dc2626 14%, var(--panel))', text: '#dc2626' },
-  CallbackRequested:    { bg: 'color-mix(in srgb, #d97706 14%, var(--panel))', text: '#d97706' },
-  ClientContacted:      { bg: 'color-mix(in srgb, #15803d 14%, var(--panel))', text: '#15803d' },
-  NotInterested:        { bg: 'color-mix(in srgb, #dc2626 14%, var(--panel))', text: '#dc2626' },
-  AppointmentScheduled: { bg: 'color-mix(in srgb, #7c3aed 14%, var(--panel))', text: '#a78bfa' },
-};
-
-const OUTCOME_LABELS = {
-  NoAnswer:             'No answer',
-  Voicemail:            'Voicemail left',
-  WrongNumber:          'Wrong number',
-  CallbackRequested:    'Callback requested',
-  ClientContacted:      'Client contacted',
-  NotInterested:        'Not interested',
-  AppointmentScheduled: 'Appointment scheduled',
-};
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
 function Field({ label, value, children }) {
@@ -197,7 +179,7 @@ function PortfolioPill({ portfolio }) {
 export default function LeadDetail() {
   const { id }   = useParams();
   const navigate = useNavigate();
-  const { isMobile } = useWindowSize();
+  const { isMobile, isTablet } = useWindowSize();
   const { role, persona, portfolios: allPortfolios, productsByPortfolio } = useRole();
 
   const { data: lead, loading: leadLoading, error: leadError, refetch: refetchLead } = useFetch(() => leadsApi.get(id), [id]);
@@ -207,7 +189,7 @@ export default function LeadDetail() {
   // earlier wiring pass; previously nothing ever fetched it back, so
   // "Recent Calls" only ever reflected whatever was logged in the
   // current browser session.
-  const { data: callsData } = useFetch(() => leadsApi.listCalls(id), [id]);
+  const { data: callsData, error: callsError } = useFetch(() => leadsApi.listCalls(id), [id]);
 
   // Audit Log — GET /api/leads/:id/audit, added 23 Jul 2026 alongside the
   // editable-fields work below (every save through that form writes a
@@ -233,10 +215,38 @@ export default function LeadDetail() {
   // link to its appointment history with it. This card is independent of
   // isConverted for exactly that reason — the history stays visible
   // whether the lead is currently converted, reopened, or closed.
-  const { data: apptHistoryData } = useFetch(() => appointmentsApi.list({ leadId: id, pageSize: 50 }), [id]);
+  // 1 Oct 2026 — that card is gone (History lists the appointments' entries
+  // and links them); the list is still fetched for the journey hero.
+  const { data: apptHistoryData, error: apptHistoryError, refetch: refetchApptHistory } = useFetch(() => appointmentsApi.list({ leadId: id, pageSize: 50 }), [id]);
   const appointmentHistory = (apptHistoryData?.appointments ?? [])
     .slice()
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  // 1 Oct 2026 — the journey hero draws the newest appointment's meetings;
+  // its detail is fetched only when the lead has an appointment. Mapped the
+  // way AppointmentDetail.jsx feeds LeadJourney (dates and statuses only —
+  // meeting notes are left out on purpose).
+  const latestApptId = appointmentHistory[0]?.id ?? null;
+  const { data: latestApptData, error: latestApptError, refetch: refetchLatestAppt } = useFetch(
+    () => (latestApptId ? appointmentsApi.get(latestApptId) : Promise.resolve(null)), [latestApptId]);
+  const journeyAppt = latestApptData && latestApptData.id === latestApptId ? {
+    firstName:       latestApptData.firstName,
+    lastName:        latestApptData.lastName,
+    leadCreatedAt:   latestApptData.leadCreatedAt,
+    bookedAt:        latestApptData.createdAt,
+    closedAt:        latestApptData.closedAt ?? null,
+    updatedAt:       latestApptData.updatedAt,
+    status:          latestApptData.status,
+    agentName:       latestApptData.agentName,
+    brokerName:      latestApptData.brokerName,
+    productsSold:    (latestApptData.productsSold ?? []).map(p => ({ product: p.name, value: p.value })),
+    lostReasonLabel: latestApptData.lostReason ? (LOST_REASON_LABELS[latestApptData.lostReason] ?? latestApptData.lostReason) : null,
+    cancelReasonLabels: CANCEL_REASON_LABELS,
+    meetingAttempts: (latestApptData.meetingAttempts ?? []).map(a => ({
+      meetingNumber: a.meetingNumber, status: a.status, createdAt: a.createdAt,
+      cancelReason: a.cancelReason ?? null, date: a.date ? a.date.slice(0, 10) : null,
+    })),
+  } : null;
 
   // Local status override — reflects transitions immediately after an
   // action, before the next real fetch would otherwise pick them up.
@@ -293,6 +303,8 @@ export default function LeadDetail() {
       await leadsApi.reopen(id);
       setStatusOverride('InProgress');
       refetchAudit();
+      refetchApptHistory(); // 1 Oct 2026 — the journey follows the reopened appointment
+      refetchLatestAppt();
       await refetchLead();
     } catch (err) {
       setReopenError(err instanceof ApiError ? err.message : 'Could not reopen this lead. Please try again.');
@@ -305,6 +317,8 @@ export default function LeadDetail() {
   const [showBookForm,     setShowBookForm]      = useState(false);
   const [callForm,         setCallForm]          = useState({ outcome: '', notes: '', callbackDateTime: '' });
   const [calls,            setCalls]             = useState([]);
+  // 1 Oct 2026 — the journey waits for this, so it never draws one frame with no calls.
+  const [callsLoaded,      setCallsLoaded]       = useState(false);
   const [submitting,       setSubmitting]        = useState(false);
   const [submitError,      setSubmitError]       = useState('');
 
@@ -399,6 +413,7 @@ export default function LeadDetail() {
   useEffect(() => {
     if (callsData?.calls) {
       setCalls(callsData.calls.map(c => ({ ...c, label: OUTCOME_LABELS[c.outcome] ?? c.outcome })));
+      setCallsLoaded(true);
     }
   }, [callsData]);
 
@@ -421,7 +436,7 @@ export default function LeadDetail() {
       // logCallAttempt(), added §138) was always correct; this call was
       // simply missing, unlike the reopen/reassign handlers on this same
       // page which both already call refetchAudit(). Without it the
-      // Audit Log card stayed stale until the next full page load.
+      // History stayed stale until the next full page load.
       refetchAudit();
       // Compute new status from transition machine and apply locally
       const newStatus = computeNewStatus(currentStatus, callForm.outcome);
@@ -461,7 +476,6 @@ export default function LeadDetail() {
   };
   const inputStyle = { width: '100%', border: '1px solid var(--line)', borderRadius: '6px', padding: '8px 10px', fontSize: '0.875rem', fontFamily: 'inherit', boxSizing: 'border-box', color: 'var(--ink)' };
   const labelStyle = { display: 'block', fontSize: '0.8125rem', fontWeight: 500, color:'var(--ink)', marginBottom: '5px' };
-  const badge = (bg, text) => ({ display: 'inline-block', padding: '2px 9px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 500, background: bg, color: text });
 
   // Still loading: show a simple loading state rather than an incomplete
   // page — otherwise every lead detail page would briefly render with
@@ -590,6 +604,44 @@ export default function LeadDetail() {
         </div>
       </div>
 
+      {/* Lead journey — 1 Oct 2026 (canvas Main artboard). Read-only; drawn
+          once the calls and appointments have loaded, so it never flashes
+          "not booked yet" for a lead that is booked. */}
+      {lead && (callsLoaded || callsError) && (apptHistoryData || apptHistoryError) && (!latestApptId || journeyAppt || latestApptError) && (
+        <div style={{ marginBottom: '16px' }}>
+          {/* 1 Oct 2026 — if the calls or appointments failed to load the
+              hero would state false things ("No calls yet."), so it says so
+              instead of drawing. */}
+          {(callsError || apptHistoryError) ? (
+            <div role="alert" style={{ background: 'var(--panel)', border: '1px solid var(--line)', borderRadius: '6px', padding: '10px 14px', fontSize: '0.8125rem', color: 'var(--mut)' }}>
+              Journey unavailable — couldn’t load this lead’s calls or appointments.
+            </div>
+          ) : (
+            <>
+              {/* 1 Oct 2026 — always-present way to the newest appointment,
+                  whether or not the lead is currently converted. */}
+              {appointmentHistory.length > 0 && (
+                <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '6px', fontSize: '0.8125rem' }}>
+                  <Link to={`/appointments/${appointmentHistory[0].id}`} style={{ color: 'var(--accent)', textDecoration: 'none' }}>View appointment →</Link>
+                  {appointmentHistory.length > 1 && <span style={{ color: 'var(--mut)', marginLeft: '6px' }}>({appointmentHistory.length} appointments)</span>}
+                </div>
+              )}
+              <LeadPathJourney
+                isMobile={isMobile}
+                lead={{
+                  createdAt: baseLead.createdAt, updatedAt: baseLead.updatedAt, pipelineStatus: currentStatus,
+                  sourceLabel: baseLead.sourceLabel, agentName: baseLead.agentName,
+                  firstName: baseLead.firstName, lastName: baseLead.lastName,
+                }}
+                calls={calls}
+                appointments={appointmentHistory}
+                latestAppt={journeyAppt}
+              />
+            </>
+          )}
+        </div>
+      )}
+
       {/* Edit save error */}
       {editError && (
         <div style={{ background: 'color-mix(in srgb, #dc2626 14%, var(--panel))', border: '1px solid color-mix(in srgb, #dc2626 30%, var(--panel))', borderRadius: '6px', padding: '8px 12px', color: '#dc2626', fontSize: '0.8125rem', marginBottom: '14px' }}>{editError}</div>
@@ -603,8 +655,9 @@ export default function LeadDetail() {
         </div>
       )}
 
-      {/* Two-column layout */}
-      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : '1fr 1fr', gap: '14px' }}>
+      {/* Detail cards — 1 Oct 2026: three columns on desktop (Lead Detail,
+          Personal Details, Insurance Information; Education below), one on phone. */}
+      <div style={{ display: 'grid', gridTemplateColumns: isMobile ? '1fr' : isTablet ? 'repeat(2, minmax(0, 1fr))' : 'repeat(3, minmax(0, 1fr))', gap: '14px', alignItems: 'start' }}>
 
         {/* Lead detail overview */}
         <div style={cardStyle}>
@@ -743,14 +796,6 @@ export default function LeadDetail() {
           <EditableField label="Hospital / Practice" editing={editing} value={editing ? editForm.hospitalOrPractice : baseLead.hospitalOrPractice} onChange={v => setField('hospitalOrPractice', v)} />
         </div>
 
-        {/* Education */}
-        <div style={cardStyle}>
-          <div style={cardTitle}>Education</div>
-          <EditableField label="University" editing={editing} value={editing ? editForm.universityAttended : baseLead.universityAttended} onChange={v => setField('universityAttended', v)} />
-          <EditableField label="Year" type="number" editing={editing} value={editing ? editForm.yearOfAttendance : baseLead.yearOfAttendance} onChange={v => setField('yearOfAttendance', v)} />
-          <EditableField label="Degree" editing={editing} value={editing ? editForm.degreeAttained : baseLead.degreeAttained} onChange={v => setField('degreeAttained', v)} />
-        </div>
-
         {/* Insurance */}
         <div style={cardStyle}>
           <div style={cardTitle}>Insurance Information</div>
@@ -760,100 +805,21 @@ export default function LeadDetail() {
           <EditableField label="Medical aid provider" editing={editing} value={editing ? editForm.medicalAidProvider : baseLead.medicalAidProvider} onChange={v => setField('medicalAidProvider', v)} />
         </div>
 
-        {/* Call history */}
+        {/* Education */}
         <div style={cardStyle}>
-          <div style={cardTitle}>Call History ({calls.length})</div>
-          {calls.length === 0 && <p style={{ color:'var(--mut)', fontSize: '0.875rem' }}>No call attempts yet.</p>}
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {calls.map((call, i) => {
-              const oc = OUTCOME_COLOURS[call.outcome] ?? OUTCOME_COLOURS.NoAnswer;
-              const borderCol = call.outcome === 'CallbackRequested' ? 'color-mix(in srgb, #d97706 30%, var(--panel))'
-                : call.outcome === 'NotInterested' || call.outcome === 'WrongNumber' ? 'color-mix(in srgb, #dc2626 30%, var(--panel))'
-                : call.outcome === 'AppointmentScheduled' ? 'color-mix(in srgb, #7c3aed 30%, var(--panel))' : 'var(--line)';
-              return (
-                <div
-                  key={call.id}
-                  style={{
-                    borderLeft: `3px solid ${borderCol}`, padding: '8px 0 8px 10px',
-                    // Alternating row shading, per Mark's request.
-                    background: i % 2 === 1 ? 'var(--panel2)' : 'transparent',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ ...badge(oc.bg, oc.text) }}>
-                      {call.label ?? OUTCOME_LABELS[call.outcome] ?? call.outcome}
-                    </span>
-                    <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>
-                      {format(new Date(call.attemptedAt), 'd MMM yyyy')}
-                    </span>
-                  </div>
-                  {call.notes && <p style={{ fontSize: '0.813rem', color:'var(--mut)', marginTop: '4px' }}>{call.notes}</p>}
-                  {call.callbackDateTime && (
-                    <p style={{ fontSize: '0.75rem', color: '#d97706', marginTop: '2px' }}>
-                      Callback: {format(new Date(call.callbackDateTime), 'd MMM yyyy HH:mm')}
-                    </p>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Appointment History — every Appointment linked to this Lead
-            (one-to-many since §35: a Closed Lost attempt followed by
-            Reopen + a second booking leaves two rows, both real history).
-            Deliberately NOT gated on isConverted — the conversion banner
-            above (and its single "View in Appointments" link) disappears
-            once a lead is reopened, which previously took the only visible
-            link to appointment history with it. This card stays visible
-            regardless of the lead's current status. */}
-        <div style={cardStyle}>
-          <div style={cardTitle}>Appointment History ({appointmentHistory.length})</div>
-          {appointmentHistory.length === 0 && <p style={{ color:'var(--mut)', fontSize: '0.875rem' }}>No appointments booked yet.</p>}
-          <div style={{ display: 'flex', flexDirection: 'column' }}>
-            {appointmentHistory.map((appt, i) => {
-              const meta = APPT_STATUS_META[appt.status] ?? { colour: 'var(--mut)', bg: 'var(--panel2)', border: 'var(--line)', label: appt.status };
-              const portfolios = appt.portfolios?.length ? appt.portfolios.join(', ') : (appt.portfolio ?? '—');
-              return (
-                <div
-                  key={appt.id}
-                  onClick={() => navigate(`/appointments/${appt.id}`)}
-                  style={{
-                    borderLeft: `3px solid ${meta.border}`, padding: '8px 10px',
-                    background: i % 2 === 1 ? 'var(--panel2)' : 'transparent',
-                    cursor: 'pointer',
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ ...badge(meta.bg, meta.colour) }}>{meta.label}</span>
-                    <span style={{ fontSize: '0.75rem', color:'var(--mut)' }}>
-                      {/* 24 Aug 2026 — firstAppointmentDate is a DATE
-                          column, switched to formatDate() (see
-                          dateFormat.js's own header comment). */}
-                      {appt.firstAppointmentDate ? formatDate(appt.firstAppointmentDate) : '—'}
-                    </span>
-                  </div>
-                  <p style={{ fontSize: '0.813rem', color:'var(--mut)', marginTop: '4px' }}>
-                    {portfolios}{appt.brokerName ? ` · ${appt.brokerName}` : ''}
-                  </p>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
-        {/* Audit log */}
-        <div style={cardStyle}>
-          <div style={cardTitle}>Audit Log ({auditEntries.length})</div>
-          {auditError ? (
-            <div style={{ ...s.errorBox, fontSize: '0.8125rem' }}>
-              Could not load audit history. Try refreshing the page.
-            </div>
-          ) : (
-            <AuditLogList entries={auditEntries} emptyLabel="No changes recorded yet." />
-          )}
+          <div style={cardTitle}>Education</div>
+          <EditableField label="University" editing={editing} value={editing ? editForm.universityAttended : baseLead.universityAttended} onChange={v => setField('universityAttended', v)} />
+          <EditableField label="Year" type="number" editing={editing} value={editing ? editForm.yearOfAttendance : baseLead.yearOfAttendance} onChange={v => setField('yearOfAttendance', v)} />
+          <EditableField label="Degree" editing={editing} value={editing ? editForm.degreeAttained : baseLead.degreeAttained} onChange={v => setField('degreeAttained', v)} />
         </div>
       </div>
+
+      {/* History — 1 Oct 2026 (canvas Timeline artboard), full width under the
+          detail cards. Replaces the Call History, Appointment History and
+          Audit Log cards: one feed of the lead's audit trail plus its
+          appointments' change log. Calls and appointments are still fetched
+          above — the journey hero needs them. */}
+      <HistoryTimeline entries={auditData ? auditEntries : undefined} error={auditError} onRetry={refetchAudit} />
 
       {/* ── Log Call Modal ── */}
       {showCallForm && (
@@ -953,7 +919,7 @@ export default function LeadDetail() {
           lead={baseLead}
           isMobile={isMobile}
           onClose={() => setShowBookForm(false)}
-          onBooked={() => { setBookingConfirmed(true); setShowBookForm(false); }}
+          onBooked={() => { setBookingConfirmed(true); setShowBookForm(false); refetchApptHistory(); refetchAudit(); /* 1 Oct 2026 — History shows the booking at once */ }}
         />
       )}
     </div>

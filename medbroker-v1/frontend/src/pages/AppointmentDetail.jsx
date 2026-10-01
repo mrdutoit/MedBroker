@@ -57,6 +57,7 @@ import DatePicker                             from '../components/DatePicker.jsx
 // 28 Sep 2026 — app-design-pass: the page's signature panel, this one
 // lead's journey (canvas mock-up approved by Mark unchanged).
 import LeadJourney                            from '../components/viz/LeadJourney.jsx';
+import { CANCEL_REASONS, CANCEL_REASON_LABELS, LOST_REASON_LABELS } from '../constants/appointmentOptions.js';
 
 // ─── Mock data ─────────────────────────────────────────────────────────────────
 // In production: fetched from GET /api/appointments/:id
@@ -102,24 +103,8 @@ const MEETING_ATTEMPT_STATUSES = [
   { value: 'Missed',            label: 'Missed / No-show' },
 ];
 
-// 15 Aug 2026 (§172, migration 034) — mirrors AppointmentDetail's own
-// lostReason dropdown exactly (same six-ish-category pattern, same
-// "only shown once the triggering status is actually selected" UX).
-const CANCEL_REASONS = [
-  { value: 'NoLongerInterested', label: 'No longer interested' },
-  { value: 'FoundAlternative',   label: 'Found an alternative broker/solution' },
-  { value: 'SchedulingConflict', label: 'Scheduling conflict, wants to rebook' },
-  { value: 'Uncontactable',      label: 'Uncontactable' },
-  { value: 'Other',              label: 'Other' },
-];
-const CANCEL_REASON_LABELS = Object.fromEntries(CANCEL_REASONS.map(r => [r.value, r.label]));
-// 28 Sep 2026 — for LeadJourney's outcome label; the same wording as this
-// page's own lostReason dropdown (and Reports.jsx's copy, §163).
-const LOST_REASON_LABELS = {
-  PriceTooHigh: 'Price too high', ChoseCompetitor: 'Chose a competitor',
-  NoLongerInterested: 'No longer interested', Uncontactable: 'Uncontactable',
-  NotEligible: 'Not eligible', Other: 'Other', ConsentWithdrawn: 'Consent withdrawn (POPIA)',
-};
+// 1 Oct 2026 — CANCEL_REASONS / LOST_REASON_LABELS moved to constants/appointmentOptions.js
+// so Lead Detail's journey labels them in the same words.
 
 // ─── Status chip ───────────────────────────────────────────────────────────────
 function StatusChip({ status }) {
