@@ -26,3 +26,15 @@ export const REGIONS = [
   'Gauteng', 'Western Cape', 'KwaZulu-Natal', 'Eastern Cape',
   'Limpopo', 'Mpumalanga', 'North West', 'Northern Cape', 'Free State',
 ];
+
+// 1 Oct 2026 — moved here from LeadDetail.jsx so the lead's journey
+// (viz/leadPathModel.js) labels a call's outcome in the same words.
+export const OUTCOME_LABELS = {
+  NoAnswer:             'No answer',
+  Voicemail:            'Voicemail left',
+  WrongNumber:          'Wrong number',
+  CallbackRequested:    'Callback requested',
+  ClientContacted:      'Client contacted',
+  NotInterested:        'Not interested',
+  AppointmentScheduled: 'Appointment scheduled',
+};

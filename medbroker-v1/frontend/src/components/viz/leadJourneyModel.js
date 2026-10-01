@@ -136,7 +136,9 @@ export function buildJourney(appt, todayDn) {
     else what = plural(d, 'day');
     spans.push({ from: a.rel, to: b.rel, long: counts.length ? `${what}, ${counts.join(', ')}` : what, short: plural(d, 'day') });
   }
-  return { events, spans, todayRel, endRel, open, title, subtitle: parts.join(' '), firstName: appt.firstName };
+  // 1 Oct 2026 — meetingSentence/bookedRel let Lead Detail's journey (leadPathModel.js) reuse these rules.
+  return { events, spans, todayRel, endRel, open, title, subtitle: parts.join(' '), firstName: appt.firstName,
+    meetingSentence: parts.slice(1).join(' '), bookedRel };
 }
 
 

@@ -102,8 +102,21 @@ const LEADS = { leads: [
 ], total: 5 };
 
 const APPOINTMENTS = { appointments: [
-  { id: 'appt-1', leadId: 'lead-2', firstName: 'Priya', lastName: 'Naidoo', status: 'Assigned', firstAppointmentDate: day(-2), firstAppointmentTime: '10:00', portfolio: 'Discovery' },
+  { id: 'appt-1', leadId: 'lead-2', firstName: 'Priya', lastName: 'Naidoo', status: 'Assigned', firstAppointmentDate: day(-2), firstAppointmentTime: '10:00', portfolio: 'Discovery', createdAt: iso(19) },
 ], total: 1 };
+
+// 1 Oct 2026 — Lead Detail's journey: lead-2 (the lead the Lead Detail tests
+// open) as GET /leads/:id returns it, with four calls before APPOINTMENT_DETAIL's
+// booking (19 days ago) — two not reached, then a callback, then booked.
+// createdAt matches APPOINTMENT_DETAIL.leadCreatedAt so both journeys agree.
+const LEAD_DETAIL = { ...LEADS.leads[1], portfolios: ['Discovery'], products: ['Life Insurance'],
+  createdAt: iso(26), updatedAt: iso(19), agentName: 'Thandi Mokoena' };
+const LEAD_CALLS = { calls: [
+  { id: 'call-4', outcome: 'AppointmentScheduled', attemptedAt: iso(19), callbackDateTime: null, notes: null },
+  { id: 'call-3', outcome: 'CallbackRequested', attemptedAt: iso(21), callbackDateTime: iso(20), notes: null },
+  { id: 'call-2', outcome: 'Voicemail', attemptedAt: iso(23), callbackDateTime: null, notes: null },
+  { id: 'call-1', outcome: 'NoAnswer', attemptedAt: iso(25), callbackDateTime: null, notes: null },
+] };
 
 const APPOINTMENT_DETAIL = {
   id: 'appt-1', leadId: 'lead-2', firstName: 'Priya', lastName: 'Naidoo', dateOfBirth: '1985-04-12',
@@ -227,7 +240,8 @@ function routes() {
     }],
     ['GET', /^\/reports\/closed-won-by-product/, { rows: [] }],
     ['GET', /^\/leads\/portfolios/, PORTFOLIOS],
-    ['GET', /^\/leads\/[^/]+$/, { ...LEADS.leads[1], portfolios: ['Discovery'], products: ['Life Insurance'] }],
+    ['GET', /^\/leads\/[^/]+\/calls$/, LEAD_CALLS],
+    ['GET', /^\/leads\/[^/]+$/, LEAD_DETAIL],
     ['GET', /^\/leads/, LEADS],
     ['GET', /^\/appointments\/[^/]+$/, APPOINTMENT_DETAIL],
     ['GET', /^\/appointments/, APPOINTMENTS],

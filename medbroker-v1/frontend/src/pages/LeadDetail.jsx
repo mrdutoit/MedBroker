@@ -37,8 +37,10 @@ import DatePicker from '../components/DatePicker.jsx';
 import { useWindowSize } from '../hooks/useWindowSize.js';
 import { useRole } from '../context/RoleContext.jsx';
 import { useFlags } from '../context/FlagContext.jsx';
-import { REGIONS, JOB_TITLES } from '../constants/leadOptions.js';
+import { REGIONS, JOB_TITLES, OUTCOME_LABELS } from '../constants/leadOptions.js';
 import AuditLogList from '../components/AuditLogList.jsx';
+import LeadPathJourney from '../components/viz/LeadPathJourney.jsx';
+import { CANCEL_REASON_LABELS, LOST_REASON_LABELS } from '../constants/appointmentOptions.js';
 import { s, APPT_STATUS_META } from '../styles/tokens.js';
 
 // ─── Status transition machine (mirrors server-side leadStatusService.js) ─────
@@ -82,16 +84,6 @@ const OUTCOME_COLOURS = {
   ClientContacted:      { bg: 'color-mix(in srgb, #15803d 14%, var(--panel))', text: '#15803d' },
   NotInterested:        { bg: 'color-mix(in srgb, #dc2626 14%, var(--panel))', text: '#dc2626' },
   AppointmentScheduled: { bg: 'color-mix(in srgb, #7c3aed 14%, var(--panel))', text: '#a78bfa' },
-};
-
-const OUTCOME_LABELS = {
-  NoAnswer:             'No answer',
-  Voicemail:            'Voicemail left',
-  WrongNumber:          'Wrong number',
-  CallbackRequested:    'Callback requested',
-  ClientContacted:      'Client contacted',
-  NotInterested:        'Not interested',
-  AppointmentScheduled: 'Appointment scheduled',
 };
 
 // ─── Sub-components ────────────────────────────────────────────────────────────
@@ -207,7 +199,7 @@ export default function LeadDetail() {
   // earlier wiring pass; previously nothing ever fetched it back, so
   // "Recent Calls" only ever reflected whatever was logged in the
   // current browser session.
-  const { data: callsData } = useFetch(() => leadsApi.listCalls(id), [id]);
+  const { data: callsData, error: callsError } = useFetch(() => leadsApi.listCalls(id), [id]);
 
   // Audit Log — GET /api/leads/:id/audit, added 23 Jul 2026 alongside the
   // editable-fields work below (every save through that form writes a
@@ -233,10 +225,36 @@ export default function LeadDetail() {
   // link to its appointment history with it. This card is independent of
   // isConverted for exactly that reason — the history stays visible
   // whether the lead is currently converted, reopened, or closed.
-  const { data: apptHistoryData } = useFetch(() => appointmentsApi.list({ leadId: id, pageSize: 50 }), [id]);
+  const { data: apptHistoryData, error: apptHistoryError } = useFetch(() => appointmentsApi.list({ leadId: id, pageSize: 50 }), [id]);
   const appointmentHistory = (apptHistoryData?.appointments ?? [])
     .slice()
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+  // 1 Oct 2026 — the journey hero draws the newest appointment's meetings;
+  // its detail is fetched only when the lead has an appointment. Mapped the
+  // way AppointmentDetail.jsx feeds LeadJourney (dates and statuses only —
+  // meeting notes are left out on purpose).
+  const latestApptId = appointmentHistory[0]?.id ?? null;
+  const { data: latestApptData, error: latestApptError } = useFetch(
+    () => (latestApptId ? appointmentsApi.get(latestApptId) : Promise.resolve(null)), [latestApptId]);
+  const journeyAppt = latestApptData && latestApptData.id === latestApptId ? {
+    firstName:       latestApptData.firstName,
+    lastName:        latestApptData.lastName,
+    leadCreatedAt:   latestApptData.leadCreatedAt,
+    bookedAt:        latestApptData.createdAt,
+    closedAt:        latestApptData.closedAt ?? null,
+    updatedAt:       latestApptData.updatedAt,
+    status:          latestApptData.status,
+    agentName:       latestApptData.agentName,
+    brokerName:      latestApptData.brokerName,
+    productsSold:    (latestApptData.productsSold ?? []).map(p => ({ product: p.name, value: p.value })),
+    lostReasonLabel: latestApptData.lostReason ? (LOST_REASON_LABELS[latestApptData.lostReason] ?? latestApptData.lostReason) : null,
+    cancelReasonLabels: CANCEL_REASON_LABELS,
+    meetingAttempts: (latestApptData.meetingAttempts ?? []).map(a => ({
+      meetingNumber: a.meetingNumber, status: a.status, createdAt: a.createdAt,
+      cancelReason: a.cancelReason ?? null, date: a.date ? a.date.slice(0, 10) : null,
+    })),
+  } : null;
 
   // Local status override — reflects transitions immediately after an
   // action, before the next real fetch would otherwise pick them up.
@@ -589,6 +607,25 @@ export default function LeadDetail() {
           )}
         </div>
       </div>
+
+      {/* Lead journey — 1 Oct 2026 (canvas Main artboard). Read-only; drawn
+          once the calls and appointments have loaded, so it never flashes
+          "not booked yet" for a lead that is booked. */}
+      {lead && (callsData || callsError) && (apptHistoryData || apptHistoryError) && (!latestApptId || journeyAppt || latestApptError) && (
+        <div style={{ marginBottom: '16px' }}>
+          <LeadPathJourney
+            isMobile={isMobile}
+            lead={{
+              createdAt: baseLead.createdAt, updatedAt: baseLead.updatedAt, pipelineStatus: currentStatus,
+              sourceLabel: baseLead.sourceLabel, agentName: baseLead.agentName,
+              firstName: baseLead.firstName, lastName: baseLead.lastName,
+            }}
+            calls={calls}
+            appointments={appointmentHistory}
+            latestAppt={journeyAppt}
+          />
+        </div>
+      )}
 
       {/* Edit save error */}
       {editError && (

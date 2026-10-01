@@ -380,6 +380,32 @@ test('Appointment Detail journey: headline, stretches, and a friction marker wit
   expect(errors).toEqual([]);
 });
 
+// ── Lead Detail journey, 1 Oct 2026 ─────────────────────────────────────
+
+test('Lead Detail journey: headline, calls, bands, legend, and a call dot with its detail card', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  await page.goto('/leads/lead-2');
+  const hero = page.getByRole('region', { name: 'Priya Naidoo’s journey' });
+  await expect(hero.getByRole('heading', { name: /^Day 26: second meeting on \d{1,2} [A-Z][a-z]{2}$/ })).toBeVisible();
+  await expect(hero.getByText('Reached on the third of four calls and booked by Thandi Mokoena on day 7. One meeting held with Werner Hattingh, with 1 reschedule along the way.')).toBeVisible();
+  await expect(hero.locator('.lpj-call')).toHaveCount(4);
+  await expect(hero.locator('.lpj-band-text', { hasText: 'With the agent · 7 days' })).toBeVisible();
+  await expect(hero.locator('.lpj-band-text', { hasText: 'With the broker · Werner Hattingh · 19 days so far' })).toBeVisible();
+  const legend = hero.getByLabel('Legend');
+  for (const t of ['Call, reached', 'Call, not reached', 'Rescheduled, cancelled or no-show', 'Still to come']) await expect(legend).toContainText(t);
+  const call3 = hero.getByRole('button', { name: /^Call 3, .*, day 5, Callback requested$/ });
+  await call3.hover();
+  const card = hero.locator('.mbv-tip');
+  await expect(card).toContainText('Call 3');
+  await expect(card).toContainText('Callback requested');
+  await call3.blur();
+  await page.mouse.move(0, 0);
+  await hero.getByRole('button', { name: /^Call 1, / }).focus();
+  await expect(card).toContainText('No answer');
+  expect(errors).toEqual([]);
+});
+
 // ── Leads list journey band, 28 Sep 2026 (app-design-pass) ─────────────
 
 test('Leads list journey: every caption state, and a quiet lead explains itself on focus', async ({ page }) => {
