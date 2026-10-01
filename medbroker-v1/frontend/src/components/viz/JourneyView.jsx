@@ -77,7 +77,7 @@ export default function JourneyView({ j, name, isMobile, cancelReasonLabels, leg
     : [e.meeting ?? e.title, [
       ['Date', fmtDate(e.dn)],
       ['Day of the journey', e.rel],
-      ...(e.kind === 'marker' ? [['What happened', STATUS_TEXT[e.status]]] : []),
+      ...(e.kind === 'marker' && STATUS_TEXT[e.status] ? [['What happened', STATUS_TEXT[e.status]]] : []),
       ...(e.cancelReason ? [['Reason', reason(e)]] : []),
       ...(e.detail ? [['Detail', e.detail]] : []),
     ]]);
@@ -94,36 +94,50 @@ export default function JourneyView({ j, name, isMobile, cancelReasonLabels, leg
 
   // ── Phone: vertical
   if (isMobile) {
-    // Room under "Appointment booked" for the broker band's label — two
-    // lines when a long broker name makes it wrap.
-    const bandGap = bands && bands.length > 1 ? (bands[1].label.length > 32 ? 42 : 26) : 0;
     const top = 20 + (bands ? 22 : 0), per = 16;
     const lx = bands ? 34 : 22;
     let placed = place(j.events.filter(e => e.kind !== 'marker'), rel => rel * per, top, Infinity);
-    // Room for the broker band's label just under "Appointment booked".
-    const bookedAt = bandGap ? placed.findIndex(e => e.key === 'booked') : -1;
-    if (bookedAt >= 0) placed = placed.map((e, i) => (i > bookedAt ? { ...e, p: e.p + bandGap } : e));
     // markers placed by their own day between neighbours, never on top of a waypoint
-    const markers = j.events.filter(e => e.kind === 'marker').map(e => {
+    let markers = j.events.filter(e => e.kind === 'marker').map(e => {
       const before = [...placed].reverse().find(p => p.rel <= e.rel) ?? placed[0];
       const after = placed.find(p => p.rel > e.rel);
       const p = after ? before.p + ((e.rel - before.rel) / Math.max(1, after.rel - before.rel)) * (after.p - before.p) : before.p + 24;
-      const floor = before.p + 18 + (before.key === 'booked' ? bandGap : 0); // never on the band label
-      return { ...e, p: Math.max(floor, after ? Math.min(p, after.p - 18) : p) };
+      return { ...e, p: Math.max(before.p + 18, after ? Math.min(p, after.p - 18) : p) };
     });
+    // 1 Oct 2026 — each band after the first starts at a waypoint or marker
+    // ("Appointment booked", "Returned to leads"); its label goes just under
+    // that point, so everything below moves down to make room (two lines
+    // when a long name makes it wrap).
+    const starts = [];
+    if (bands) {
+      bands.slice(1).forEach(b => {
+        const at = [...placed, ...markers].find(e => e.rel === b.from && e.kind !== 'call' && e.key !== 'lead');
+        if (!at) return;
+        const gap = b.label.length > 32 ? 42 : 26;
+        const shift = e => (e.p > at.p ? { ...e, p: e.p + gap } : e);
+        placed = placed.map(shift);
+        markers = markers.map(shift);
+        starts.forEach(s => { if (s.p > at.p) { s.p += gap; s.labelTop += gap; } });
+        starts.push({ band: b, p: at.p, labelTop: at.p + 20 });
+      });
+    }
+    const labelFloor = starts.length ? Math.max(...starts.map(s => s.labelTop + (s.band.label.length > 32 ? 30 : 16))) + 22 : -Infinity;
     const todayP = j.open ? (() => {
       const before = [...placed].reverse().find(p => p.rel <= j.todayRel) ?? placed[0];
       const after = placed.find(p => p.rel > j.todayRel);
-      return after ? Math.min(after.p - 22, Math.max(before.p + 22, before.p + (j.todayRel - before.rel) * per)) : before.p + 40;
+      const p = after ? Math.min(after.p - 22, Math.max(before.p + 22, before.p + (j.todayRel - before.rel) * per)) : before.p + 40;
+      const lastMarker = Math.max(-Infinity, ...markers.filter(m => m.rel <= j.todayRel).map(m => m.p + 22));
+      return starts.length ? Math.max(p, labelFloor, lastMarker) : p;
     })() : null;
     const solidEnd = j.open ? todayP : placed[placed.length - 1].p;
-    const lastP = placed[placed.length - 1].p;
+    const lastP = Math.max(...placed.map(e => e.p));
     const H = Math.max(...placed.map(p => p.p), ...markers.map(m => m.p), todayP ?? 0) + 50;
-    const booked = placed[bookedAt];
     const vbands = bands ? bands.map((b, i) => {
-      const from = i === 0 ? top - 9 : booked.p + 12;
-      const to = i === 0 && bands.length > 1 ? booked.p - 12 : solidEnd;
-      return { ...b, from, to, labelTop: i === 0 ? 0 : booked.p + 20 };
+      const s = starts.find(x => x.band === b);
+      const next = starts.find(x => x.band === bands[i + 1]);
+      const from = i === 0 ? top - 9 : (s ? s.p + 12 : top - 9);
+      const to = next ? next.p - 12 : solidEnd;
+      return { ...b, from, to, labelTop: i === 0 ? 0 : (s ? s.labelTop : 0) };
     }) : [];
     return (
       <div className="pj-panel lj-panel">
@@ -135,8 +149,8 @@ export default function JourneyView({ j, name, isMobile, cancelReasonLabels, leg
                 <stop offset="0" stopColor="var(--path-a)" /><stop offset="1" stopColor="var(--path-c)" />
               </linearGradient>
             </defs>
-            {vbands.map(b => (
-              <rect key={b.tone} x="0" y={b.from} width="6" height={Math.max(6, b.to - b.from)} rx="3" className={`lpj-vband lpj-vband-${b.tone}`} />
+            {vbands.map((b, i) => (
+              <rect key={i} x="0" y={b.from} width="6" height={Math.max(6, b.to - b.from)} rx="3" className={`lpj-vband lpj-vband-${b.tone}`} />
             ))}
             {vbands.some(b => b.open) && lastP > solidEnd && (
               <line x1="3" y1={solidEnd + 6} x2="3" y2={lastP} className="lpj-vband-future" />
@@ -147,8 +161,8 @@ export default function JourneyView({ j, name, isMobile, cancelReasonLabels, leg
             )}
             {j.open && <line x1={lx - 12} y1={todayP} x2="100%" y2={todayP} className="lj-today" />}
           </svg>
-          {vbands.map(b => (
-            <div key={`bl-${b.tone}`} className="lpj-vband-label" style={{ left: lx + 23, right: 0, top: b.labelTop }}>{b.label}</div>
+          {vbands.map((b, i) => (
+            <div key={`bl-${i}`} className="lpj-vband-label" style={{ left: lx + 23, right: 0, top: b.labelTop }}>{b.label}</div>
           ))}
           {j.open && <div className="lj-today-label" style={{ top: todayP - 20, right: 0 }}>Today, day {j.todayRel}</div>}
           {[...placed, ...markers].map(e => (
@@ -213,7 +227,10 @@ export default function JourneyView({ j, name, isMobile, cancelReasonLabels, leg
   });
   const spanX = rel => {
     const exact = all.find(e => e.rel === rel && e.kind !== 'marker');
-    return exact ? exact.p : (rel === j.todayRel ? todayX : x0 + scale(rel));
+    if (exact) return exact.p;
+    if (rel === j.todayRel) return todayX;
+    // 1 Oct 2026 — a band can end at a marker ("Returned to leads"): use its drawn spot.
+    return all.find(e => e.rel === rel && e.kind === 'marker')?.p ?? x0 + scale(rel);
   };
   // Height fits the label tiers actually used (the first build always
   // reserved two, leaving an empty band under a single-tier journey).
@@ -276,8 +293,8 @@ export default function JourneyView({ j, name, isMobile, cancelReasonLabels, leg
                   </g>
                 );
               })}
-              {hbands.map(b => (
-                <g key={`b-${b.tone}`}>
+              {hbands.map((b, i) => (
+                <g key={`b-${i}`}>
                   <rect x={b.a} y={bandY} width={b.w} height="26" rx="13" className={`lpj-band lpj-band-${b.tone}`} />
                   {b.text && <text x={b.a + b.w / 2} y={bandY + 17} textAnchor="middle" className="lpj-band-text">{b.text}</text>}
                 </g>

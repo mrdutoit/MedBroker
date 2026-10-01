@@ -15,6 +15,7 @@ import { OUTCOME_LABELS } from '../../constants/leadOptions.js';
 import { buildJourney, toDay, plural } from './leadJourneyModel.js';
 
 const MISSED = new Set(['NoAnswer', 'Voicemail', 'WrongNumber']);
+const BACK_WITH_AGENT = new Set(['Unassigned', 'Assigned', 'InProgress']);
 const ORD = ['', 'first', 'second', 'third', 'fourth', 'fifth', 'sixth', 'seventh', 'eighth', 'ninth', 'tenth'];
 const WORD = ['no', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine', 'ten'];
 const countCalls = n => `${WORD[n] ?? n} ${n === 1 ? 'call' : 'calls'}`;
@@ -27,7 +28,7 @@ function callPhrase(calls, { open, booked }) {
   const n = calls.length;
   const r = calls.findIndex(c => c.tone === 'reached') + 1;
   if (n === 0) return null;
-  if (r === 0) return `${cap(countCalls(n))}${open && !booked ? ' so far' : ''}, none reached`;
+  if (r === 0) return booked ? null : `${cap(countCalls(n))}${open ? ' so far' : ''}, none reached`;
   if (n === 1) return 'Reached on the first call';
   return r <= 10 && n <= 10
     ? `Reached on the ${ORD[r]} of ${countCalls(n)}${open && !booked ? ' so far' : ''}`
@@ -36,7 +37,14 @@ function callPhrase(calls, { open, booked }) {
 
 export function buildLeadPath({ lead, calls = [], appointments = [], latestAppt = null }, todayDn) {
   const newest = [...appointments].sort((a, b) => String(b.createdAt).localeCompare(String(a.createdAt)))[0] ?? null;
-  const appt = latestAppt ?? (newest ? { status: newest.status, meetingAttempts: [] } : null);
+  // 1 Oct 2026 (fix round 1) — if the detail fetch failed, the list row stands in:
+  // its own dates place a closed outcome; with no dates, only the booking is drawn.
+  const fromRow = r => {
+    const dated = r.closedAt || r.updatedAt;
+    return { status: dated ? r.status : null, closedAt: r.closedAt ?? null, updatedAt: r.updatedAt ?? null,
+      agentName: r.agentName, brokerName: r.brokerName, meetingAttempts: [] };
+  };
+  const appt = latestAppt ?? (newest ? fromRow(newest) : null);
   const start = toDay(lead.createdAt) ?? toDay(appt?.leadCreatedAt) ?? todayDn;
   const agentName = appt?.agentName ?? lead.agentName ?? null;
 
@@ -53,7 +61,7 @@ export function buildLeadPath({ lead, calls = [], appointments = [], latestAppt 
       };
     });
 
-  let events, spans, open, title, outcomeRel, bookedRel = null;
+  let events, spans, open, title, outcomeRel, bookedRel = null, returnedRel = null;
   let meetingSentence = '';
   if (appt) {
     // The appointment's own rules, measured from this lead's creation.
@@ -74,6 +82,19 @@ export function buildLeadPath({ lead, calls = [], appointments = [], latestAppt 
     const k = callEvents.filter(c => c.rel <= bookedRel).length;
     spans = j.spans.map((sp, i) => (i === 0 && sp.from === 0 && sp.to === bookedRel && k > 0
       ? { ...sp, long: `${plural(bookedRel, 'day')}, ${plural(k, 'call')} to book` } : sp));
+    // 1 Oct 2026 (fix round 1, controller ruling) — returned or lost, but the lead
+    // is back in the agent's pipeline: that outcome is a marker on an open path.
+    if (BACK_WITH_AGENT.has(lead.pipelineStatus) && (appt.status === 'ReturnedToLeads' || appt.status === 'ClosedLost')) {
+      const lost = appt.status === 'ClosedLost';
+      events = events.map(e => (e.kind === 'outcome' ? { ...e, kind: 'marker', tone: lost ? 'lost' : 'returned',
+        title: lost ? (appt.lostReasonLabel ? `Lost: ${appt.lostReasonLabel}` : 'Lost') : 'Returned to leads', detail: null } : e));
+      returnedRel = outcomeRel;
+      outcomeRel = null;
+      open = true;
+      const d = todayDn - start - returnedRel;
+      title = `Day ${todayDn - start}, back with the agent`;
+      spans = [...spans, { from: returnedRel, to: todayDn - start, long: `${plural(d, 'day')} since`, short: plural(d, 'day') }];
+    }
   } else {
     const closed = lead.pipelineStatus === 'Closed';
     const lead0 = { key: 'lead', kind: 'major', tone: 'lead', dn: start, rel: 0, title: 'Lead created',
@@ -103,10 +124,16 @@ export function buildLeadPath({ lead, calls = [], appointments = [], latestAppt 
     bands.push({ from: 0, to: stop, tone: 'agent', label: `With the agent · ${plural(stop, 'day')}`, short: plural(stop, 'day') });
   } else {
     bands.push({ from: 0, to: bookedRel, tone: 'agent', label: `With the agent · ${plural(bookedRel, 'day')}`, short: plural(bookedRel, 'day') });
-    const d = stop - bookedRel;
-    const days = `${plural(d, 'day')}${open ? ' so far' : ''}`;
-    bands.push({ from: bookedRel, to: stop, tone: 'broker', open,
+    const brokerEnd = returnedRel ?? stop;
+    const d = brokerEnd - bookedRel;
+    const brokerOpen = open && returnedRel === null;
+    const days = `${plural(d, 'day')}${brokerOpen ? ' so far' : ''}`;
+    bands.push({ from: bookedRel, to: brokerEnd, tone: 'broker', open: brokerOpen,
       label: ['With the broker', appt.brokerName, days].filter(Boolean).join(' · '), short: `Broker · ${days}` });
+    if (returnedRel !== null) {
+      const back = `${plural(stop - returnedRel, 'day')} so far`;
+      bands.push({ from: returnedRel, to: stop, tone: 'agent', open: true, label: `Back with the agent · ${back}`, short: `Agent · ${back}` });
+    }
   }
 
   // Subtitle: the lead-stage sentence, then the appointment's own.
@@ -114,7 +141,10 @@ export function buildLeadPath({ lead, calls = [], appointments = [], latestAppt 
   let first;
   if (bookedRel !== null) {
     const by = `booked${agentName ? ` by ${agentName}` : ''} on day ${bookedRel}`;
-    first = phrase ? `${phrase} and ${by}.` : `${cap(by)}.`;
+    const before = callEvents.filter(c => c.rel <= bookedRel).length;
+    if (phrase) first = `${phrase} and ${by}.`;
+    else if (before > 0) first = `${cap(by)} after ${WORD[before] ?? before} unanswered ${before === 1 ? 'call' : 'calls'}.`;
+    else first = `${cap(by)}.`;
   } else {
     first = phrase ? `${phrase}.` : 'No calls yet.';
   }

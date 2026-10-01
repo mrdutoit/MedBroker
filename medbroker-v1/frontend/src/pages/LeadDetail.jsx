@@ -225,7 +225,7 @@ export default function LeadDetail() {
   // link to its appointment history with it. This card is independent of
   // isConverted for exactly that reason — the history stays visible
   // whether the lead is currently converted, reopened, or closed.
-  const { data: apptHistoryData, error: apptHistoryError } = useFetch(() => appointmentsApi.list({ leadId: id, pageSize: 50 }), [id]);
+  const { data: apptHistoryData, error: apptHistoryError, refetch: refetchApptHistory } = useFetch(() => appointmentsApi.list({ leadId: id, pageSize: 50 }), [id]);
   const appointmentHistory = (apptHistoryData?.appointments ?? [])
     .slice()
     .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
@@ -235,7 +235,7 @@ export default function LeadDetail() {
   // way AppointmentDetail.jsx feeds LeadJourney (dates and statuses only —
   // meeting notes are left out on purpose).
   const latestApptId = appointmentHistory[0]?.id ?? null;
-  const { data: latestApptData, error: latestApptError } = useFetch(
+  const { data: latestApptData, error: latestApptError, refetch: refetchLatestAppt } = useFetch(
     () => (latestApptId ? appointmentsApi.get(latestApptId) : Promise.resolve(null)), [latestApptId]);
   const journeyAppt = latestApptData && latestApptData.id === latestApptId ? {
     firstName:       latestApptData.firstName,
@@ -311,6 +311,8 @@ export default function LeadDetail() {
       await leadsApi.reopen(id);
       setStatusOverride('InProgress');
       refetchAudit();
+      refetchApptHistory(); // 1 Oct 2026 — the journey follows the reopened appointment
+      refetchLatestAppt();
       await refetchLead();
     } catch (err) {
       setReopenError(err instanceof ApiError ? err.message : 'Could not reopen this lead. Please try again.');
@@ -323,6 +325,8 @@ export default function LeadDetail() {
   const [showBookForm,     setShowBookForm]      = useState(false);
   const [callForm,         setCallForm]          = useState({ outcome: '', notes: '', callbackDateTime: '' });
   const [calls,            setCalls]             = useState([]);
+  // 1 Oct 2026 — the journey waits for this, so it never draws one frame with no calls.
+  const [callsLoaded,      setCallsLoaded]       = useState(false);
   const [submitting,       setSubmitting]        = useState(false);
   const [submitError,      setSubmitError]       = useState('');
 
@@ -417,6 +421,7 @@ export default function LeadDetail() {
   useEffect(() => {
     if (callsData?.calls) {
       setCalls(callsData.calls.map(c => ({ ...c, label: OUTCOME_LABELS[c.outcome] ?? c.outcome })));
+      setCallsLoaded(true);
     }
   }, [callsData]);
 
@@ -611,7 +616,7 @@ export default function LeadDetail() {
       {/* Lead journey — 1 Oct 2026 (canvas Main artboard). Read-only; drawn
           once the calls and appointments have loaded, so it never flashes
           "not booked yet" for a lead that is booked. */}
-      {lead && (callsData || callsError) && (apptHistoryData || apptHistoryError) && (!latestApptId || journeyAppt || latestApptError) && (
+      {lead && (callsLoaded || callsError) && (apptHistoryData || apptHistoryError) && (!latestApptId || journeyAppt || latestApptError) && (
         <div style={{ marginBottom: '16px' }}>
           <LeadPathJourney
             isMobile={isMobile}
@@ -990,7 +995,7 @@ export default function LeadDetail() {
           lead={baseLead}
           isMobile={isMobile}
           onClose={() => setShowBookForm(false)}
-          onBooked={() => { setBookingConfirmed(true); setShowBookForm(false); }}
+          onBooked={() => { setBookingConfirmed(true); setShowBookForm(false); refetchApptHistory(); }}
         />
       )}
     </div>

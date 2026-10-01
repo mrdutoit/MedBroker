@@ -91,4 +91,79 @@ describe('buildLeadPath', () => {
     expect(p.events.filter(e => e.key.startsWith('m')).map(e => [e.key, e.rel])).toEqual([['m1', 38]]);
     expect(p.bands.map(b => b.label)).toEqual(['With the agent · 31 days', 'With the broker · Anika van der Merwe · 29 days so far']);
   });
+
+  // 1 Oct 2026 — fix round 1 (controller ruling): a lead back with the agent after
+  // its latest appointment was returned or lost keeps an OPEN journey.
+  const reopenedBase = (status, extra = {}) => ({
+    lead: { ...person, createdAt: '2026-08-01T08:00:00Z', updatedAt: '2026-09-15T10:00:00Z', pipelineStatus: 'InProgress' },
+    calls: [{ attemptedAt: '2026-08-04T09:00:00Z', outcome: 'AppointmentScheduled' }],
+    appointments: [{ id: 'a1', createdAt: '2026-08-04T10:00:00Z', status }],
+    latestAppt: {
+      id: 'a1', status, leadCreatedAt: '2026-08-01T08:00:00Z', bookedAt: '2026-08-04T10:00:00Z', closedAt: '2026-09-14T10:00:00Z',
+      agentName: 'Thabo Molefe', brokerName: 'Anika van der Merwe', meetingAttempts: [], ...extra,
+    },
+  });
+
+  it('(e) reopened after Returned to leads: the return is a marker, the journey stays open, back with the agent', () => {
+    const p = buildLeadPath(reopenedBase('ReturnedToLeads'), toDay('2026-09-30'));
+    const m = p.events.find(e => e.key === 'outcome');
+    expect(m).toMatchObject({ kind: 'marker', tone: 'returned', title: 'Returned to leads', rel: 44 });
+    expect(p.open).toBe(true);
+    expect(p.todayRel).toBe(60);
+    expect(p.title).toBe('Day 60, back with the agent');
+    expect(p.bands.map(b => [b.from, b.to, b.label])).toEqual([
+      [0, 3, 'With the agent · 3 days'],
+      [3, 44, 'With the broker · Anika van der Merwe · 41 days'],
+      [44, 60, 'Back with the agent · 16 days so far'],
+    ]);
+    expect(p.spans.at(-1)).toMatchObject({ from: 44, to: 60, long: '16 days since' });
+  });
+
+  it('(e) reopened after Closed Lost: a "Lost: <reason>" marker, open journey', () => {
+    const p = buildLeadPath(reopenedBase('ClosedLost', { lostReasonLabel: 'Chose a competitor' }), toDay('2026-09-30'));
+    expect(p.events.find(e => e.key === 'outcome')).toMatchObject({ kind: 'marker', tone: 'lost', title: 'Lost: Chose a competitor' });
+    expect(p.open).toBe(true);
+    expect(p.title).toBe('Day 60, back with the agent');
+    expect(p.bands).toHaveLength(3);
+  });
+
+  it('a Closed Lost appointment on a lead that is still Closed keeps its outcome', () => {
+    const args = reopenedBase('ClosedLost', { lostReasonLabel: 'Chose a competitor' });
+    const p = buildLeadPath({ ...args, lead: { ...args.lead, pipelineStatus: 'Closed' } }, toDay('2026-09-30'));
+    expect(p.events.at(-1)).toMatchObject({ kind: 'outcome', title: 'Lost' });
+    expect(p.open).toBe(false);
+    expect(p.title).toBe('Lost after 44 days');
+  });
+
+  it('detail fetch failed (latestAppt null): the list row places a closed outcome at its closedAt, not today', () => {
+    const p = buildLeadPath({
+      lead: { ...person, createdAt: '2026-08-01T08:00:00Z', updatedAt: '2026-09-14T10:00:00Z', pipelineStatus: 'Closed' },
+      calls: [],
+      appointments: [{ id: 'a1', createdAt: '2026-08-04T10:00:00Z', status: 'ClosedLost', closedAt: '2026-09-14T10:00:00Z', updatedAt: '2026-09-14T10:00:00Z', brokerName: 'Anika van der Merwe' }],
+      latestAppt: null,
+    }, toDay('2026-09-30'));
+    expect(p.events.find(e => e.key === 'booked').rel).toBe(3);
+    expect(p.events.at(-1)).toMatchObject({ kind: 'outcome', rel: 44 });
+  });
+
+  it('detail fetch failed and the list row has no dates: lead stage plus "Appointment booked" only', () => {
+    const p = buildLeadPath({
+      lead: { ...person, createdAt: '2026-08-01T08:00:00Z', updatedAt: '2026-08-04T10:00:00Z', pipelineStatus: 'AppointmentScheduled' },
+      calls: [],
+      appointments: [{ id: 'a1', createdAt: '2026-08-04T10:00:00Z', status: 'ClosedWon' }],
+      latestAppt: null,
+    }, toDay('2026-09-30'));
+    expect(p.events.map(e => e.key)).toEqual(['lead', 'booked']);
+    expect(p.open).toBe(true);
+  });
+
+  it('booked though no call reached the client: "Booked by X on day N after K unanswered calls."', () => {
+    const p = buildLeadPath({
+      lead: { ...person, createdAt: '2026-08-01T08:00:00Z', updatedAt: '2026-08-04T10:00:00Z', pipelineStatus: 'AppointmentScheduled' },
+      calls: [{ attemptedAt: '2026-08-02T09:00:00Z', outcome: 'NoAnswer' }, { attemptedAt: '2026-08-03T09:00:00Z', outcome: 'Voicemail' }],
+      appointments: [{ id: 'a1', createdAt: '2026-08-04T10:00:00Z', status: 'Assigned' }],
+      latestAppt: { id: 'a1', status: 'Assigned', agentName: 'Thabo Molefe', meetingAttempts: [] },
+    }, toDay('2026-09-30'));
+    expect(p.subtitle).toBe('Booked by Thabo Molefe on day 3 after two unanswered calls.');
+  });
 });

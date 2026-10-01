@@ -406,6 +406,25 @@ test('Lead Detail journey: headline, calls, bands, legend, and a call dot with i
   expect(errors).toEqual([]);
 });
 
+test('Lead Detail journey: a lead back with the agent after a lost appointment keeps an open journey (1 Oct 2026)', async ({ page }) => {
+  const errors = watchErrors(page);
+  await signInAs(page, 'GlobalAdmin');
+  const ago = d => new Date(Date.now() - d * 86400000).toISOString();
+  // lead-2 is Assigned in the fixtures; its latest appointment was lost 5 days ago.
+  await page.route(/\/api\/appointments\/appt-1$/, route => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({
+    id: 'appt-1', leadId: 'lead-2', firstName: 'Priya', lastName: 'Naidoo', status: 'ClosedLost', lostReason: 'ChoseCompetitor',
+    leadCreatedAt: ago(26), createdAt: ago(19), updatedAt: ago(5), closedAt: ago(5),
+    agentName: 'Thandi Mokoena', brokerName: 'Werner Hattingh', productsSold: [],
+    meetingAttempts: [{ id: 'ma1', meetingNumber: 1, status: 'HeldNotInterested', date: ago(12).slice(0, 10), createdAt: ago(12), cancelReason: null, notes: null }],
+  }) }));
+  await page.goto('/leads/lead-2');
+  const hero = page.getByRole('region', { name: 'Priya Naidoo’s journey' });
+  await expect(hero.getByRole('heading', { name: 'Day 26, back with the agent' })).toBeVisible();
+  await expect(hero.getByRole('button', { name: /^Lost: Chose a competitor, / })).toBeAttached();
+  await expect(hero.locator('.lpj-band-text', { hasText: /5 days so far$/ })).toBeVisible(); // full or short label, by width
+  expect(errors).toEqual([]);
+});
+
 // ── Leads list journey band, 28 Sep 2026 (app-design-pass) ─────────────
 
 test('Leads list journey: every caption state, and a quiet lead explains itself on focus', async ({ page }) => {
